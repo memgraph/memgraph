@@ -123,8 +123,15 @@ inline bool Admits(TypedValue::Type type) {
  * own ordering once for both relations to read.
  *
  * The two values must be of the same type.
+ *
+ * Inlined on demand rather than at the compiler's discretion. Its caller has
+ * already switched on the type, so folding this in leaves one dispatch where
+ * there would otherwise be two and a call between them. Left to its own
+ * judgement the compiler declines, reading the arm count as bulk, and a filter
+ * asks this once per row.
  */
-inline std::optional<std::partial_ordering> ComparePayload(const TypedValue &a, const TypedValue &b) {
+[[gnu::always_inline]] inline std::optional<std::partial_ordering> ComparePayload(const TypedValue &a,
+                                                                                  const TypedValue &b) {
   switch (a.type()) {
     using enum TypedValue::Type;
     case Bool:

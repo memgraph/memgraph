@@ -45,32 +45,32 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
   switch (a.type()) {
     using enum TypedValue::Type;
     case Bool:
-      return TypedValue(a.ValueBool() == b.ValueBool(), a.get_allocator());
+      return TypedValue(a.UnsafeValueBool() == b.UnsafeValueBool(), a.get_allocator());
     case Int:
-      if (b.IsDouble()) return TypedValue(ToDouble(a) == ToDouble(b), a.get_allocator());
-      return TypedValue(a.ValueInt() == b.ValueInt(), a.get_allocator());
+      if (b.type() == TypedValue::Type::Double) return TypedValue(ToDouble(a) == ToDouble(b), a.get_allocator());
+      return TypedValue(a.UnsafeValueInt() == b.UnsafeValueInt(), a.get_allocator());
     case Double:
       return TypedValue(ToDouble(a) == ToDouble(b), a.get_allocator());
     case String:
-      return TypedValue(a.ValueString() == b.ValueString(), a.get_allocator());
+      return TypedValue(a.UnsafeValueString() == b.UnsafeValueString(), a.get_allocator());
     case Vertex:
-      return TypedValue(a.ValueVertex() == b.ValueVertex(), a.get_allocator());
+      return TypedValue(a.UnsafeValueVertex() == b.UnsafeValueVertex(), a.get_allocator());
     case Edge:
-      return TypedValue(a.ValueEdge() == b.ValueEdge(), a.get_allocator());
+      return TypedValue(a.UnsafeValueEdge() == b.UnsafeValueEdge(), a.get_allocator());
     case VirtualEdge:
-      return TypedValue(a.ValueVirtualEdge() == b.ValueVirtualEdge(), a.get_allocator());
+      return TypedValue(a.UnsafeValueVirtualEdge() == b.UnsafeValueVirtualEdge(), a.get_allocator());
     case VirtualNode:
-      return TypedValue(a.ValueVirtualNode() == b.ValueVirtualNode(), a.get_allocator());
+      return TypedValue(a.UnsafeValueVirtualNode() == b.UnsafeValueVirtualNode(), a.get_allocator());
     case List: {
-      const auto &list_a = a.ValueList();
-      const auto &list_b = b.ValueList();
+      const auto &list_a = a.UnsafeValueList();
+      const auto &list_b = b.UnsafeValueList();
       if (list_a.size() != list_b.size()) return TypedValue(false, a.get_allocator());
       auto saw_null = false;
       for (size_t i = 0; i != list_a.size(); ++i) {
         auto const element_result = Equal(list_a[i], list_b[i]);
         if (element_result.IsNull()) {
           saw_null = true;
-        } else if (!element_result.ValueBool()) {
+        } else if (!element_result.UnsafeValueBool()) {
           return TypedValue(false, a.get_allocator());
         }
       }
@@ -80,8 +80,8 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
       return TypedValue(true, a.get_allocator());
     }
     case Map: {
-      const auto &map_a = a.ValueMap();
-      const auto &map_b = b.ValueMap();
+      const auto &map_a = a.UnsafeValueMap();
+      const auto &map_b = b.UnsafeValueMap();
       if (map_a.size() != map_b.size()) return TypedValue(false, a.get_allocator());
       auto saw_null = false;
       for (const auto &kv_a : map_a) {
@@ -90,7 +90,7 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
         auto const value_result = Equal(kv_a.second, found_b_it->second);
         if (value_result.IsNull()) {
           saw_null = true;
-        } else if (!value_result.ValueBool()) {
+        } else if (!value_result.UnsafeValueBool()) {
           return TypedValue(false, a.get_allocator());
         }
       }
@@ -98,23 +98,23 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
       return TypedValue(true, a.get_allocator());
     }
     case Path:
-      return TypedValue(a.ValuePath() == b.ValuePath(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePath() == b.UnsafeValuePath(), a.get_allocator());
     case Date:
-      return TypedValue(a.ValueDate() == b.ValueDate(), a.get_allocator());
+      return TypedValue(a.UnsafeValueDate() == b.UnsafeValueDate(), a.get_allocator());
     case LocalTime:
-      return TypedValue(a.ValueLocalTime() == b.ValueLocalTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueLocalTime() == b.UnsafeValueLocalTime(), a.get_allocator());
     case LocalDateTime:
-      return TypedValue(a.ValueLocalDateTime() == b.ValueLocalDateTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueLocalDateTime() == b.UnsafeValueLocalDateTime(), a.get_allocator());
     case ZonedDateTime:
-      return TypedValue(a.ValueZonedDateTime() == b.ValueZonedDateTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueZonedDateTime() == b.UnsafeValueZonedDateTime(), a.get_allocator());
     case Duration:
-      return TypedValue(a.ValueDuration() == b.ValueDuration(), a.get_allocator());
+      return TypedValue(a.UnsafeValueDuration() == b.UnsafeValueDuration(), a.get_allocator());
     case Enum:
-      return TypedValue(a.ValueEnum() == b.ValueEnum(), a.get_allocator());
+      return TypedValue(a.UnsafeValueEnum() == b.UnsafeValueEnum(), a.get_allocator());
     case Point2d:
-      return TypedValue(a.ValuePoint2d() == b.ValuePoint2d(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePoint2d() == b.UnsafeValuePoint2d(), a.get_allocator());
     case Point3d:
-      return TypedValue(a.ValuePoint3d() == b.ValuePoint3d(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePoint3d() == b.UnsafeValuePoint3d(), a.get_allocator());
     case Graph:
     case VirtualGraph:
       throw TypedValueException("Unsupported comparison operator");

@@ -529,7 +529,10 @@ class TypedValue {
 
   /** Convenience function for checking if this TypedValue is either
    * an integer or double */
-  bool IsNumeric() const;
+  // Defined here rather than out of line because the relations read it once per
+  // comparison, and a caller in another translation unit would otherwise pay a
+  // call to learn what the type tag already says.
+  bool IsNumeric() const { return type_ == Type::Int || type_ == Type::Double; }
 
   /** Convenience function for checking if this TypedValue can be converted into
    * storage::PropertyValue */
@@ -757,10 +760,13 @@ class TypedValueException : public utils::BasicException {
 /// @throw TypedValueException for a value of any other type.
 inline double ToDouble(const TypedValue &value) {
   switch (value.type()) {
+    // Read unchecked, since the switch has just established the type. The
+    // checked reader is defined out of line, so a caller in another translation
+    // unit would pay a call to check what it has already established.
     case TypedValue::Type::Int:
-      return static_cast<double>(value.ValueInt());
+      return static_cast<double>(value.UnsafeValueInt());
     case TypedValue::Type::Double:
-      return value.ValueDouble();
+      return value.UnsafeValueDouble();
     default:
       throw TypedValueException("Unsupported TypedValue::Type conversion to double");
   }

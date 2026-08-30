@@ -1067,8 +1067,6 @@ bool TypedValue::ContainsDeleted() const {
   return false;
 }
 
-bool TypedValue::IsNumeric() const { return IsInt() || IsDouble(); }
-
 bool TypedValue::IsPropertyValue() const {
   switch (type_) {
     case Type::Null:
