@@ -4854,8 +4854,12 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
                                                               std::optional<IsolationLevel> override_isolation_level,
                                                               EngineLockMode engine_mode) {
-  utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
-  if (!guard.owns_lock()) return nullptr;
+  // Bounded-try main_lock_ too (not just engine_lock_): a brief exclusive hold -- a transient UNIQUE
+  // that gates shared acquirers under writer-preference -- should ride out within a tiny budget rather
+  // than fail instantly (std::try_to_lock) and force an admission reschedule. Mirrors engine_lock_'s ~2us try.
+  constexpr auto kMainLockTryBudget = std::chrono::microseconds{2};
+  utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::defer_lock};
+  if (!guard.try_lock_for(kMainLockTryBudget)) return nullptr;
   try {
     return std::unique_ptr<InMemoryAccessor>(
         new InMemoryAccessor{this, override_isolation_level, std::move(guard), engine_mode});
