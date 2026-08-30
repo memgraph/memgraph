@@ -172,23 +172,88 @@ auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
 
 auto ExpressionRange::IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
-auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
-  auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
-    if (value == std::nullopt) {
+namespace {
+
+/// Whether a range, once its bounds are known, can hold anything at all. Named
+/// apart from the reading a type is given, which is asked alongside it below.
+enum class RangeHolds : uint8_t { Something, Nothing };
+
+/// Reads one bound of a range as a value an index can be seeked by.
+///
+/// @throw QueryRuntimeException for a value no property can hold.
+std::optional<utils::Bound<storage::PropertyValue>> EvaluateBoundToPropertyValue(
+    std::optional<utils::Bound<Expression *>> const &bound, ExpressionEvaluator &evaluator) {
+  if (!bound) return std::nullopt;
+  auto const value = bound->value()->Accept(evaluator);
+  if (!value.IsPropertyValue()) {
+    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  }
+  return utils::Bound{value.ToPropertyValue(evaluator.GetNameIdMapper()), bound->type()};
+}
+
+/// The triage both the vertex and the edge range scans put their bounds through.
+///
+/// An index orders pairs the comparison operators leave unplaced, so a scan
+/// standing in for one of them has to be held to what that comparison would
+/// have answered. Three things part the two. A bound of a type carrying no
+/// order of its own is incomparable with every stored value, so every row
+/// answers Null and the range holds nothing. A NaN is placed by no comparison,
+/// so a range built from one holds nothing either. A Null nested in a container
+/// decides nothing against what sits alongside it, so such a bound gives up its
+/// own value rather than the whole range.
+///
+/// A temporal bound narrows the range further. Storage carries the four temporal
+/// kinds under one type and orders a value by its kind before its length, while
+/// the comparison places no pair drawn from two kinds. The band the bound's own
+/// kind occupies is therefore the whole of what the comparison admits, and two
+/// bounds of unlike kinds admit nothing.
+RangeHolds NarrowBoundsToWhatTheComparisonAdmits(std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                                                 std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+  auto kind_of =
+      [](std::optional<utils::Bound<storage::PropertyValue>> const &bound) -> std::optional<storage::TemporalType> {
+    if (!bound) return std::nullopt;
+    auto const &value = bound->value();
+    if (relations::HowARangeReadsStoredType(value.type()) != relations::RangeReading::BoundsNarrowedToKind) {
       return std::nullopt;
-    } else {
-      auto const typed_value = value->value()->Accept(evaluator);
-      if (!typed_value.IsPropertyValue()) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
-      }
-      return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), value->type()};
     }
+    return value.ValueTemporalData().type;
   };
 
+  for (auto *bound : {&lower, &upper}) {
+    if (!*bound) continue;
+    auto const &value = (*bound)->value();
+    if (relations::HowARangeReadsStoredType(value.type()) == relations::RangeReading::Refused) {
+      return RangeHolds::Nothing;
+    }
+    if (relations::IsANaN(value)) return RangeHolds::Nothing;
+    if (relations::HoldsANull(value)) {
+      **bound = utils::Bound{value, utils::BoundType::EXCLUSIVE};
+    }
+  }
+
+  auto const lower_kind = kind_of(lower);
+  auto const upper_kind = kind_of(upper);
+  if (lower_kind && upper_kind && *lower_kind != *upper_kind) return RangeHolds::Nothing;
+  if (auto const kind = lower_kind ? lower_kind : upper_kind) {
+    if (!lower) lower = storage::LowerBoundForTemporalType(*kind);
+    if (!upper) upper = storage::UpperBoundForTemporalType(*kind);
+  }
+
+  return RangeHolds::Something;
+}
+
+}  // namespace
+
+auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
   switch (type_) {
     case Type::EQUAL:
     case Type::IN: {
-      auto bounded_property_value = to_bounded_property_value(lower_);
+      auto bounded_property_value = EvaluateBoundToPropertyValue(lower_, evaluator);
+      // A sought value carrying a Null leaves equality undecided for every entry, so the index,
+      // which matches by equivalence, must not be read as though it could settle one.
+      if (bounded_property_value && !relations::EqualityAgreesWithEquivalence(bounded_property_value->value())) {
+        return storage::PropertyValueRange::Empty();
+      }
       return storage::PropertyValueRange::Bounded(bounded_property_value, bounded_property_value);
     }
 
@@ -222,8 +287,17 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     }
 
     case Type::RANGE: {
-      auto lower_bound = to_bounded_property_value(lower_);
-      auto upper_bound = to_bounded_property_value(upper_);
+      auto lower_bound = EvaluateBoundToPropertyValue(lower_, evaluator);
+      auto upper_bound = EvaluateBoundToPropertyValue(upper_, evaluator);
+
+      // A container carrying a NaN is not the NaN case the triage refuses: a
+      // comparison against it is settled by the first element the two do not
+      // share, or by their lengths, and only reaches the NaN if nothing before
+      // it decided. Such a range keeps its bounds, and its own comparison
+      // admits the rows.
+      if (NarrowBoundsToWhatTheComparisonAdmits(lower_bound, upper_bound) == RangeHolds::Nothing) {
+        return storage::PropertyValueRange::Empty();
+      }
 
       // When scanning a range, the bounds must be the same type
       if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
@@ -241,8 +315,70 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
   }
 }
 
+namespace {
+/// One bound, as the value it names and whether it includes it.
+struct EvaluatedBound {
+  TypedValue value;
+  utils::BoundType type;
+};
+
+std::optional<EvaluatedBound> EvaluateBound(std::optional<utils::Bound<Expression *>> const &bound,
+                                            ExpressionEvaluator &evaluator) {
+  if (!bound) return std::nullopt;
+  return EvaluatedBound{bound->value()->Accept(evaluator), bound->type()};
+}
+
+/// Whether a candidate stands on the right side of one bound.
+///
+/// A comparison that declines to answer leaves the candidate out: the range was
+/// built from that comparison, and a row it cannot settle is a row it does not
+/// admit.
+bool StandsAbove(TypedValue const &candidate, EvaluatedBound const &bound) {
+  auto const order = relations::comparability::Compare(candidate, bound.value);
+  if (!order) return false;
+  return bound.type == utils::BoundType::INCLUSIVE ? std::is_gteq(*order) : std::is_gt(*order);
+}
+
+bool StandsBelow(TypedValue const &candidate, EvaluatedBound const &bound) {
+  auto const order = relations::comparability::Compare(candidate, bound.value);
+  if (!order) return false;
+  return bound.type == utils::BoundType::INCLUSIVE ? std::is_lteq(*order) : std::is_lt(*order);
+}
+}  // namespace
+
+/// The comparison behind a range, for the one type whose bounds cannot express it.
+///
+/// An index fences a range to a type and orders what it holds. For every type
+/// but one that is the whole answer, because the comparison settles every pair
+/// the fence admits. Two lists are ordered element by element while the
+/// comparison declines to answer for the same pair, where an element is a null
+/// or the two elements are of unlike types, so the fence admits rows the
+/// comparison rejects. The bounds give the candidates and the comparison
+/// decides among them.
+auto ExpressionRange::MakeComparisonPredicate(ExpressionEvaluator &evaluator) const
+    -> storage::PropertyValueRange::ValuePredicate {
+  auto lower = EvaluateBound(lower_, evaluator);
+  auto upper = EvaluateBound(upper_, evaluator);
+
+  auto const needs_the_comparison = [](std::optional<EvaluatedBound> const &bound) {
+    return bound &&
+           relations::HowARangeReadsQueryType(bound->value.type()) == relations::RangeReading::BoundsThenComparison;
+  };
+  if (!needs_the_comparison(lower) && !needs_the_comparison(upper)) return nullptr;
+
+  return std::make_shared<storage::PropertyValueRange::ValuePredicateFn>(
+      [lower = std::move(lower), upper = std::move(upper), name_id_mapper = evaluator.GetNameIdMapper()](
+          storage::PropertyValue const &value) {
+        auto const candidate = TypedValue(value, name_id_mapper);
+        if (lower && !StandsAbove(candidate, *lower)) return false;
+        if (upper && !StandsBelow(candidate, *upper)) return false;
+        return true;
+      });
+}
+
 auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
     -> storage::PropertyValueRange::ValuePredicate {
+  if (type_ == Type::RANGE) return MakeComparisonPredicate(evaluator);
   if (!lower_) return nullptr;
   auto const typed_value = lower_->value()->Accept(evaluator);
   if (!typed_value.IsString()) return nullptr;
@@ -308,8 +444,12 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
     case Type::IN: {
       auto bounded_property_value = to_bounded_property_value(lower_);
       if (std::holds_alternative<UnknownAtPlanTime>(bounded_property_value)) return std::nullopt;
-      return storage::PropertyValueRange::Bounded(std::get<obpv>(bounded_property_value),
-                                                  std::get<obpv>(bounded_property_value));
+      auto const &bound = std::get<obpv>(bounded_property_value);
+      // As above, and settled here because this range is kept in the cached plan.
+      if (bound && !relations::EqualityAgreesWithEquivalence(bound->value())) {
+        return storage::PropertyValueRange::Empty();
+      }
+      return storage::PropertyValueRange::Bounded(bound, bound);
     }
 
     case Type::REGEX_MATCH:
@@ -1058,13 +1198,21 @@ class ScanAllCursor : public Cursor {
 template <typename TEdgesFun>
 class ScanAllByEdgeCursor : public Cursor {
  public:
+  /// The predicate, where one is given, is filled in by `get_edges` each time it
+  /// evaluates the bounds, and holds only for the edges those bounds admit. It
+  /// is left empty for a range the bounds settle on their own, which is every
+  /// range but one over lists, so a scan pays nothing for carrying the slot.
+  using EdgePredicate = std::function<bool(EdgeAccessor const &)>;
+  using EdgePredicateSlot = std::shared_ptr<std::optional<EdgePredicate>>;
+
   explicit ScanAllByEdgeCursor(const ScanAllByEdge &self, UniqueCursorPtr input_cursor, storage::View view,
-                               TEdgesFun get_edges, const char *op_name)
+                               TEdgesFun get_edges, const char *op_name, EdgePredicateSlot predicate = nullptr)
       : self_(self),
         input_cursor_(std::move(input_cursor)),
         view_(view),
         get_edges_(std::move(get_edges)),
-        op_name_(op_name) {}
+        op_name_(op_name),
+        predicate_(std::move(predicate)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -1072,7 +1220,13 @@ class ScanAllByEdgeCursor : public Cursor {
 
     AbortCheck(context);
 
-    while (!edges_ || edges_it_.value() == edges_end_it_.value()) {
+    while (true) {
+      if (edges_ && edges_it_.value() != edges_end_it_.value()) {
+        if (!predicate_ || !*predicate_ || (**predicate_)(*edges_it_.value())) break;
+        // The bounds admit this edge and the comparison behind them does not.
+        ++edges_it_.value();
+        continue;
+      }
       if (!input_cursor_->Pull(frame, context)) return false;
       auto next_edges = get_edges_(frame, context);
       if (!next_edges) continue;
@@ -1137,6 +1291,7 @@ class ScanAllByEdgeCursor : public Cursor {
   std::optional<decltype(edges_->begin())> edges_it_;
   std::optional<decltype(edges_->end())> edges_end_it_;
   const char *op_name_;
+  EdgePredicateSlot predicate_;
   bool do_reverse_output_{false};
 };
 
@@ -1356,8 +1511,8 @@ std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expressi
 std::pair<std::optional<utils::Bound<storage::PropertyValue>>, std::optional<utils::Bound<storage::PropertyValue>>>
 ConvertBoundsAndCheckNull(std::optional<utils::Bound<Expression *>> lower_bound,
                           std::optional<utils::Bound<Expression *>> upper_bound, ExpressionEvaluator &evaluator) {
-  auto maybe_lower = TryConvertToBound(lower_bound, evaluator);
-  auto maybe_upper = TryConvertToBound(upper_bound, evaluator);
+  auto maybe_lower = EvaluateBoundToPropertyValue(lower_bound, evaluator);
+  auto maybe_upper = EvaluateBoundToPropertyValue(upper_bound, evaluator);
 
   // If any bound is null, then the comparison would result in nulls.
   // This is treated as not satisfying the filter.
@@ -1368,11 +1523,56 @@ ConvertBoundsAndCheckNull(std::optional<utils::Bound<Expression *>> lower_bound,
     return {std::nullopt, std::nullopt};
   }
 
+  // The same triage the vertex scans read their bounds through, so an edge
+  // index answers a range as the comparison behind it does. Both bounds gone is
+  // how this path says a range holds nothing.
+  if (NarrowBoundsToWhatTheComparisonAdmits(maybe_lower, maybe_upper) == RangeHolds::Nothing) {
+    return {std::nullopt, std::nullopt};
+  }
+
   return {maybe_lower, maybe_upper};
 }
 
-// Helper function to evaluate expression ranges and check for null bounds.
-// Returns nullopt if any bound is null.
+/// The comparison behind a range, for the edges whose bounds cannot express it.
+///
+/// An index orders two lists that the comparison behind the range declines to
+/// place, so the band between two bounds admits edges the comparison rejects.
+/// Nothing is returned for the ranges whose bounds settle the answer on their
+/// own, which is every range but one over lists, and such a scan then reads its
+/// index with no per-edge work at all.
+std::optional<std::function<bool(EdgeAccessor const &)>> ComparisonBehindEdgeRange(
+    std::optional<utils::Bound<storage::PropertyValue>> const &lower,
+    std::optional<utils::Bound<storage::PropertyValue>> const &upper, storage::PropertyId property, storage::View view,
+    storage::NameIdMapper *name_id_mapper) {
+  auto const needs_the_comparison = [](std::optional<utils::Bound<storage::PropertyValue>> const &bound) {
+    return bound &&
+           relations::HowARangeReadsStoredType(bound->value().type()) == relations::RangeReading::BoundsThenComparison;
+  };
+  if (!needs_the_comparison(lower) && !needs_the_comparison(upper)) return std::nullopt;
+
+  auto as_evaluated =
+      [name_id_mapper](
+          std::optional<utils::Bound<storage::PropertyValue>> const &bound) -> std::optional<EvaluatedBound> {
+    if (!bound) return std::nullopt;
+    return EvaluatedBound{TypedValue(bound->value(), name_id_mapper), bound->type()};
+  };
+
+  return [lower = as_evaluated(lower), upper = as_evaluated(upper), property, view, name_id_mapper](
+             EdgeAccessor const &edge) {
+    auto maybe_value = edge.GetProperty(view, property);
+    if (!maybe_value.has_value()) return false;
+    auto const candidate = TypedValue(*maybe_value, name_id_mapper);
+    if (lower && !StandsAbove(candidate, *lower)) return false;
+    if (upper && !StandsBelow(candidate, *upper)) return false;
+    return true;
+  };
+}
+
+// Evaluates every range a scan is fenced by.
+//
+// Returns nullopt where any of them can match nothing, which is a bound that is
+// Null and also a range the evaluation has already found empty: a NaN bound, a
+// bound of a type the comparison refuses, or a sought value carrying a Null.
 std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRangesAndCheckNull(
     const std::vector<ExpressionRange> &expression_ranges, ExpressionEvaluator &evaluator) {
   auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
@@ -1464,7 +1664,8 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
                                                            metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_type_property_range_operator.Increment();
 
-  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
+  auto predicate = std::make_shared<std::optional<std::function<bool(EdgeAccessor const &)>>>();
+  const auto get_edges = [this, predicate](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Edges(
           view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
@@ -1472,6 +1673,8 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
+
+    *predicate = ComparisonBehindEdgeRange(maybe_lower, maybe_upper, property_, view_, evaluator.GetNameIdMapper());
 
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, maybe_lower, maybe_upper));
   };
@@ -1481,7 +1684,8 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
                                                                        input_->MakeCursor(mem, metric_handles),
                                                                        view_,
                                                                        std::move(get_edges),
-                                                                       "ScanAllByEdgeTypePropertyRange");
+                                                                       "ScanAllByEdgeTypePropertyRange",
+                                                                       predicate);
 }
 
 std::string ScanAllByEdgeTypePropertyRange::ToString(const DbAccessor *dba) const {
@@ -1616,7 +1820,8 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
                                                        metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_property_range_operator.Increment();
 
-  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
+  auto predicate = std::make_shared<std::optional<std::function<bool(EdgeAccessor const &)>>>();
+  const auto get_edges = [this, predicate](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Edges(
           view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
@@ -1625,11 +1830,18 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
 
+    *predicate = ComparisonBehindEdgeRange(maybe_lower, maybe_upper, property_, view_, evaluator.GetNameIdMapper());
+
     return std::make_optional(db->Edges(view_, property_, maybe_lower, maybe_upper));
   };
 
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgePropertyRange");
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(mem,
+                                                                       *this,
+                                                                       input_->MakeCursor(mem, metric_handles),
+                                                                       view_,
+                                                                       std::move(get_edges),
+                                                                       "ScanAllByEdgePropertyRange",
+                                                                       predicate);
 }
 
 std::string ScanAllByEdgePropertyRange::ToString(const DbAccessor *dba) const {
@@ -1731,7 +1943,8 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                      metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_label_properties_operator.Increment();
 
-  // The predicates outlive the row they were built from; see ExpressionRange::MakeValuePredicate.
+  // The vector is carried across rows so that its storage is reused; each
+  // predicate in it is still built from the row it is used for.
   auto vertices = [this, value_predicates = std::vector<storage::PropertyValueRange::ValuePredicate>{}](
                       Frame &frame, ExecutionContext &context) mutable
       -> std::optional<decltype(context.db_accessor->Vertices(
@@ -1744,11 +1957,13 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
       return std::nullopt;
     }
 
-    if (value_predicates.size() != expression_ranges_.size()) {
-      value_predicates = expression_ranges_ | rv::transform([&](ExpressionRange const &expression_range) {
-                           return expression_range.MakeValuePredicate(evaluator);
-                         }) |
-                         ranges::to_vector;
+    // Built again for each row, because a predicate carries the values its
+    // bounds evaluated to rather than the expressions behind them, and a bound
+    // may read the row it is on. The vector keeps its storage across rows; what
+    // must not be kept is the predicate a previous row's bounds produced.
+    value_predicates.clear();
+    for (auto const &expression_range : expression_ranges_) {
+      value_predicates.push_back(expression_range.MakeValuePredicate(evaluator));
     }
     for (auto &&[range, predicate] : rv::zip(*maybe_prop_value_ranges, value_predicates)) {
       range.SetValuePredicate(predicate);
@@ -10813,6 +11028,13 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    // A range its bounds alone cannot settle needs the comparison asked of each
+    // edge they admit, which the scan reading chunks in parallel has no place
+    // to ask. It refuses the range rather than answering from the order.
+    if (ComparisonBehindEdgeRange(maybe_lower, maybe_upper, property_, view_, evaluator.GetNameIdMapper())) {
+      throw QueryRuntimeException("Comparison is not defined for values of type {}.",
+                                  maybe_lower ? maybe_lower->value().type() : maybe_upper->value().type());
+    }
     return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
@@ -10950,6 +11172,13 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    // A range its bounds alone cannot settle needs the comparison asked of each
+    // edge they admit, which the scan reading chunks in parallel has no place
+    // to ask. It refuses the range rather than answering from the order.
+    if (ComparisonBehindEdgeRange(maybe_lower, maybe_upper, property_, view_, evaluator.GetNameIdMapper())) {
+      throw QueryRuntimeException("Comparison is not defined for values of type {}.",
+                                  maybe_lower ? maybe_lower->value().type() : maybe_upper->value().type());
+    }
     return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(

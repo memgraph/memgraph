@@ -265,11 +265,14 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       continue;
     }
 
-    // Check the prefix has at least one non-null value
+    // A null at any position a range covers fails that range, whichever it is: a
+    // bounded one stops below a null, and one asking only that a value be present
+    // admits none. Checked here rather than through a bound, which an ascending
+    // and a descending index would read from opposite ends.
     if (!lower_bound.empty()) {
-      auto const prefix_values_only = index_iterator->values | ranges::views::take(lower_bound.size());
-      auto const all_null = ranges::all_of(prefix_values_only, [](PropertyValue const &pv) { return pv.IsNull(); });
-      if (all_null) continue;
+      auto const covered_values = index_iterator->values | ranges::views::take(lower_bound.size());
+      auto const any_null = ranges::any_of(covered_values, [](PropertyValue const &pv) { return pv.IsNull(); });
+      if (any_null) continue;
     }
 
     enum class InBoundResult : uint8_t { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };

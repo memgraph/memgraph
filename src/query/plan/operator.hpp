@@ -73,12 +73,20 @@ struct ExpressionRange {
   auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
 
   /// Which of the values inside the evaluated bounds satisfy the range, where the bounds alone
-  /// cannot say. Null unless the bounds merely narrow the scan to the string type.
+  /// cannot say. Null unless the scan is narrowed to a string prefix, or to lists, which are the
+  /// one type an index orders where the comparison behind the range still declines.
   ///
-  /// Kept apart from Evaluate because the two have different lifetimes: bounds may read a symbol
-  /// and so are evaluated per row, while a search term never can (PropertyFilter::IsStringPredicate
-  /// says why), leaving the predicate the same for the whole execution.
+  /// Kept apart from Evaluate because the two are asked for different reasons, not because the
+  /// answer lasts longer: a search term never reads a symbol (PropertyFilter::IsStringPredicate
+  /// says why), but a range's bounds may, and the predicate built from them carries the values
+  /// they evaluated to. It is built again for each row for that reason.
   auto MakeValuePredicate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange::ValuePredicate;
+
+  /// The comparison behind a range, asked of each candidate its bounds admit.
+  ///
+  /// Nothing unless the range is over lists, which are the one type an index
+  /// orders where the comparison can still decline to answer.
+  auto MakeComparisonPredicate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange::ValuePredicate;
 
   auto ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
       -> std::optional<storage::PropertyValueRange>;

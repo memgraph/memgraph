@@ -12,6 +12,7 @@
 #include "storage/v2/disk/storage.hpp"
 
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -228,6 +229,16 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
   // type here, but it rejects every value of a whole-type range, whose bounds are two types by
   // construction. Comparing against the bounds is enough there: the pair *is* the type segment.
   bool const spans_whole_type = BoundsSpanWholeType(lower_bound, upper_bound);
+
+  // A stored value is ordered against the bounds, and that order gives a NaN a
+  // place after every other number so that a sorted structure can hold one. The
+  // comparison a range is built from gives it no place at all: every comparison
+  // against a NaN is false, so it satisfies no such range. A range marking out
+  // a whole type is not built from a comparison, asking only that the value be
+  // of that type, and a NaN is one of the numbers.
+  if (!spans_whole_type && (lower_bound || upper_bound) && value.IsDouble() && std::isnan(value.ValueDouble())) {
+    return false;
+  }
 
   if (lower_bound && ((!spans_whole_type && !AreComparableTypes(value.type(), lower_bound->value().type())) ||
                       value < lower_bound->value() || (lower_bound->IsExclusive() && value == lower_bound->value()))) {

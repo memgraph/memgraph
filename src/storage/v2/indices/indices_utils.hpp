@@ -430,7 +430,10 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
   if (range.type_ == PropertyRangeType::INVALID) {
     return {std::nullopt, std::nullopt, false};
   } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    lower_bound = LowerBoundForType(PropertyValueType::Bool);
+    // Every value sits at or above the lowest-ranked type. A null ranks above
+    // them all and is left to the per-entry check below, which reads the same
+    // whichever direction the index is iterated in.
+    lower_bound = LowerBoundForType(PropertyValueType::Map);
   } else if (range.type_ == PropertyRangeType::BOUNDED) {
     // We have to fix the bounds that the user provided to us. If the user
     // provided only one bound we should make sure that only values of that type
