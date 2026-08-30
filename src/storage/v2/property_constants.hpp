@@ -16,11 +16,18 @@ namespace memgraph::storage {
 // These constants represent the smallest possible value of each type that is
 // contained in a `PropertyValue`. Note that numbers (integers and doubles) are
 // treated as the same "type" in `PropertyValue`.
-static const auto kSmallestProperty = PropertyValue();
+// The extremes of the order values are kept in. A map sits lowest and a null
+// highest, which is the order the query layer sorts by.
+static const auto kSmallestProperty = PropertyValue(PropertyValue::map_t{});
 static const auto kSmallestBool = PropertyValue(false);
 // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
 static const auto kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
+// A NaN sorts above every other number and alongside every other NaN, so one of
+// them names the point a range over the numbers has to stop at: every
+// comparison against a NaN is false, and a range built from a comparison must
+// not reach one.
+static const auto kSmallestNaN = PropertyValue(std::numeric_limits<double>::quiet_NaN());
 static const auto kSmallestString = PropertyValue("");
 static const auto kSmallestList = PropertyValue(std::vector<PropertyValue>());
 static const auto kSmallestMap = PropertyValue(PropertyValue::map_t{});
@@ -34,24 +41,6 @@ static const auto kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{
 static const auto kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
 static const auto kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
-static const auto kSmallestVectorIndexId = PropertyValue(
-    PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{}, .vector = utils::small_vector<float>{}});
-static const auto kLargestProperty = PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d,
-                                                           std::numeric_limits<double>::infinity(),
-                                                           std::numeric_limits<double>::infinity(),
-                                                           std::numeric_limits<double>::infinity()});
+static const auto kLargestProperty = PropertyValue();
 
-// We statically verify that the ordering of the property values holds.
-static_assert(PropertyValue::Type::Null < PropertyValue::Type::Bool);
-static_assert(PropertyValue::Type::Bool < PropertyValue::Type::Int);
-static_assert(PropertyValue::Type::Int < PropertyValue::Type::Double);
-static_assert(PropertyValue::Type::Double < PropertyValue::Type::String);
-static_assert(PropertyValue::Type::String < PropertyValue::Type::List);
-static_assert(PropertyValue::Type::List < PropertyValue::Type::Map);
-static_assert(PropertyValue::Type::Map < PropertyValue::Type::TemporalData);
-static_assert(PropertyValue::Type::TemporalData < PropertyValue::Type::ZonedTemporalData);
-static_assert(PropertyValue::Type::ZonedTemporalData < PropertyValue::Type::Enum);
-static_assert(PropertyValue::Type::Enum < PropertyValue::Type::Point2d);
-static_assert(PropertyValue::Type::Point2d < PropertyValue::Type::Point3d);
-static_assert(PropertyValue::Type::Point3d < PropertyValue::Type::VectorIndexId);
 }  // namespace memgraph::storage

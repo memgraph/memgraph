@@ -1054,6 +1054,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         const auto &list_val = val.ValueNumericList();
         return list_val[idx];
       }
+      // A vector holds its coordinates unboxed, and is a list of them.
+      case PropertyValueType::VectorIndexId: {
+        return static_cast<double>(val.ValueVectorIndexList()[idx]);
+      }
       default:
         throw PropertyValueException("Invalid list type");
     }
@@ -1125,7 +1129,12 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
     if (!reader_val || !value_val) {
       return false;
     }
-    if (CompareNumericValues(*reader_val, *value_val) != std::partial_ordering::equivalent) return false;
+    auto const as_double = [](std::variant<int, double> const &v) {
+      return std::holds_alternative<int>(v) ? static_cast<double>(std::get<int>(v)) : std::get<double>(v);
+    };
+    if (CompareDoublesNaNLast(as_double(*reader_val), as_double(*value_val)) != std::weak_ordering::equivalent) {
+      return false;
+    }
   }
   return true;
 }
@@ -1567,9 +1576,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
 // Function used to compare a PropertyValue to the one stored in the byte
 // stream.
 //
-// NOTE: The logic in this function *MUST* be equal to the logic in
-// `PropertyValue::operator==`. If you change this function make sure to change
-// the operator so that they have identical functionality.
+// NOTE: This answers equivalence, and *MUST* answer as `PropertyValue`'s
+// `Equivalent` does. It has a case per type of its own, so a change made to one
+// reading and not the other is silent until a lookup answers wrongly; the two
+// are held together over every sample by a test.
 //
 // @sa DecodePropertyValue
 [[nodiscard]] bool ComparePropertyValue(Reader *reader, Type type, Size payload_size, const PropertyValue &value) {
@@ -1606,10 +1616,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto double_v = ReadDoubleAs(reader, payload_size);
       if (!double_v) return false;
-      if (value.IsDouble()) {
-        return value.ValueDouble() == double_v;
-      }
-      return value.ValueInt() == double_v;
+      // Read through the one comparison the decoded values use, so this answers
+      // as `Equivalent` does. IEEE equality would part from it over a NaN, which
+      // it holds equal to nothing and an index holds alike.
+      auto const lhs = value.IsDouble() ? value.ValueDouble() : static_cast<double>(value.ValueInt());
+      return CompareDoublesNaNLast(lhs, *double_v) == std::weak_ordering::equivalent;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;
@@ -1679,13 +1690,18 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       if (!x_opt) return false;
       auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
       if (!y_opt) return false;
+      auto const alike = [](double lhs, double rhs) {
+        return CompareDoublesNaNLast(lhs, rhs) == std::weak_ordering::equivalent;
+      };
       if (valid2d(crs) && value.IsPoint2d()) {
-        return value.ValuePoint2d() == Point2d{crs, *x_opt, *y_opt};
+        auto const &point = value.ValuePoint2d();
+        return point.crs() == crs && alike(point.x(), *x_opt) && alike(point.y(), *y_opt);
       }
       if (valid3d(crs) && value.IsPoint3d()) {
         auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
         if (!z_opt) return false;
-        return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
+        auto const &point = value.ValuePoint3d();
+        return point.crs() == crs && alike(point.x(), *x_opt) && alike(point.y(), *y_opt) && alike(point.z(), *z_opt);
       }
       return false;
     }

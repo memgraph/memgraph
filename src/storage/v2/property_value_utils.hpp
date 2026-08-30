@@ -25,6 +25,16 @@ auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
 
 auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>>;
 
+/// The band a stored temporal of one kind occupies.
+///
+/// One stored type carries all four temporal kinds and orders a value by its
+/// kind before its length, so each kind's values sit together. The comparison
+/// operators place no pair drawn from two kinds, so a range built from a
+/// comparison against one of them reaches that kind's band and no further.
+auto LowerBoundForTemporalType(TemporalType type) -> utils::Bound<PropertyValue>;
+
+auto UpperBoundForTemporalType(TemporalType type) -> utils::Bound<PropertyValue>;
+
 /// Compute the smallest string that is lexicographically greater than every
 /// string with the given prefix.  Returns std::nullopt when no tighter bound
 /// exists (empty prefix or all-0xFF bytes).

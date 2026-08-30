@@ -66,6 +66,25 @@ inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
          (a == PropertyValueType::Double && b == PropertyValueType::Int);
 }
 
+/// Orders two doubles, giving a NaN the place it has nowhere else: after every
+/// number, and alongside another NaN.
+///
+/// An ordered structure needs an answer for every pair it is handed. IEEE
+/// leaves a NaN unordered against everything, itself included, which is not an
+/// answer a sorted container can be given: it would place an entry where no
+/// later search could find it again.
+inline std::weak_ordering CompareDoublesNaNLast(double lhs, double rhs) {
+  if (auto const order = lhs <=> rhs; order != std::partial_ordering::unordered) {
+    if (order == std::partial_ordering::less) return std::weak_ordering::less;
+    if (order == std::partial_ordering::greater) return std::weak_ordering::greater;
+    return std::weak_ordering::equivalent;
+  }
+  auto const lhs_is_nan = std::isnan(lhs);
+  auto const rhs_is_nan = std::isnan(rhs);
+  if (lhs_is_nan && rhs_is_nan) return std::weak_ordering::equivalent;
+  return lhs_is_nan ? std::weak_ordering::greater : std::weak_ordering::less;
+}
+
 inline std::partial_ordering CompareNumericValues(const std::variant<int, double> &a,
                                                   const std::variant<int, double> &b) {
   return std::visit(
@@ -582,8 +601,15 @@ class PropertyValueImpl {
 
   bool IsList() const { return type_ == Type::List; }
 
+  /// Whether the value is a list, in any of the representations that carry one.
+  ///
+  /// A vector index id is one of them: it holds its coordinates unboxed, and a
+  /// query reading the property back is handed a list of them. Leaving it out
+  /// here would order it against a list by their types alone, which is no order
+  /// at all once the two are given one place.
   bool IsAnyList() const {
-    return type_ == Type::List || type_ == Type::IntList || type_ == Type::DoubleList || type_ == Type::NumericList;
+    return type_ == Type::List || type_ == Type::IntList || type_ == Type::DoubleList || type_ == Type::NumericList ||
+           type_ == Type::VectorIndexId;
   }
 
   bool IsMap() const { return type_ == Type::Map; }
@@ -616,6 +642,8 @@ class PropertyValueImpl {
         return double_list_v.val_.size();
       case Type::NumericList:
         return numeric_list_v.val_.size();
+      case Type::VectorIndexId:
+        return vector_index_id_v.val_.vector.size();
       default:
         throw PropertyValueException("The value isn't a list!");
     }
@@ -932,9 +960,95 @@ inline std::optional<std::variant<int, double>> GetNumericValueAt(
       auto const &list_val = list.ValueNumericList();
       return list_val[index];
     }
+    case PropertyValueType::VectorIndexId: {
+      return static_cast<double>(list.ValueVectorIndexList()[index]);
+    }
     default:
       throw PropertyValueException("Invalid list type");
   }
+}
+
+/// The places values are kept in, in ascending order.
+///
+/// Unlike types are separated by these before anything looks at what a value
+/// holds. There is one declaration of the places rather than one per layer:
+/// storage names the ones it can store a value in, and a query names the same
+/// ones for the values it holds that are never stored, so a value keeps its
+/// place whichever side reads it and neither side can renumber alone.
+enum class ValueRank : int8_t {
+  Map,
+  Vertex,
+  VirtualNode,
+  Edge,
+  VirtualEdge,
+  List,
+  Path,
+  ZonedDateTime,
+  /// One stored type carries all four temporal types and takes this place
+  /// whichever of them it holds, where a query gives each its own. That is the
+  /// whole of why the two layers do not keep a temporal value in one order.
+  LocalDateTime,
+  Date,
+  LocalTime,
+  Duration,
+  Enum,
+  /// Two places where the reference order gives points one, sorting every
+  /// two-dimensional point before every three-dimensional one rather than
+  /// interleaving the two by the reference system a point is stated in. They
+  /// are separate types everywhere else in the engine, and a column holding
+  /// both shapes under more than one system is the only place the two orders
+  /// answer apart.
+  Point2d,
+  Point3d,
+  String,
+  Bool,
+  /// The one place two types share, since an integer and a double are ordered
+  /// against each other as numbers rather than by their types.
+  Number,
+  Null,
+};
+
+/// Where a stored value's type sits in that order.
+inline ValueRank SortRank(PropertyValueType type) {
+  switch (type) {
+    case PropertyValueType::Map:
+      return ValueRank::Map;
+    case PropertyValueType::List:
+    case PropertyValueType::IntList:
+    case PropertyValueType::DoubleList:
+    case PropertyValueType::NumericList:
+    // Read back as a list of its coordinates, so it takes a list's place.
+    case PropertyValueType::VectorIndexId:
+      return ValueRank::List;
+    case PropertyValueType::Point2d:
+      return ValueRank::Point2d;
+    case PropertyValueType::Point3d:
+      return ValueRank::Point3d;
+    case PropertyValueType::ZonedTemporalData:
+      return ValueRank::ZonedDateTime;
+    // The four this one carries keep their order against each other below,
+    // where what they hold is read.
+    case PropertyValueType::TemporalData:
+      return ValueRank::LocalDateTime;
+    case PropertyValueType::Enum:
+      return ValueRank::Enum;
+    case PropertyValueType::String:
+      return ValueRank::String;
+    case PropertyValueType::Bool:
+      return ValueRank::Bool;
+    case PropertyValueType::Int:
+    case PropertyValueType::Double:
+      return ValueRank::Number;
+    case PropertyValueType::Null:
+      return ValueRank::Null;
+  }
+  return ValueRank::Null;
+}
+
+/// The same place, read off a value.
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline ValueRank SortRank(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &value) {
+  return SortRank(value.type());
 }
 
 /// Helper function to compare two lists of different types
@@ -943,10 +1057,7 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
                                        const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) {
   const size_t size1 = first.ListSize();
   const size_t size2 = second.ListSize();
-
-  if (size1 != size2) {
-    return size1 <=> size2;
-  }
+  const size_t common = std::min(size1, size2);
 
   auto extract_type = [](const std::optional<std::variant<int, double>> &val,
                          const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
@@ -961,74 +1072,48 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
     return list.ValueList().at(index).type();
   };
 
-  // Compare elements element-wise
-  for (size_t i = 0; i < size1; ++i) {
+  // Element by element, and only then by length, which is how a list is ordered
+  // whichever representation holds it.
+  for (size_t i = 0; i < common; ++i) {
     const auto val1 = GetNumericValueAt(first, i);
     const auto val2 = GetNumericValueAt(second, i);
 
     if (!val1 || !val2) {
       const auto val1_type = extract_type(val1, first, i);
       const auto val2_type = extract_type(val2, second, i);
-      return val1_type <=> val2_type;
+      return SortRank(val1_type) <=> SortRank(val2_type);
     }
 
-    const auto cmp_result = CompareNumericValues(*val1, *val2);
-    if (cmp_result != std::partial_ordering::equivalent) {
-      if (cmp_result == std::partial_ordering::less) {
-        return std::weak_ordering::less;
-      }
-      if (cmp_result == std::partial_ordering::greater) {
-        return std::weak_ordering::greater;
-      }
-      return std::weak_ordering::equivalent;  // unordered case
+    // Read through the same double comparison the scalars use, so a NaN inside
+    // a list is placed where a NaN beside one is.
+    auto const to_double = [](std::variant<int, double> const &v) {
+      return std::holds_alternative<int>(v) ? static_cast<double>(std::get<int>(v)) : std::get<double>(v);
+    };
+    if (auto const cmp_result = CompareDoublesNaNLast(to_double(*val1), to_double(*val2));
+        cmp_result != std::weak_ordering::equivalent) {
+      return cmp_result;
     }
   }
 
-  return std::weak_ordering::equivalent;
+  // One list is the start of the other, and the shorter comes first.
+  return size1 <=> size2;
 }
 
-// Note: this function is only used for backwards compatibility with the old list types
-// It is not used for new list types
-template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
-inline std::weak_ordering CompareIncompatibleTypes(
-    const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
-    const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) {
-  auto first_is_list = first.IsAnyList();
-  auto second_is_list = second.IsAnyList();
-  if (first_is_list || second_is_list) {
-    // One is a list, one is not - use the original type comparison logic
-    // but normalize list types to the original List type for comparison
-    auto first_type_for_comparison = first_is_list ? PropertyValueType::List : first.type();
-    auto second_type_for_comparison = second_is_list ? PropertyValueType::List : second.type();
-    return first_type_for_comparison <=> second_type_for_comparison;
-  }
-  return first.type() <=> second.type();
-}
-
-// NOTE: The logic in this function *MUST* be equal to the logic in
-// `PropertyStore::ComparePropertyValue`. If you change this operator make sure
-// to change the function so that they have identical functionality.
+// NOTE: `Equivalent` below is read off this ordering, and a stored value is
+// compared without decoding it by `PropertyStore::ComparePropertyValue`, which
+// has a case per type of its own and must answer as `Equivalent` does. A change
+// made to this ordering and not to that function is silent until a lookup
+// answers wrongly, so the two are held together over every sample by a test.
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
                         const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept
     -> std::weak_ordering {
   auto are_comparable = AreComparableTypes(first.type(), second.type());
   auto are_lists = first.IsAnyList() && second.IsAnyList();
-  if (!are_comparable && !are_lists) return CompareIncompatibleTypes(first, second);
-
-  auto to_weak_order = [](std::partial_ordering o) {
-    if (o == std::partial_ordering::equivalent) {
-      return std::weak_ordering::equivalent;
-    }
-    if (o == std::partial_ordering::less) {
-      return std::weak_ordering::less;
-    }
-    if (o == std::partial_ordering::greater) {
-      return std::weak_ordering::greater;
-    }
-    // DANGER: TODO: check is this possible and what it should mean
-    return std::weak_ordering::less;
-  };
+  // Unlike types are separated by where their types sit, before anything looks
+  // at what either value holds. Every way of spelling a list shares one rank,
+  // so a pair of them is ordered by their elements below rather than here.
+  if (!are_comparable && !are_lists) return SortRank(first) <=> SortRank(second);
 
   switch (first.type()) {
     case PropertyValueType::Null:
@@ -1039,13 +1124,13 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       if (second.type() == PropertyValueType::Int) {
         return first.ValueInt() <=> second.ValueInt();
       } else {
-        return to_weak_order(first.ValueInt() <=> second.ValueDouble());
+        return CompareDoublesNaNLast(static_cast<double>(first.ValueInt()), second.ValueDouble());
       }
     case PropertyValueType::Double:
       if (second.type() == PropertyValueType::Double) {
-        return to_weak_order(first.ValueDouble() <=> second.ValueDouble());
+        return CompareDoublesNaNLast(first.ValueDouble(), second.ValueDouble());
       } else {
-        return to_weak_order(first.ValueDouble() <=> second.ValueInt());
+        return CompareDoublesNaNLast(first.ValueDouble(), static_cast<double>(second.ValueInt()));
       }
     case PropertyValueType::String:
       // using string_view for allocator agnostic compare
@@ -1066,7 +1151,7 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       if (second.type() == PropertyValueType::IntList) {
         auto const &l1 = first.ValueIntList();
         auto const &l2 = second.ValueIntList();
-        return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
+        return std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end());
       }
       return CompareLists(first, second);
     }
@@ -1074,7 +1159,8 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       if (second.type() == PropertyValueType::DoubleList) {
         auto const &l1 = first.ValueDoubleList();
         auto const &l2 = second.ValueDoubleList();
-        return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
+        return std::lexicographical_compare_three_way(
+            l1.begin(), l1.end(), l2.begin(), l2.end(), [](double a, double b) { return CompareDoublesNaNLast(a, b); });
       }
       return CompareLists(first, second);
     }
@@ -1082,9 +1168,14 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       if (second.type() == PropertyValueType::NumericList) {
         auto const &l1 = first.ValueNumericList();
         auto const &l2 = second.ValueNumericList();
-        auto const numeric_three_way_cmp = [](auto const &v1, auto const &v2) { return CompareNumericValues(v1, v2); };
-        return to_weak_order(
-            std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), numeric_three_way_cmp));
+        auto const to_double = [](std::variant<int, double> const &v) {
+          return std::holds_alternative<int>(v) ? static_cast<double>(std::get<int>(v)) : std::get<double>(v);
+        };
+        auto const numeric_three_way_cmp = [&to_double](auto const &v1, auto const &v2) {
+          return CompareDoublesNaNLast(to_double(v1), to_double(v2));
+        };
+        return std::lexicographical_compare_three_way(
+            l1.begin(), l1.end(), l2.begin(), l2.end(), numeric_three_way_cmp);
       }
       return CompareLists(first, second);
     }
@@ -1108,25 +1199,55 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       return first.ValueZonedTemporalData() <=> second.ValueZonedTemporalData();
     case PropertyValueType::Enum:
       return first.ValueEnum() <=> second.ValueEnum();
-    case PropertyValueType::Point2d:
-      return to_weak_order(first.ValuePoint2d() <=> second.ValuePoint2d());
-    case PropertyValueType::Point3d:
-      return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
+    case PropertyValueType::Point2d: {
+      auto const &lhs = first.ValuePoint2d();
+      auto const &rhs = second.ValuePoint2d();
+      if (auto const order = lhs.crs() <=> rhs.crs(); order != 0) return order;
+      if (auto const order = CompareDoublesNaNLast(lhs.x(), rhs.x()); order != 0) return order;
+      return CompareDoublesNaNLast(lhs.y(), rhs.y());
+    }
+    case PropertyValueType::Point3d: {
+      auto const &lhs = first.ValuePoint3d();
+      auto const &rhs = second.ValuePoint3d();
+      if (auto const order = lhs.crs() <=> rhs.crs(); order != 0) return order;
+      if (auto const order = CompareDoublesNaNLast(lhs.x(), rhs.x()); order != 0) return order;
+      if (auto const order = CompareDoublesNaNLast(lhs.y(), rhs.y()); order != 0) return order;
+      return CompareDoublesNaNLast(lhs.z(), rhs.z());
+    }
     case PropertyValueType::VectorIndexId: {
-      const auto &vector1 = first.ValueVectorIndexList();
-      const auto &vector2 = second.ValueVectorIndexList();
-      return std::lexicographical_compare_three_way(
-          vector1.begin(), vector1.end(), vector2.begin(), vector2.end(), [&to_weak_order](float a, float b) {
-            return to_weak_order(a <=> b);
-          });
+      if (second.type() == PropertyValueType::VectorIndexId) {
+        const auto &vector1 = first.ValueVectorIndexList();
+        const auto &vector2 = second.ValueVectorIndexList();
+        return std::lexicographical_compare_three_way(
+            vector1.begin(), vector1.end(), vector2.begin(), vector2.end(), [](float a, float b) {
+              return CompareDoublesNaNLast(a, b);
+            });
+      }
+      return CompareLists(first, second);
     }
   }
 }
 
+/// Whether two stored values are the same value.
+///
+/// This is equivalence, which is the question a structure keyed by value asks:
+/// a null is the same value as a null, a NaN is the same value as a NaN, and an
+/// integer is the same value as the double beside it. It is not the equality a
+/// query writes, which answers nothing at all where a null is involved and
+/// reads a NaN as different from itself; that relation has no place here, since
+/// nothing at this layer can carry its third answer.
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+inline bool Equivalent(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+                       const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
+  return is_eq(first <=> second);
+}
+
+/// Spelled as equality because a stored value is a value, and reads as the
+/// relation above.
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 inline bool operator==(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
                        const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
-  return is_eq(first <=> second);
+  return Equivalent(first, second);
 }
 
 template <typename Alloc, typename KeyType, typename VectorIndexIdType>
