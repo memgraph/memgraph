@@ -352,6 +352,48 @@ enum mgp_error mgp_value_make_enum(struct mgp_enum *val, struct mgp_value **resu
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_type(struct mgp_value *val, enum mgp_value_type *result);
 
+/// The answer a three-valued comparison gives.
+///
+/// This is not a boolean and must not be read as one: test it against the
+/// constants below rather than for zero, since two of the three answers are
+/// non-zero.
+enum mgp_ternary {
+  MGP_TERNARY_FALSE = 0,
+  MGP_TERNARY_TRUE = 1,
+  /// Neither true nor false. A comparison turning on a `null` gives this, and
+  /// it decides nothing.
+  MGP_TERNARY_UNKNOWN = 2,
+};
+
+/// Whether the two values are equal, which a `null` leaves undecided.
+///
+/// This is equality, the relation a Cypher query writes with `=`, `<>`, `IN`
+/// and a `CASE`. It is three-valued: a comparison against a `null` answers
+/// MGP_TERNARY_UNKNOWN rather than false, and a list or a map holding one
+/// passes that answer outwards rather than calling two containers equal. Two
+/// numbers are compared as numbers whichever of the two numeric types carries
+/// them, and a NaN is equal to nothing, itself included.
+///
+/// For the two-valued relation a set or a grouping reads, which holds a `null`
+/// the same value as a `null`, use mgp_value_equivalent instead.
+///
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to compare the
+/// values.
+enum mgp_error mgp_value_equal(struct mgp_value *first, struct mgp_value *second, enum mgp_ternary *result);
+
+/// Result is non-zero if the two values are the same value.
+///
+/// This is equivalence, the relation a set or a grouping reads, and the same
+/// one the engine itself uses. It answers yes or no and has no third answer to
+/// give, so it is not the equality a Cypher query writes, which answers nothing
+/// at all about a null. As equivalence it holds a null the same value as a
+/// null and a NaN the same value as a NaN, and it compares two numbers as
+/// numbers whichever of the two numeric types carries them.
+///
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to compare the
+/// values.
+enum mgp_error mgp_value_equivalent(struct mgp_value *first, struct mgp_value *second, int *result);
+
 /// Result is non-zero if the given mgp_value represents `null`.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_null(struct mgp_value *val, int *result);

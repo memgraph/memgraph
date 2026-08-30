@@ -36,6 +36,8 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/relations/equality.hpp"
+#include "query/relations/equivalence.hpp"
 #include "query/stream/common.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
@@ -1322,6 +1324,34 @@ mgp_error mgp_value_get_type(mgp_value *val, mgp_value_type *result) {
   static_assert(noexcept(MgpValueGetType(*val)));
   *result = MgpValueGetType(*val);
   return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_value_equal(mgp_value *first, mgp_value *second, mgp_ternary *result) {
+  // Read through the relation the engine itself uses, for the reason given on
+  // mgp_value_equivalent below.
+  return WrapExceptions(
+      [first, second] {
+        auto const lhs = ToTypedValue(*first, first->GetMemoryResource());
+        auto const rhs = ToTypedValue(*second, second->GetMemoryResource());
+        auto const answer = memgraph::query::relations::equality::Equal(lhs, rhs);
+        if (answer.IsNull()) return MGP_TERNARY_UNKNOWN;
+        return answer.ValueBool() ? MGP_TERNARY_TRUE : MGP_TERNARY_FALSE;
+      },
+      result);
+}
+
+mgp_error mgp_value_equivalent(mgp_value *first, mgp_value *second, int *result) {
+  // Read through the relation the engine itself uses, so a module and a query
+  // answer alike about two values. Each side is converted to a query value
+  // first, which is what carries the relation; the conversion allocates, and a
+  // module comparing two values is not on any per-row path where that counts.
+  return WrapExceptions(
+      [first, second] {
+        auto const lhs = ToTypedValue(*first, first->GetMemoryResource());
+        auto const rhs = ToTypedValue(*second, second->GetMemoryResource());
+        return memgraph::query::relations::equivalence::Equivalent(lhs, rhs) ? 1 : 0;
+      },
+      result);
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

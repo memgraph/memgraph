@@ -12,6 +12,7 @@
 #pragma once
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <format>
@@ -2089,10 +2090,28 @@ TDest MemcpyCast(TSrc src) {
   return dest;
 }
 
-/// @brief Returns whether two MGP API values are equal.
-inline bool ValuesEqual(mgp_value *value1, mgp_value *value2);
+/// @brief Returns whether two MGP API values are the same value.
+///
+/// This is equivalence, not the equality a Cypher query writes. It answers yes
+/// or no and has no third answer to give, where equality answers nothing at all
+/// about a null, so it cannot be that relation. As equivalence it holds a null
+/// the same value as a null and a NaN the same value as a NaN, and it compares
+/// two numbers as numbers whichever of the two numeric types carries them.
+inline bool ValuesEquivalent(mgp_value *value1, mgp_value *value2);
 
-/// @brief Returns whether two MGP API lists are equal.
+/// @brief Returns whether two MGP API values are equal, which a null leaves
+/// undecided.
+///
+/// This is equality, the relation a Cypher query writes. It is three-valued and
+/// the answer is not a boolean: compare it against MGP_TERNARY_TRUE and
+/// MGP_TERNARY_FALSE rather than testing it for zero. A NaN is equal to
+/// nothing, itself included, and a container holding a null passes the
+/// undecided answer outwards. Where a yes-or-no answer is wanted, and a null
+/// should be the same value as a null, use ValuesEquivalent above.
+inline mgp_ternary ValuesEqual(mgp_value *value1, mgp_value *value2);
+
+/// @brief Returns whether two MGP API lists hold the same values, element by
+/// element under equivalence.
 inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   if (list1 == list2) {
     return true;
@@ -2102,14 +2121,15 @@ inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   }
   const size_t len = mgp::list_size(list1);
   for (size_t i = 0; i < len; ++i) {
-    if (!util::ValuesEqual(mgp::list_at(list1, i), mgp::list_at(list2, i))) {
+    if (!util::ValuesEquivalent(mgp::list_at(list1, i), mgp::list_at(list2, i))) {
       return false;
     }
   }
   return true;
 }
 
-/// @brief Returns whether two MGP API maps are equal.
+/// @brief Returns whether two MGP API maps hold the same entries, under
+/// equivalence.
 inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   if (map1 == map2) {
     return true;
@@ -2118,16 +2138,14 @@ inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
     return false;
   }
   auto *items_it = mgp::MemHandlerCallback(map_iter_items, map1);
-  for (auto *item = mgp::map_items_iterator_get(items_it); item; item = mgp::map_items_iterator_next(items_it)) {
-    if (mgp::map_item_key(item) == mgp::map_item_key(item)) {
-      return false;
-    }
-    if (!util::ValuesEqual(mgp::map_item_value(item), mgp::map_item_value(item))) {
-      return false;
-    }
+  bool equal = true;
+  for (auto *item = mgp::map_items_iterator_get(items_it); item && equal;
+       item = mgp::map_items_iterator_next(items_it)) {
+    auto *value2 = mgp::map_at(map2, mgp::map_item_key(item));
+    equal = value2 != nullptr && util::ValuesEquivalent(mgp::map_item_value(item), value2);
   }
   mgp::map_items_iterator_destroy(items_it);
-  return true;
+  return equal;
 }
 
 /// @brief Returns whether two MGP API nodes are equal.
@@ -2207,58 +2225,26 @@ inline bool Point3dsEqual(mgp_point_3d *p1, mgp_point_3d *p2) { return mgp::poin
 /// @brief Returns whether two MGP API Enum objects are equal.
 inline bool EnumsEqual(mgp_enum *e1, mgp_enum *e2) { return mgp::enum_equal(e1, e2); }
 
-/// @brief Returns whether two MGP API values are equal.
-inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
+/// @brief Returns whether two MGP API values are the same value.
+///
+/// Answered by the engine rather than here, so a query module and a query agree
+/// about two values. See the declaration above for what the relation holds.
+inline bool ValuesEquivalent(mgp_value *value1, mgp_value *value2) {
   if (value1 == value2) {
     return true;
   }
-  // Make int and double comparable, (ex. this is true -> 1.0 == 1)
-  if (mgp::value_is_numeric(value1) && mgp::value_is_numeric(value2)) {
-    return mgp::value_get_numeric(value1) == mgp::value_get_numeric(value2);
-  }
-  if (mgp::value_get_type(value1) != mgp::value_get_type(value2)) {
-    return false;
-  }
-  switch (mgp::value_get_type(value1)) {
-    case MGP_VALUE_TYPE_NULL:
-      return true;
-    case MGP_VALUE_TYPE_BOOL:
-      return mgp::value_get_bool(value1) == mgp::value_get_bool(value2);
-    case MGP_VALUE_TYPE_INT:
-      return mgp::value_get_int(value1) == mgp::value_get_int(value2);
-    case MGP_VALUE_TYPE_DOUBLE:
-      return mgp::value_get_double(value1) == mgp::value_get_double(value2);
-    case MGP_VALUE_TYPE_STRING:
-      return std::string_view(mgp::value_get_string(value1)) == std::string_view(mgp::value_get_string(value2));
-    case MGP_VALUE_TYPE_LIST:
-      return util::ListsEqual(mgp::value_get_list(value1), mgp::value_get_list(value2));
-    case MGP_VALUE_TYPE_MAP:
-      return util::MapsEqual(mgp::value_get_map(value1), mgp::value_get_map(value2));
-    case MGP_VALUE_TYPE_VERTEX:
-      return util::NodesEqual(mgp::value_get_vertex(value1), mgp::value_get_vertex(value2));
-    case MGP_VALUE_TYPE_EDGE:
-      return util::RelationshipsEqual(mgp::value_get_edge(value1), mgp::value_get_edge(value2));
-    case MGP_VALUE_TYPE_PATH:
-      return util::PathsEqual(mgp::value_get_path(value1), mgp::value_get_path(value2));
-    case MGP_VALUE_TYPE_DATE:
-      return util::DatesEqual(mgp::value_get_date(value1), mgp::value_get_date(value2));
-    case MGP_VALUE_TYPE_LOCAL_TIME:
-      return util::LocalTimesEqual(mgp::value_get_local_time(value1), mgp::value_get_local_time(value2));
-    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
-      return util::LocalDateTimesEqual(mgp::value_get_local_date_time(value1), mgp::value_get_local_date_time(value2));
-    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
-      return util::ZonedDateTimesEqual(mgp::value_get_zoned_date_time(value1), mgp::value_get_zoned_date_time(value2));
-    case MGP_VALUE_TYPE_DURATION:
-      return util::DurationsEqual(mgp::value_get_duration(value1), mgp::value_get_duration(value2));
-    case MGP_VALUE_TYPE_POINT_2D:
-      return util::Point2dsEqual(mgp::value_get_point_2d(value1), mgp::value_get_point_2d(value2));
-    case MGP_VALUE_TYPE_POINT_3D:
-      return util::Point3dsEqual(mgp::value_get_point_3d(value1), mgp::value_get_point_3d(value2));
-    case MGP_VALUE_TYPE_ENUM:
-      return util::EnumsEqual(mgp::value_get_enum(value1), mgp::value_get_enum(value2));
-  }
-  throw ValueException("Invalid value; does not match any Memgraph type.");
+  return mgp::value_equivalent(value1, value2);
 }
+
+/// @brief Returns whether two MGP API values are equal, which a null leaves
+/// undecided.
+///
+/// Answered by the engine rather than here, so a query module and a query agree
+/// about two values. See the declaration above for what the relation holds.
+///
+/// A value is not equal to itself where it carries a NaN or a null, so the
+/// shortcut equivalence takes for one pointer is not available here.
+inline mgp_ternary ValuesEqual(mgp_value *value1, mgp_value *value2) { return mgp::value_equal(value1, value2); }
 
 /// @brief Converts C++ API types to their MGP API equivalents.
 inline mgp_type *ToMGPType(Type type) {
@@ -4655,7 +4641,7 @@ inline bool Value::IsPoint3d() const { return mgp::value_is_point_3d(this->ptr()
 
 inline bool Value::IsEnum() const { return mgp::value_is_enum(this->ptr()); }
 
-inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(this->ptr(), other.ptr()); }
+inline bool Value::operator==(const Value &other) const { return util::ValuesEquivalent(this->ptr(), other.ptr()); }
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
 

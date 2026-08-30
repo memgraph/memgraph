@@ -194,6 +194,16 @@ inline mgp_point_3d *value_get_point_3d(mgp_value *val) {
 
 inline mgp_enum *value_get_enum(mgp_value *val) { return MgInvoke<mgp_enum *>(mgp_value_get_enum, val); }
 
+// Compare values
+
+inline mgp_ternary value_equal(mgp_value *first, mgp_value *second) {
+  return MgInvoke<mgp_ternary>(mgp_value_equal, first, second);
+}
+
+inline bool value_equivalent(mgp_value *first, mgp_value *second) {
+  return MgInvoke<int>(mgp_value_equivalent, first, second);
+}
+
 // Check type of value
 
 inline bool value_is_null(mgp_value *val) { return MgInvoke<int>(mgp_value_is_null, val); }
