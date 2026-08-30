@@ -16,7 +16,9 @@
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/small_vector.hpp"
 
@@ -687,6 +689,11 @@ TEST(PropertyValue, Equal) {
   const auto data = MakeTestPropertyValues<PropertyValue>(property_id, 1UL);
 
   auto same_type = [](const auto &a, const auto &b) { return a.type() == b.type(); };
+  // A list is equal to a list exactly when their elements are, whichever
+  // representation carries either, so two of them being of different types is
+  // not by itself a difference. Which pairs are equal is asserted below rather
+  // than restated here.
+  auto both_are_lists = [](const auto &a, const auto &b) { return a.IsAnyList() && b.IsAnyList(); };
   auto same_point2d = [](const auto &a, const auto &b) { return a.ValuePoint2d().crs() == b.ValuePoint2d().crs(); };
   auto same_point3d = [](const auto &a, const auto &b) { return a.ValuePoint3d().crs() == b.ValuePoint3d().crs(); };
   auto same_zoned_temporal = [](const auto &a, const auto &b) {
@@ -696,7 +703,9 @@ TEST(PropertyValue, Equal) {
   for (const auto &a : data) {
     for (const auto &b : data) {
       if (!same_type(a, b)) {
-        ASSERT_FALSE(a == b);
+        if (!both_are_lists(a, b)) {
+          ASSERT_FALSE(a == b);
+        }
         continue;
       }
       if (a.IsPoint2d()) {
@@ -710,6 +719,24 @@ TEST(PropertyValue, Equal) {
       }
     }
   }
+}
+
+TEST(PropertyValue, AListIsEqualToAListHoldingTheSameElements) {
+  // The representations are an encoding choice, not a difference in the value.
+  // A vector holds its coordinates unboxed and is read back as a list of them,
+  // so it is equal to the list holding those numbers and ordered among lists.
+  auto whole_numbers = std::vector<PropertyValue>{PropertyValue(1), PropertyValue(2)};
+  auto const as_int_list = PropertyValue{IntListTag{}, whole_numbers};
+  auto const as_vector = PropertyValue(PropertyValue::VectorIndexIdData{
+      .ids = memgraph::utils::small_vector<uint64_t>{}, .vector = memgraph::utils::small_vector<float>{1.0F, 2.0F}});
+
+  EXPECT_TRUE(as_vector == as_int_list);
+  EXPECT_EQ(as_vector <=> as_int_list, std::weak_ordering::equivalent);
+
+  auto others = std::vector<PropertyValue>{PropertyValue(1), PropertyValue(9)};
+  auto const differing = PropertyValue{IntListTag{}, others};
+  EXPECT_FALSE(as_vector == differing);
+  EXPECT_TRUE(std::is_lt(as_vector <=> differing));
 }
 
 TEST(PropertyValue, EqualMap) {
@@ -746,22 +773,86 @@ TEST(PropertyValue, ExternalEqualMap) {
   ASSERT_NE(c, b);
 }
 
+// A range fenced to one type has to admit every value of that type, starting
+// with the smallest, or an index scan drops a row the filter it stands in for
+// keeps.
+TEST(PropertyValue, EveryTypeSegmentAdmitsItsOwnSmallestValue) {
+  using memgraph::storage::PropertyValueType;
+
+  struct Segment {
+    PropertyValueType type;
+    memgraph::storage::PropertyValue smallest;
+  };
+
+  auto const segments = std::vector<Segment>{
+      {PropertyValueType::Map, memgraph::storage::kSmallestMap},
+      {PropertyValueType::List, memgraph::storage::kSmallestList},
+      {PropertyValueType::ZonedTemporalData, memgraph::storage::kSmallestZonedTemporalData},
+      {PropertyValueType::TemporalData, memgraph::storage::kSmallestTemporalData},
+      {PropertyValueType::Enum, memgraph::storage::kSmallestEnum},
+      {PropertyValueType::Point2d, memgraph::storage::kSmallestPoint2d},
+      {PropertyValueType::Point3d, memgraph::storage::kSmallestPoint3d},
+      {PropertyValueType::String, memgraph::storage::kSmallestString},
+      {PropertyValueType::Bool, memgraph::storage::kSmallestBool},
+      {PropertyValueType::Int, memgraph::storage::kSmallestNumber},
+      {PropertyValueType::Double, memgraph::storage::kSmallestNumber},
+  };
+
+  for (auto const &[type, smallest] : segments) {
+    auto const lower = memgraph::storage::LowerBoundForType(type);
+    ASSERT_TRUE(lower.has_value()) << "type " << static_cast<int>(type) << " names no lower bound";
+    EXPECT_TRUE(memgraph::storage::IsValueIncludedByLowerBound(smallest, lower))
+        << "the segment for type " << static_cast<int>(type) << " leaves out its own smallest value";
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+// The smallest value of each type, ascending in the order values are kept in.
+// The constants naming these are what a range bound is built from, so an index
+// fences a scan to one type only while they and the comparison agree.
+TEST(PropertyValue, SmallestOfEachTypeAscendsInOrder) {
+  std::vector<memgraph::storage::PropertyValue> const ascending{
+      memgraph::storage::kSmallestMap,
+      memgraph::storage::kSmallestList,
+      memgraph::storage::kSmallestZonedTemporalData,
+      memgraph::storage::kSmallestTemporalData,
+      memgraph::storage::kSmallestEnum,
+      memgraph::storage::kSmallestPoint2d,
+      memgraph::storage::kSmallestPoint3d,
+      memgraph::storage::kSmallestString,
+      memgraph::storage::kSmallestBool,
+      memgraph::storage::kSmallestNumber,
+      // The point a range over the numbers stops at, which is above every
+      // number and below a null.
+      memgraph::storage::kSmallestNaN,
+  };
+  for (size_t i = 0; i + 1 != ascending.size(); ++i) {
+    EXPECT_TRUE(ascending[i] < ascending[i + 1]) << "type at position " << i << " does not precede the next";
+  }
+
+  // A null sorts above every value, and the extremes name both ends.
+  EXPECT_TRUE(ascending.back() < memgraph::storage::PropertyValue());
+  EXPECT_EQ(memgraph::storage::kSmallestProperty, ascending.front());
+  EXPECT_TRUE(ascending.back() < memgraph::storage::kLargestProperty);
+}
+
 TEST(PropertyValue, Less) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
   auto map = PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  // Ascending in the order values are kept in, which is the order the query
+  // layer sorts by: a map first, a null last, and a number just below it.
   std::vector<PropertyValue> data{
-      PropertyValue(),
-      PropertyValue(true),
-      PropertyValue(123),
-      PropertyValue(123.5),
-      PropertyValue("nandare"),
-      PropertyValue(vec),
       PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}}),
+      PropertyValue(vec),
       PropertyValue{enum_val},
       PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+      PropertyValue("nandare"),
+      PropertyValue(true),
+      PropertyValue(123),
+      PropertyValue(123.5),
+      PropertyValue(),
   };
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
@@ -781,17 +872,18 @@ TEST(PropertyValue, ExternalLess) {
   std::vector<ExternalPropertyValue> vec{ExternalPropertyValue(true), ExternalPropertyValue(123)};
   auto map = ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  // Ascending in the order values are kept in, as above.
   std::vector<ExternalPropertyValue> data{
-      ExternalPropertyValue(),
-      ExternalPropertyValue(true),
-      ExternalPropertyValue(123),
-      ExternalPropertyValue(123.5),
-      ExternalPropertyValue("nandare"),
-      ExternalPropertyValue(vec),
       ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}}),
+      ExternalPropertyValue(vec),
       ExternalPropertyValue{enum_val},
       ExternalPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       ExternalPropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+      ExternalPropertyValue("nandare"),
+      ExternalPropertyValue(true),
+      ExternalPropertyValue(123),
+      ExternalPropertyValue(123.5),
+      ExternalPropertyValue(),
   };
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
@@ -1056,4 +1148,97 @@ TEST(PropertyValue, ExternalPropertyValueToPropertyValue) {
         break;
     }
   }
+}
+
+// An ordered structure needs an answer for every pair it is handed, including a
+// pair holding a NaN, which IEEE leaves unordered against everything including
+// itself. Left unanswered it would place an entry where no later search could
+// find it, so a NaN is ordered after every number and alongside another NaN.
+namespace {
+/// A list held in whichever representation its elements allow, which is what a
+/// list reaches storage as.
+PropertyValue PackedList(std::vector<double> const &elements) {
+  auto list = PropertyValue::list_t{};
+  for (auto const element : elements) list.emplace_back(element);
+  return PropertyValue{DoubleListTag{}, std::move(list)};
+}
+
+PropertyValue IntegerList(std::vector<int64_t> const &elements) {
+  auto list = PropertyValue::list_t{};
+  for (auto const element : elements) list.emplace_back(element);
+  return PropertyValue{IntListTag{}, std::move(list)};
+}
+}  // namespace
+
+TEST(PropertyValue, OrdersAListByItsElementsWhicheverRepresentationHoldsIt) {
+  // A list of whole numbers is held unboxed and one holding a fraction is not,
+  // so the same two lists can meet in either one representation or two. The
+  // order they are placed in cannot depend on that.
+  auto const shorter_but_greater = IntegerList({2});
+  auto const longer_but_lesser = IntegerList({1, 3});
+  EXPECT_TRUE(shorter_but_greater > longer_but_lesser) << "a list is ordered by its elements before its length";
+
+  auto const longer_but_lesser_unboxed = PackedList({1.0, 3.0});
+  EXPECT_TRUE(shorter_but_greater > longer_but_lesser_unboxed)
+      << "two lists changed order when one of them changed representation";
+}
+
+TEST(PropertyValue, PlacesANaNInsideAPointWhereItPlacesOneOutside) {
+  // A point holds its coordinates as doubles, so one of them can be a NaN. The
+  // order has to place such a point rather than leaving it beside nothing:
+  // reading unplaced as equivalent makes it the same value as every other point
+  // of its system, which is neither true nor an ordering a sorted structure can
+  // be given.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const carrying_nan = PropertyValue(Point2d{Cartesian_2d, nan, 1.0});
+  auto const carrying_one = PropertyValue(Point2d{Cartesian_2d, 1.0, 1.0});
+
+  EXPECT_FALSE(carrying_nan == carrying_one) << "a point holding a NaN is not a point holding a number";
+  EXPECT_TRUE(carrying_nan > carrying_one) << "a NaN sorts after every number, inside a point as well";
+  EXPECT_TRUE(carrying_nan == PropertyValue(Point2d{Cartesian_2d, nan, 1.0})) << "two alike points are one value";
+
+  auto const in_three = PropertyValue(Point3d{Cartesian_3d, 1.0, 1.0, nan});
+  EXPECT_FALSE(in_three == PropertyValue(Point3d{Cartesian_3d, 1.0, 1.0, 2.0}));
+  EXPECT_TRUE(in_three == PropertyValue(Point3d{Cartesian_3d, 1.0, 1.0, nan}));
+}
+
+TEST(PropertyValue, PlacesANaNInsideAListWhereItPlacesOneOutside) {
+  // The order has to place every pair it is handed. Reading a NaN element as
+  // leaving two lists unplaced, and then calling unplaced the same as
+  // equivalent, makes two different lists compare equal.
+  auto const carrying_nan = PackedList({std::numeric_limits<double>::quiet_NaN()});
+  auto const carrying_one = PackedList({1.0});
+  EXPECT_FALSE(carrying_nan == carrying_one) << "a list holding a NaN is not the list holding a number";
+  EXPECT_TRUE(carrying_nan > carrying_one) << "a NaN sorts after every number, inside a list as well as outside";
+  EXPECT_TRUE(carrying_nan == PackedList({std::numeric_limits<double>::quiet_NaN()}));
+}
+
+TEST(PropertyValue, ARangeOverTheNumbersStopsBelowTheNaNs) {
+  // Every comparison against a NaN is false, so a range built from one of them
+  // must not reach a NaN, even though a NaN sorts among the numbers rather than
+  // above the type.
+  auto const bound = memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::Double);
+  ASSERT_TRUE(bound.has_value());
+  auto const nan = memgraph::storage::PropertyValue(std::numeric_limits<double>::quiet_NaN());
+  EXPECT_FALSE(memgraph::storage::IsValueIncludedByUpperBound(nan, bound));
+  EXPECT_TRUE(memgraph::storage::IsValueIncludedByUpperBound(memgraph::storage::PropertyValue(1.0), bound));
+  EXPECT_TRUE(memgraph::storage::IsValueIncludedByUpperBound(
+      memgraph::storage::PropertyValue(std::numeric_limits<double>::infinity()), bound));
+}
+
+TEST(PropertyValue, NaNIsOrderedAfterEveryNumber) {
+  using memgraph::storage::PropertyValue;
+  auto const nan = PropertyValue(std::numeric_limits<double>::quiet_NaN());
+
+  EXPECT_TRUE(PropertyValue(1.0) < nan);
+  EXPECT_TRUE(PropertyValue(int64_t{7}) < nan);
+  EXPECT_FALSE(nan < PropertyValue(1.0));
+
+  // Alongside itself, so the relation stays antisymmetric.
+  EXPECT_FALSE(nan < nan);
+
+  // A sort has to put it last, which is the property an index relies on.
+  std::vector<PropertyValue> values{nan, PropertyValue(2.0), PropertyValue(int64_t{1}), PropertyValue(3.0)};
+  std::ranges::sort(values);
+  EXPECT_TRUE(std::isnan(values.back().ValueDouble())) << "a NaN did not sort last";
 }

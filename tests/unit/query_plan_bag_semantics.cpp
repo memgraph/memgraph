@@ -197,7 +197,8 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     // and need to take care it does not happen by accident
     auto shuffled = values;
     auto order_equal = [&values, &shuffled]() {
-      return std::equal(values.begin(), values.end(), shuffled.begin(), TypedValue::BoolEqual{});
+      return std::equal(
+          values.begin(), values.end(), shuffled.begin(), memgraph::query::relations::equivalence::KeyEqual{});
     };
 
     std::random_device rd;
@@ -223,7 +224,8 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     auto context = MakeContext(this->storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(values.size(), results.size());
-    for (int j = 0; j < results.size(); ++j) EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], values[j]));
+    for (int j = 0; j < results.size(); ++j)
+      EXPECT_TRUE(memgraph::query::relations::equivalence::KeyEqual{}(results[j][0], values[j]));
   }
 }
 
@@ -283,59 +285,53 @@ TYPED_TEST(QueryPlanTest, OrderByMultiple) {
   }
 }
 
-TYPED_TEST(QueryPlanTest, OrderByExceptions) {
+TYPED_TEST(QueryPlanTest, OrderByUnlikeTypes) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
 
-  // a vector of pairs of typed values that should result
-  // in an exception when trying to order on them
-  std::vector<std::pair<memgraph::storage::PropertyValue, memgraph::storage::PropertyValue>> exception_pairs{
-      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue(true)},
-      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue("bla")},
-      {memgraph::storage::PropertyValue(42),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
-      {memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue("bla")},
-      {memgraph::storage::PropertyValue(true),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(true)})},
-      {memgraph::storage::PropertyValue("bla"),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")})},
-      // illegal comparisons of same-type values
-      {memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")}),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
-      {memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-           memgraph::storage::PropertyValue("bla"), memgraph::storage::PropertyValue("bla")}),
-       memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-           memgraph::storage::PropertyValue("bla"), memgraph::storage::PropertyValue(42)})}};
+  using memgraph::storage::PropertyValue;
+  auto const list_of = [](PropertyValue value) { return PropertyValue(std::vector<PropertyValue>{std::move(value)}); };
 
-  for (const auto &pair : exception_pairs) {
-    // empty database
+  // Pairs of values with no order within a type, written smaller first. The
+  // ordering places every type relative to every other, so each pair sorts
+  // rather than raising.
+  std::vector<std::pair<PropertyValue, PropertyValue>> ordered_pairs{
+      {list_of(PropertyValue(42)), PropertyValue("bla")},
+      {list_of(PropertyValue(42)), PropertyValue(true)},
+      {list_of(PropertyValue(42)), PropertyValue(42)},
+      {PropertyValue("bla"), PropertyValue(true)},
+      {PropertyValue("bla"), PropertyValue(42)},
+      {PropertyValue(true), PropertyValue(42)},
+      // Within a type, element by element, where the elements are unlike too.
+      {list_of(PropertyValue(42)), list_of(PropertyValue("bla"))},
+      {PropertyValue(std::vector<PropertyValue>{PropertyValue("bla"), PropertyValue(42)}),
+       PropertyValue(std::vector<PropertyValue>{PropertyValue("bla"), PropertyValue("bla")})},
+  };
+
+  for (const auto &[smaller, greater] : ordered_pairs) {
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
       ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).has_value());
     dba.AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
-    // make two vertices, and set values
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.first).has_value());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.second).has_value());
+    // Inserted larger first, so that the order returned is the sort's doing.
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, greater).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, smaller).has_value());
     dba.AdvanceCommand();
-    ASSERT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-    for (const auto &va : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_NE(va.GetProperty(memgraph::storage::View::OLD, prop).value().type(),
-                memgraph::storage::PropertyValue::Type::Null);
 
-    // order by and expect an exception
     auto n = MakeScanAll(this->storage, symbol_table, "n");
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
     auto order_by =
         std::make_shared<plan::OrderBy>(n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}}, std::vector<Symbol>{});
+    auto output = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("out", true));
+    auto produce = MakeProduce(order_by, output);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*order_by, &context), QueryRuntimeException);
+    auto results = CollectProduce(*produce, &context);
+
+    ASSERT_EQ(results.size(), 2);
+    auto const first = results[0][0].ValueVertex().GetProperty(memgraph::storage::View::OLD, prop);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(memgraph::storage::PropertyValue(*first), smaller) << "the smaller of the pair did not sort first";
   }
 }

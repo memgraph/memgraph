@@ -21,6 +21,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/rewrite/order_by_elimination.hpp"
 
 #include "query_common.hpp"
 
@@ -98,6 +99,108 @@ TYPED_TEST(OrderByIndexTest, BasicElimination) {
 }
 
 // Composite prefix - ORDER BY n.a with index (a, b)
+TYPED_TEST(OrderByIndexTest, PresenceOnlyScanNotEliminated) {
+  // MATCH (n:L) WHERE n.prop IS NOT NULL ORDER BY n.prop RETURN n
+  //
+  // A scan asking only that a value be present returns every type the property
+  // holds, and the order an index keeps those in is not the order a sort puts
+  // them in: a map is ordered by the identifiers its keys were given rather
+  // than by their names, and the temporal types are separated by the
+  // enumeration they are declared in. Only a scan fenced to a type the two
+  // agree about can stand in for the sort.
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "n", property.second)))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType))
+      << "Plan should still use the index to find the rows";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: a presence-only scan does not supply the sort order";
+}
+
+TYPED_TEST(OrderByIndexTest, ScanFencedToMapsNotEliminated) {
+  // MATCH (n:L) WHERE n.prop > {a: 1} ORDER BY n.prop RETURN n
+  //
+  // A bound fences the scan to its own type, and this one fences it to the maps,
+  // which an index keeps in the order their keys were first given identifiers
+  // while a sort orders them by name.
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", label_name))),
+      WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), MAP({this->storage.GetPropertyIx("a"), LITERAL(1)}))),
+      RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: a scan fenced to the maps does not supply the sort order";
+}
+
+TYPED_TEST(OrderByIndexTest, ScanFencedByAParameterNotEliminated) {
+  // MATCH (n:L) WHERE n.prop > $bound ORDER BY n.prop RETURN n
+  //
+  // A plan is cached against the query with its terms stripped out, so one
+  // settled by the type of the value standing in for a term today would be
+  // reused for a value of another type tomorrow. The type a parameter carries
+  // is therefore not a fact a plan may be built on, and a scan fenced by one
+  // names no type here.
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *const bound = this->storage.template Create<memgraph::query::ParameterLookup>(0);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), bound)),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: what a parameter holds is not settled when the plan is";
+}
+
+TYPED_TEST(OrderByIndexTest, ScanFencedToNumbersStillEliminated) {
+  // The other side of the same condition: a bound naming a type the two layers
+  // order alike still lets the scan stand in for the sort.
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should still be eliminated for a scan fenced to the numbers";
+}
+
 TYPED_TEST(OrderByIndexTest, CompositePrefix) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a RETURN n
   FakeDbAccessor dba;
@@ -121,10 +224,11 @@ TYPED_TEST(OrderByIndexTest, CompositePrefix) {
 }
 
 // Equality on first column, ORDER BY second -- equality-pinned skip allows elimination
-TYPED_TEST(OrderByIndexTest, EqualitySkipEliminated) {
+TYPED_TEST(OrderByIndexTest, EqualitySkipNotEliminated) {
   // MATCH (n:L) WHERE n.a = 5 AND n.b IS NOT NULL ORDER BY n.b RETURN n
-  // b IS NOT NULL keeps the sort column non-nullable, so the index order (which
-  // sorts a missing/NULL b first) cannot disagree with ORDER BY's NULL-last.
+  // Asking that b be present settles where a null would have gone and nothing
+  // else: b still holds every other type, and a map or a temporal is kept in a
+  // different order by an index than a sort would put it in.
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -143,8 +247,9 @@ TYPED_TEST(OrderByIndexTest, EqualitySkipEliminated) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (a equality-pinned, b non-null, ORDER BY b follows in index)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // A nullable suffix column (only the prefix is pinned) must NOT eliminate the
@@ -224,8 +329,9 @@ TYPED_TEST(OrderByIndexTest, FullCompositeWithEquality) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (full composite; a pinned, b non-null)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // With LIMIT - ORDER BY n.prop LIMIT 10
@@ -473,8 +579,9 @@ TYPED_TEST(OrderByIndexTest, FullCompositeRangeOnFirst) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (range on a, b non-null, ORDER BY a, b matches index)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // Equality on a + range on b, ORDER BY a, b -- equality-pinned column also in ORDER BY
@@ -746,7 +853,7 @@ TYPED_TEST(OrderByIndexTest, ReturnRenameOrderByOutputScope) {
 }
 
 // Equality on a, equality on b, ORDER BY c -- double equality skip with index (a, b, c)
-TYPED_TEST(OrderByIndexTest, DoubleEqualitySkipEliminated) {
+TYPED_TEST(OrderByIndexTest, DoubleEqualitySkipNotEliminated) {
   // MATCH (n:L) WHERE n.a = 1 AND n.b = 2 AND n.c IS NOT NULL ORDER BY n.c RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
@@ -769,8 +876,9 @@ TYPED_TEST(OrderByIndexTest, DoubleEqualitySkipEliminated) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (a and b equality-pinned, c non-null, ORDER BY c follows in index)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // Equality on a, range on b, ORDER BY c -- range on b creates a gap, should NOT eliminate
@@ -959,7 +1067,7 @@ TYPED_TEST(OrderByIndexTest, ReturnPropertyAliasEliminated) {
 }
 
 // Composite index WITH n.a AS a, n.b AS b ORDER BY a, b -- both aliases resolved, order matches.
-TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasEliminated) {
+TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasNotEliminated) {
   // MATCH (n:L) WHERE n.a > 0 AND n.b IS NOT NULL WITH n.a AS a, n.b AS b RETURN a, b ORDER BY a, b
   FakeDbAccessor dba;
   const auto *const label_name = "L";
@@ -985,8 +1093,9 @@ TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasEliminated) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (composite index (a,b), WITH n.a AS a, n.b AS b, ORDER BY a, b)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // Composite index WITH n.b AS b, n.a AS a ORDER BY b, a -- wrong order, not eliminated.
@@ -1073,8 +1182,9 @@ TYPED_TEST(OrderByIndexTest, EqualityPinnedWithPropertyAlias) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (equality-pinned a, ORDER BY b through alias)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // WITH n.a + 1 AS a ORDER BY a -- computed expression, not a direct property. Not eliminated.
@@ -1135,7 +1245,7 @@ TYPED_TEST(OrderByIndexTest, RenameChainBeforeProjectionEliminated) {
 }
 
 // Composite rename chain -- WITH n AS m WITH m.a AS a, m.b AS b ORDER BY a, b.
-TYPED_TEST(OrderByIndexTest, CompositeRenameChainEliminated) {
+TYPED_TEST(OrderByIndexTest, CompositeRenameChainNotEliminated) {
   // MATCH (n:L) WHERE n.a > 0 AND n.b IS NOT NULL WITH n AS m WITH m.a AS a, m.b AS b RETURN a, b ORDER BY a, b
   FakeDbAccessor dba;
   const auto *const label_name = "L";
@@ -1164,8 +1274,9 @@ TYPED_TEST(OrderByIndexTest, CompositeRenameChainEliminated) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (rename n->m then composite m.a, m.b -- tracked through chain)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // RETURN DISTINCT n.prop AS a ORDER BY a -- Distinct between Produce and OrderBy.
@@ -1370,7 +1481,7 @@ TYPED_TEST(OrderByIndexTest, MixedOrderDirectionsNotEliminated) {
 }
 
 // DESC composite index + ORDER BY a DESC, b DESC → eliminated
-TYPED_TEST(OrderByIndexTest, DescCompositeDescOrderEliminated) {
+TYPED_TEST(OrderByIndexTest, DescCompositeDescOrderNotEliminated) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a DESC, n.b DESC RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
@@ -1394,12 +1505,13 @@ TYPED_TEST(OrderByIndexTest, DescCompositeDescOrderEliminated) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy DESC, DESC should be eliminated with DESC composite index (b non-null)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // DESC index with equality-pinned column + ORDER BY second column DESC → eliminated
-TYPED_TEST(OrderByIndexTest, DescIndexEqualityPinnedEliminated) {
+TYPED_TEST(OrderByIndexTest, DescIndexEqualityPinnedNotEliminated) {
   // MATCH (n:L) WHERE n.a = 5 ORDER BY n.b DESC RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
@@ -1419,8 +1531,9 @@ TYPED_TEST(OrderByIndexTest, DescIndexEqualityPinnedEliminated) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy DESC on second column should be eliminated with DESC index, a pinned and b non-null";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: the sort column is only asked to be present, so it holds every type, "
+         "and the order an index keeps those in is not the order a sort puts them in";
 }
 
 // Both ASC and DESC indices exist — ASC ORDER BY uses ASC, DESC ORDER BY uses DESC
@@ -1891,6 +2004,102 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyValueDifferentPropNotEliminated) 
       << "Plan should use ScanAllByEdgePropertyValue";
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy must NOT be eliminated -- ORDER BY on different property than index";
+}
+
+// The condition that decides whether an index scan can stand in for a sort,
+// asked directly.
+//
+// Reaching it through a planned query says only whether the plan came out
+// right; it cannot say which of the reasons produced that answer, and a
+// condition answering correctly for the wrong reason stops being correct as
+// soon as either order moves. These name a range and read the answer.
+class OrderFromAScanTest : public ::testing::Test {
+ protected:
+  memgraph::query::AstStorage storage;
+
+  template <typename T>
+  memgraph::query::Expression *Literal(T value) {
+    return storage.Create<memgraph::query::PrimitiveLiteral>(std::move(value));
+  }
+
+  static memgraph::utils::Bound<memgraph::query::Expression *> Inclusive(memgraph::query::Expression *e) {
+    return memgraph::utils::MakeBoundInclusive(e);
+  }
+};
+
+TEST_F(OrderFromAScanTest, AScanForOneValueAlwaysOrdersLikeASort) {
+  // Every entry such a scan returns holds the value it was asked for, so any
+  // order of them is already the order a sort would give, whatever the type.
+  EXPECT_TRUE(RangeOrdersLikeASort(ExpressionRange::Equal(Literal(1))));
+  EXPECT_TRUE(RangeOrdersLikeASort(ExpressionRange::Equal(Literal(std::string("s")))));
+}
+
+TEST_F(OrderFromAScanTest, AScanAskingOnlyThatAValueBePresentNeverOrdersLikeASort) {
+  // It admits every type at once, so it can hand back one of the types the two
+  // layers order apart.
+  EXPECT_FALSE(RangeOrdersLikeASort(ExpressionRange::IsNotNull()));
+}
+
+TEST_F(OrderFromAScanTest, ARangeFencedToNumbersOrdersLikeASort) {
+  auto const range = ExpressionRange::Range(Inclusive(Literal(1)), std::nullopt);
+  EXPECT_TRUE(RangeOrdersLikeASort(range));
+}
+
+TEST_F(OrderFromAScanTest, ARangeFencedToMapsDoesNotOrderLikeASort) {
+  // A stored map is kept by the identifiers its keys were given and a sort
+  // reads their names, so an index over a map column walks it in an order a
+  // sort would not produce.
+  auto *empty_map = storage.Create<memgraph::query::MapLiteral>(
+      std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{});
+  EXPECT_FALSE(RangeOrdersLikeASort(ExpressionRange::Range(Inclusive(empty_map), std::nullopt)));
+}
+
+TEST_F(OrderFromAScanTest, ARangeFencedToListsDoesNotOrderLikeASort) {
+  auto *empty_list = storage.Create<memgraph::query::ListLiteral>(std::vector<memgraph::query::Expression *>{});
+  EXPECT_FALSE(RangeOrdersLikeASort(ExpressionRange::Range(Inclusive(empty_list), std::nullopt)));
+}
+
+TEST_F(OrderFromAScanTest, ARangeFencedByATermNamesNoTypeSoItCannotBeReliedUpon) {
+  // A plan is cached against the query with its terms stripped out, so the
+  // type standing in for a term is not settled when the plan is: one settled
+  // by an integer today would be reused for a map tomorrow.
+  auto *parameter = storage.Create<memgraph::query::ParameterLookup>(0);
+  EXPECT_EQ(BoundType(parameter), std::nullopt);
+  EXPECT_FALSE(RangeOrdersLikeASort(ExpressionRange::Range(Inclusive(parameter), std::nullopt)));
+}
+
+TEST_F(OrderFromAScanTest, ABoundNamesTheTypeOfTheLiteralItHolds) {
+  EXPECT_EQ(BoundType(Literal(1)), memgraph::storage::PropertyValueType::Int);
+  EXPECT_EQ(BoundType(Literal(std::string("s"))), memgraph::storage::PropertyValueType::String);
+  EXPECT_EQ(BoundType(storage.Create<memgraph::query::ListLiteral>(std::vector<memgraph::query::Expression *>{})),
+            memgraph::storage::PropertyValueType::List);
+}
+
+TEST_F(OrderFromAScanTest, EveryTypeABoundCanNameIsAnsweredForByTheLayerCondition) {
+  // The two halves of the decision meet here: a bound names a type, and the
+  // condition says whether the layers keep that type in one order. Asserting
+  // they agree for each literal type is what stops one of them moving alone.
+  struct Case {
+    memgraph::query::Expression *bound;
+    memgraph::storage::PropertyValueType type;
+  };
+
+  auto const cases = std::vector<Case>{
+      {Literal(1), memgraph::storage::PropertyValueType::Int},
+      {Literal(1.5), memgraph::storage::PropertyValueType::Double},
+      {Literal(std::string("s")), memgraph::storage::PropertyValueType::String},
+      {Literal(true), memgraph::storage::PropertyValueType::Bool},
+      {storage.Create<memgraph::query::ListLiteral>(std::vector<memgraph::query::Expression *>{}),
+       memgraph::storage::PropertyValueType::List},
+  };
+
+  for (auto const &c : cases) {
+    ASSERT_EQ(BoundType(c.bound), c.type);
+    EXPECT_EQ(RangeOrdersLikeASort(ExpressionRange::Range(Inclusive(c.bound), std::nullopt)),
+              memgraph::query::relations::LayersKeepThisTypeInOneOrder(c.type))
+        << "a bound naming type " << static_cast<int>(c.type)
+        << " and the condition over that type must give one answer";
+  }
 }
 
 }  // namespace

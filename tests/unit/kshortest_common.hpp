@@ -553,9 +553,9 @@ class Database {
       auto source = results[j][0];
       auto sink = results[j][1];
 
-      while (j < results.size() && memgraph::query::TypedValue::BoolEqual{}(results[j][3], blocked_entity) &&
-             memgraph::query::TypedValue::BoolEqual{}(results[j][0], source) &&
-             memgraph::query::TypedValue::BoolEqual{}(results[j][1], sink)) {
+      while (j < results.size() && memgraph::query::relations::equivalence::KeyEqual{}(results[j][3], blocked_entity) &&
+             memgraph::query::relations::equivalence::KeyEqual{}(results[j][0], source) &&
+             memgraph::query::relations::equivalence::KeyEqual{}(results[j][1], sink)) {
         ++j;
       }
 

@@ -3573,7 +3573,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   ASSERT_EQ(row.size(), 1);
   auto vertex = row[0].ValueVertex();
   TypedValue value(*vertex.GetProperty(memgraph::storage::View::OLD, prop), storage_dba->GetNameIdMapper());
-  TypedValue::BoolEqual eq;
+  memgraph::query::relations::equivalence::KeyEqual eq;
   EXPECT_TRUE(eq(value, TypedValue(42)));
 }
 

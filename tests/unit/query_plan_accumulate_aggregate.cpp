@@ -365,7 +365,10 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), group_by_vals.size() - 2);
-  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> result_group_bys;
+  std::unordered_set<TypedValue,
+                     memgraph::query::relations::equivalence::Hasher,
+                     memgraph::query::relations::equivalence::KeyEqual>
+      result_group_bys;
   for (const auto &row : results) {
     ASSERT_EQ(2, row.size());
     result_group_bys.insert(row[1]);
@@ -374,8 +377,10 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
   for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
-  EXPECT_TRUE(std::is_permutation(
-      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::BoolEqual{}));
+  EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(),
+                                  group_by_tvals.end() - 2,
+                                  result_group_bys.begin(),
+                                  memgraph::query::relations::equivalence::KeyEqual{}));
 }
 
 TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
@@ -638,10 +643,11 @@ TYPED_TEST(QueryPlanTest, AggregateFirstValueTypes) {
     CollectProduce(*produce, &context);
   };
 
-  // everything except for COUNT and COLLECT fails on a Vertex
+  // a Vertex is placed by its identity, so the smallest and the largest of a
+  // column of them is an answer; AVG and SUM still have none to give
   aggregate(n_id, Aggregation::Op::COUNT);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_id, Aggregation::Op::MIN);
+  aggregate(n_id, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), QueryRuntimeException);
 
@@ -690,13 +696,14 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
     CollectProduce(*produce, &context);
   };
 
-  // everything except for COUNT and COLLECT fails on a Vertex
+  // a Vertex is placed by its identity, so the smallest and the largest of a
+  // column of them is an answer; AVG and SUM still have none to give
   auto n_id = n_p1->expression_;
   aggregate(n_id, Aggregation::Op::COUNT);
   aggregate(n_id, Aggregation::Op::COLLECT_LIST);
   aggregate(n_id, Aggregation::Op::COLLECT_MAP);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_id, Aggregation::Op::MIN);
+  aggregate(n_id, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), QueryRuntimeException);
 
@@ -709,14 +716,47 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
 
-  // combination of int and bool, everything except COUNT and COLLECT fails
+  // combination of int and bool: the smallest and the largest are found by
+  // where the two types sit relative to one another, the rest still fail
   aggregate(n_p2, Aggregation::Op::COUNT);
   aggregate(n_p2, Aggregation::Op::COLLECT_LIST);
   aggregate(n_p2, Aggregation::Op::COLLECT_MAP);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_p2, Aggregation::Op::MIN);
+  aggregate(n_p2, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
+}
+
+TYPED_TEST(QueryPlanTest, MinMaxPlaceGraphElementsByIdentity) {
+  // The order places a graph element by its identity, and min and max read the
+  // order, so a column of them has a smallest and a largest. Which one that is
+  // carries no meaning beyond the identity itself, so the test asserts only
+  // that the two are the ends of the column rather than naming either.
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+
+  auto first = dba.InsertVertex();
+  auto second = dba.InsertVertex();
+  auto third = dba.InsertVertex();
+  dba.AdvanceCommand();
+
+  auto const smallest = std::min({first.Gid().AsUint(), second.Gid().AsUint(), third.Gid().AsUint()});
+  auto const largest = std::max({first.Gid().AsUint(), second.Gid().AsUint(), third.Gid().AsUint()});
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto *n_ident = IDENT("n")->MapTo(n.sym_);
+
+  auto produce = this->MakeAggregationProduce(
+      n.op_, symbol_table, {n_ident, n_ident}, {Aggregation::Op::MIN, Aggregation::Op::MAX}, {}, {}, false);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0][0].type(), TypedValue::Type::Vertex);
+  ASSERT_EQ(results[0][1].type(), TypedValue::Type::Vertex);
+  EXPECT_EQ(results[0][0].ValueVertex().Gid().AsUint(), smallest);
+  EXPECT_EQ(results[0][1].ValueVertex().Gid().AsUint(), largest);
 }
 
 TYPED_TEST(QueryPlanTest, Unwind) {
@@ -903,7 +943,10 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), group_by_vals.size() - 2);
-  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> result_group_bys;
+  std::unordered_set<TypedValue,
+                     memgraph::query::relations::equivalence::Hasher,
+                     memgraph::query::relations::equivalence::KeyEqual>
+      result_group_bys;
   for (const auto &row : results) {
     ASSERT_EQ(2, row.size());
     if (!row[1].IsNull()) {
@@ -915,8 +958,10 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
   for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
-  EXPECT_TRUE(std::is_permutation(
-      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::BoolEqual{}));
+  EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(),
+                                  group_by_tvals.end() - 2,
+                                  result_group_bys.begin(),
+                                  memgraph::query::relations::equivalence::KeyEqual{}));
 }
 
 TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
@@ -1053,10 +1098,11 @@ TYPED_TEST(QueryPlanTest, AggregateFirstValueTypesWithDistinct) {
     CollectProduce(*produce, &context);
   };
 
-  // everything except for COUNT and COLLECT fails on a Vertex
+  // a Vertex is placed by its identity, so the smallest and the largest of a
+  // column of them is an answer; AVG and SUM still have none to give
   aggregate(n_id, Aggregation::Op::COUNT);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_id, Aggregation::Op::MIN);
+  aggregate(n_id, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), QueryRuntimeException);
 
@@ -1105,13 +1151,14 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
     CollectProduce(*produce, &context);
   };
 
-  // everything except for COUNT and COLLECT fails on a Vertex
+  // a Vertex is placed by its identity, so the smallest and the largest of a
+  // column of them is an answer; AVG and SUM still have none to give
   auto n_id = n_p1->expression_;
   aggregate(n_id, Aggregation::Op::COUNT);
   aggregate(n_id, Aggregation::Op::COLLECT_LIST);
   aggregate(n_id, Aggregation::Op::COLLECT_MAP);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_id, Aggregation::Op::MIN);
+  aggregate(n_id, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), QueryRuntimeException);
 
@@ -1124,12 +1171,13 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
 
-  // combination of int and bool, everything except COUNT and COLLECT fails
+  // combination of int and bool: the smallest and the largest are found by
+  // where the two types sit relative to one another, the rest still fail
   aggregate(n_p2, Aggregation::Op::COUNT);
   aggregate(n_p2, Aggregation::Op::COLLECT_LIST);
   aggregate(n_p2, Aggregation::Op::COLLECT_MAP);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_p2, Aggregation::Op::MIN);
+  aggregate(n_p2, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }

@@ -198,6 +198,69 @@ TYPED_TEST(CppApiTestFixture, TestList) {
   auto value_y = mgp::Value(mgp::List());
 }
 
+TYPED_TEST(CppApiTestFixture, ValuesAreComparedByEquivalence) {
+  // The relation a query module gets when it compares two values. It answers
+  // yes or no and has no third answer to give, so it cannot be the equality a
+  // query writes, which answers nothing at all about a null. It is equivalence:
+  // a null is the same value as a null, a NaN is the same value as a NaN, and
+  // an integer is the same value as the double beside it.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+
+  // Asserted through the operator rather than with EXPECT_EQ, since printing a
+  // value of these types for a failure message is not something the API offers.
+  EXPECT_TRUE(mgp::Value() == mgp::Value()) << "a null is the same value as a null";
+  EXPECT_TRUE(mgp::Value(nan) == mgp::Value(nan)) << "a NaN is the same value as a NaN";
+  EXPECT_TRUE(mgp::Value(int64_t{1}) == mgp::Value(1.0)) << "a number is compared as a number";
+  EXPECT_FALSE(mgp::Value(nan) == mgp::Value(1.0));
+  EXPECT_FALSE(mgp::Value(nan) == mgp::Value());
+
+  // The relation reaches inside a container rather than stopping at it.
+  EXPECT_TRUE(mgp::Value(mgp::List({mgp::Value(), mgp::Value(nan)})) ==
+              mgp::Value(mgp::List({mgp::Value(), mgp::Value(nan)})))
+      << "a list is the same value as one holding the same elements";
+  EXPECT_FALSE(mgp::Value(mgp::List({mgp::Value(nan)})) == mgp::Value(mgp::List({mgp::Value(1.0)})));
+
+  auto holding = mgp::Map();
+  holding.Insert("k", mgp::Value(nan));
+  auto alike = mgp::Map();
+  alike.Insert("k", mgp::Value(nan));
+  auto differing = mgp::Map();
+  differing.Insert("k", mgp::Value(1.0));
+  EXPECT_TRUE(mgp::Value(holding) == mgp::Value(alike)) << "a map is the same value as one holding the same entries";
+  EXPECT_FALSE(mgp::Value(holding) == mgp::Value(differing));
+
+  // A key the other map does not carry is enough to tell the two apart, which
+  // the comparison can only know by reading the second map.
+  auto extra = mgp::Map();
+  extra.Insert("k", mgp::Value(nan));
+  extra.Insert("j", mgp::Value(int64_t{1}));
+  EXPECT_FALSE(mgp::Value(holding) == mgp::Value(extra));
+}
+
+TYPED_TEST(CppApiTestFixture, EqualityIsOfferedBesideEquivalenceAndAnswersDifferently) {
+  // The other relation a module can reach: the equality a query writes, which
+  // is three-valued. Everything below is a pair the two relations answer apart
+  // on, which is the whole reason both are offered.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+
+  auto equal = [](mgp::Value const &lhs, mgp::Value const &rhs) {
+    return mgp::util::ValuesEqual(const_cast<mgp::Value &>(lhs).ptr(), const_cast<mgp::Value &>(rhs).ptr());
+  };
+
+  EXPECT_EQ(equal(mgp::Value(), mgp::Value()), MGP_TERNARY_UNKNOWN) << "a null decides nothing, where equivalence says";
+  EXPECT_EQ(equal(mgp::Value(nan), mgp::Value(nan)), MGP_TERNARY_FALSE) << "a NaN is equal to nothing, itself included";
+  EXPECT_EQ(equal(mgp::Value(int64_t{1}), mgp::Value(1.0)), MGP_TERNARY_TRUE) << "a number is compared as a number";
+  EXPECT_EQ(equal(mgp::Value(int64_t{1}), mgp::Value(int64_t{2})), MGP_TERNARY_FALSE);
+
+  // A container passes the undecided answer outwards rather than settling it,
+  // but only where nothing else has already told the two apart.
+  EXPECT_EQ(equal(mgp::Value(mgp::List({mgp::Value()})), mgp::Value(mgp::List({mgp::Value()}))), MGP_TERNARY_UNKNOWN);
+  EXPECT_EQ(equal(mgp::Value(mgp::List({mgp::Value(), mgp::Value(int64_t{1})})),
+                  mgp::Value(mgp::List({mgp::Value(), mgp::Value(int64_t{2})}))),
+            MGP_TERNARY_FALSE)
+      << "an element pair that differs settles the two whatever a null beside it leaves open";
+}
+
 TYPED_TEST(CppApiTestFixture, TestMap) {
   auto map_1 = mgp::Map();
 

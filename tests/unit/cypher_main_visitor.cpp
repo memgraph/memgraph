@@ -123,7 +123,7 @@ class Base {
     TypedValue expected_tv(expected);
     const auto use_parameter_lookup = !expected_tv.IsNull() && context_.is_query_cached;
     TypedValue value = GetLiteral(expression, use_parameter_lookup, token_position);
-    EXPECT_TRUE(TypedValue::BoolEqual{}(value, expected_tv));
+    EXPECT_TRUE(memgraph::query::relations::equivalence::KeyEqual{}(value, expected_tv));
   }
 };
 

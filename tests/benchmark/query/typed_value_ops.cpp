@@ -22,15 +22,21 @@
 
 #include <benchmark/benchmark.h>
 
+#include <algorithm>
+#include <limits>
+#include <map>
 #include <string>
 #include <vector>
 
+#include "query/relations/equivalence.hpp"
+#include "query/relations/orderability.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 
 namespace {
 
 using memgraph::query::TypedValue;
+namespace relations = memgraph::query::relations;
 
 memgraph::utils::MemoryResource *Mem() { return memgraph::utils::NewDeleteResource(); }
 
@@ -47,6 +53,26 @@ TypedValue Make(std::string_view what) {
   }
   MG_ASSERT(false, "unknown type name");
   return TypedValue{Mem()};
+}
+
+TypedValue MakeMap(bool with_null) {
+  auto entries = std::map<std::string, TypedValue>{};
+  for (int i = 0; i != 4; ++i) entries.emplace("k" + std::to_string(i), TypedValue{int64_t{i}, Mem()});
+  if (with_null) entries.emplace("n", TypedValue{Mem()});
+  return TypedValue{std::move(entries), Mem()};
+}
+
+TypedValue MakeList(bool with_null) {
+  auto items = std::vector<TypedValue>{};
+  for (int i = 0; i != 8; ++i) items.emplace_back(int64_t{i}, Mem());
+  if (with_null) items.emplace_back(Mem());
+  return TypedValue{std::move(items), Mem()};
+}
+
+TypedValue MakeNestedList() {
+  auto outer = std::vector<TypedValue>{};
+  for (int i = 0; i != 4; ++i) outer.emplace_back(MakeList(false));
+  return TypedValue{std::move(outer), Mem()};
 }
 
 // Copying is where a type that owns an allocation parts company with one that does not.
@@ -116,6 +142,152 @@ void CompareStrings(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * 4);
 }
 
+// `a > b` between two values of unlike types, which answers Null. Reaching that answer means
+// establishing that each type belongs to the ordering at all, and a string is the type where asking
+// that question the wrong way costs its whole length.
+void CompareUnlikeTypes(benchmark::State &state) {
+  auto const lhs = TypedValue{std::string{"a fairly long region name to compare against"}, Mem()};
+  auto const rhs = TypedValue{int64_t{499}, Mem()};
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(lhs > rhs);
+    benchmark::DoNotOptimize(lhs < rhs);
+    benchmark::DoNotOptimize(lhs >= rhs);
+    benchmark::DoNotOptimize(lhs <= rhs);
+  }
+  state.SetItemsProcessed(state.iterations() * 4);
+}
+
+// The four ordered comparisons apart from one another. Measuring them together lets a change that
+// speeds one up and slows another down read as no change at all.
+void Greater(benchmark::State &state, std::string_view what) {
+  auto const lhs = Make(what);
+  auto const rhs = Make(what);
+  for (auto _ : state) benchmark::DoNotOptimize(lhs > rhs);
+  state.SetItemsProcessed(state.iterations());
+}
+
+void GreaterEqual(benchmark::State &state, std::string_view what) {
+  auto const lhs = Make(what);
+  auto const rhs = Make(what);
+  for (auto _ : state) benchmark::DoNotOptimize(lhs >= rhs);
+  state.SetItemsProcessed(state.iterations());
+}
+
+void Less(benchmark::State &state, std::string_view what) {
+  auto const lhs = Make(what);
+  auto const rhs = Make(what);
+  for (auto _ : state) benchmark::DoNotOptimize(lhs < rhs);
+  state.SetItemsProcessed(state.iterations());
+}
+
+void LessEqual(benchmark::State &state, std::string_view what) {
+  auto const lhs = Make(what);
+  auto const rhs = Make(what);
+  for (auto _ : state) benchmark::DoNotOptimize(lhs <= rhs);
+  state.SetItemsProcessed(state.iterations());
+}
+
+// Equality, the relation behind `=` and `IN`.
+void Equality(benchmark::State &state, std::string_view what) {
+  auto const lhs = Make(what);
+  auto const rhs = Make(what);
+  for (auto _ : state) benchmark::DoNotOptimize(lhs == rhs);
+  state.SetItemsProcessed(state.iterations());
+}
+
+// Equivalence, the relation behind DISTINCT and grouping, and the hottest of the three: a hash set
+// of query values calls it on every probe that reaches a populated bucket.
+void Equivalence(benchmark::State &state, std::string_view what) {
+  auto const lhs = Make(what);
+  auto const rhs = Make(what);
+  auto const eq = memgraph::query::relations::equivalence::KeyEqual{};
+  for (auto _ : state) benchmark::DoNotOptimize(eq(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+// The container shapes the two relations disagree about, which the scalar sweep above cannot reach.
+void EquivalenceOfMaps(benchmark::State &state, bool with_null) {
+  auto const lhs = MakeMap(with_null);
+  auto const rhs = MakeMap(with_null);
+  auto const eq = memgraph::query::relations::equivalence::KeyEqual{};
+  for (auto _ : state) benchmark::DoNotOptimize(eq(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+void EquivalenceOfNestedLists(benchmark::State &state) {
+  auto const lhs = MakeNestedList();
+  auto const rhs = MakeNestedList();
+  auto const eq = memgraph::query::relations::equivalence::KeyEqual{};
+  for (auto _ : state) benchmark::DoNotOptimize(eq(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+void EqualityOfMaps(benchmark::State &state, bool with_null) {
+  auto const lhs = MakeMap(with_null);
+  auto const rhs = MakeMap(with_null);
+  for (auto _ : state) benchmark::DoNotOptimize(lhs == rhs);
+  state.SetItemsProcessed(state.iterations());
+}
+
+void EqualityOfListsWithNull(benchmark::State &state) {
+  auto const lhs = MakeList(true);
+  auto const rhs = MakeList(true);
+  for (auto _ : state) benchmark::DoNotOptimize(lhs == rhs);
+  state.SetItemsProcessed(state.iterations());
+}
+
+// Orderability, the relation ORDER BY, min and max read. A sort calls it once per comparison, which
+// is the granularity that decides where it may be defined.
+void Orderability(benchmark::State &state, std::string_view what) {
+  auto const lhs = Make(what);
+  auto const rhs = Make(what);
+  for (auto _ : state) benchmark::DoNotOptimize(relations::orderability::Compare(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+// The pair only this relation admits, where the answer comes from where the two types sit rather
+// than from either value.
+void OrderabilityOfUnlikeTypes(benchmark::State &state) {
+  auto const lhs = Make("String");
+  auto const rhs = Make("Int");
+  for (auto _ : state) benchmark::DoNotOptimize(relations::orderability::Compare(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+// The placement comparability leaves undone, and the one path where the ordering does more work
+// than a plain three-way comparison.
+void OrderabilityOfNaN(benchmark::State &state) {
+  auto const lhs = TypedValue{std::numeric_limits<double>::quiet_NaN(), Mem()};
+  auto const rhs = TypedValue{1.0, Mem()};
+  for (auto _ : state) benchmark::DoNotOptimize(relations::orderability::Compare(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+// What the relation exists for. Sorting is where its cost is actually paid, and a per-comparison
+// figure alone hides how often a sort calls it.
+void SortMixedColumn(benchmark::State &state) {
+  auto const source = std::vector<TypedValue>{Make("Int"),
+                                              Make("String"),
+                                              Make("Bool"),
+                                              Make("List"),
+                                              Make("Double"),
+                                              TypedValue{Mem()},
+                                              Make("Date"),
+                                              Make("Int"),
+                                              Make("String"),
+                                              Make("Double"),
+                                              Make("Bool"),
+                                              Make("List")};
+  for (auto _ : state) {
+    auto values = source;
+    std::ranges::sort(values, [](TypedValue const &a, TypedValue const &b) {
+      return std::is_lt(relations::orderability::Compare(a, b));
+    });
+    benchmark::DoNotOptimize(values);
+  }
+  state.SetItemsProcessed(state.iterations() * source.size());
+}
+
 #define FOR_EACH_TYPE(op)                                                \
   BENCHMARK_CAPTURE(op, Int, "Int")->Unit(benchmark::kNanosecond);       \
   BENCHMARK_CAPTURE(op, Double, "Double")->Unit(benchmark::kNanosecond); \
@@ -128,10 +300,37 @@ FOR_EACH_TYPE(CopyConstruct)
 FOR_EACH_TYPE(MoveAssign)
 FOR_EACH_TYPE(ConstructDestroy)
 
+// Only the types the ordering admits; the rest raise rather than compare.
+#define FOR_EACH_ORDERED_TYPE(op)                                        \
+  BENCHMARK_CAPTURE(op, Int, "Int")->Unit(benchmark::kNanosecond);       \
+  BENCHMARK_CAPTURE(op, Double, "Double")->Unit(benchmark::kNanosecond); \
+  BENCHMARK_CAPTURE(op, Date, "Date")->Unit(benchmark::kNanosecond);     \
+  BENCHMARK_CAPTURE(op, String, "String")->Unit(benchmark::kNanosecond);
+
+FOR_EACH_ORDERED_TYPE(Greater)
+FOR_EACH_ORDERED_TYPE(GreaterEqual)
+FOR_EACH_ORDERED_TYPE(Less)
+FOR_EACH_ORDERED_TYPE(LessEqual)
+FOR_EACH_TYPE(Equality)
+FOR_EACH_TYPE(Equivalence)
+
+BENCHMARK_CAPTURE(EquivalenceOfMaps, Plain, false)->Unit(benchmark::kNanosecond);
+BENCHMARK_CAPTURE(EquivalenceOfMaps, WithNull, true)->Unit(benchmark::kNanosecond);
+BENCHMARK(EquivalenceOfNestedLists)->Unit(benchmark::kNanosecond);
+BENCHMARK_CAPTURE(EqualityOfMaps, Plain, false)->Unit(benchmark::kNanosecond);
+BENCHMARK_CAPTURE(EqualityOfMaps, WithNull, true)->Unit(benchmark::kNanosecond);
+BENCHMARK(EqualityOfListsWithNull)->Unit(benchmark::kNanosecond);
+FOR_EACH_TYPE(Orderability)
+BENCHMARK(OrderabilityOfUnlikeTypes)->Unit(benchmark::kNanosecond);
+BENCHMARK(OrderabilityOfNaN)->Unit(benchmark::kNanosecond);
+BENCHMARK(SortMixedColumn)->Unit(benchmark::kNanosecond);
+
 #undef FOR_EACH_TYPE
+#undef FOR_EACH_ORDERED_TYPE
 
 BENCHMARK(CompareNumbers)->Unit(benchmark::kNanosecond);
 BENCHMARK(CompareStrings)->Unit(benchmark::kNanosecond);
+BENCHMARK(CompareUnlikeTypes)->Unit(benchmark::kNanosecond);
 
 }  // namespace
 

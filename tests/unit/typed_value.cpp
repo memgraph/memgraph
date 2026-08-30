@@ -13,6 +13,8 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
+#include <functional>
+#include <limits>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -20,6 +22,8 @@
 #include "disk_test_utils.hpp"
 #include "query/db_accessor.hpp"
 #include "query/graph.hpp"
+#include "query/relations/comparability.hpp"
+#include "query/relations/equivalence.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -246,18 +250,149 @@ TEST(TypedValue, Comparison) {
 
   run_comparison_cases(local_date_time_1, local_date_time_2);
 
+  run_comparison_cases(TypedValue(1), TypedValue(2));
+  run_comparison_cases(TypedValue(1.5), TypedValue(2.5));
+  run_comparison_cases(TypedValue("abc"), TypedValue("abd"));
+
+  // A type carrying no order of its own places no pair of its values, which
+  // makes two of them incomparable rather than a question the comparison
+  // refuses to take.
   auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
-  EXPECT_THROW((void)(enum_val < enum_val), memgraph::query::TypedValueException);
+  EXPECT_PROP_ISNULL(enum_val < enum_val);
 
   auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
   auto point_2 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
 
-  EXPECT_THROW((void)(point_1 < point_1), memgraph::query::TypedValueException);
-  EXPECT_THROW((void)(point_2 < point_2), memgraph::query::TypedValueException);
+  EXPECT_PROP_ISNULL(point_1 < point_1);
+  EXPECT_PROP_ISNULL(point_2 < point_2);
+  EXPECT_PROP_ISNULL(point_1 < point_2);
+  EXPECT_PROP_ISNULL(enum_val < point_1);
+}
+
+TEST(TypedValue, ComparisonWithNaN) {
+  // NaN is unordered with every value, itself included, so none of the four
+  // ordered comparisons holds for it in either direction.
+  const auto nan = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  for (const auto &other : {TypedValue(0.0),
+                            TypedValue(std::numeric_limits<double>::infinity()),
+                            TypedValue(-std::numeric_limits<double>::infinity()),
+                            TypedValue(1),
+                            nan}) {
+    EXPECT_PROP_FALSE(nan < other);
+    EXPECT_PROP_FALSE(nan <= other);
+    EXPECT_PROP_FALSE(nan > other);
+    EXPECT_PROP_FALSE(nan >= other);
+
+    EXPECT_PROP_FALSE(other < nan);
+    EXPECT_PROP_FALSE(other <= nan);
+    EXPECT_PROP_FALSE(other > nan);
+    EXPECT_PROP_FALSE(other >= nan);
+  }
+
+  EXPECT_PROP_FALSE(nan == nan);
+  EXPECT_PROP_TRUE(nan != nan);
+}
+
+TEST(TypedValue, ComparisonWithNull) {
+  const auto null = TypedValue();
+
+  for (const auto &other : {TypedValue(1), TypedValue("abc"), null}) {
+    EXPECT_PROP_ISNULL(null < other);
+    EXPECT_PROP_ISNULL(null <= other);
+    EXPECT_PROP_ISNULL(null > other);
+    EXPECT_PROP_ISNULL(null >= other);
+
+    EXPECT_PROP_ISNULL(other < null);
+    EXPECT_PROP_ISNULL(other <= null);
+    EXPECT_PROP_ISNULL(other > null);
+    EXPECT_PROP_ISNULL(other >= null);
+  }
+}
+
+namespace {
+// Every value a comparison can be handed, so a property over them covers the
+// pairs that answer as well as the pairs that raise.
+std::vector<TypedValue> ComparableSamples() {
+  std::vector<TypedValue> values;
+  values.emplace_back();
+  values.emplace_back(true);
+  values.emplace_back(int64_t{1});
+  values.emplace_back(2.5);
+  values.emplace_back(std::numeric_limits<double>::quiet_NaN());
+  values.emplace_back("abc");
+  values.emplace_back(memgraph::utils::Date({2024, 3, 19}));
+  values.emplace_back(memgraph::utils::LocalTime({10, 56, 2, 7, 100}));
+  values.emplace_back(memgraph::utils::Duration(1));
+  values.emplace_back(std::vector<TypedValue>{TypedValue(1)});
+  values.emplace_back(std::map<std::string, TypedValue>{{"a", TypedValue(1)}});
+  values.emplace_back(Enum{EnumTypeId{1}, EnumValueId{11}});
+  values.emplace_back(Point2d{Cartesian_2d, 1.0, 2.0});
+  return values;
+}
+
+// The answer a comparison gave. No pair raises, so "raised" is recorded rather
+// than allowed to escape: a test reading it reports which pair broke that
+// rather than failing somewhere further out.
+std::string Outcome(const std::function<TypedValue()> &comparison) {
+  try {
+    auto const result = comparison();
+    if (result.IsNull()) return "null";
+    return result.ValueBool() ? "true" : "false";
+  } catch (const TypedValueException &) {
+    return "raised";
+  }
+}
+
+}  // namespace
+
+TEST(TypedValue, OrderedComparisonsMirrorOneAnother) {
+  // `a > b` asks the same question as `b < a`, and `a >= b` the same as
+  // `b <= a`. Whatever one answers the other must answer, raised messages
+  // included, or the pair of them describes two different orderings.
+  auto const values = ComparableSamples();
+  for (const auto &a : values) {
+    for (const auto &b : values) {
+      EXPECT_EQ(Outcome([&] { return a > b; }), Outcome([&] { return b < a; }))
+          << "a > b disagrees with b < a for " << a.type() << " and " << b.type();
+      EXPECT_EQ(Outcome([&] { return a >= b; }), Outcome([&] { return b <= a; }))
+          << "a >= b disagrees with b <= a for " << a.type() << " and " << b.type();
+    }
+  }
+}
+
+TEST(TypedValue, OrderedComparisonsAgreeWithEachOther) {
+  // The four are one ordering seen from four sides: at most one of less,
+  // greater and equal can hold, and `<=` holds exactly when `<` or `=` does.
+  auto const values = ComparableSamples();
+  for (const auto &a : values) {
+    for (const auto &b : values) {
+      auto const less = Outcome([&] { return a < b; });
+      auto const greater = Outcome([&] { return a > b; });
+      auto const less_equal = Outcome([&] { return a <= b; });
+      auto const greater_equal = Outcome([&] { return a >= b; });
+      auto const equal = Outcome([&] { return a == b; });
+
+      EXPECT_NE(less, "raised") << "a comparison raised for " << a.type() << " and " << b.type();
+
+      EXPECT_FALSE(less == "true" && greater == "true")
+          << "both less and greater for " << a.type() << " and " << b.type();
+      // Where the ordering places the pair at all, the four readings agree with
+      // equality. It leaves a pair of one type carrying no order of its own
+      // unplaced even where equality holds them equal, so the agreement is
+      // asked only of the pairs it placed.
+      if (less == "true" || (equal == "true" && less_equal != "null")) {
+        EXPECT_EQ(less_equal, "true") << "less or equal but not <= for " << a.type() << " and " << b.type();
+      }
+      if (greater == "true" || (equal == "true" && greater_equal != "null")) {
+        EXPECT_EQ(greater_equal, "true") << "greater or equal but not >= for " << a.type() << " and " << b.type();
+      }
+    }
+  }
 }
 
 TEST(TypedValue, BoolEquals) {
-  auto eq = TypedValue::BoolEqual{};
+  auto eq = memgraph::query::relations::equivalence::KeyEqual{};
   EXPECT_TRUE(eq(TypedValue(1), TypedValue(1)));
   EXPECT_FALSE(eq(TypedValue(1), TypedValue(2)));
   EXPECT_FALSE(eq(TypedValue(1), TypedValue("asd")));
@@ -265,8 +400,115 @@ TEST(TypedValue, BoolEquals) {
   EXPECT_TRUE(eq(TypedValue(), TypedValue()));
 }
 
+namespace {
+TypedValue List(std::vector<TypedValue> elements) { return TypedValue(std::move(elements)); }
+
+TypedValue Map(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
+}  // namespace
+
+TEST(TypedValue, ContainerEqualityPropagatesNull) {
+  const auto null = TypedValue();
+
+  // Equality is three-valued. An element pair that compares Null leaves the
+  // whole comparison Null, because the containers cannot be told apart.
+  EXPECT_PROP_ISNULL(List({null}) == List({null}));
+  EXPECT_PROP_ISNULL(List({null}) == List({TypedValue(1)}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1), null, TypedValue(3)}) == List({TypedValue(1), null, TypedValue(3)}));
+  EXPECT_PROP_ISNULL(List({null}) != List({null}));
+  EXPECT_PROP_ISNULL(Map({{"k", null}}) == Map({{"k", null}}));
+  EXPECT_PROP_ISNULL(Map({{"k", null}}) == Map({{"k", TypedValue(1)}}));
+
+  // A pair that is definitively unequal settles the comparison whatever else
+  // is Null.
+  EXPECT_PROP_FALSE(List({null, TypedValue(1)}) == List({null, TypedValue(2)}));
+  EXPECT_PROP_FALSE(Map({{"j", TypedValue(1)}, {"k", null}}) == Map({{"j", TypedValue(2)}, {"k", null}}));
+
+  // So does a difference in shape, which needs no element comparison at all.
+  EXPECT_PROP_FALSE(List({null}) == List({null, null}));
+  EXPECT_PROP_FALSE(Map({{"k", null}}) == Map({{"j", null}}));
+
+  // Nesting is no different.
+  EXPECT_PROP_ISNULL(List({List({null})}) == List({List({null})}));
+  EXPECT_PROP_FALSE(List({List({null})}) == List({List({null, null})}));
+
+  // With no Null anywhere the result stays definitive.
+  EXPECT_PROP_TRUE(List({TypedValue(1), TypedValue(2)}) == List({TypedValue(1), TypedValue(2)}));
+  EXPECT_PROP_FALSE(List({TypedValue(1), TypedValue(2)}) == List({TypedValue(1), TypedValue(3)}));
+  EXPECT_PROP_TRUE(Map({{"k", TypedValue(1)}}) == Map({{"k", TypedValue(1)}}));
+}
+
+TEST(TypedValue, ContainerEquivalenceHoldsNullEquivalentToNull) {
+  // Equivalence is the two-valued relation behind DISTINCT and grouping. It
+  // holds Null equivalent to Null, and applies that to elements too, so it
+  // must not be derived from equality's Null-propagating answer.
+  auto eq = memgraph::query::relations::equivalence::KeyEqual{};
+  const auto null = TypedValue();
+
+  EXPECT_TRUE(eq(List({null}), List({null})));
+  EXPECT_FALSE(eq(List({null}), List({TypedValue(1)})));
+  EXPECT_TRUE(eq(List({TypedValue(1), null}), List({TypedValue(1), null})));
+  EXPECT_FALSE(eq(List({null}), List({null, null})));
+  EXPECT_TRUE(eq(Map({{"k", null}}), Map({{"k", null}})));
+  EXPECT_FALSE(eq(Map({{"k", null}}), Map({{"k", TypedValue(1)}})));
+  EXPECT_FALSE(eq(Map({{"k", null}}), Map({{"j", null}})));
+  EXPECT_TRUE(eq(List({List({null})}), List({List({null})})));
+
+  // Equivalent values must hash alike, or the hash sets built on this relation
+  // never get as far as comparing them.
+  auto hash = memgraph::query::relations::equivalence::Hasher{};
+  EXPECT_EQ(hash(List({null})), hash(List({null})));
+  EXPECT_EQ(hash(Map({{"k", null}})), hash(Map({{"k", null}})));
+}
+
+TEST(TypedValue, BooleansCompare) {
+  // Cypher orders booleans, with false before true.
+  EXPECT_PROP_TRUE(TypedValue(false) < TypedValue(true));
+  EXPECT_PROP_TRUE(TypedValue(true) > TypedValue(false));
+  EXPECT_PROP_FALSE(TypedValue(true) < TypedValue(false));
+  EXPECT_PROP_FALSE(TypedValue(false) > TypedValue(true));
+  EXPECT_PROP_TRUE(TypedValue(false) <= TypedValue(false));
+  EXPECT_PROP_TRUE(TypedValue(true) >= TypedValue(true));
+
+  // A boolean is ordered against nothing that is not a boolean.
+  EXPECT_PROP_ISNULL(TypedValue(false) < TypedValue(1));
+  EXPECT_PROP_ISNULL(TypedValue(false) < TypedValue("a"));
+  EXPECT_PROP_ISNULL(TypedValue(false) < TypedValue());
+}
+
+TEST(TypedValue, ListsCompareInDictionaryOrder) {
+  const auto null = TypedValue();
+  const auto nan = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  // Element by element from the start.
+  EXPECT_PROP_TRUE(List({TypedValue(1), TypedValue(2)}) < List({TypedValue(1), TypedValue(3)}));
+  EXPECT_PROP_TRUE(List({List({TypedValue(1)})}) < List({List({TypedValue(2)})}));
+  EXPECT_PROP_TRUE(List({TypedValue(1), TypedValue(2)}) <= List({TypedValue(1), TypedValue(2)}));
+  EXPECT_PROP_FALSE(List({TypedValue(1), TypedValue(3)}) < List({TypedValue(1), TypedValue(2)}));
+
+  // A shorter list comes first, whatever would have followed it, a Null
+  // included: the element that is not there is never compared against.
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(1), TypedValue(0)}));
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(1), null}));
+
+  // Reaching a pair the ordering cannot decide leaves the lists undecided.
+  EXPECT_PROP_ISNULL(List({TypedValue(1), TypedValue(2)}) >= List({TypedValue(1), null}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1), null}) < List({TypedValue(1), TypedValue(2)}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < List({TypedValue("a")}));
+
+  // Unless an earlier pair settled it before that one was reached.
+  EXPECT_PROP_TRUE(List({TypedValue(1), null}) < List({TypedValue(2), null}));
+
+  // A NaN element has no place in the ordering, so neither do the lists.
+  EXPECT_PROP_ISNULL(List({nan}) < List({TypedValue(1.0)}));
+  EXPECT_PROP_ISNULL(List({nan}) > List({TypedValue(1.0)}));
+
+  // A list is ordered against nothing that is not a list.
+  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < TypedValue(1));
+  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < TypedValue());
+}
+
 TEST(TypedValue, Hash) {
-  auto hash = TypedValue::Hash{};
+  auto hash = memgraph::query::relations::equivalence::Hasher{};
 
   EXPECT_EQ(hash(TypedValue(1)), hash(TypedValue(1)));
   EXPECT_EQ(hash(TypedValue(1)), hash(TypedValue(1.0)));
@@ -368,18 +610,17 @@ TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
-  // 'Less' is legal only between numerics, Null and strings.
-  using memgraph::query::is_canonical;
-  auto is_string_compatible = [](const TypedValue &v) { return v.IsNull() || v.type() == TypedValue::Type::String; };
-  auto is_numeric_compatible = [](const TypedValue &v) { return v.IsNull() || v.IsNumeric(); };
+  // Two values the relation cannot place are incomparable, which it answers
+  // Null for. Every pair is answered for, whatever the two types are.
+  namespace comparability = memgraph::query::relations::comparability;
   for (TypedValue &a : this->values_) {
     for (TypedValue &b : this->values_) {
-      if (is_canonical(a.type()) || is_canonical(b.type())) continue;
-      if (is_numeric_compatible(a) && is_numeric_compatible(b)) continue;
-      if (is_string_compatible(a) && is_string_compatible(b)) continue;
-      // Comparison should raise an exception. Cast to (void) so the compiler
-      // does not complain about unused comparison result.
-      EXPECT_THROW((void)(a < b), TypedValueException);
+      // The relation places two numbers against each other, and two values of
+      // one type it carries an order for. A list it walks element by element.
+      // Every other pair it leaves incomparable.
+      if (a.IsNumeric() && b.IsNumeric()) continue;
+      if (a.type() == b.type() && (comparability::Admits(a.type()) || a.IsList())) continue;
+      EXPECT_TRUE((a < b).IsNull()) << "unplaceable pair " << a.type() << " and " << b.type() << " must answer Null";
     }
   }
 
@@ -692,7 +933,8 @@ TEST(TypedValue, ToJsonFromJsonRoundTrip) {
     memgraph::query::to_json(j, v);
     TypedValue w;
     memgraph::query::from_json(j, w);
-    EXPECT_TRUE(TypedValue::BoolEqual{}(v, w)) << "Round-trip failed for type " << static_cast<int>(v.type());
+    EXPECT_TRUE(memgraph::query::relations::equivalence::KeyEqual{}(v, w))
+        << "Round-trip failed for type " << static_cast<int>(v.type());
   };
 
   round_trip(TypedValue());
@@ -782,13 +1024,10 @@ TYPED_TEST(AllTypesFixture, CopyConstruction) {
       EXPECT_PROP_ISNULL(cpy);
     } else if (value.IsGraph()) {
       // not comparable
-    } else if (value.IsMap()) {
-      // map contains NULL so can't be true
-      auto res = cpy == value;
-      // THIS IS NOT THE SAME AS NEO4J
-      // NEO4J returns NULL
-      ASSERT_EQ(res.type(), TypedValue::Type::Bool);
-      ASSERT_EQ(res.ValueBool(), false);
+    } else if (value.IsList() || value.IsMap()) {
+      // Both hold a Null element, so equality cannot tell the copy from the
+      // original however faithful the copy is.
+      EXPECT_PROP_ISNULL(cpy == value);
     } else {
       EXPECT_PROP_EQ(cpy, value);
     }
@@ -850,8 +1089,8 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         EXPECT_EQ(original[i].get_allocator().resource(), memgraph::utils::NewDeleteResource());
         EXPECT_EQ(moved[i].get_allocator().resource(), &monotonic_memory);
         EXPECT_EQ(copied[i].get_allocator().resource(), &monotonic_memory);
-        EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], moved[i]));
-        EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], copied[i]));
+        EXPECT_TRUE(memgraph::query::relations::equivalence::KeyEqual{}(original[i], moved[i]));
+        EXPECT_TRUE(memgraph::query::relations::equivalence::KeyEqual{}(original[i], copied[i]));
       }
     } else if (value.type() == TypedValue::Type::Map) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
@@ -870,8 +1109,8 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         auto copied_it = copied.find(kv.first);
         ASSERT_NE(copied_it, copied.end());
         expect_allocator(*copied_it, &monotonic_memory);
-        EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, moved_it->second));
-        EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, copied_it->second));
+        EXPECT_TRUE(memgraph::query::relations::equivalence::KeyEqual{}(kv.second, moved_it->second));
+        EXPECT_TRUE(memgraph::query::relations::equivalence::KeyEqual{}(kv.second, copied_it->second));
       }
     } else if (value.type() == TypedValue::Type::Path) {
       ASSERT_EQ(move_constructed_value.type(), value.type());

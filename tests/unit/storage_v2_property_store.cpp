@@ -115,7 +115,27 @@ const PropertyValue kSampleValues[] = {
     PropertyValue(std::vector<int>{33, 0, -33}),
     PropertyValue(std::vector<double>{33.0, 0.0, -33.33}),
     PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33}),
+    // A NaN is one of the two values equality and equivalence part company
+    // over, and a stored value is matched by equivalence. Every representation
+    // that can carry one is here, so the comparison against the encoded bytes
+    // is held to the decoded value over all of them rather than over the
+    // handful written out on their own below.
+    PropertyValue(std::numeric_limits<double>::quiet_NaN()),
+    PropertyValue(
+        std::vector<PropertyValue>{PropertyValue(std::numeric_limits<double>::quiet_NaN()), PropertyValue(int64_t{1})}),
+    PropertyValue(std::vector<double>{std::numeric_limits<double>::quiet_NaN(), 1.0}),
+    PropertyValue(std::vector<std::variant<int, double>>{1, std::numeric_limits<double>::quiet_NaN()}),
+    PropertyValue(
+        PropertyValue::map_t{{PropertyId::FromUint(6), PropertyValue(std::numeric_limits<double>::quiet_NaN())}}),
+    PropertyValue{Point2d{Cartesian_2d, std::numeric_limits<double>::quiet_NaN(), 2.0}},
+    PropertyValue{Point3d{Cartesian_3d, 1.0, std::numeric_limits<double>::quiet_NaN(), 3.0}},
 };
+
+// A vector index id is absent from the samples above on purpose. A store keeps
+// the ids it holds and not the coordinates behind them, so reading one back
+// gives a value with no coordinates, and being the value that was written is
+// not a property of this type. The two comparisons over one also read different
+// halves of it: the encoded one reads the ids, the decoded one the coordinates.
 
 void TestIsPropertyEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
   ASSERT_TRUE(store.IsPropertyEqual(property, value));
@@ -126,6 +146,90 @@ void TestIsPropertyEqual(const PropertyStore &store, PropertyId property, const 
       ASSERT_FALSE(store.IsPropertyEqual(property, sample));
     }
   }
+}
+
+// The two comparisons a stored value has, held against one another.
+//
+// A property can be compared without being decoded, which is what a scan
+// confirming an index entry does, and that comparison is a second reading of
+// the relation `PropertyValue` already carries. Nothing but agreement between
+// the two is required of it, and nothing but this reports when they part: the
+// encoded reader has its own case for every type, so a change made to one
+// reading and not the other is silent until a lookup answers wrongly.
+TEST(PropertyStore, TheEncodedComparisonAnswersAsTheDecodedValueDoes) {
+  auto const prop = PropertyId::FromInt(1);
+
+  for (size_t stored_at = 0; stored_at != std::size(kSampleValues); ++stored_at) {
+    auto const &stored = kSampleValues[stored_at];
+    // Storing a null is how a property is removed, so there is no stored value
+    // to compare against and the case belongs to the tests about absence.
+    if (stored.IsNull()) continue;
+
+    PropertyStore store;
+    ASSERT_TRUE(store.SetProperty(prop, stored));
+
+    // Decoding is the other way to reach the value, and the two must arrive at
+    // the same one before the comparison between them means anything.
+    auto const decoded = store.GetProperty(prop);
+    EXPECT_TRUE(decoded == stored) << "sample " << stored_at << " did not survive being stored and read back";
+
+    for (size_t probe_at = 0; probe_at != std::size(kSampleValues); ++probe_at) {
+      auto const &probe = kSampleValues[probe_at];
+      EXPECT_EQ(store.IsPropertyEqual(prop, probe), decoded == probe)
+          << "the encoded and decoded comparisons disagree about sample " << stored_at << " against sample "
+          << probe_at;
+    }
+  }
+}
+
+// Reading a stored property back and asking whether it is still the value an
+// index recorded is an equivalence question, not an equality one: an index holds
+// two NaNs alike, while IEEE equality holds a NaN equal to nothing, itself
+// included. Answered by equality, an indexed NaN could never be confirmed and
+// the entry recording it would be passed over.
+TEST(PropertyStore, NaNInsideAContainerComparesAsTheStoredValueItIs) {
+  // Confirming a stored value against what an index recorded reads the encoded
+  // form without decoding it. A NaN held inside one has to be recognised there
+  // too, or the entry is never confirmed and the row it stands for is dropped
+  // from every scan that reads the index.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const prop = memgraph::storage::PropertyId::FromInt(1);
+
+  auto list = memgraph::storage::PropertyValue::list_t{};
+  list.emplace_back(nan);
+  auto const holding_nan = memgraph::storage::PropertyValue(memgraph::storage::DoubleListTag{}, std::move(list));
+
+  memgraph::storage::PropertyStore store;
+  ASSERT_TRUE(store.SetProperty(prop, holding_nan));
+  EXPECT_TRUE(store.IsPropertyEqual(prop, holding_nan)) << "a stored list holding a NaN is the value it is";
+
+  auto other = memgraph::storage::PropertyValue::list_t{};
+  other.emplace_back(1.0);
+  EXPECT_FALSE(store.IsPropertyEqual(
+      prop, memgraph::storage::PropertyValue(memgraph::storage::DoubleListTag{}, std::move(other))))
+      << "and is not a list holding a number";
+
+  memgraph::storage::PropertyStore points;
+  auto const point_with_nan = memgraph::storage::PropertyValue(
+      memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, nan, 1.0});
+  ASSERT_TRUE(points.SetProperty(prop, point_with_nan));
+  EXPECT_TRUE(points.IsPropertyEqual(prop, point_with_nan)) << "a stored point holding a NaN is the value it is";
+}
+
+TEST(PropertyStore, NaNComparesAsTheStoredValueItIs) {
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  PropertyStore store;
+  auto const prop = PropertyId::FromInt(1);
+  ASSERT_TRUE(store.SetProperty(prop, PropertyValue(nan)));
+
+  // The decoded value and the comparison over the encoded bytes must agree,
+  // which is the whole of what the two are required to do.
+  EXPECT_TRUE(store.GetProperty(prop) == PropertyValue(nan));
+  EXPECT_TRUE(store.IsPropertyEqual(prop, PropertyValue(nan)));
+
+  // A NaN is still not any particular number.
+  EXPECT_FALSE(store.IsPropertyEqual(prop, PropertyValue(1.0)));
+  EXPECT_FALSE(store.IsPropertyEqual(prop, PropertyValue(int64_t{1})));
 }
 
 TEST(PropertyStore, Simple) {

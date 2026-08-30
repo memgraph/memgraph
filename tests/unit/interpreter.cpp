@@ -919,6 +919,296 @@ TYPED_TEST(InterpreterTest, PropertyInListIndexedEquivalence) {
   EXPECT_ANY_THROW(this->Interpret("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", EPV(int64_t{1})}}));
 }
 
+// An index is ordered by equivalence, which holds a Null equivalent to a Null, while `=` is Null
+// wherever a Null could still decide the answer. A lookup may only stand in for the Filter where
+// the two relations agree, so a container carrying a Null must match nothing through either path.
+TYPED_TEST(InterpreterTest, PropertyEqualityHoldingNullIndexedEquivalence) {
+  this->Interpret("CREATE INDEX ON :L(prop)");
+  this->Interpret("CREATE (:L {prop: [1, null]}), (:L {prop: [1, 2]}), (:L {prop: {k: null}}), (:L {prop: [[null]]})");
+  // :U carries the same values with no index, so it answers through the Filter.
+  this->Interpret("CREATE (:U {prop: [1, null]}), (:U {prop: [1, 2]}), (:U {prop: {k: null}}), (:U {prop: [[null]]})");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto both = [&](const std::string &predicate) {
+    auto const indexed = count("MATCH (n:L) WHERE " + predicate + " RETURN n");
+    auto const filtered = count("MATCH (n:U) WHERE " + predicate + " RETURN n");
+    EXPECT_EQ(indexed, filtered) << "index and filter disagree for " << predicate;
+    return filtered;
+  };
+
+  // A Null anywhere in the sought container leaves equality undecided for every row.
+  EXPECT_EQ(both("n.prop = [1, null]"), 0);
+  EXPECT_EQ(both("n.prop = {k: null}"), 0);
+  EXPECT_EQ(both("n.prop = [[null]]"), 0);
+  EXPECT_EQ(both("n.prop IN [[1, null]]"), 0);
+
+  // A sought container holding no Null is answered alike by both relations, so the lookup stands.
+  EXPECT_EQ(both("n.prop = [1, 2]"), 1);
+  EXPECT_EQ(both("n.prop IN [[1, 2]]"), 1);
+
+  // A stored Null does not hide a row from the predicates that do not read it.
+  EXPECT_EQ(both("n.prop IS NOT NULL"), 4);
+}
+
+// Cardinality estimation resolves each membership element to its own range. An element carrying
+// a Null resolves to an empty one, which holds no bounds, so the estimate has to pass over it
+// rather than read a bound that is not there.
+TYPED_TEST(InterpreterTest, PropertyInListHoldingNullIsEstimable) {
+  this->Interpret("CREATE INDEX ON :L(prop)");
+  this->Interpret("CREATE (:L {prop: 1}), (:L {prop: 2}), (:L {prop: 3})");
+  this->Interpret("CREATE (:U {prop: 1}), (:U {prop: 2}), (:U {prop: 3})");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto both = [&](const std::string &predicate) {
+    auto const indexed = count("MATCH (n:L) WHERE " + predicate + " RETURN n");
+    auto const filtered = count("MATCH (n:U) WHERE " + predicate + " RETURN n");
+    EXPECT_EQ(indexed, filtered) << "index and filter disagree for " << predicate;
+    return filtered;
+  };
+
+  // A Null element decides nothing, so only the values beside it can match.
+  EXPECT_EQ(both("n.prop IN [1, null]"), 1);
+  EXPECT_EQ(both("n.prop IN [null, 2]"), 1);
+  EXPECT_EQ(both("n.prop IN [1, null, 2]"), 2);
+  EXPECT_EQ(both("n.prop IN [null]"), 0);
+  EXPECT_EQ(both("n.prop IN [null, null]"), 0);
+}
+
+// The edge indexes answer an equality question the same way the vertex ones do, and are subject to
+// the same condition: a sought value carrying a Null is one the index cannot settle.
+TYPED_TEST(InterpreterTest, EdgePropertyEqualityHoldingNullIndexedEquivalence) {
+  // Edge indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :R(prop)");
+  this->Interpret("CREATE ()-[:R {prop: [1, null]}]->(), ()-[:R {prop: [1, 2]}]->()");
+  // :S carries the same values with no index, so it answers through the Filter.
+  this->Interpret("CREATE ()-[:S {prop: [1, null]}]->(), ()-[:S {prop: [1, 2]}]->()");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto both = [&](const std::string &predicate) {
+    auto const indexed = count("MATCH ()-[e:R]->() WHERE " + predicate + " RETURN e");
+    auto const filtered = count("MATCH ()-[e:S]->() WHERE " + predicate + " RETURN e");
+    EXPECT_EQ(indexed, filtered) << "edge index and filter disagree for " << predicate;
+    return filtered;
+  };
+
+  EXPECT_EQ(both("e.prop = [1, null]"), 0);
+  EXPECT_EQ(both("e.prop = [[null]]"), 0);
+  EXPECT_EQ(both("e.prop IN [[1, null]]"), 0);
+
+  // A sought value holding no Null is answered alike by both relations.
+  EXPECT_EQ(both("e.prop = [1, 2]"), 1);
+  EXPECT_EQ(both("e.prop IS NOT NULL"), 2);
+}
+
+// Storage keeps the four temporal types under one type and tells them apart by an enumeration, so
+// an index holds a date and a duration in one band and orders them against each other. The
+// comparison operators refuse that pair outright. A range scan standing in for one of them must
+// therefore drop what the comparison declines to place, rather than return the whole band.
+TYPED_TEST(InterpreterTest, ARangeOverAMixedTemporalColumnAnswersAsTheComparisonDoes) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  auto const values = std::string{"[date('2020-01-01'), date('2024-06-01'), duration('P1D'), localTime('12:00:00')]"};
+  this->Interpret("UNWIND " + values + " AS v CREATE (:TempL {prop: v})");
+  // :TempU holds the same values with no index, so it answers through the Filter.
+  this->Interpret("UNWIND " + values + " AS v CREATE (:TempU {prop: v})");
+  this->Interpret("CREATE INDEX ON :TempL(prop)");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto both = [&](const std::string &predicate) {
+    auto const indexed = count("MATCH (n:TempL) WHERE " + predicate + " RETURN n");
+    auto const filtered = count("MATCH (n:TempU) WHERE " + predicate + " RETURN n");
+    EXPECT_EQ(indexed, filtered) << "index and filter disagree for " << predicate;
+    return filtered;
+  };
+
+  // Only the later date is greater than the earlier one. A duration and a local time are of neither
+  // type the comparison places against a date, so it answers Null for both and they are dropped.
+  EXPECT_EQ(both("n.prop > date('2020-01-01')"), 1);
+  EXPECT_EQ(both("n.prop >= date('2020-01-01')"), 2);
+  EXPECT_EQ(both("n.prop < date('2024-06-01')"), 1);
+  EXPECT_EQ(both("n.prop > duration('PT1H')"), 1);
+}
+
+// The edge range scans read the same comparison the vertex ones do. A NaN is placed by the order an
+// index keeps and by no comparison at all, so a range whose bound is one holds nothing.
+TYPED_TEST(InterpreterTest, AnEdgeRangeAgainstANaNAnswersAsTheComparisonDoes) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :RangeR(prop)");
+  this->Interpret("UNWIND [1.0, 2.0, 3.0] AS v CREATE ()-[:RangeR {prop: v}]->()");
+  // :RangeS carries the same values with no index, so it answers through the Filter.
+  this->Interpret("UNWIND [1.0, 2.0, 3.0] AS v CREATE ()-[:RangeS {prop: v}]->()");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto both = [&](const std::string &predicate) {
+    auto const indexed = count("MATCH ()-[e:RangeR]->() WHERE " + predicate + " RETURN e");
+    auto const filtered = count("MATCH ()-[e:RangeS]->() WHERE " + predicate + " RETURN e");
+    EXPECT_EQ(indexed, filtered) << "edge index and filter disagree for " << predicate;
+    return filtered;
+  };
+
+  // Every comparison against a NaN is false, whichever side it stands on.
+  EXPECT_EQ(both("e.prop < sqrt(-1)"), 0);
+  EXPECT_EQ(both("e.prop > sqrt(-1)"), 0);
+  EXPECT_EQ(both("e.prop <= sqrt(-1)"), 0);
+  EXPECT_EQ(both("e.prop >= sqrt(-1)"), 0);
+
+  // A bound that is not a NaN still reads the range it names.
+  EXPECT_EQ(both("e.prop > 1.5"), 2);
+}
+
+// Two lists are ordered element by element while the comparison behind a range still declines to
+// answer, wherever an element is a Null or the two elements are of unlike types. An edge scan reads
+// its index by the bounds alone, so it admits rows the comparison would drop, and the filter it
+// stands in for has to stay behind to drop them.
+TYPED_TEST(InterpreterTest, AnEdgeRangeOverListsAnswersAsTheComparisonDoes) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  auto const values = std::string{"[[1, 2], [1], [1, null], [2, 'a'], [1, 5]]"};
+  this->Interpret("CREATE EDGE INDEX ON :ListR(prop)");
+  this->Interpret("UNWIND " + values + " AS v CREATE ()-[:ListR {prop: v}]->()");
+  // :ListS carries the same values with no index, so it answers through the Filter.
+  this->Interpret("UNWIND " + values + " AS v CREATE ()-[:ListS {prop: v}]->()");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto both = [&](const std::string &predicate) {
+    auto const indexed = count("MATCH ()-[e:ListR]->() WHERE " + predicate + " RETURN e");
+    auto const filtered = count("MATCH ()-[e:ListS]->() WHERE " + predicate + " RETURN e");
+    EXPECT_EQ(indexed, filtered) << "edge index and filter disagree for " << predicate;
+    return filtered;
+  };
+
+  // [1] is shorter and so comes first; [1, null] is ordered against [1, 2] by an element the
+  // comparison will not place, so it is dropped rather than admitted.
+  EXPECT_EQ(both("e.prop < [1, 2]"), 1);
+  EXPECT_EQ(both("e.prop > [1, 2]"), 2);
+  EXPECT_EQ(both("e.prop <= [1, 2]"), 2);
+}
+
+// An index provides an order only if that order is the one ORDER BY defines. A scan that reads its
+// index's order may stand in for a sort only where the two agree, so an indexed label and a bare one
+// holding the same values have to return the same sequence, and the same window of it.
+TYPED_TEST(InterpreterTest, OrderByThroughAnIndexMatchesTheSort) {
+  // The value order this checks is the in-memory index's; the disk backend keys
+  // on label, property and gid rather than on the value.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  auto const values = std::string{"['str', true, 7, 1.5, 'abc', false, 3]"};
+  this->Interpret("UNWIND " + values + " AS v CREATE (:OrdL {prop: v})");
+  // :U holds the same values with no index, so it answers through a sort.
+  this->Interpret("UNWIND " + values + " AS v CREATE (:OrdU {prop: v})");
+  this->Interpret("CREATE INDEX ON :OrdL(prop)");
+
+  // An index is filled in the background, so a read issued straight after it is
+  // created can be planned against one that holds nothing yet. Wait for it to
+  // hold what it will hold before reading through it.
+  auto await_index = [&](const std::string &label, int64_t expected) {
+    for (int attempt = 0; attempt != 500; ++attempt) {
+      auto info = this->Interpret("SHOW INDEX INFO");
+      for (const auto &row : info.GetResults()) {
+        if (row.size() < 4 || !row.at(1).IsString() || !row.at(3).IsInt()) continue;
+        if (row.at(1).ValueString() == label && row.at(3).ValueInt() == expected) return true;
+      }
+    }
+    return false;
+  };
+
+  ASSERT_TRUE(await_index("OrdL", 7)) << "the index never held every value";
+
+  auto order = [&](const std::string &label, const std::string &tail) {
+    auto stream = this->Interpret("MATCH (n:" + label + ") WHERE n.prop IS NOT NULL WITH n ORDER BY n.prop " + tail +
+                                  " RETURN toString(n.prop)");
+    std::vector<std::string> out;
+    for (const auto &row : stream.GetResults()) out.push_back(row.at(0).ValueString());
+    return out;
+  };
+  auto both = [&](const std::string &tail) {
+    EXPECT_EQ(order("OrdL", tail), order("OrdU", tail)) << "index order and sort order differ for " << tail;
+  };
+
+  both("");
+  both("LIMIT 3");
+  both("SKIP 2");
+  both("DESC");
+}
+
+// A NaN is a value like any other once stored: an index has to be able to find it again, place it
+// where the sort places it, and let an aggregation see it.
+TYPED_TEST(InterpreterTest, NanValuedPropertyIsReachableThroughItsIndex) {
+  // The value order this checks is the in-memory index's; the disk backend keys
+  // on label, property and gid rather than on the value.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("UNWIND [1.0, 2.0, 3.0] AS v CREATE (:NanL {prop: v}), (:NanU {prop: v})");
+  this->Interpret("CREATE (:NanL {prop: sqrt(-1)}), (:NanU {prop: sqrt(-1)})");
+  this->Interpret("CREATE INDEX ON :NanL(prop)");
+
+  // An index is filled in the background, so a read issued straight after it is
+  // created can be planned against one that holds nothing yet. Wait for it to
+  // hold what it will hold before reading through it.
+  auto await_index = [&](const std::string &label, int64_t expected) {
+    for (int attempt = 0; attempt != 500; ++attempt) {
+      auto info = this->Interpret("SHOW INDEX INFO");
+      for (const auto &row : info.GetResults()) {
+        if (row.size() < 4 || !row.at(1).IsString() || !row.at(3).IsInt()) continue;
+        if (row.at(1).ValueString() == label && row.at(3).ValueInt() == expected) return true;
+      }
+    }
+    return false;
+  };
+
+  ASSERT_TRUE(await_index("NanL", 4)) << "the index never held every value";
+
+  auto one = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return stream.GetResults().at(0).at(0).ValueInt();
+  };
+  auto text = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return stream.GetResults().at(0).at(0).ValueString();
+  };
+
+  // The index holds four entries and must yield all four.
+  EXPECT_EQ(one("MATCH (n:NanL) WHERE n.prop IS NOT NULL RETURN count(*)"),
+            one("MATCH (n:NanU) WHERE n.prop IS NOT NULL RETURN count(*)"));
+
+  // An aggregation reading the index must see what the scan sees.
+  EXPECT_EQ(text("MATCH (n:NanL) WHERE n.prop IS NOT NULL RETURN toString(max(n.prop))"),
+            text("MATCH (n:NanU) WHERE n.prop IS NOT NULL RETURN toString(max(n.prop))"));
+}
+
 // With an edge-type+property index, e.prop IN <list> unwinds the list into
 // per-element index lookups. Like the vertex path, this must stay
 // result-identical to the membership Filter: an edge matched by a duplicated
