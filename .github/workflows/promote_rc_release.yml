@@ -49,6 +49,7 @@ env:
   package_docker: memgraph-${{ github.event.inputs.release_version }}-docker.tar.gz
   package_docker_relwithdebinfo: memgraph-${{ github.event.inputs.release_version }}-relwithdebinfo-docker.tar.gz
   package_docker_relwithdebinfo_malloc: memgraph-${{ github.event.inputs.release_version }}-relwithdebinfo-malloc-docker.tar.gz
+  package_docker_fips: memgraph-${{ github.event.inputs.release_version }}-fips-docker.tar.gz
   docker_repo_rc: memgraph/memgraph
   docker_repo_release: memgraph/memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
   docker_repo_rc_mage: memgraph/memgraph-mage
@@ -94,6 +95,28 @@ jobs:
             arch: amd
             malloc: true
             build_type: Release
+          # FIPS packages. The deb/rpm are named for what makes them different
+          # as packages (no embedded Python); only the image is -fips.
+          - target: deb
+            arch: amd
+            malloc: false
+            build_type: Release
+            fips: true
+          - target: deb
+            arch: arm
+            malloc: false
+            build_type: Release
+            fips: true
+          - target: rpm
+            arch: amd
+            malloc: false
+            build_type: Release
+            fips: true
+          - target: rpm
+            arch: arm
+            malloc: false
+            build_type: Release
+            fips: true
     steps:
       - name: Validate “use_test_rc” only with test
         if: inputs.use_test_rc && ! inputs.test
@@ -141,6 +164,12 @@ jobs:
           fi
           if [[ "${{ matrix.target }}" == "docker" && "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             dir="${dir}-relwithdebinfo"
+          fi
+          # reusable_package publishes the Python-less packages under
+          # <arch>-{deb,rpm}-no-python. The filenames inside are unchanged, so
+          # only the directory differs.
+          if [[ "${{ matrix.fips }}" == "true" ]]; then
+            dir="${dir}-no-python"
           fi
           echo "package_path=${dir}/${package_name}" >> $GITHUB_ENV
 
@@ -212,9 +241,14 @@ jobs:
       matrix:
         build_type: [Release, RelWithDebInfo]
         malloc: [false]
+        fips: [false]
         include:
           - build_type: RelWithDebInfo
             malloc: true
+            fips: false
+          - build_type: Release
+            malloc: false
+            fips: true
     steps:
       - name: Validate “use_test_rc” only with test
         if: inputs.use_test_rc && ! inputs.test
@@ -248,6 +282,11 @@ jobs:
             os_x86="${os_x86}-relwithdebinfo"
             os_arm="${os_arm}-relwithdebinfo"
           fi
+          if [[ "${{ matrix.fips }}" == "true" ]]; then
+            package="${package_docker_fips}"
+            os_x86="${os_x86}-fips"
+            os_arm="${os_arm}-fips"
+          fi
           s3_path_amd="s3://${rc_bucket}/${rc_dir}/${os_x86}/${package}"
           s3_path_arm="s3://${rc_bucket}/${rc_dir}/${os_arm}/${package}"
 
@@ -260,6 +299,9 @@ jobs:
           IMAGE_TAG="$RELEASE_VERSION"
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             IMAGE_TAG="${IMAGE_TAG}-relwithdebinfo"
+          fi
+          if [[ "${{ matrix.fips }}" == "true" ]]; then
+            IMAGE_TAG="${IMAGE_TAG}-fips"
           fi
           # TODO(matt): fix packaging to add "malloc" to the tag
           if [[ "${{ matrix.malloc }}" == "true" ]]; then
@@ -342,7 +384,7 @@ jobs:
           --amend ${RELEASE_IMAGE_ARM}
           docker manifest push ${RELEASE_IMAGE}
 
-          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
+          if [[ "${{ matrix.build_type }}" == "Release" && "${{ matrix.fips }}" != "true" ]]; then
             # Setup manifest list for latest image
             RELEASE_IMAGE_LATEST="${docker_repo_release}:latest"
             docker manifest create ${RELEASE_IMAGE_LATEST} \
@@ -374,8 +416,7 @@ jobs:
         # provenance is generated here and references the RC source tag; it is a
         # minimal statement — richer build provenance would be captured at build
         # time. Verify Scout sees these with: docker scout attest list <ref>.
-        # (The only Release matrix entry is the prod, non-malloc image.)
-        if: ${{ matrix.build_type == 'Release' }}
+        if: ${{ matrix.build_type == 'Release' && matrix.fips != true }}
         env:
           COSIGN_REGISTRY_REFERRERS_MODE: oci-1-1
         run: |
@@ -414,7 +455,7 @@ jobs:
         # Non-fatal self-check that the attestations we just attached are
         # present in the registry (via referrers). Uses the already-pinned
         # cosign — nothing extra is fetched. Never blocks a release.
-        if: ${{ matrix.build_type == 'Release' }}
+        if: ${{ matrix.build_type == 'Release' && matrix.fips != true }}
         continue-on-error: true
         run: |
           set -uo pipefail   # diagnostic only

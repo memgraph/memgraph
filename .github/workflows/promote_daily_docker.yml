@@ -31,6 +31,10 @@ on:
         description: "Memgraph: RelWithDebInfo + malloc"
         type: boolean
         default: false
+      mg_fips:
+        description: "Memgraph: FIPS 140-3"
+        type: boolean
+        default: false
       mage_release:
         description: "MAGE: Release"
         type: boolean
@@ -106,6 +110,9 @@ jobs:
           fi
           if [[ "${{ inputs.mg_relwithdebinfo_malloc }}" == "true" ]]; then
             mg=$(jq -c '. += [{"variant":"RelWithDebInfo-malloc","tag_suffix":"-relwithdebinfo-malloc","arch_key_amd":"x86_64-relwithdebinfo-malloc","arch_key_arm":"arm64-relwithdebinfo-malloc"}]' <<<"$mg")
+          fi
+          if [[ "${{ inputs.mg_fips }}" == "true" ]]; then
+            mg=$(jq -c '. += [{"variant":"FIPS","tag_suffix":"-fips","arch_key_amd":"x86_64-fips","arch_key_arm":"arm64-fips"}]' <<<"$mg")
           fi
 
           mage='[]'

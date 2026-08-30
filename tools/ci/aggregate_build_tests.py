@@ -111,6 +111,9 @@ def parse_file_os_arch(file, image_type):
         if "malloc" in file:
             arch = f"{arch}-malloc"
 
+        if "fips" in file:
+            arch = f"{arch}-fips"
+
         # debuginfo rpms share the os dir + arch of the main package, so suffix
         # the arch to give them their own key (e.g. centos-10.x86_64-debuginfo)
         # instead of overwriting the main package. `-debuginfo` (with the hyphen)
@@ -119,7 +122,14 @@ def parse_file_os_arch(file, image_type):
             arch = f"{arch}-debuginfo"
 
         # `os` is not really an OS anymore - it's basically a packaging format
-        os_path = file.split("/")[3].replace("-malloc", "").replace("-aarch64", "").replace("-relwithdebinfo", "")
+        os_path = (
+            file.split("/")[3]
+            .replace("-malloc", "")
+            .replace("-aarch64", "")
+            .replace("-relwithdebinfo", "")
+            .replace("-fips", "")
+            .replace("-no-python", "")
+        )
         os = "unknown"
         for substr in ["docker", "rpm", "deb"]:
             if substr in os_path:
