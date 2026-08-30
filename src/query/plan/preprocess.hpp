@@ -291,6 +291,12 @@ class PropertyFilter {
   /// True when an edge index scan admits rows the filter rejects, so the original expression must
   /// be retained as a post-filter. An edge scan ranges upwards from a single bound with no ceiling,
   /// so even a prefix match reads past the prefix and on into the types that sort after strings.
+  ///
+  /// A range is absent because it needs no post-filter: the scan asks the comparison behind the
+  /// range of each edge its bounds admit, and only where a bound is of a type whose band is wider
+  /// than the comparison. Retaining a filter for every range instead would charge every range the
+  /// cost of re-reading and re-comparing each edge it returns, to answer for a bound almost none of
+  /// them carry.
   static constexpr bool RequiresPostFilterOnEdgeScan(Type t) {
     return t == Type::REGEX_MATCH || t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
   }

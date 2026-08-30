@@ -43,8 +43,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       : symbol_table_(symbol_table),
         ast_storage_(ast_storage),
         db_(db),
-        inherited_bound_symbols_(std::move(inherited_bound_symbols)),
-        order_by_eliminator_(db, prev_ops_, parallel_execution) {}
+        order_by_eliminator_(db, prev_ops_, parallel_execution),
+        inherited_bound_symbols_(std::move(inherited_bound_symbols)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -767,7 +767,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// Dispatches to NotifyScan with the concrete scan type, or std::nullopt if
   /// the operator is not an ordered edge scan.
   void TryRecordEdgeScan(LogicalOperator *op) {
-    using ProvidedScan = typename OrderByEliminator<TDbAccessor>::ProvidedScan;
+    using ProvidedScan = plan::ProvidedScan;
     const auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
 
     // A value scan fed by an Unwind is invoked once per unwound element (e.g.

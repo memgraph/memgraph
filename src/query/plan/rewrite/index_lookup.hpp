@@ -204,8 +204,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         db_(db),
         index_hints_(std::move(index_hints)),
         parameters_(parameters),
-        inherited_bound_symbols_(std::move(inherited_bound_symbols)),
-        order_by_eliminator_(db, prev_ops_, parallel_execution) {}
+        order_by_eliminator_(db, prev_ops_, parallel_execution),
+        inherited_bound_symbols_(std::move(inherited_bound_symbols)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -407,7 +407,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     auto [indexed_scan, has_in_filter] = GenScanByIndex(scan);
 
-    using ProvidedScan = OrderByEliminator<TDbAccessor>::ProvidedScan;
+    using ProvidedScan = plan::ProvidedScan;
     std::optional<ProvidedScan> provided;
     if (indexed_scan && !has_in_filter) {
       auto const *target = indexed_scan.get();
@@ -1685,6 +1685,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         for (auto *elem : list->elements_) {
           auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters_, mapper);
           if (!resolved) return static_cast<double>(db_->VerticesCount(scan_op->property_));
+          // As in the non-list branch above: an empty range carries no bounds and matches nothing.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) continue;
           sum += db_->VerticesCount(scan_op->property_, resolved->lower_->value());
         }
         return sum;

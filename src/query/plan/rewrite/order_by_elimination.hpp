@@ -24,10 +24,94 @@
 #include <vector>
 
 #include "query/plan/operator.hpp"
+#include "query/relations/agreement.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "utils/typeinfo.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query::plan {
+
+/// A scan whose entries an index already walked in order.
+using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
+                                  const ScanAllByEdgePropertyRange *, const ScanAllByEdgeTypePropertyValue *,
+                                  const ScanAllByEdgePropertyValue *, const ScanAllByVertexProperty *>;
+
+/// The type a bound fences a scan to, where the plan can tell.
+///
+/// Only a literal names one. A plan is cached against the query with its
+/// terms stripped out, so the type of the value standing in for a term is not
+/// settled when the plan is: one settled by an integer today would be reused
+/// for a date tomorrow. A term, and anything else a call produces, names
+/// nothing here.
+[[nodiscard]] inline std::optional<storage::PropertyValueType> BoundType(Expression *expr) {
+  if (auto *literal = utils::Downcast<PrimitiveLiteral>(expr)) return literal->value_.type();
+  if (utils::Downcast<MapLiteral>(expr) != nullptr) return storage::PropertyValueType::Map;
+  if (utils::Downcast<ListLiteral>(expr) != nullptr) return storage::PropertyValueType::List;
+  return std::nullopt;
+}
+
+/// Whether a pair of bounds fences a scan to a type kept in one order.
+///
+/// Nothing naming a type leaves the scan unfenced as far as the plan can see,
+/// which is not an order it may rely on.
+[[nodiscard]] inline bool BoundsOrderLikeASort(std::optional<utils::Bound<Expression *>> const &lower,
+                                               std::optional<utils::Bound<Expression *>> const &upper) {
+  for (auto const *bound : {&lower, &upper}) {
+    if (!bound->has_value()) continue;
+    if (auto const type = BoundType((*bound)->value())) return relations::LayersKeepThisTypeInOneOrder(*type);
+  }
+  return false;
+}
+
+/// Whether one range hands its rows back in the order a sort would put them in.
+[[nodiscard]] inline bool RangeOrdersLikeASort(ExpressionRange const &range) {
+  // Asking only that a value be present admits every type at once, so the scan
+  // is fenced to nothing and no single order can be relied on.
+  if (range.type_ == PropertyFilter::Type::IS_NOT_NULL) return false;
+
+  // Every entry a scan for one value returns holds that value, so any order of
+  // them is already the order a sort would give.
+  if (range.type_ == PropertyFilter::Type::EQUAL) return true;
+
+  // Otherwise the scan is fenced to whatever type its bounds name, and the
+  // question is which type that is.
+  return BoundsOrderLikeASort(range.lower_, range.upper_);
+}
+
+/// Whether a scan hands back its rows in the order a sort would put them in.
+///
+/// An index keeps its entries in the order the storage layer gives values and
+/// a sort reads the order the query layer gives them, and the two do not
+/// agree about every value. A map is one: storage orders the keys by the
+/// identifiers they were given, which is the order they were first seen in,
+/// while a sort orders them by name. The temporal types are another: storage
+/// carries all four under one type and tells them apart by the enumeration
+/// they are declared in, which counts up in a different order than a sort
+/// places them.
+///
+/// A scan asking only that a value be present hands back every type the
+/// property holds, so it can hand back one of those, and cannot stand in for
+/// a sort. A scan fenced to a single type can, for every type the two layers
+/// keep in one order, which is what LayersKeepThisTypeInOneOrder names. Only a
+/// literal names the type a bound fences a scan to, so a bound that is anything
+/// else leaves the scan unfenced as far as the plan can see.
+[[nodiscard]] inline bool ScanOrdersLikeASort(const ProvidedScan &scan) {
+  return std::visit(
+      utils::Overloaded{
+          [](const ScanAllByLabelProperties *s) {
+            return std::ranges::all_of(s->expression_ranges_, RangeOrdersLikeASort);
+          },
+          [](const ScanAllByVertexProperty *s) { return RangeOrdersLikeASort(s->expression_range_); },
+          [](const ScanAllByEdgePropertyRange *s) { return BoundsOrderLikeASort(s->lower_bound_, s->upper_bound_); },
+          [](const ScanAllByEdgeTypePropertyRange *s) {
+            return BoundsOrderLikeASort(s->lower_bound_, s->upper_bound_);
+          },
+          // A scan for one value returns entries all holding it.
+          [](auto const *) { return true; },
+      },
+      scan);
+}
 
 /// Helper that tracks ORDER BY operators during a plan-tree visitor walk and
 /// eliminates them when an index scan already provides the required order.
@@ -52,10 +136,6 @@ class OrderByEliminator {
     // unresolved entries conservatively return true
     [[nodiscard]] bool may_overlap(storage::PropertyId prop) const { return !has_path() || resolved[0] == prop; }
   };
-
-  using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
-                                    const ScanAllByEdgePropertyRange *, const ScanAllByEdgeTypePropertyValue *,
-                                    const ScanAllByEdgePropertyValue *, const ScanAllByVertexProperty *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
@@ -328,7 +408,6 @@ class OrderByEliminator {
         scan);
   }
 
-  /// Can the provided scans satisfy all ORDER BY entries without an explicit sort?
   [[nodiscard]] static bool CanEliminate(const OrderByInfo &ctx) {
     if (!ctx.well_formed || !ctx.order_preserving_path || ctx.has_pending_entries()) return false;
     if (ctx.provided_scans.empty()) return false;
@@ -339,6 +418,7 @@ class OrderByEliminator {
     // entries must form contiguous groups by source_position, matching provided scans in order
     while (entry_idx < ctx.entries.size() && scan_idx < ctx.provided_scans.size()) {
       if (!ScanOrderMatches(ctx.provided_scans[scan_idx], ctx.ordering)) return false;
+      if (!ScanOrdersLikeASort(ctx.provided_scans[scan_idx])) return false;
 
       const auto sym_pos =
           std::visit([](const auto *s) { return s->output_symbol_.position(); }, ctx.provided_scans[scan_idx]);
