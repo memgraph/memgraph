@@ -20,6 +20,8 @@
 #include "utils/pmr/unordered_map.hpp"
 
 #include "absl/container/flat_hash_set.h"
+#include "query/relations/agreement.hpp"
+#include "query/relations/equivalence.hpp"
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
@@ -28,14 +30,19 @@ struct CachedSet {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
   // Cached value, this can be probably templateized
-  absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
+  absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, relations::equivalence::KeyEqual,
+                      allocator_type>
       cache_;
 
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
 
-  CachedSet(const CachedSet &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
+  CachedSet(const CachedSet &other, allocator_type alloc)
+      : cache_(other.cache_, alloc),
+        holds_an_element_equality_cannot_settle_(other.holds_an_element_equality_cannot_settle_) {}
 
-  CachedSet(CachedSet &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc) {}
+  CachedSet(CachedSet &&other, allocator_type alloc)
+      : cache_(std::move(other.cache_), alloc),
+        holds_an_element_equality_cannot_settle_(other.holds_an_element_equality_cannot_settle_) {}
 
   CachedSet(CachedSet &&other) noexcept : CachedSet(std::move(other), other.get_allocator()) {}
 
@@ -49,7 +56,10 @@ struct CachedSet {
 
   ~CachedSet() = default;
 
-  void Reset() { cache_.clear(); }
+  void Reset() {
+    cache_.clear();
+    holds_an_element_equality_cannot_settle_ = false;
+  }
 
   bool SetValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
@@ -57,6 +67,9 @@ struct CachedSet {
     }
     const auto &list = maybe_list.ValueList();
     for (const auto &element : list) {
+      holds_an_element_equality_cannot_settle_ =
+          holds_an_element_equality_cannot_settle_ ||
+          (!element.IsNull() && !relations::EqualityAgreesWithEquivalence(element));
       cache_.insert(element);
     }
     return true;
@@ -64,6 +77,27 @@ struct CachedSet {
 
   // Func to check if cache_ contains value
   bool Contains(const TypedValue &value) const { return cache_.contains(value); }
+
+  // The elements themselves, for a caller whose question the set cannot answer
+  // and which would otherwise have to evaluate the list expression again.
+  auto const &Elements() const { return cache_; }
+
+  // Whether the set may answer an equality question about this value.
+  //
+  // Both halves of the condition are asked here rather than at the call site,
+  // since remembering one and forgetting the other reads as a working guard.
+  // The set itself is disqualified by an element the two relations part over: a
+  // Null held inside a list or map of its own, or a NaN anywhere, either of
+  // which equivalence holds the same value where equality cannot tell two such
+  // elements apart. An element that is itself Null does not disqualify it:
+  // nothing is equivalent to a Null but a Null, which the caller can read as
+  // equality's Null.
+  bool CanAnswerEqualityFor(TypedValue const &value) const {
+    return !holds_an_element_equality_cannot_settle_ && relations::EqualityAgreesWithEquivalence(value);
+  }
+
+ private:
+  bool holds_an_element_equality_cannot_settle_ = false;
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval

@@ -38,6 +38,10 @@
 #include "flags/bolt.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
+#include "query/relations/agreement.hpp"
+#include "query/relations/comparability.hpp"
+#include "query/relations/equivalence.hpp"
+#include "query/relations/orderability.hpp"
 #include "spdlog/spdlog.h"
 
 #include "flags/run_time_configurable.hpp"
@@ -58,6 +62,7 @@
 #include "query/procedure/module.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
@@ -402,7 +407,7 @@ struct TypedValueVectorEqual {
     MG_ASSERT(left.size() == right.size(),
               "TypedValueVector comparison should only be done over vectors "
               "of the same size");
-    return std::equal(left.begin(), left.end(), right.begin(), TypedValue::BoolEqual{});
+    return std::equal(left.begin(), left.end(), right.begin(), relations::equivalence::KeyEqual{});
   }
 };
 
@@ -475,10 +480,10 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
 /// Uses sharded locking to reduce contention - each shard has its own mutex.
 class SharedDistinctState {
  public:
-  using SeenRowsSet =
-      utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
-                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
-                                TypedValueVectorEqual>;
+  using SeenRowsSet = utils::pmr::unordered_set<
+      utils::pmr::vector<TypedValue>,
+      utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, relations::equivalence::Hasher>,
+      TypedValueVectorEqual>;
 
   static constexpr size_t kNumShards = 64;  // Power of 2 for fast modulo via bitwise AND
 
@@ -495,7 +500,8 @@ class SharedDistinctState {
     std::vector<bool> results;
     results.reserve(rows.size());
     for (const auto &row : rows) {
-      const size_t hash = utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>{}(row);
+      const size_t hash =
+          utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, relations::equivalence::Hasher>{}(row);
       const size_t shard_idx = hash & (kNumShards - 1);
       const std::lock_guard<std::mutex> lock(shard_mutexes_[shard_idx].mutex);
       auto [it, inserted] = shards_[shard_idx].emplace(std::move(row));
@@ -1328,47 +1334,16 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *st
 }
 
 namespace {
-std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optional<utils::Bound<Expression *>> bound,
-                                                                      ExpressionEvaluator &evaluator) {
-  if (!bound) return std::nullopt;
-  const auto &value = bound->value()->Accept(evaluator);
-  try {
-    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
-    switch (property_value.type()) {
-      case storage::PropertyValue::Type::Bool:
-      case storage::PropertyValue::Type::List:
-      case storage::PropertyValue::Type::NumericList:
-      case storage::PropertyValue::Type::IntList:
-      case storage::PropertyValue::Type::DoubleList:
-      case storage::PropertyValue::Type::Map:
-      case storage::PropertyValue::Type::Enum:
-      case storage::PropertyValueType::Point2d:
-      case storage::PropertyValueType::Point3d:
-      case storage::PropertyValueType::VectorIndexId:
-        // Prevent indexed lookup with something that would fail if we did
-        // the original filter with `operator<`. Note, for some reason,
-        // Cypher does not support comparing boolean values.
-        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
-      case storage::PropertyValue::Type::Null:
-      case storage::PropertyValue::Type::Int:
-      case storage::PropertyValue::Type::Double:
-      case storage::PropertyValue::Type::String:
-      case storage::PropertyValue::Type::TemporalData:
-      case storage::PropertyValue::Type::ZonedTemporalData:
-        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
-    }
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-  }
-}
-
 // Helper function to evaluate an expression and convert it to a property value.
 std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expression *expression, Frame &frame,
                                                                         ExecutionContext &context, storage::View view) {
   ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view, nullptr, &context.number_of_hops};
 
   auto value = expression->Accept(evaluator);
-  if (value.IsNull()) {
+  // An index matches by equivalence, so it can answer an equality question only where the two
+  // relations agree. A value that is a Null, or carries one anywhere, leaves equality undecided
+  // for every entry, and no lookup can settle it.
+  if (!relations::EqualityAgreesWithEquivalence(value)) {
     return std::nullopt;
   }
   if (!value.IsPropertyValue()) {
@@ -6987,7 +6962,8 @@ class AggregateCursor : public Cursor {
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
   struct CompactAggregationValue {
-    using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
+    using TSet =
+        utils::pmr::unordered_set<TypedValue, relations::equivalence::Hasher, relations::equivalence::KeyEqual>;
     // Per-slot real-vertex-gid → canonical-synthetic-gid map for DERIVE aggregation.
     // Empty for non-DERIVE slots.
     using DeriveDedup = utils::pmr::unordered_map<storage::Gid, storage::Gid>;
@@ -7118,13 +7094,12 @@ class AggregateCursor : public Cursor {
   };
 
   // Accumulated groups: keyed by the vector of group-by values, holding an AggregationValue.
-  using AggregationMap =
-      utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, CompactAggregationValue,
-                                // use FNV collection hashing specialized for a
-                                // vector of TypedValues
-                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
-                                // custom equality
-                                TypedValueVectorEqual>;
+  using AggregationMap = utils::pmr::unordered_map<
+      utils::pmr::vector<TypedValue>, CompactAggregationValue,
+      // Both name equivalence, which is what a grouping reads: two rows fall
+      // into one group where a null in the key is the same value as a null.
+      utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, relations::equivalence::Hasher>,
+      TypedValueVectorEqual>;
 
   // `single_group_` keeps the address of a mapped value for as long as rows keep arriving, so the
   // container has to be one that leaves its elements where they are as it grows. A map that stores
@@ -8159,9 +8134,10 @@ class DistinctCursor : public Cursor {
  private:
   const Distinct &self_;
   const UniqueCursorPtr input_cursor_;
-  utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
-                            utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
-                            TypedValueVectorEqual>
+  utils::pmr::unordered_set<
+      utils::pmr::vector<TypedValue>,
+      utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, relations::equivalence::Hasher>,
+      TypedValueVectorEqual>
       seen_rows_;
 };
 
@@ -8292,10 +8268,10 @@ class DistinctParallelCursor : public Cursor {
     return false;
   }
 
-  using RowSet =
-      utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
-                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
-                                TypedValueVectorEqual>;
+  using RowSet = utils::pmr::unordered_set<
+      utils::pmr::vector<TypedValue>,
+      utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, relations::equivalence::Hasher>,
+      TypedValueVectorEqual>;
 
   const Distinct &self_;
   const UniqueCursorPtr input_cursor_;
@@ -9830,7 +9806,11 @@ class HashJoinCursor : public Cursor {
           ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
-      if (left_value.type() != TypedValue::Type::Null) {
+      // The table matches by equivalence, in which Null equals Null, while the
+      // join condition is an equality that no Null can satisfy. Keying on a
+      // value that holds one anywhere would pair rows whose condition is Null,
+      // and such a row can never join with anything in any case.
+      if (relations::EqualityAgreesWithEquivalence(left_value)) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }
     }
@@ -9839,8 +9819,8 @@ class HashJoinCursor : public Cursor {
   const HashJoin &self_;
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;
-  utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>, TypedValue::Hash,
-                            TypedValue::BoolEqual>
+  utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>,
+                            relations::equivalence::Hasher, relations::equivalence::KeyEqual>
       hashtable_;
   utils::pmr::vector<TypedValue> right_op_frame_;
   utils::pmr::vector<utils::pmr::vector<TypedValue>>::iterator left_op_frame_it_;
