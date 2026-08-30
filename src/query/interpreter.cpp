@@ -10561,8 +10561,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   std::optional<storage::StorageAccessType> accessor_type_;
 };
 
-Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
-                                                QueryExtras const &extras) {
+Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParameters_fn &params_getter,
+                                                QueryExtras const &extras, storage::EngineLockMode try_mode) {
   std::optional<memory::DbArenaScope> db_arena_scope;
   if (current_db_.db_acc_) {
     db_arena_scope.emplace(current_db_.db_acc_->get());
@@ -10598,16 +10598,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     AdvanceCommand();
   } else {
     ResetInterpreter();
-    transaction_queries_->push_back(parsed_query.query_string);
     if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
       // If we're not in an explicit transaction block and we have an open
       // transaction, abort it since we're about to prepare a new query.
       AbortCommand(nullptr);
     }
-
-    SetupInterpreterTransaction(extras);
-    memgraph::logging::EmitSessionTraceEvent(
-        "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
+    // The transaction_queries_ record and SetupInterpreterTransaction (consumes a tx id and marks
+    // the transaction ACTIVE) are deferred until after the storage accessor is acquired, below in
+    // the try block, so the acquire runs before any non-idempotent transaction setup.
   }
 
   auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -10797,7 +10795,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
         }
-        SetupDatabaseTransaction(transaction_requirements.could_commit_, *transaction_requirements.accessor_type_);
+        SetupDatabaseTransaction(
+            transaction_requirements.could_commit_, *transaction_requirements.accessor_type_, try_mode);
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index
@@ -10809,6 +10808,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           throw StorageModeChangedDuringSetupException();
         }
       }
+
+      // Deferred from the autocommit branch above: the storage accessor is now held, so record the
+      // query and open the interpreter transaction (consumes the tx id, marks the status ACTIVE).
+      transaction_queries_->push_back(parsed_query.query_string);
+      SetupInterpreterTransaction(extras);
+      memgraph::logging::EmitSessionTraceEvent(
+          "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
     }
 
     if (current_db_.db_acc_) {

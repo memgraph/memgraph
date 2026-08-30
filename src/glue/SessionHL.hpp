@@ -17,6 +17,7 @@
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/access_type.hpp"
 
 namespace memgraph::glue {
 using bolt_value_t = memgraph::communication::bolt::Value;
@@ -77,7 +78,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra);
 
-  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare();
+  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare(
+      storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
                                                                     const bolt_map_t &extra) {
@@ -142,6 +144,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   inline bool Execute() { return Execute_(*this); }
 
   inline memgraph::communication::bolt::PendingBeginOutcome FinishPendingBegin() { return FinishPendingBegin_(*this); }
+
+  inline memgraph::communication::bolt::PendingPrepareOutcome FinishPendingPrepare() {
+    return FinishPendingPrepare_(*this);
+  }
 
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 
