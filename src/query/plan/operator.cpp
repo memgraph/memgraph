@@ -7564,28 +7564,24 @@ class AggregateCursor : public Cursor {
           // value is deferred to post-processing
           break;
         case Aggregation::Op::MIN: {
+          // Ordered under orderability, the relation these two are defined over,
+          // rather than under comparability. The two differ over a NaN, which
+          // orderability places after every other number and comparability
+          // places beside none of them.
+          //
+          // The check above refuses exactly the types the order raises for, and
+          // the value already accumulated came through it too, so the comparison
+          // itself cannot raise here.
           EnsureOkForMinMax(input_value);
-          try {
-            TypedValue comparison_result = input_value < agg_value->values_[pos];
-            // since we skip nulls we either have a valid comparison, or
-            // an exception was just thrown above
-            // safe to assume a bool TypedValue
-            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
-          } catch (const TypedValueException &) {
-            throw QueryRuntimeException(
-                "Unable to get MIN of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
+          if (std::is_lt(relations::orderability::Compare(input_value, agg_value->values_[pos]))) {
+            agg_value->values_[pos] = std::move(input_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          //  all comments as for Op::Min
           EnsureOkForMinMax(input_value);
-          try {
-            TypedValue comparison_result = input_value > agg_value->values_[pos];
-            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
-          } catch (const TypedValueException &) {
-            throw QueryRuntimeException(
-                "Unable to get MAX of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
+          if (std::is_gt(relations::orderability::Compare(input_value, agg_value->values_[pos]))) {
+            agg_value->values_[pos] = std::move(input_value);
           }
           break;
         }
@@ -7788,23 +7784,43 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  /** Checks if the given TypedValue is legal in MIN and MAX. If not
-   * an appropriate exception is thrown. */
   void EnsureOkForMinMax(const TypedValue &value) const {
+    // These read the order, which places every value it is handed, so what they
+    // accept is what it can place. Naming each type rather than answering for
+    // the rest at once is what makes a type added later be considered here.
     switch (value.type()) {
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::Int:
-      case TypedValue::Type::Double:
-      case TypedValue::Type::String:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
+      using enum TypedValue::Type;
+      case Null:
+      case Bool:
+      case Int:
+      case Double:
+      case String:
+      case List:
+      case Map:
+      case Date:
+      case LocalTime:
+      case LocalDateTime:
+      case ZonedDateTime:
+      case Duration:
+      case Enum:
+      case Point2d:
+      case Point3d:
+      // A graph element is placed by its identity, which is an arbitrary answer
+      // but an answer. Refusing these would make what an aggregation does depend
+      // on which types a column happened to hold, where the order has a place
+      // for every one of them.
+      case Vertex:
+      case Edge:
+      case Path:
+      case VirtualEdge:
+      case VirtualNode:
         return;
-      default:
-        throw QueryRuntimeException(
-            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX "
-            "aggregations.");
+
+      // The order has no place for these three at all.
+      case Graph:
+      case VirtualGraph:
+      case Function:
+        throw QueryRuntimeException("Values of type {} are not allowed in MIN and MAX aggregations.", value.type());
     }
   }
 
@@ -11864,12 +11880,14 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::MIN:
-            if ((other_value < main_value).ValueBool()) {
+            // Orderability, for the reason given where the values are first
+            // accumulated; merging two partial results has to order them alike.
+            if (std::is_lt(relations::orderability::Compare(other_value, main_value))) {
               main_value = std::move(other_value);
             }
             break;
           case Aggregation::Op::MAX:
-            if ((other_value > main_value).ValueBool()) {
+            if (std::is_gt(relations::orderability::Compare(other_value, main_value))) {
               main_value = std::move(other_value);
             }
             break;
@@ -11967,13 +11985,15 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::MIN: {
-          if ((other_value < main_value).ValueBool()) {
+          // Orderability, for the reason given where the values are first
+          // accumulated; merging two partial results has to order them alike.
+          if (std::is_lt(relations::orderability::Compare(other_value, main_value))) {
             main_value = std::move(other_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          if ((other_value > main_value).ValueBool()) {
+          if (std::is_gt(relations::orderability::Compare(other_value, main_value))) {
             main_value = std::move(other_value);
           }
           break;
