@@ -195,7 +195,9 @@ Feature: Aggregations
             """
             MATCH (a) RETURN MIN(a.x) AS n
             """
-        Then an error should be raised
+        Then the result should be:
+            | n   |
+            | 'x' |
 
     Scenario: Min test 02:
         Given an empty graph
@@ -298,9 +300,12 @@ Feature: Aggregations
         When executing query:
             """
             UNWIND [duration("PT2M2.33S"), duration("PT2M2.33S")] AS i
-            RETURN min(i)
+            RETURN min(i) = duration("PT2M2.33S") AS is_the_duration
             """
-        Then an error should be raised
+        Then the result should be:
+            | is_the_duration |
+            | true            |
+        And no side effects
 
     Scenario: Max test 01:
         Given an empty graph
@@ -312,7 +317,9 @@ Feature: Aggregations
             """
             MATCH (a) RETURN MAX(a.x) AS n
             """
-        Then an error should be raised
+        Then the result should be:
+            | n |
+            | 7 |
 
     Scenario: Max test 02:
         Given an empty graph
@@ -415,9 +422,12 @@ Feature: Aggregations
         When executing query:
             """
             UNWIND [duration("PT2M2.33S"), duration("PT2M2.33S")] AS i
-            RETURN max(i)
+            RETURN max(i) = duration("PT2M2.33S") AS is_the_duration
             """
-        Then an error should be raised
+        Then the result should be:
+            | is_the_duration |
+            | true            |
+        And no side effects
 
     Scenario: Collect test 01:
         Given an empty graph

@@ -18,8 +18,10 @@ parallel branch they originate from:
     - Last branch (last element triggers exception)
     - Multiple branches (multiple elements trigger exception)
 
-The test strategy uses MATCH(n) RETURN min(n.p) where mixing string and int
-values for property 'p' causes a type error during aggregation.
+The test strategy uses MATCH(n) RETURN sum(n.p) where a string value for
+property 'p' causes a type error during aggregation. Ordering, min and max
+place values of unlike types against one another rather than refusing, so they
+raise nothing and are asserted for the order they give instead.
 
 All queries use USING PARALLEL EXECUTION hint via the pq() wrapper.
 """
@@ -112,9 +114,9 @@ def run_aggregation_query(memgraph) -> None:
     """
     Run an aggregation query with parallel execution that will fail on mixed types.
 
-    This uses min() which requires comparable types.
+    This uses sum(), which admits numbers only.
     """
-    memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS result"))
+    memgraph.fetch_all(pq("MATCH (n:A) RETURN sum(n.p) AS result"))
 
 
 # =============================================================================
@@ -196,7 +198,7 @@ class TestExceptionMessageConsistency:
 
         # All exception messages should indicate type error
         for msg in exception_messages:
-            assert "unable to get min" in msg.lower(), f"Exception message doesn't match: {msg}"
+            assert "sum and avg" in msg.lower(), f"Exception message doesn't match: {msg}"
 
 
 class TestNoExceptionCases:
@@ -243,15 +245,15 @@ class TestDifferentAggregationFunctions:
         """Set up database with mixed types for each test."""
         setup_with_type_error(memgraph, 10, ExceptionOrigin.FIRST)
 
-    def test_min_exception(self, memgraph):
-        """MIN should raise on mixed types."""
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p)"))
+    def test_min_takes_the_smallest_of_mixed_types(self, memgraph):
+        """MIN reads the order, which puts a string below every number."""
+        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS min_val"))
+        assert result[0]["min_val"] == "invalid_string_1"
 
-    def test_max_exception(self, memgraph):
-        """MAX should raise on mixed types."""
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            memgraph.fetch_all(pq("MATCH (n:A) RETURN max(n.p)"))
+    def test_max_takes_the_largest_of_mixed_types(self, memgraph):
+        """MAX reads the same order, so the largest number wins over any string."""
+        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN max(n.p) AS max_val"))
+        assert result[0]["max_val"] == 10
 
     def test_sum_exception(self, memgraph):
         """SUM should raise on string types."""
@@ -288,19 +290,27 @@ class TestArithmeticExceptions:
         assert "invalid types" in str(excinfo.value).lower()
 
 
-class TestOrderByExceptions:
-    """Test exceptions during ORDER BY in parallel execution."""
+class TestOrderByMixedTypes:
+    """Test ORDER BY over values of unlike types in parallel execution."""
 
     @pytest.mark.parametrize(
         "origin",
         [ExceptionOrigin.FIRST, ExceptionOrigin.LAST, ExceptionOrigin.MIDDLE, ExceptionOrigin.EVERY_OTHER],
     )
-    def test_order_by_mixed_types_exception(self, memgraph, origin):
-        """Ordering mixed types should raise exception if not handled gracefully."""
+    def test_order_by_mixed_types_gives_one_order(self, memgraph, origin):
+        """Every pair has an order, and where the exception starts does not change it."""
         setup_with_type_error(memgraph, 10, origin)
 
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p AS p ORDER BY p"))
+        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p AS p ORDER BY p"))
+        p_values = [r["p"] for r in result]
+        assert len(p_values) == 10
+
+        # Strings come first as one run, then the numbers, and each run ascends.
+        strings = [p for p in p_values if isinstance(p, str)]
+        numbers = [p for p in p_values if not isinstance(p, str)]
+        assert p_values == strings + numbers
+        assert strings == sorted(strings)
+        assert numbers == sorted(numbers)
 
     def test_order_by_all_strings_no_exception(self, memgraph):
         """Ordering all strings should work without exception."""
@@ -311,6 +321,42 @@ class TestOrderByExceptions:
         # Lexicographical order: "invalid_string_1", "invalid_string_10", "invalid_string_2", ...
         p_values = [r["p"] for r in result]
         assert p_values == sorted(p_values)
+
+
+class TestMinMaxMergeAcrossBranches:
+    """The value a branch contributes to a merge can be of an unlike type.
+
+    Each parallel branch reduces its own rows first and only then hands its
+    result to another branch. When the rows are laid out so that one branch
+    sees only strings and another only numbers, the merge is the first place
+    the two types meet, and it has to place them the way the order does rather
+    than ask a comparison that answers NULL between them.
+    """
+
+    ELEMENT_COUNT = 60000
+    STRING_RUN = 30000
+
+    @pytest.fixture(autouse=True)
+    def setup_blocks_of_one_type(self, memgraph):
+        clear_database(memgraph)
+        memgraph.execute_query(
+            f"UNWIND range(1, {self.ELEMENT_COUNT}) AS i "
+            f"CREATE (:A {{p: CASE WHEN i > {self.STRING_RUN} THEN i ELSE toString(i) END}})"
+        )
+
+    def test_min_reads_the_order_whether_or_not_it_is_asked_for_distinct(self, memgraph):
+        plain = memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS v"))[0]["v"]
+        distinct = memgraph.fetch_all(pq("MATCH (n:A) RETURN min(DISTINCT n.p) AS v"))[0]["v"]
+        # A string sorts below every number, so the smallest is the first string.
+        assert plain == "1"
+        assert distinct == plain
+
+    def test_max_reads_the_order_whether_or_not_it_is_asked_for_distinct(self, memgraph):
+        plain = memgraph.fetch_all(pq("MATCH (n:A) RETURN max(n.p) AS v"))[0]["v"]
+        distinct = memgraph.fetch_all(pq("MATCH (n:A) RETURN max(DISTINCT n.p) AS v"))[0]["v"]
+        # Every number sorts above every string, so the largest is the last number.
+        assert plain == self.ELEMENT_COUNT
+        assert distinct == plain
 
 
 if __name__ == "__main__":

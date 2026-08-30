@@ -117,7 +117,17 @@ def generate_result_csv(suite, result_path):
     return ret
 
 
-def generate_status(suite, result_path, required):
+def below_floor(suite, passed):
+    """Whether a suite that need not pass in full has passed fewer than it did.
+
+    A suite with no floor is never below one, so a suite that has not been
+    measured yet is left alone rather than treated as having a floor of zero.
+    """
+    floor = suite.get("min_passed")
+    return floor is not None and passed < floor
+
+
+def generate_status(suite, result_path, required, floor=None):
     if not os.path.exists(result_path):
         return ("Internal error!", 0, 1)
     with open(result_path) as f:
@@ -131,6 +141,8 @@ def generate_status(suite, result_path, required):
             msg += " &#x1F44D;"  # +1 emoji
         else:
             msg += " &#x26D4;"  # no entry emoji
+    elif floor is not None:
+        msg += " &#x26D4;" if passed < floor else " &#x1F44D;"
     return (msg, passed, total)
 
 
@@ -262,13 +274,27 @@ def main():
         subprocess.run(cmd)
 
         suite_status, suite_passed, suite_total = generate_status(
-            suite["name"], suite["stats_file"], suite["must_pass"]
+            suite["name"], suite["stats_file"], suite["must_pass"], suite.get("min_passed")
         )
 
         status_data.append([suite["name"], suite_status])
         result_csv += generate_result_csv(suite["name"], suite["stats_file"])
 
         if suite["must_pass"] and suite_passed != suite_total:
+            mandatory_fails.append(suite["name"])
+            break
+
+        # A suite that is not required to pass in full can still be required not
+        # to get worse. The floor is the count that passed when it was last
+        # raised deliberately, so a change that breaks a scenario is reported
+        # while the ones already known to fail stay quiet.
+        if below_floor(suite, suite_passed):
+            print(
+                "Suite '{}' passed {} of {}, below its floor of {}.".format(
+                    suite["name"], suite_passed, suite_total, suite["min_passed"]
+                ),
+                flush=True,
+            )
             mandatory_fails.append(suite["name"])
             break
 

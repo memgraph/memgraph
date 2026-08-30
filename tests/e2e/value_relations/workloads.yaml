@@ -1,0 +1,26 @@
+in_memory_cluster: &in_memory_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "value_relations.log"
+      setup_queries: []
+      validation_queries: []
+
+on_disk_cluster: &on_disk_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "value_relations_on_disk.log"
+      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
+      validation_queries: []
+
+workloads:
+  - name: "Indexed and unindexed answers agree"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["value_relations/index_agreement.py"]
+    <<: *in_memory_cluster
+
+  - name: "Indexed and unindexed answers agree on disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["value_relations/index_agreement.py"]
+    <<: *on_disk_cluster

@@ -56,20 +56,18 @@ def test_plan_with_renaming_allows_elimination(memgraph):
     assert expected == actual
 
 
-def test_plan_equality_skip_elimination(memgraph):
-    """WHERE a = 5 AND b IS NOT NULL ORDER BY b eliminated when index is (a, b) -- equality-pinned
-    skip; b IS NOT NULL keeps the sort column non-nullable so the index order (NULL first) cannot
-    disagree with ORDER BY (NULL last)."""
+def test_plan_equality_skip_keeps_the_sort(memgraph):
+    """WHERE a = 5 AND b IS NOT NULL ORDER BY b keeps its sort even though the index is (a, b).
+
+    Asking that b be present settles where a null would have gone and nothing else. The column
+    still holds every other type, and an index keeps a map in the order its keys were first seen
+    while a sort orders them by name, so the index order is not the sort order.
+    """
     memgraph.execute("CREATE INDEX ON :L(a, b);")
 
-    expected = [
-        " * Produce {n}",
-        " * ScanAllByLabelProperties (n :L {a, b})",
-        " * Once",
-    ]
-
-    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.a = 5 AND n.b IS NOT NULL RETURN n ORDER BY n.b")
-    assert expected == actual
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a = 5 AND n.b IS NOT NULL RETURN n ORDER BY n.b")
+    assert any("ScanAllByLabelProperties" in step for step in plan), "the index should still find the rows"
+    assert any("OrderBy" in step for step in plan), "a presence-only column does not supply the sort order"
 
 
 def test_plan_nullable_suffix_not_eliminated(memgraph):
@@ -203,15 +201,19 @@ def test_correctness_in_filter_order_preserved(memgraph):
 # ---------------------------------------------------------------------------
 
 
-def test_plan_composite_alias_elimination(memgraph):
-    """ORDER BY a, b eliminated when WITH projects both from composite index (a, b); b IS NOT NULL
-    keeps the nullable suffix column non-null so elimination stays sound."""
+def test_plan_composite_alias_keeps_the_sort(memgraph):
+    """ORDER BY a, b keeps its sort when b is only asked to be present, whatever the aliases do.
+
+    Resolving the aliases back to the indexed properties is what lets the sort be considered at
+    all; what stops it here is that b holds every type and the two orders do not agree about all
+    of them.
+    """
     memgraph.execute("CREATE INDEX ON :L(a, b);")
 
     plan = get_plan(
         memgraph, "MATCH (n:L) WHERE n.a > 0 AND n.b IS NOT NULL WITH n.a AS a, n.b AS b RETURN a, b ORDER BY a, b"
     )
-    assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (composite alias resolved)"
+    assert any("OrderBy" in step for step in plan), "a presence-only column does not supply the sort order"
 
 
 def test_correctness_with_property_alias(memgraph):

@@ -3,10 +3,15 @@
   storage_mode: IN_MEMORY_TRANSACTIONAL
   must_pass: true
 
+# The scenarios this suite does not pass are known and are not being fixed
+# here, but the count that does pass is held to a floor, so a change that
+# breaks one of them is reported rather than absorbed. Raise the floor when
+# the count rises.
 - name: openCypher_M09
   test_suite: openCypher_M09
   storage_mode: IN_MEMORY_TRANSACTIONAL
   must_pass: false
+  min_passed: 785
 
 - name: stackoverflow_answers
   test_suite: stackoverflow_answers
@@ -23,10 +28,16 @@
   storage_mode: ON_DISK_TRANSACTIONAL
   must_pass: true
 
+# The same suite, so its floor would be the same but for two scenarios that
+# return a list of paths and expect the edges in one particular order. Which
+# order they arrive in is not something either storage mode promises, and the
+# two happen to expand them differently, so this floor sits two above the one
+# above it.
 - name: openCypher_M09_on_disk
   test_suite: openCypher_M09
   storage_mode: ON_DISK_TRANSACTIONAL
   must_pass: false
+  min_passed: 787
 
 - name: stackoverflow_answers_on_disk
   test_suite: stackoverflow_answers
