@@ -739,6 +739,33 @@ TEST(PropertyValue, AListIsEqualToAListHoldingTheSameElements) {
   EXPECT_TRUE(std::is_lt(as_vector <=> differing));
 }
 
+TEST(PropertyValue, AListOfNonNumbersIsOrderedByWhatItsElementsHold) {
+  // The elements a list is ordered by need not be numbers. A pair of them that
+  // share a type are separated by what they hold, exactly as a pair of numbers
+  // is, and only a pair of unlike types is separated by where the types sit.
+  auto const strings = [](std::initializer_list<char const *> values) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const *value : values) elements.emplace_back(value);
+    return PropertyValue{elements};
+  };
+
+  EXPECT_TRUE(std::is_lt(strings({"a"}) <=> strings({"b"})));
+  EXPECT_TRUE(std::is_gt(strings({"b"}) <=> strings({"a"})));
+  EXPECT_EQ(strings({"a"}) <=> strings({"a"}), std::weak_ordering::equivalent);
+  EXPECT_FALSE(strings({"a"}) == strings({"b"}));
+
+  // The first element the two do not share settles it, and a later one that
+  // differs cannot overturn what an earlier one decided.
+  EXPECT_TRUE(std::is_lt(strings({"a", "z"}) <=> strings({"b", "a"})));
+
+  auto const booleans = [](std::initializer_list<bool> values) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const value : values) elements.emplace_back(value);
+    return PropertyValue{elements};
+  };
+  EXPECT_TRUE(std::is_lt(booleans({false}) <=> booleans({true})));
+}
+
 TEST(PropertyValue, EqualMap) {
   auto a = PropertyValue(PropertyValue::map_t());
   auto b = PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}});
