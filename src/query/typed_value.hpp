@@ -11,10 +11,13 @@
 
 #pragma once
 
+#include <cmath>
+#include <compare>
 #include <cstdint>
 #include <iosfwd>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -60,32 +63,11 @@ concept TypedValueValidPrimativeType =
  */
 class TypedValue {
  public:
-  /** Custom TypedValue equality function that returns a bool
-   * (as opposed to returning TypedValue as the default equality does).
-   * This implementation treats two nulls as being equal and null
-   * not being equal to everything else.
-   */
-  struct BoolEqual {
-    bool operator()(const TypedValue &left, const TypedValue &right) const;
-  };
-
-  /** Hash operator for TypedValue.
-   *
-   * Not injecting into std
-   * due to linking problems. If the implementation is in this header,
-   * then it implicitly instantiates TypedValue::Value<T> before
-   * explicit instantiation in .cpp file. If the implementation is in
-   * the .cpp file, it won't link.
-   * TODO: No longer the case as Value<T> was removed.
-   */
-  struct Hash {
-    size_t operator()(const TypedValue &value) const;
-  };
-
-  template <typename H>
-  friend H AbslHashValue(H h, TypedValue const &value) {
-    return H::combine(std::move(h), Hash{}(value));
-  }
+  // The comparison and the hash a set or a map keyed by a value is built with
+  // are equivalence, and live with that relation in
+  // query/relations/equivalence.hpp. A value carries neither, so a structure
+  // cannot be keyed by one without naming the relation it is keyed by, and the
+  // hash cannot be reached without the comparison it has to agree with.
 
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned {
@@ -596,14 +578,14 @@ class TypedValue {
 
   // comparison operators
 
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * Since each TypedValue may have a different MemoryResource for allocations,
-   * the results is allocated using MemoryResource obtained from the left hand
-   * side.
-   */
+  // Equality, the relation this and the one below read. Written in
+  // query/relations/equality.hpp, which a caller wanting it without a call
+  // includes to reach it directly.
+  //
+  // This spelling stays out of line: it is asked once per row by the filters
+  // that read `=`, and inlining it would put the relation into every
+  // translation unit that includes this header, which is most of the query
+  // layer.
   friend TypedValue operator==(const TypedValue &a, const TypedValue &b);
 
   /**
@@ -616,54 +598,11 @@ class TypedValue {
    */
   friend TypedValue operator!=(const TypedValue &a, const TypedValue &b) { return !(a == b); }
 
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  friend TypedValue operator<(const TypedValue &a, const TypedValue &b);
-
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  // TODO: why not `!(b < a)` or C++20 auto generated
-  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
-
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return !(a <= b); }
-
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
+  // Comparability, the relation `< <= > >=` read, is written in
+  // query/relations/comparability.hpp and declared nowhere else. Declaring it
+  // here as well would let a translation unit that never includes that header
+  // still name the operators, and reach a definition only because some other
+  // translation unit in the same binary emitted one.
 
   // arithmetic operators
 
@@ -813,21 +752,17 @@ class TypedValueException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(TypedValueException)
 };
 
-constexpr bool is_canonical(TypedValue::Type type) {
-  switch (type) {
-    case TypedValue::Type::Null:
+/// Reads a number as a double, whichever of the two numeric types it is.
+///
+/// @throw TypedValueException for a value of any other type.
+inline double ToDouble(const TypedValue &value) {
+  switch (value.type()) {
     case TypedValue::Type::Int:
+      return static_cast<double>(value.ValueInt());
     case TypedValue::Type::Double:
-    case TypedValue::Type::String:
-    case TypedValue::Type::Bool:
-    case TypedValue::Type::List:
-    case TypedValue::Type::Map:
-    case TypedValue::Type::Vertex:
-    case TypedValue::Type::Edge:
-    case TypedValue::Type::Path:
-      return true;
+      return value.ValueDouble();
     default:
-      return false;
+      throw TypedValueException("Unsupported TypedValue::Type conversion to double");
   }
 }
 

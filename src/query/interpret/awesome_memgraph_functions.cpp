@@ -35,6 +35,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
+#include "query/relations/equivalence.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
@@ -1140,9 +1141,14 @@ TypedValue ToSet(const TypedValue *args, int64_t nargs, const FunctionContext &c
     return TypedValue(ctx.memory);
   }
   const auto &elements = value.ValueList();
-  using unique_collection = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
-  auto unique_elements = unique_collection(
-      elements.cbegin(), elements.cend(), elements.size() * 2, TypedValue::Hash{}, TypedValue::BoolEqual{}, ctx.memory);
+  using unique_collection =
+      utils::pmr::unordered_set<TypedValue, relations::equivalence::Hasher, relations::equivalence::KeyEqual>;
+  auto unique_elements = unique_collection(elements.cbegin(),
+                                           elements.cend(),
+                                           elements.size() * 2,
+                                           relations::equivalence::Hasher{},
+                                           relations::equivalence::KeyEqual{},
+                                           ctx.memory);
   return TypedValue{TypedValue::TVector(
       std::make_move_iterator(unique_elements.begin()), std::make_move_iterator(unique_elements.end()), ctx.memory)};
 }

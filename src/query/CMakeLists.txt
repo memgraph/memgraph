@@ -103,6 +103,7 @@ target_sources(mg-query
     stream/streams.cpp
     trigger_context.cpp
     trigger.cpp
+    relations/equivalence.cpp
     typed_value.cpp
     vertex_accessor.cpp
 
