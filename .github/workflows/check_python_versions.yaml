@@ -32,7 +32,7 @@ on:
             release:
                 type: boolean
                 default: true
-                description: "Run the Release core + e2e + query_modules suites across the matrix (benchmark/stress skipped)."
+                description: "Run the Release core + e2e suites across the matrix (benchmark/stress skipped)."
             malloc:
                 type: boolean
                 default: true
@@ -150,7 +150,6 @@ jobs:
             run_benchmark: "false"
             run_e2e: "true"
             run_stress: "false"
-            run_query_modules: "true"
             python_build_version: ${{ matrix.python_build }}
             python_runtime_version: ${{ matrix.python_runtime }}
             run_id: "b${{ matrix.python_build }}-r${{ matrix.python_runtime }}"

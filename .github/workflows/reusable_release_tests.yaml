@@ -779,6 +779,24 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
 
+      - name: Run query modules unit tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          test-memgraph query_modules_unit
+
+      - name: Run query modules e2e tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph query_modules_e2e
+
       - name: Create enterprise DEB package
         run: |
           ./release/package/mgbuild.sh \
@@ -1566,117 +1584,6 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
-  release_query_modules_test:
-    if: ${{ inputs.run_release_tests == 'true' }}
-    name: "Release Query Modules Test"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
-    timeout-minutes: 60
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
-
-      - name: Build release binaries
-        run: |
-          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
-          echo "Linking with $LINK_THREADS threads"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          build-memgraph \
-          --link-threads $LINK_THREADS \
-          --conan-remote $CONAN_REMOTE \
-          --conan-username $CONAN_USERNAME \
-          --conan-password $CONAN_PASSWORD
-
-      - name: Initialize tests
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          init-tests
-
-      - name: Run query modules unit tests
-        run: |
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            test-memgraph query_modules_unit
-
-      - name: Run query modules e2e tests
-        run: |
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph query_modules_e2e
-
-      - name: Collect core dumps
-        if: failure()
-        continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-        run: |
-          ./tools/ci/core-dumps/collect.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --run-id "${{ github.run_id }}" \
-          --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Stop mgbuild container
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          stop --remove
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
   aggregate_results:
     name: "Aggregate Test Results"
     runs-on: [self-hosted]
@@ -1691,7 +1598,6 @@ jobs:
       - release_e2e_test
       - release_durability_stress_tests
       - release_jepsen_test
-      - release_query_modules_test
       - stress_test_large
     if: ${{ always() && inputs.run_release_tests == 'true' }}
     outputs:
@@ -1711,8 +1617,7 @@ jobs:
              [ "${{ needs.release_e2e_test.result }}" == "failure" ] || \
              [ "${{ needs.release_durability_stress_tests.result }}" == "failure" ] || \
              [ "${{ needs.release_jepsen_test.result }}" == "failure" ] || \
-             [ "${{ needs.stress_test_large.result }}" == "failure" ] || \
-             [ "${{ needs.release_query_modules_test.result }}" == "failure" ]; then
+             [ "${{ needs.stress_test_large.result }}" == "failure" ]; then
             echo "test_status=fail" >> $GITHUB_OUTPUT
           else
             echo "test_status=pass" >> $GITHUB_OUTPUT
