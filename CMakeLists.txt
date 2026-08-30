@@ -412,6 +412,14 @@ if (TEST_COVERAGE)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
 endif()
 
+# -Og is the optimisation level meant to be debugged: it leaves assertions, and the code paths they
+# guard, exactly as they are, while costing a fraction of what unoptimised code does to run. A
+# coverage build is exempt because it compiles without a compilation cache, so it pays the optimiser
+# on every file on every build, which is more than its faster tests give back.
+if (NOT TEST_COVERAGE)
+    string(APPEND CMAKE_CXX_FLAGS_DEBUG " -Og")
+endif()
+
 if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()

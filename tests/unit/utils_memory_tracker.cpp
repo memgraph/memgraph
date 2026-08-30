@@ -15,6 +15,7 @@
 
 #include <utils/memory_tracker.hpp>
 #include <utils/on_scope_exit.hpp>
+#include <utils/resource_monitoring.hpp>
 
 using memgraph::utils::MemoryTracker;
 using memgraph::utils::OutOfMemoryException;
@@ -32,11 +33,13 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
     while (!enabler_created);
 
     auto thread_notifier = memgraph::utils::OnScopeExit{[&] { can_continue = true; }};
+    const MemoryTracker::RefusalHandledScope refusal_handled;
     ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
   }};
 
   auto throwing_thread = std::jthread{[&] {
     auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+    const MemoryTracker::RefusalHandledScope refusal_handled;
     enabler_created = true;
     ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 
@@ -51,6 +54,7 @@ TEST(MemoryTrackerTest, ExceptionBlocker) {
   memory_tracker.SetHardLimit(hard_limit);
 
   auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
   {
     auto exception_blocker = MemoryTracker::OutOfMemoryExceptionBlocker{};
 
@@ -100,6 +104,7 @@ TEST(EmbeddingTrackingTest, ParentLimitBlocksChildAllocAndRollsBackChildAmount) 
 
   parent.SetHardLimit(100);
   auto enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
 
   ASSERT_TRUE(child.Alloc(50));
   ASSERT_FALSE(child.Alloc(100));
@@ -114,6 +119,7 @@ TEST(EmbeddingTrackingTest, ChildOwnLimitBlocksAllocationIndependentlyOfParent) 
 
   child.SetHardLimit(100);
   auto enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
 
   ASSERT_TRUE(child.Alloc(50));
   ASSERT_FALSE(child.Alloc(100));
@@ -161,4 +167,97 @@ TEST(MemoryTrackerTest, SetHardLimitClampsAgainstMaximum) {
 
   tracker.SetHardLimit(512);
   EXPECT_EQ(tracker.HardLimit(), 512);
+}
+
+// An over-limit allocation is refused only where the caller has declared that it turns a refusal
+// into an exception. Anywhere else it is tracked and allowed.
+TEST(MemoryTrackerTest, OverLimitAllocIsRefusedOnlyWhereRefusalIsHandled) {
+  auto memory_tracker = MemoryTracker{};
+
+  static constexpr auto hard_limit = 10;
+  memory_tracker.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
+  EXPECT_EQ(memory_tracker.Amount(), hard_limit + 1);
+  memory_tracker.Free(hard_limit + 1);
+
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
+  EXPECT_EQ(memory_tracker.Amount(), 0);
+}
+
+// A suspension exempts allocations made on the runtime's behalf, and nests inside a handled scope
+// without disturbing it.
+TEST(MemoryTrackerTest, SuspensionExemptsAndRestores) {
+  auto memory_tracker = MemoryTracker{};
+
+  static constexpr auto hard_limit = 10;
+  memory_tracker.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+
+  {
+    const MemoryTracker::RefusalSuspendedScope refusal_suspended;
+    ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
+    memory_tracker.Free(hard_limit + 1);
+  }
+
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
+}
+
+// A parent's limit is the child's too, so the exemption has to hold for the whole chain.
+TEST(MemoryTrackerTest, ParentChainIsExemptWhereRefusalIsNotHandled) {
+  auto parent = MemoryTracker{};
+  auto child = MemoryTracker{&parent};
+
+  static constexpr auto hard_limit = 10;
+  parent.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  ASSERT_TRUE(child.Alloc(hard_limit + 1));
+  EXPECT_EQ(parent.Amount(), hard_limit + 1);
+}
+
+// The transactions resource can refuse an allocation too, so it answers the same question.
+TEST(MemoryTrackerTest, TransactionsResourceIsRefusedOnlyWhereRefusalIsHandled) {
+  static constexpr auto limit = 10;
+  auto transactions_memory = memgraph::utils::TransactionsMemoryResource{limit};
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  ASSERT_TRUE(transactions_memory.Allocate(limit + 1));
+
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+  ASSERT_FALSE(transactions_memory.Allocate(limit + 1));
+}
+
+// A session count is not an allocation, so the allocator's refusal boundary does not apply to it.
+TEST(MemoryTrackerTest, SessionLimitIsEnforcedWithoutARefusalScope) {
+  auto resources = memgraph::utils::UserResources{1, memgraph::utils::TransactionsMemoryResource::kUnlimited};
+
+  ASSERT_TRUE(resources.IncrementSessions());
+  ASSERT_FALSE(resources.IncrementSessions());
+}
+
+// Answering whether a refusal may be delivered can itself allocate, so it is asked only once the
+// limit has been exceeded.
+TEST(MemoryTrackerTest, IncrementAsksWhetherToRefuseOnlyWhenOverLimit) {
+  static constexpr auto limit = 10;
+  auto resource = memgraph::utils::Resource<size_t>{limit};
+
+  auto asked = 0;
+  auto may_refuse = [&asked] {
+    ++asked;
+    return true;
+  };
+
+  ASSERT_TRUE(resource.Increment(limit, may_refuse).success);
+  EXPECT_EQ(asked, 0);
+
+  ASSERT_FALSE(resource.Increment(1, may_refuse).success);
+  EXPECT_EQ(asked, 1);
 }
