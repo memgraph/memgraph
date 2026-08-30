@@ -766,6 +766,34 @@ TEST(PropertyValue, AListOfNonNumbersIsOrderedByWhatItsElementsHold) {
   EXPECT_TRUE(std::is_lt(booleans({false}) <=> booleans({true})));
 }
 
+TEST(PropertyValue, AListIsOrderedByEveryBitOfTheIntegersItHolds) {
+  // A list that boxes its elements holds each integer at its full width, and
+  // is ordered against a list that packs them element by element. Reading a
+  // boxed element narrower would fold two that differ only above the narrower
+  // width onto one, and order the lists holding them as though they matched.
+  auto const boxed = [](std::vector<int64_t> const &numbers) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const number : numbers) elements.emplace_back(number);
+    return PropertyValue{elements};
+  };
+  auto const packed = [](std::vector<int64_t> const &numbers) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const number : numbers) elements.emplace_back(number);
+    return PropertyValue{IntListTag{}, elements};
+  };
+
+  // The boxed element differs from the packed one only above the low 32 bits.
+  auto const big = int64_t{1} << 32;
+  EXPECT_TRUE(std::is_gt(boxed({big}) <=> packed({0})));
+  EXPECT_TRUE(std::is_lt(packed({0}) <=> boxed({big})));
+  EXPECT_FALSE(boxed({big}) == packed({0}));
+
+  // And one no narrower integer can hold at all.
+  auto const huge = std::numeric_limits<int64_t>::max();
+  EXPECT_TRUE(std::is_gt(boxed({huge}) <=> packed({1})));
+  EXPECT_FALSE(boxed({huge}) == packed({1}));
+}
+
 TEST(PropertyValue, EqualMap) {
   auto a = PropertyValue(PropertyValue::map_t());
   auto b = PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}});

@@ -46,6 +46,14 @@ PropertyValue ListOf(std::vector<int64_t> const &numbers) {
   return PropertyValue{elements};
 }
 
+/// A list that packs its elements rather than boxing each one.
+PropertyValue PackedListOf(std::vector<int64_t> const &numbers) {
+  auto elements = std::vector<PropertyValue>{};
+  elements.reserve(numbers.size());
+  for (auto const number : numbers) elements.emplace_back(number);
+  return PropertyValue{memgraph::storage::IntListTag{}, elements};
+}
+
 PropertyValue ListOfStrings(std::vector<std::string> const &values) {
   auto elements = std::vector<PropertyValue>{};
   elements.reserve(values.size());
@@ -77,6 +85,16 @@ Pair Made(std::string_view what) {
   // it reaches the lengths.
   if (what == "ListOfUnlikeLengths") return {ListOf({1, 2}), ListOf({1, 2, 3, 4})};
   if (what == "ListOfStrings") return {ListOfStrings({"a", "b"}), ListOfStrings({"a", "c"})};
+  // One list packs its elements and the other boxes them, which is the pair a
+  // stored column reaches when a query hands it a list to compare against.
+  // This is the one shape ordered by walking the elements rather than by the
+  // representation, so it is named apart from the pairs that share one.
+  if (what == "PackedAgainstBoxed") {
+    return {PackedListOf({1, 2, 3, 4}), ListOf({1, 2, 3, 5})};
+  }
+  if (what == "PackedAgainstBoxedUnlikeLengths") {
+    return {PackedListOf({1, 2}), ListOf({1, 2, 3, 4})};
+  }
   // Unlike types are separated by where the types sit, without either value
   // being looked at.
   if (what == "UnlikeTypes") return {PropertyValue{int64_t{7}}, PropertyValue{"seven"}};
@@ -129,6 +147,9 @@ void EncodedSamenessHit(benchmark::State &state, std::string_view what) {
   BENCHMARK_CAPTURE(bench, List, "List")->Unit(benchmark::kNanosecond);                               \
   BENCHMARK_CAPTURE(bench, ListOfUnlikeLengths, "ListOfUnlikeLengths")->Unit(benchmark::kNanosecond); \
   BENCHMARK_CAPTURE(bench, ListOfStrings, "ListOfStrings")->Unit(benchmark::kNanosecond);             \
+  BENCHMARK_CAPTURE(bench, PackedAgainstBoxed, "PackedAgainstBoxed")->Unit(benchmark::kNanosecond);   \
+  BENCHMARK_CAPTURE(bench, PackedAgainstBoxedUnlikeLengths, "PackedAgainstBoxedUnlikeLengths")        \
+      ->Unit(benchmark::kNanosecond);                                                                 \
   BENCHMARK_CAPTURE(bench, UnlikeTypes, "UnlikeTypes")->Unit(benchmark::kNanosecond);
 
 FOR_EACH_SHAPE(Ordering)

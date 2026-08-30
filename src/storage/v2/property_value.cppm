@@ -934,14 +934,19 @@ using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byt
 }  // namespace pmr
 
 /// Helper function to extract numeric value from any list type at given index
+///
+/// The integer is carried at its full width. A list that boxes its elements
+/// holds each at that width, so reading one narrower would fold two elements
+/// that differ only above the narrower one onto a single value, and order the
+/// lists holding them as though they were the same.
 template <typename Alloc, typename KeyType, typename VectorIndexIdType>
-inline std::optional<std::variant<int, double>> GetNumericValueAt(
+inline std::optional<std::variant<int64_t, double>> GetNumericValueAt(
     const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list, size_t index) {
   switch (list.type()) {
     case PropertyValueType::List: {
       auto const &list_val = list.ValueList();
       if (list_val[index].IsInt()) {
-        return static_cast<int>(list_val[index].ValueInt());
+        return list_val[index].ValueInt();
       }
       if (list_val[index].IsDouble()) {
         return list_val[index].ValueDouble();
@@ -957,8 +962,13 @@ inline std::optional<std::variant<int, double>> GetNumericValueAt(
       return list_val[index];
     }
     case PropertyValueType::NumericList: {
+      // This representation packs its integers narrower than the boxed one
+      // holds them, so the two are read out at the wider width to be compared.
       auto const &list_val = list.ValueNumericList();
-      return list_val[index];
+      if (std::holds_alternative<int>(list_val[index])) {
+        return static_cast<int64_t>(std::get<int>(list_val[index]));
+      }
+      return std::get<double>(list_val[index]);
     }
     case PropertyValueType::VectorIndexId: {
       return static_cast<double>(list.ValueVectorIndexList()[index]);
@@ -1059,12 +1069,12 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
   const size_t size2 = second.ListSize();
   const size_t common = std::min(size1, size2);
 
-  auto extract_type = [](const std::optional<std::variant<int, double>> &val,
+  auto extract_type = [](const std::optional<std::variant<int64_t, double>> &val,
                          const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
 
                          auto index) {
     if (val) {
-      if (std::holds_alternative<int>(*val)) {
+      if (std::holds_alternative<int64_t>(*val)) {
         return PropertyValueType::Int;
       }
       return PropertyValueType::Double;
@@ -1086,8 +1096,8 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
 
     // Read through the same double comparison the scalars use, so a NaN inside
     // a list is placed where a NaN beside one is.
-    auto const to_double = [](std::variant<int, double> const &v) {
-      return std::holds_alternative<int>(v) ? static_cast<double>(std::get<int>(v)) : std::get<double>(v);
+    auto const to_double = [](std::variant<int64_t, double> const &v) {
+      return std::holds_alternative<int64_t>(v) ? static_cast<double>(std::get<int64_t>(v)) : std::get<double>(v);
     };
     if (auto const cmp_result = CompareDoublesNaNLast(to_double(*val1), to_double(*val2));
         cmp_result != std::weak_ordering::equivalent) {
