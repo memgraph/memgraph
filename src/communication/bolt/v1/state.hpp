@@ -49,6 +49,13 @@ enum class State : uint8_t {
   Result,
 
   /**
+   * A BEGIN whose engine-lock acquire would block has been decoded and stashed; its completion is
+   * being run out-of-band on a pool worker. Execute_ returns to the dechunk loop's caller without
+   * touching any message buffered behind the BEGIN, so ordering is preserved until the BEGIN finishes.
+   */
+  PendingBegin,
+
+  /**
    * This state handles errors, if client handles error response correctly next
    * state is Idle.
    */
@@ -61,4 +68,10 @@ enum class State : uint8_t {
    */
   Close,
 };
+
+// Outcome of the pool-side completion of a would-block BEGIN (FinishPendingBegin_).
+// Done        - the BEGIN completed and SUCCESS was sent.
+// ClientError - send failed or the begin threw; state moved to Close/Error.
+// Reschedule  - the bounded-try engine-lock acquire lost the race; extras stay stashed, re-post to the pool.
+enum class PendingBeginOutcome : uint8_t { Done, ClientError, Reschedule };
 }  // namespace memgraph::communication::bolt

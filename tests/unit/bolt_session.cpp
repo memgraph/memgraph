@@ -18,6 +18,7 @@
 #include "communication/bolt/v1/session.hpp"
 #include "communication/exceptions.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/access_type.hpp"  // storage::EngineLockMode (BeginTransaction engine-mode arg)
 #include "utils/logging.hpp"
 
 using memgraph::communication::bolt::ChunkedEncoderBuffer;
@@ -114,7 +115,16 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) { return {}; }
 
-  void BeginTransaction(const bolt_map_t &extra) {
+  void BeginTransaction(const bolt_map_t &extra,
+                        memgraph::storage::EngineLockMode mode = memgraph::storage::EngineLockMode::Blocking) {
+    // Pool bounded-try: simulate losing the engine-lock race for the first N attempts, then succeed. The
+    // first loss happens inside HandleBegin (the BEGIN goes State::PendingBegin); the rest happen inside
+    // FinishPendingBegin_ (each returns Reschedule). Blocking (the fairness-cap fallback) never throws
+    // WouldBlock, so it is intentionally NOT gated here -- that is what guarantees the loop terminates.
+    if (mode == memgraph::storage::EngineLockMode::TryBounded && try_bounded_fail_count_ > 0) {
+      --try_bounded_fail_count_;
+      throw memgraph::query::WouldBlockInlineException{};
+    }
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
@@ -170,6 +180,10 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
+  // Make the next `n` TryBounded engine-lock acquires lose the race, then succeed. Drives the
+  // HandleBegin bail + FinishPendingBegin_ reschedule path deterministically.
+  void TestHook_FailBoundedTries(int n) { try_bounded_fail_count_ = n; }
+
   void Execute() {
     while (Execute_(*this)) {
       // Execute now exists on result, so it can be schduled again.
@@ -177,10 +191,18 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
+  // Run the dechunk loop exactly once (one Execute_ pass), mirroring communication/v2 DoWork's single
+  // Execute() call so a test can observe the mid-batch bail into State::PendingBegin. The naive Execute()
+  // above would keep re-entering while the BEGIN is parked, so the pending-BEGIN path must be stepped.
+  bool ExecuteStep() { return Execute_(*this); }
+
+  memgraph::communication::bolt::PendingBeginOutcome FinishPendingBegin() { return FinishPendingBegin_(*this); }
+
  private:
   std::string query_;
   bolt_map_t md_;
   bool should_abort_ = false;
+  int try_bounded_fail_count_{0};
 };
 
 // TODO: This could be done in fixture.
@@ -1325,4 +1347,142 @@ TEST(BoltSession, PartialStream) {
     auto const find_msg = std::search(cbegin(output), cend(output), cbegin(error_msg), cend(error_msg));
     EXPECT_NE(find_msg, cend(output));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pending-BEGIN reschedule (pool-native, no strand inline). A BEGIN whose bounded-try engine-lock
+// acquire loses the race bails out of HandleBegin into State::PendingBegin (stashing its decoded
+// extras); the completion is retried out-of-band via FinishPendingBegin(), which reschedules on each
+// further loss and, past the fairness cap, does one blocking acquire so the BEGIN cannot starve.
+// ---------------------------------------------------------------------------
+
+// A minimal single-chunk BEGIN with an empty extras map, pre-framed (chunk header + end marker) so it
+// can be written straight into the input stream:
+//   0x00 0x03           chunk size 3
+//   0xB1                TinyStruct1
+//   0x11                Begin signature
+//   0xA0                empty TinyMap (extras)
+//   0x00 0x00           end-of-message terminator
+static constexpr std::array<uint8_t, 7> begin_bytes{0x00, 0x03, 0xB1, 0x11, 0xA0, 0x00, 0x00};
+
+using memgraph::communication::bolt::PendingBeginOutcome;
+
+TEST(BoltSession, PendingBeginReschedulesThenCompletesWithOneSuccess) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  // 4 bounded-try losses: the 1st is consumed by HandleBegin (BEGIN -> PendingBegin), leaving 3 losses
+  // for FinishPendingBegin -> exactly 3 Reschedule outcomes before the 4th attempt wins.
+  constexpr int kExpectedReschedules = 3;
+  session.TestHook_FailBoundedTries(kExpectedReschedules + 1);
+  input_stream.Write(begin_bytes.data(), begin_bytes.size());
+  output.clear();
+
+  // One dechunk pass: HandleBegin bails with WouldBlock, stashes the extras, parks in PendingBegin.
+  ASSERT_TRUE(session.ExecuteStep());
+  EXPECT_EQ(session.state_, State::PendingBegin);
+  EXPECT_TRUE(session.HasPendingBegin());
+  EXPECT_TRUE(output.empty());  // no SUCCESS emitted on the bail path
+
+  // Each lost bounded-try returns Reschedule and MUST keep the extras stashed (HasPendingBegin stays
+  // true); a premature reset would trip FinishPendingBegin_'s MG_ASSERT on the next attempt.
+  int reschedules = 0;
+  constexpr int kSafetyBound = 100;  // fail loudly instead of looping forever if the retry logic regresses
+  for (int i = 0; i < kSafetyBound; ++i) {
+    const auto outcome = session.FinishPendingBegin();
+    if (outcome == PendingBeginOutcome::Done) break;
+    ASSERT_EQ(outcome, PendingBeginOutcome::Reschedule);
+    EXPECT_TRUE(session.HasPendingBegin());  // stash survives across reschedules
+    EXPECT_TRUE(output.empty());             // no reply while rescheduling
+    EXPECT_EQ(session.state_, State::PendingBegin);
+    ++reschedules;
+  }
+
+  // Reverting the reschedule (e.g. HandleBegin/FinishPendingBegin blocking instead of bailing) breaks
+  // this exact count -> the test is mutation-checkable.
+  EXPECT_EQ(reschedules, kExpectedReschedules);
+  EXPECT_FALSE(session.HasPendingBegin());  // stash consumed on the terminal Done
+  EXPECT_EQ(session.state_, State::Idle);
+  // Exactly ONE SUCCESS, emitted only by FinishPendingBegin on Done (empty extras -> canonical frame).
+  ASSERT_EQ(output.size(), sizeof(success_resp));
+  CheckSuccessMessage(output, /*clear=*/false);
+}
+
+TEST(BoltSession, PendingBeginFairnessCapForcesBlockingTerminal) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  // EVERY bounded-try loses the race: only the fairness cap can end the loop.
+  session.TestHook_FailBoundedTries(1000);
+  input_stream.Write(begin_bytes.data(), begin_bytes.size());
+  output.clear();
+
+  ASSERT_TRUE(session.ExecuteStep());
+  EXPECT_EQ(session.state_, State::PendingBegin);
+  EXPECT_TRUE(session.HasPendingBegin());
+  EXPECT_TRUE(output.empty());
+
+  // Under unbounded contention the pool-side completion must still terminate: after kBeginRescheduleCap
+  // reschedules FinishPendingBegin_ does one Blocking acquire (which is never gated by the fail hook and
+  // never throws WouldBlock), completing the BEGIN. Count the reschedules to prove it is the cap -- not a
+  // lucky bounded-try -- that breaks the loop. kBeginRescheduleCap is private, so the expected count is a
+  // literal kept in sync with it.
+  int reschedules = 0;
+  constexpr int kSafetyBound = 100;
+  for (int i = 0; i < kSafetyBound; ++i) {
+    const auto outcome = session.FinishPendingBegin();
+    if (outcome == PendingBeginOutcome::Done) break;
+    ASSERT_EQ(outcome, PendingBeginOutcome::Reschedule);
+    EXPECT_TRUE(session.HasPendingBegin());
+    EXPECT_TRUE(output.empty());
+    EXPECT_EQ(session.state_, State::PendingBegin);
+    ++reschedules;
+  }
+  EXPECT_EQ(reschedules, 32);  // == kBeginRescheduleCap; the terminal Blocking acquire fires on the next call
+  EXPECT_FALSE(session.HasPendingBegin());
+  EXPECT_EQ(session.state_, State::Idle);
+  ASSERT_EQ(output.size(), sizeof(success_resp));  // exactly one SUCCESS, from the Blocking fallback
+  CheckSuccessMessage(output, /*clear=*/false);
+}
+
+TEST(BoltSession, PendingBeginHoldsBackPipelinedMessageUntilItCompletes) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  // One loss (consumed by HandleBegin) is enough to force the BEGIN onto the pending path; the first
+  // FinishPendingBegin then wins. Keeps this test focused on ordering, not on the reschedule count.
+  session.TestHook_FailBoundedTries(1);
+  // A BEGIN immediately followed by a RUN, in one buffer, with the engine lock "contended".
+  input_stream.Write(begin_bytes.data(), begin_bytes.size());
+  WriteRunRequest(input_stream, kQueryReturn42, /*is_v4=*/true);
+  output.clear();
+
+  // One dechunk pass stops at the BEGIN: Execute_ returns at State::PendingBegin WITHOUT reading the RUN
+  // chunk, so the RUN is neither decoded nor answered while the BEGIN is outstanding.
+  ASSERT_TRUE(session.ExecuteStep());
+  EXPECT_EQ(session.state_, State::PendingBegin);
+  EXPECT_TRUE(session.HasPendingBegin());
+  EXPECT_TRUE(output.empty());             // no SUCCESS for the BEGIN yet, and the RUN was not processed
+  EXPECT_TRUE(session.HasBufferedData());  // the RUN is still queued behind the parked BEGIN
+
+  // Complete the BEGIN: exactly one SUCCESS (empty extras -> canonical frame). The RUN is STILL unread.
+  ASSERT_EQ(session.FinishPendingBegin(), PendingBeginOutcome::Done);
+  EXPECT_EQ(session.state_, State::Idle);
+  EXPECT_FALSE(session.HasPendingBegin());
+  ASSERT_EQ(output.size(), sizeof(success_resp));  // only the BEGIN's SUCCESS -- the RUN produced nothing
+  CheckSuccessMessage(output, /*clear=*/true);
+
+  // Only now, after the BEGIN finished, does the resume process the pipelined RUN -- proving ordering.
+  session.Execute();
+  EXPECT_EQ(session.state_, State::Result);  // RUN parsed+prepared, awaiting PULL
+  CheckSuccessMessage(output, /*clear=*/false);
 }

@@ -67,6 +67,16 @@ class PeriodicCommitException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(PeriodicCommitException)
 };
 
+// Internal control-flow signal for the bounded-try BEGIN fast path: thrown when a non-blocking
+// (try) storage-access attempt would block on a UNIQUE (DDL) holder, so the caller must fall back
+// to the blocking path. Deliberately NOT a QueryException -- it is caught only at the BEGIN call
+// site and never surfaces to the client.
+class WouldBlockInlineException : public utils::BasicException {
+ public:
+  WouldBlockInlineException() : utils::BasicException("inline transaction start would block") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WouldBlockInlineException)
+};
+
 /**
  * @brief Base class of all query language related exceptions which can be retried.
  * All exceptions derived from this one will be interpreted as TransientError-s,

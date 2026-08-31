@@ -23,4 +23,9 @@ enum StorageAccessType : uint8_t {
   READ_ONLY = 4,  // Ensures writers have gone
 };
 
+// engine_lock_ acquisition for CreateTransaction: Blocking waits indefinitely (default);
+// TryBounded spin-tries ~2us then throws (pool BEGIN fallback that reschedules on throw).
+// Kept in this leaf header so protocol/dbms callers that only name the enum need not pull storage.hpp.
+enum class EngineLockMode : uint8_t { Blocking, TryBounded };
+
 }  // namespace memgraph::storage
