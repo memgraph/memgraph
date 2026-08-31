@@ -319,18 +319,18 @@ jobs:
       #       $BRANCH_NAME \
       #       mgbench
 
-      - name: Run and upload mgbench
-        id: mgbench
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            mgbench \
-            mgbench \
-            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
+      # - name: Run and upload mgbench
+      #   id: mgbench
+      #   continue-on-error: true
+      #   run: |
+      #     ./tools/ci/loop-benchmark.sh \
+      #       mgbench \
+      #       mgbench \
+      #       ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+      #       ${{ github.run_id }} \
+      #       ${{ github.run_number }} \
+      #       $BRANCH_NAME \
+      #       mgbench
 
       # - name: Run extended planner optimizations mgbench
       #   id: planner
