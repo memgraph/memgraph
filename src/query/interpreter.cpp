@@ -7418,13 +7418,12 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
     }
     const auto &typed_queries = interpreter->GetQueries();
-    results.push_back(
-        {TypedValue(interpreter->user_or_role_
-                        ? (interpreter->user_or_role_->username() ? *interpreter->user_or_role_->username() : "")
-                        : ""),
-         TypedValue(std::to_string(transaction_id.value())),
-         TypedValue(typed_queries),
-         TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
+    results.push_back({TypedValue((interpreter->user_or_role_ && interpreter->user_or_role_->username())
+                                      ? *interpreter->user_or_role_->username()
+                                      : ""),
+                       TypedValue(std::to_string(transaction_id.value())),
+                       TypedValue(typed_queries),
+                       TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
     // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
     // cleanup paths spin-wait before modifying fields)
     std::map<std::string, TypedValue> metadata_tv;
@@ -11845,7 +11844,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
   session_log_ctx_.SetSessionUuid(uuid);
-  std::lock_guard lock{session_info_mutex_};
+  const std::scoped_lock lock{session_info_mutex_};
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
 }
