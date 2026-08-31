@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,8 @@
 #pragma once
 
 #include <pthread.h>
+
+#include <chrono>
 
 #include "utils/logging.hpp"
 
@@ -66,4 +68,24 @@ class SpinLock {
  private:
   pthread_spinlock_t lock_;
 };
+
+// Spin-try to acquire `lock` for up to `budget`; returns true iff acquired. Lets a caller
+// bail-and-reschedule instead of spinning behind a long holder; keep budget SMALL -- a large one wastes CPU.
+inline bool BoundedTryLock(SpinLock &lock, std::chrono::nanoseconds budget) {
+  if (lock.try_lock()) return true;
+  const auto deadline = std::chrono::steady_clock::now() + budget;
+  do {
+    // Arch CPU-relax hint (mirrors yielder.hpp PAUSE), compiler barrier elsewhere. Not reused because
+    // yielder.hpp #undef's PAUSE and pulls in <thread> + a stateful backoff loop we don't want here.
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    asm volatile("yield" ::: "memory");
+#else
+    asm volatile("" ::: "memory");
+#endif
+    if (lock.try_lock()) return true;
+  } while (std::chrono::steady_clock::now() < deadline);
+  return false;
+}
 }  // namespace memgraph::utils

@@ -151,6 +151,12 @@ class PriorityThreadPool {
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
 
+  // True iff any mixed-work worker currently has queued (not-yet-running) backlog — i.e. there is
+  // work a freed worker could run. Approximate + lock-free (relaxed loads); used to gate admission
+  // reschedule vs block. A task currently executing is not counted (it was dequeued), so this reports
+  // only OTHER pending work.
+  bool HasPendingWork() const noexcept;
+
   // Single worker implementation
   class Worker {
    public:

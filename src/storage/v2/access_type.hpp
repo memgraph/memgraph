@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,5 +22,10 @@ enum StorageAccessType : uint8_t {
   READ = 3,       // Either reads the data of storage, or a metadata operation that doesn't require unique access
   READ_ONLY = 4,  // Ensures writers have gone
 };
+
+// engine_lock_ acquisition for CreateTransaction: Blocking waits indefinitely (default);
+// TryBounded spin-tries ~2us then throws (pool BEGIN fallback that reschedules on throw).
+// Kept in this leaf header so protocol/dbms callers that only name the enum need not pull storage.hpp.
+enum class EngineLockMode : uint8_t { Blocking, TryBounded };
 
 }  // namespace memgraph::storage

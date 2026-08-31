@@ -43,6 +43,7 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include "communication/bolt/v1/state.hpp"
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
@@ -379,6 +380,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     try {
       // Execute until all data has been read
       while (session_.Execute()) {
+        // Websocket runs the bolt state machine inline on the strand; a parked BEGIN keeps Execute() returning true.
+        // Drive it terminal here -- the pool resume (DoWork/DoRead) would take this connection off the websocket read
+        // loop.
+        while (session_.HasPendingBegin()) {
+          session_.FinishPendingBegin();
+        }
+        while (session_.HasPendingPrepare()) {
+          session_.FinishPendingPrepare();
+        }
       }
       // Handled all data,  async wait for new incoming data
       DoReadAsio();
@@ -393,6 +403,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           try {
             while (true) {
               if (shared_this->session_.Execute()) {
+                if (shared_this->session_.HasPendingBegin()) {
+                  // BEGIN's engine-lock acquire would block: finish it off the worker via the pool
+                  // (PostFinishPendingBegin). Return now so no message pipelined behind the BEGIN runs first.
+                  shared_this->PostFinishPendingBegin();
+                  return;
+                }
+                if (shared_this->session_.HasPendingPrepare()) {
+                  // As the BEGIN bail above, for PREPARE: return so nothing pipelined behind it runs first.
+                  shared_this->PostFinishPendingPrepare();
+                  return;
+                }
                 // Check if we can just steal this task (loop through)
                 if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
                   // Task priority lower; reschedule
@@ -404,6 +425,59 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                 shared_this->DoRead();
                 return;
               }
+            }
+          } catch (const std::exception & /* unused */) {
+            boost::asio::post(shared_this->strand_,
+                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+          }
+        },
+        session_.ApproximateQueryPriority());
+  }
+
+  // Completes a would-block BEGIN on the POOL (AddTask, never the strand): Reschedule re-posts so the worker never
+  // blocks behind a slow commit; a terminal outcome resumes DoWork/DoRead. FinishPendingBegin emits SUCCESS once.
+  void PostFinishPendingBegin() {
+    session_context_->AddTask(
+        [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+          try {
+            switch (shared_this->session_.FinishPendingBegin()) {
+              case memgraph::communication::bolt::PendingBeginOutcome::Reschedule:
+                shared_this->PostFinishPendingBegin();  // re-post to the POOL, never post(strand_)
+                return;
+              case memgraph::communication::bolt::PendingBeginOutcome::Done:
+              case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
+                if (shared_this->session_.HasBufferedData()) {
+                  shared_this->DoWork();
+                } else {
+                  shared_this->DoRead();
+                }
+                return;
+            }
+          } catch (const std::exception & /* unused */) {
+            boost::asio::post(shared_this->strand_,
+                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+          }
+        },
+        session_.ApproximateQueryPriority());
+  }
+
+  // PREPARE mirror of PostFinishPendingBegin above; FinishPendingPrepare emits the run header (not SUCCESS) once.
+  void PostFinishPendingPrepare() {
+    session_context_->AddTask(
+        [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+          try {
+            switch (shared_this->session_.FinishPendingPrepare()) {
+              case memgraph::communication::bolt::PendingPrepareOutcome::Reschedule:
+                shared_this->PostFinishPendingPrepare();  // re-post to the POOL, never post(strand_)
+                return;
+              case memgraph::communication::bolt::PendingPrepareOutcome::Done:
+              case memgraph::communication::bolt::PendingPrepareOutcome::ClientError:
+                if (shared_this->session_.HasBufferedData()) {
+                  shared_this->DoWork();
+                } else {
+                  shared_this->DoRead();
+                }
+                return;
             }
           } catch (const std::exception & /* unused */) {
             boost::asio::post(shared_this->strand_,

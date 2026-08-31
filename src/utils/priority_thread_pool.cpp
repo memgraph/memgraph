@@ -200,6 +200,14 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   // HP threads are going to steal this work if not executed in time
 }
 
+bool PriorityThreadPool::HasPendingWork() const noexcept {
+  // Scan only mixed-work workers: hp_workers_ handle pings/health, not the yield-able backlog.
+  for (const auto &w : workers_) {
+    if (w->has_pending_work_.load(std::memory_order_relaxed)) return true;
+  }
+  return false;
+}
+
 void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id) {
   {
     auto l = std::unique_lock{mtx_};

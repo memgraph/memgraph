@@ -27,6 +27,8 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/exceptions.hpp"
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -212,26 +214,20 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
 template <typename TSession>
 State HandlePrepare(TSession &session) {
   try {
-    // Interpret can throw.
-    const auto [header, qid] = session.InterpretPrepare();
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    map_t data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    if (session.version_.major > 1) {
-      if (qid) {
-        data.emplace("qid", Value{*qid});
-      }
-    }
-
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
+    // Interpret can throw. Gated acquire (TryBounded when pool has queued work to yield to, else Blocking) so
+    // this pool worker reschedules instead of busy-spinning behind a write commit: on contention InterpretPrepare
+    // throws WouldBlock, parsed_res_ left intact.
+    const auto [header, qid] = session.InterpretPrepare(session.AdmissionEngineLockMode());
+    // Send the header (exactly one SUCCESS). The PendingPrepare bail below must NOT send it.
+    if (!session.SendPrepareHeader(header, qid)) {
       spdlog::trace("Couldn't send query header!");
       return State::Close;
     }
     return State::Result;
+  } catch (const memgraph::query::WouldBlockInlineException &) {
+    // parsed_res_ is intact (re-runnable); the pool retries via FinishPendingPrepare_, which emits the one SUCCESS.
+    session.StashPendingPrepare();
+    return State::PendingPrepare;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -436,12 +432,20 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
   try {
     session.Configure(extra.ValueMap());
-    session.BeginTransaction(extra.ValueMap());
+    // Gated engine-lock acquire (TryBounded when pool has queued work to yield to, else Blocking): rather than
+    // busy-spin this pool worker behind a long write commit's durability hold, bail with WouldBlockInlineException
+    // on contention and let the completion reschedule. Quiet pools take Blocking directly — zero regression.
+    session.BeginTransaction(extra.ValueMap(), session.AdmissionEngineLockMode());
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
     return State::Idle;
+  } catch (const memgraph::query::WouldBlockInlineException &) {
+    // Accessor-first reorder left interpreter txn state pristine (no id consumed), so the pool can retry.
+    // Do NOT MessageSuccess here -- the one SUCCESS is emitted by FinishPendingBegin_ when the BEGIN completes.
+    session.StashPendingBegin(std::move(extra));
+    return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
