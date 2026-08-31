@@ -3960,16 +3960,24 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
   auto const construct = SubqueryExpression::FoldName(fold);
   auto *subquery = storage_->Create<SubqueryExpression>();
   subquery->fold_ = fold;
-  // Pattern form: ( ... ) or { ... } with forcePatternPart
-  if (ctx->forcePatternPart()) {
+  // Simplified form: a pattern and an optional WHERE, with the MATCH left out. It is desugared into that MATCH
+  // here, so the brace - not the body's content - is what makes a subquery. Everything downstream then sees one
+  // shape, and the no-new-variables rule stays where it belongs: on the parenthesised pattern expression.
+  if (ctx->pattern()) {
     // A bare pattern names no column, and the list fold has to collect one - so this shape can never work for it.
     if (fold == SubqueryExpression::Fold::kList) {
       throw SyntaxException("{} needs a body returning a single column, and a bare pattern returns none.", construct);
     }
-    subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (subquery->GetPattern()->identifier_) {
-      throw SyntaxException("Identifiers are not supported in a {} pattern.", construct);
+    auto *match = storage_->Create<Match>();
+    if (ctx->where()) {
+      match->where_ = std::any_cast<Where *>(ctx->where()->accept(this));
     }
+    match->patterns_ = std::any_cast<std::vector<Pattern *>>(ctx->pattern()->accept(this));
+    auto *single_query = storage_->Create<SingleQuery>();
+    single_query->clauses_.push_back(match);
+    auto *cypher_query = storage_->Create<CypherQuery>();
+    cypher_query->single_query_ = single_query;
+    subquery->content_ = cypher_query;
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }
     auto old_flag = parsing_subquery_body_;
@@ -4027,7 +4035,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
       throw SyntaxException("{} subqueries cannot use parallel execution.", construct);
     }
   } else {
-    throw SyntaxException("{} supports only a single relation or a subquery as its input.", construct);
+    throw SyntaxException("{} supports only a pattern or a subquery as its input.", construct);
   }
 
   // Ensure only one of pattern_ or subquery_ is set

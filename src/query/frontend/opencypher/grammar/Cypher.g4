@@ -315,7 +315,7 @@ extractExpression : idInColl '|' expression ;
 
 existsExpression : forcePatternPart | .* ;
 
-subqueryBody : forcePatternPart
+subqueryBody : pattern where?
              | cypherQuery
              ;
 
