@@ -466,6 +466,9 @@ class Interpreter final {
 
   std::optional<uint64_t> GetTransactionId() const;
 
+  // True iff an active transaction has no pending writes; its COMMIT is a near-noop the scheduler routes HIGH.
+  bool IsCurrentTransactionEmpty() const;
+
   // Returns the notification produced by the commit, if any. A SYNC replication failure does not abort the
   // transaction, so it is reported as a notification instead of an exception.
   std::optional<Notification> CommitTransaction();

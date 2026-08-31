@@ -10193,6 +10193,12 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
+bool Interpreter::IsCurrentTransactionEmpty() const {
+  if (!current_db_.db_transactional_accessor_) return false;
+  const auto *txn = current_db_.db_transactional_accessor_->GetTransaction();
+  return txn->deltas.empty() && txn->md_deltas.empty();
+}
+
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);

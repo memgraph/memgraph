@@ -2699,6 +2699,36 @@ TYPED_TEST(InterpreterTest, CommitIsLow) {
   EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
 }
 
+// SessionHL::ApproximateQueryPriority routes an explicit COMMIT to HIGH only when the active transaction
+// has no pending writes (empty deltas), because only then is the COMMIT a near-noop (no
+// engine_lock/WAL/replication). The routing's sole discriminator is Interpreter::IsCurrentTransactionEmpty()
+// -- the SessionHL glue itself is a Bolt session (covered by e2e), so assert the predicate that drives it.
+// (CommitIsLow above exercises the unrelated GetQueryPriority path, which stores LOW on the prepared COMMIT.)
+TYPED_TEST(InterpreterTest, EmptyTransactionRoutesCommitHigh) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  // No active transaction -> nothing to promote.
+  EXPECT_FALSE(interpreter.IsCurrentTransactionEmpty());
+
+  interpreter.BeginTransaction(memgraph::query::QueryExtras{.is_read = true});
+  EXPECT_TRUE(interpreter.IsCurrentTransactionEmpty());  // no writes -> COMMIT routed HIGH
+  interpreter.RollbackTransaction();
+
+  // Cleared once the transaction ends.
+  EXPECT_FALSE(interpreter.IsCurrentTransactionEmpty());
+}
+
+// The signal is deltas, not the declared read/write mode: a write-capable transaction that actually
+// wrote has deltas, so its COMMIT is not a noop and stays LOW. (A write-capable transaction that only
+// read would have empty deltas and route HIGH -- the case the plain read/write mode flag would miss.)
+TYPED_TEST(InterpreterTest, TransactionWithWritesKeepsCommitLow) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  interpreter.BeginTransaction(memgraph::query::QueryExtras{.is_read = false});
+  auto [stream, qid] = this->Prepare("CREATE (:Node)");
+  this->Pull(&stream);
+  EXPECT_FALSE(interpreter.IsCurrentTransactionEmpty());  // wrote deltas -> COMMIT stays LOW
+  interpreter.RollbackTransaction();
+}
+
 TYPED_TEST(InterpreterTest, CreateIndexQueryPriorityIsLow) {
   auto [stream, qid] = this->Prepare("CREATE INDEX ON :Person(id)");
   EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
