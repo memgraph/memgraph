@@ -19,6 +19,10 @@
 
 namespace memgraph::utils {
 
+// A point on the steady_clock timeline, as produced by CoarseSteadyNow() (and steady_clock::now()).
+// Used for query-timeout deadlines; wrap in std::optional for "no deadline".
+using SteadyTimePoint = std::chrono::steady_clock::time_point;
+
 // Process-global cache of steady_clock::now(), refreshed every ~100ms by one dedicated ticker thread.
 // Hot-path readers (StoppingContext::MustAbort, ~15-20k times per large read query) pay one relaxed
 // atomic load (~0.2ns) instead of steady_clock::now() (~14ns) per check.
@@ -57,8 +61,8 @@ inline CoarseSteadyClock &CoarseClockInstance() noexcept {
 }  // namespace detail
 
 // Cached steady_clock time (same timeline as steady_clock::now()), at most ~100ms stale and never ahead.
-inline std::chrono::steady_clock::time_point CoarseSteadyNow() noexcept {
-  return std::chrono::steady_clock::time_point{
+inline SteadyTimePoint CoarseSteadyNow() noexcept {
+  return SteadyTimePoint{
       std::chrono::steady_clock::duration{detail::CoarseClockInstance().ticks.load(std::memory_order_relaxed)}};
 }
 

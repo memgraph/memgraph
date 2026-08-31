@@ -351,7 +351,7 @@ class Interpreter final {
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
-  std::optional<std::chrono::steady_clock::time_point> current_timeout_deadline_{};
+  std::optional<utils::SteadyTimePoint> current_timeout_deadline_{};
   std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
 #ifdef MG_ENTERPRISE
