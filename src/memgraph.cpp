@@ -805,7 +805,7 @@ int main(int argc, char **argv) {
   // AFTER it: ~DbmsHandler runs every ~Database, each draining its own tenant's cached 2PC while its
   // storage is still alive, leaving an empty slot for this Owner to free. Unconditional: harmless on
   // a coordinator, which never populates the replica-only slot.
-  memgraph::dbms::TwoPCCommitCache::Owner two_pc_cache_owner;
+  const memgraph::dbms::TwoPCCommitCache::Owner two_pc_cache_owner;
 
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler;
   if (!is_coordinator_instance) {
