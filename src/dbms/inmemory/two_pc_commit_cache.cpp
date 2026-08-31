@@ -50,19 +50,25 @@ TwoPCCommitCache::Owner::Owner() {
 }
 
 TwoPCCommitCache::Owner::~Owner() {
-  auto *slot = std::exchange(installed_slot_, nullptr);
-  if (slot == nullptr) return;
-  // ~Database drain (dbms/database.cpp) should have emptied the slot. If not, storage is gone and
-  // DESTROYING the accessor would be a use-after-free -- release() without calling Abort() instead.
-  slot->WithLock([](Record &cache) {
-    if (cache.commit_accessor_) {
-      spdlog::error(
-          "TwoPCCommitCache::~Owner: slot still populated at shutdown -- leaking the accessor rather than aborting "
-          "it against freed storage.");
-      [[maybe_unused]] auto *const leaked = cache.commit_accessor_.release();
-    }
-  });
-  delete slot;
+  // A destructor is implicitly noexcept, so an escaping exception (mutex-lock failure, spdlog OOM)
+  // would std::terminate. This is best-effort shutdown teardown -- swallow it; a leak beats a crash.
+  try {
+    auto *slot = std::exchange(installed_slot_, nullptr);
+    if (slot == nullptr) return;
+    // ~Database drain (dbms/database.cpp) should have emptied the slot. If not, storage is gone and
+    // DESTROYING the accessor would be a use-after-free -- release() without calling Abort() instead.
+    slot->WithLock([](Record &cache) {
+      if (cache.commit_accessor_) {
+        spdlog::error(
+            "TwoPCCommitCache::~Owner: slot still populated at shutdown -- leaking the accessor rather than aborting "
+            "it against freed storage.");
+        [[maybe_unused]] auto *const leaked = cache.commit_accessor_.release();
+      }
+    });
+    delete slot;
+  } catch (...) {
+    // Nothing safe left to do during teardown.
+  }
 }
 
 void TwoPCCommitCache::Store(std::unique_ptr<storage::ReplicationAccessor> accessor,
