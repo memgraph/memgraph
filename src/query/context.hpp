@@ -84,41 +84,11 @@ std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string> &labe
 
 std::vector<storage::EdgeTypeId> NamesToEdgeTypes(const std::vector<std::string> &edgetype_names, DbAccessor *dba);
 
-// Overflow-safe conversion of a positive timeout duration into an absolute steady_clock deadline.
-// Fail-closed to time_point::max() (i.e. "no expiry") for a non-positive or NaN timeout, a value too
-// large to represent as a steady_clock duration, or an addition that would overflow. Non-positive
-// already means "no timeout" at the producers; this just makes the helper safe for any future caller.
-//
-// The parameter is duration<double> (i.e. fractional seconds) to match the source of every timeout:
-// the --query-execution-timeout-sec double flag, Trigger's `max_execution_time_sec`, and
-// TxTimeout::ValueUnsafe() (already a duration<double>). Keeping the double->integer-ticks narrowing
-// here also keeps its overflow guards in one audited place instead of at each call site.
-// TODO: if a caller ever holds an integer duration (e.g. tx_timeout_ms), templating on the duration
-// type would let it pass through without a lossy double round-trip. Not worth it while every caller
-// is already double-seconds.
-inline auto DeadlineFromTimeout(std::chrono::duration<double> timeout) -> std::chrono::steady_clock::time_point {
-  using clock = std::chrono::steady_clock;
-  auto const now = clock::now();
-
-  // Non-positive or NaN -> no expiry. NaN fails every comparison, so it must be caught explicitly
-  // here; otherwise it would reach the duration_cast below, which is UB on NaN.
-  if (!(timeout > std::chrono::duration<double>::zero())) return clock::time_point::max();
-
-  // Guard the seconds -> ticks conversion: comparing as double avoids int64 overflow in duration_cast.
-  auto const max_representable = std::chrono::duration<double>{clock::duration::max()};
-  if (timeout >= max_representable) return clock::time_point::max();
-  auto const ticks = std::chrono::duration_cast<clock::duration>(timeout);
-
-  // Guard the addition against time_point overflow.
-  if (ticks >= clock::time_point::max() - now) return clock::time_point::max();
-  return now + ticks;
-}
-
 struct StoppingContext {
   // Even though this is called `StoppingContext`. TransactionStatus is used for more
   std::atomic<TransactionStatus> *transaction_status{nullptr};
   std::atomic<bool> *is_shutting_down{nullptr};
-  std::optional<std::chrono::steady_clock::time_point> deadline{};
+  std::optional<utils::SteadyTimePoint> deadline{};
   std::shared_ptr<std::atomic<uint8_t>> exception_occurred{nullptr};  // Used only for parallel execution
 
   auto MustAbort() const noexcept -> AbortReason {
