@@ -17,32 +17,63 @@ on:
       community_core:
         type: boolean
         default: true
-      coverage:
-        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
-        default: 'core,clang_tidy'
+        description: "Community: Core"
+      coverage_core:
+        type: boolean
+        default: true
+        description: "Coverage: Core"
+      coverage_clang_tidy:
+        type: boolean
+        default: true
+        description: "Coverage: Clang-Tidy"
       debug_core:
         type: boolean
         default: true
+        description: "Debug: Core"
       debug_integration:
         type: boolean
         default: true
+        description: "Debug: Integration"
       jepsen_core:
         type: boolean
         default: true
-      release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules). Use "none" to skip all release tests.'
-        default: 'core,benchmark,e2e,stress,query_modules'
+        description: "Jepsen: Core"
+      release_core:
+        type: boolean
+        default: true
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: true
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
       malloc_build:
         type: boolean
         default: true
-      mage:
-        type: string
-        default: 'amd,arm,cuda'
-        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+        description: "Malloc: Build"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: true
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: true
+        description: "MAGE: CUDA"
       mgcxx_unit:
         type: boolean
         default: true
-        description: "Run the mgcxx tests."
+        description: "MGCXX: Unit"
 
 jobs:
   CallCreateStagingBranch:
@@ -57,13 +88,19 @@ jobs:
     uses: ./.github/workflows/diff.yaml
     with:
       community_core: ${{ inputs.community_core }}
-      coverage: ${{ inputs.coverage }}
+      coverage_core: ${{ inputs.coverage_core }}
+      coverage_clang_tidy: ${{ inputs.coverage_clang_tidy }}
       debug_core: ${{ inputs.debug_core }}
       debug_integration: ${{ inputs.debug_integration }}
       jepsen_core: ${{ inputs.jepsen_core }}
-      release: ${{ inputs.release }}
+      release_core: ${{ inputs.release_core }}
+      release_benchmark: ${{ inputs.release_benchmark }}
+      release_e2e: ${{ inputs.release_e2e }}
+      release_stress: ${{ inputs.release_stress }}
       malloc_build: ${{ inputs.malloc_build }}
-      mage: ${{ inputs.mage }}
+      mage_amd: ${{ inputs.mage_amd }}
+      mage_arm: ${{ inputs.mage_arm }}
+      mage_cuda: ${{ inputs.mage_cuda }}
       mgcxx_unit: ${{ inputs.mgcxx_unit }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit

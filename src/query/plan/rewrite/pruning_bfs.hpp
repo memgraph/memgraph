@@ -15,20 +15,20 @@
 
 namespace memgraph::query {
 class SymbolTable;
-class Parameters;
 }  // namespace memgraph::query
 
 namespace memgraph::query::plan {
 
 class LogicalOperator;
 
-/// `reads_parameters` is set when an expansion's shape was settled by reading a
-/// parameter, which leaves the plan correct only for the parameters it was
-/// planned with. The plan cache is keyed on the stripped query, where those
-/// values do not appear, so such a plan must not be stored there. It is only
-/// ever set, so one flag can span the candidate plans of a single query.
+/// Marks the variable-length expansions a pruning BFS may replace. Which of the
+/// two runs is settled by the cursor, the only one that can read the bound, so a
+/// mark is not a promise that pruning happens and nothing may read it as one.
+///
+/// The deduplication a mark depends on has to stay in the plan whatever the
+/// cursor settles on, and earns its place besides: it spans input rows, where
+/// pruning reaches only within one.
 std::unique_ptr<LogicalOperator> RewriteWithPruningBFS(std::unique_ptr<LogicalOperator> root_op,
-                                                       SymbolTable const *symbol_table, Parameters const &parameters,
-                                                       bool *reads_parameters);
+                                                       SymbolTable const *symbol_table);
 
 }  // namespace memgraph::query::plan

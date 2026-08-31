@@ -12,7 +12,7 @@
 #include <map>
 #include <unordered_set>
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <mgp.hpp>
 
 constexpr static std::string_view kResult = "result";

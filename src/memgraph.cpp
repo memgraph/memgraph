@@ -58,7 +58,9 @@
 #include "query/interpreter_context.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "query/procedure/py_module.hpp"
+#endif
 #include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
 #include "requests/requests.hpp"
@@ -348,6 +350,7 @@ int main(int argc, char **argv) {
   bool const is_coordinator_instance = false;
 #endif
 
+#ifdef MG_PYTHON_SUPPORT
   std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
   wchar_t *program_name{nullptr};
   PyThreadState *python_thread_state{nullptr};
@@ -403,6 +406,7 @@ int main(int argc, char **argv) {
     python_gc_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
     python_gc_scheduler->Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
   }
+#endif
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
@@ -869,7 +873,11 @@ int main(int argc, char **argv) {
     worker_pool_.emplace(/* low priority */
                          static_cast<uint16_t>(FLAGS_bolt_num_workers),
                          /* high priority */ 1U,
+#ifdef MG_PYTHON_SUPPORT
                          is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); });
+#else
+                         []() {});
+#endif
     io_n_threads = 1U;
   }
 
@@ -1214,6 +1222,7 @@ int main(int argc, char **argv) {
     } catch (memgraph::query::QueryException &) {
       spdlog::warn("Failed to unload query modules while shutting down.");
     }
+#ifdef MG_PYTHON_SUPPORT
     python_gc_scheduler->Stop();
     // NOTE: We intentionally skip Py_Finalize(). Third-party extensions (DGL,
     // PyTorch, numpy) may have spawned background threads that race with
@@ -1223,6 +1232,7 @@ int main(int argc, char **argv) {
     MG_ASSERT(python_thread_state, "Invalid Python thread state");
     PyEval_RestoreThread(python_thread_state);
     (void)program_name;
+#endif
   }
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();

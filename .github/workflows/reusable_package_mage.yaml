@@ -332,11 +332,7 @@ jobs:
 
       - name: "Spin up mgbuild container"
         run: |
-          if [[ "$OS" =~ ^ubuntu-24.04.* ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -468,28 +464,19 @@ jobs:
           copy-heaptrack \
           --dest-dir "$(pwd)/release/package/mage"
 
-      - name: "Build OpenSSL"
+      - name: "Fetch OpenSSL packages"
         if: ${{ inputs.build_docker_image != 'none' }}
         run: |
-          # This step is necessary so that we can build custom packages of OpenSSL and libssl3 for
-          # the Docker images. These packages will be installed by apt, and as long as the remote
-          # version provided by Ubuntu is less than our version, our package will not be overwritten.
-          # This means that anything within the container that depends on OpenSSL should use our
-          # version.
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
+          # The Docker images install custom packages of OpenSSL and libssl3. They are
+          # installed by apt, and as long as the remote version provided by Ubuntu is
+          # less than our version, our package will not be overwritten. This means that
+          # anything within the container that depends on OpenSSL should use our version.
+          # We cache the packages locally in CI inside a Docker container, and fallback
+          # to S3.
+          ./tools/ci/openssl/fetch-openssl-packages.sh \
             --arch $ARCH \
-            --cugraph $CUGRAPH \
-            build-ssl \
             --version "3.5.4" \
-            --conan-remote $CONAN_REMOTE \
-            --conan-username $CONAN_USERNAME \
-            --conan-password $CONAN_PASSWORD
-
-          mkdir -p release/package/mage/openssl
-          mv -v build/openssl*.deb release/package/mage/openssl
-          mv -v build/libssl3t64*.deb release/package/mage/openssl
+            --dest-dir release/package/mage/openssl
 
       - name: Fetch gssapi wheels
         run: |
@@ -681,6 +668,9 @@ jobs:
       - name: "Build image (prod)"
         if: ${{ (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
+          # The image is built FROM ubuntu:24.04 whatever the build container's
+          # distro is, so the mirror check is against that, not against $OS.
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os ubuntu-24.04 --arch "$ARCH")"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -692,13 +682,16 @@ jobs:
             --image-tag $PROD_IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
-            --custom-mirror true \
+            --custom-mirror $USE_CUSTOM_MIRROR \
             --cuda $CUDA \
             --package-flavour prod
 
       - name: "Build image (debug)"
         if: ${{ (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both')  }}
         run: |
+          # The image is built FROM ubuntu:24.04 whatever the build container's
+          # distro is, so the mirror check is against that, not against $OS.
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os ubuntu-24.04 --arch "$ARCH")"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -710,7 +703,7 @@ jobs:
             --image-tag $DEBUG_IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
-            --custom-mirror true \
+            --custom-mirror $USE_CUSTOM_MIRROR \
             --cuda $CUDA \
             --package-flavour debug
 

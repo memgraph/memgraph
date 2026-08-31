@@ -96,7 +96,7 @@ class Memgraph(ConanFile):
         # force=True makes boost both a direct require (so CMakeDeps generates
         # full Boost::headers config) and overrides transitive boost ranges
         self.requires("boost/1.88.0-memgraph", force=True)
-        self.requires("fmt/11.2.0")
+        self.requires("fmt/12.2.0", force=True)
         self.requires("nlohmann_json/3.11.3-memgraph")
         self.requires("libuuid/1.0.3")
 
@@ -116,7 +116,7 @@ class Memgraph(ConanFile):
         self.requires("gflags/2.2.0-memgraph", force=True)
         self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
-        self.requires("librdkafka/2.6.1")
+        self.requires("librdkafka/2.14.2")
         self.requires("librdtsc/0.3-memgraph")
         self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.8.0")
@@ -133,7 +133,7 @@ class Memgraph(ConanFile):
         self.requires("range-v3/0.12.0")
         self.requires("rocksdb/8.1.1-memgraph")
         self.requires("simdjson/4.2.2")
-        self.requires("spdlog/1.15.3")
+        self.requires("spdlog/1.17.0")
         self.requires("strong_type/v15")
         self.requires("usearch/2.21.4")
         self.requires("zlib/1.3.1")

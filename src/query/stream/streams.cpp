@@ -34,6 +34,7 @@
 #include "query/typed_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/variant_helpers.hpp"
@@ -116,6 +117,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
                              ResultsMetadata{signature_params_it->second.first, signature_params_it->second.second, 1});
 
     spdlog::trace("Calling transformation in stream '{}'", stream_name);
+    const utils::MemoryTracker::RefusalHandledScope refusal_handled;
     trans.cb(&mgp_messages, &graph, &result, &memory);
   }
   if (result.error_msg.has_value()) {

@@ -303,12 +303,14 @@ add_unit_test(query_procedure_mgp_module
 )
 
 
+if (MG_PYTHON_SUPPORT)
 add_unit_test(query_procedure_py_module
     SOURCES query_procedure_py_module.cpp
     LINK_TARGETS mg-query disk_test_utils
     CUSTOM_MAIN
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
+endif()
 
 
 add_unit_test(query_procedures_mgp_graph
@@ -332,6 +334,11 @@ add_unit_test(query_procedure_text_search_query_fields
 # END query/procedure
 add_unit_test(query_profile
     SOURCES query_profile.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(query_graph_free
+    SOURCES query_graph_free.cpp
     LINK_TARGETS mg-query
 )
 
@@ -461,10 +468,14 @@ add_unit_test(utils_aws
     LINK_TARGETS mg-utils mg-aws
 )
 
+# Every iteration starts a thread per barrier participant, so ctest's default cost of one slot per
+# test lets it be scheduled alongside a full machine's worth of other tests. Declaring the slots it
+# needs keeps that from happening; where the machine has fewer, ctest runs this test on its own.
+# PROCESSORS mirrors kN in utils_barrier.cpp and has to be changed with it.
 add_unit_test(utils_barrier
     SOURCES utils_barrier.cpp
     LINK_TARGETS mg-utils
-    TEST_PROPERTIES TIMEOUT 60
+    TEST_PROPERTIES TIMEOUT 120 PROCESSORS 12
 )
 
 add_unit_test(utils_hot_mask
@@ -532,8 +543,8 @@ add_unit_test(jemalloc_hook_stress_test
     LINK_TARGETS mg-memory mg-utils
 )
 
-add_unit_test(tls_destructor_oom_abort
-    SOURCES tls_destructor_oom_abort.cpp
+add_unit_test(tls_destructor_registration
+    SOURCES tls_destructor_registration.cpp
     LINK_TARGETS mg-memory mg-utils
 )
 

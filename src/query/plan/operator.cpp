@@ -23,6 +23,7 @@
 #include <optional>
 #include <queue>
 #include <ranges>
+#include <regex>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -143,15 +144,21 @@ auto ExpressionRange::In(Expression *runtime_value, ListLiteral *membership_list
   return er;
 }
 
-auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
+auto ExpressionRange::RegexMatch(Expression *value) -> ExpressionRange {
+  return {Type::REGEX_MATCH, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
 auto ExpressionRange::StartsWith(Expression *value) -> ExpressionRange {
   return {Type::STARTS_WITH, utils::MakeBoundInclusive(value), std::nullopt};
 }
 
-auto ExpressionRange::Contains() -> ExpressionRange { return {Type::CONTAINS, std::nullopt, std::nullopt}; }
+auto ExpressionRange::Contains(Expression *value) -> ExpressionRange {
+  return {Type::CONTAINS, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
-auto ExpressionRange::EndsWith() -> ExpressionRange { return {Type::ENDS_WITH, std::nullopt, std::nullopt}; }
+auto ExpressionRange::EndsWith(Expression *value) -> ExpressionRange {
+  return {Type::ENDS_WITH, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
 auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
                             std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
@@ -183,6 +190,11 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::REGEX_MATCH:
     case Type::CONTAINS:
     case Type::ENDS_WITH: {
+      // A non-string search term compares to Null, so nothing matches. A non-string regex pattern
+      // instead raises, and a scan must not decide whether it does, so that one keeps its band.
+      if (type_ != Type::REGEX_MATCH && lower_ && !lower_->value()->Accept(evaluator).IsString()) {
+        return storage::PropertyValueRange::Empty();
+      }
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
@@ -221,6 +233,38 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::IS_NOT_NULL: {
       return storage::PropertyValueRange::IsNotNull();
     }
+  }
+}
+
+auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
+    -> storage::PropertyValueRange::ValuePredicate {
+  if (!lower_) return nullptr;
+  auto const typed_value = lower_->value()->Accept(evaluator);
+  if (!typed_value.IsString()) return nullptr;
+  auto const &search_term = typed_value.ValueString();
+
+  auto const make = [](auto match) {
+    return std::make_shared<storage::PropertyValueRange::ValuePredicateFn>(
+        [match = std::move(match)](storage::PropertyValue const &value) {
+          return value.IsString() && match(value.ValueString());
+        });
+  };
+
+  switch (type_) {
+    case Type::CONTAINS:
+      return make([s = std::string(search_term)](auto const &v) { return v.contains(s); });
+    case Type::ENDS_WITH:
+      return make([s = std::string(search_term)](auto const &v) { return v.ends_with(s); });
+    case Type::REGEX_MATCH:
+      try {
+        // Raising here would let an index decide whether the query raises at all. Left to the
+        // filter, an unusable pattern raises once a row reaches it, as it does without an index.
+        return make([re = std::regex(search_term)](auto const &v) { return std::regex_match(v, re); });
+      } catch (std::regex_error const &) {
+        return nullptr;
+      }
+    default:
+      return nullptr;
   }
 }
 
@@ -266,6 +310,9 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
     case Type::REGEX_MATCH:
     case Type::CONTAINS:
     case Type::ENDS_WITH: {
+      // The search term is deliberately not read here. Query stripping turns it into a parameter
+      // and the plan cache is keyed on the stripped text, so a plan settled by one call's term
+      // would be reused for every other term. Evaluate reads it per execution instead.
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
@@ -1709,7 +1756,9 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                      metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_label_properties_operator.Increment();
 
-  auto vertices = [this](Frame &frame, ExecutionContext &context)
+  // The predicates outlive the row they were built from; see ExpressionRange::MakeValuePredicate.
+  auto vertices = [this, value_predicates = std::vector<storage::PropertyValueRange::ValuePredicate>{}](
+                      Frame &frame, ExecutionContext &context) mutable
       -> std::optional<decltype(context.db_accessor->Vertices(
           view_, label_, properties_, std::span<storage::PropertyValueRange>{}))> {
     auto *db = context.db_accessor;
@@ -1718,6 +1767,16 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     if (!maybe_prop_value_ranges) {
       return std::nullopt;
+    }
+
+    if (value_predicates.size() != expression_ranges_.size()) {
+      value_predicates = expression_ranges_ | rv::transform([&](ExpressionRange const &expression_range) {
+                           return expression_range.MakeValuePredicate(evaluator);
+                         }) |
+                         ranges::to_vector;
+    }
+    for (auto &&[range, predicate] : rv::zip(*maybe_prop_value_ranges, value_predicates)) {
+      range.SetValuePredicate(predicate);
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
@@ -2261,7 +2320,13 @@ class ExpandVariableCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    // The operator's type may be PRUNING_BFS when the dispatch cursor chose this
+    // DFS walk as a fallback, so the cursor names itself rather than asking the
+    // operator. Computed once to avoid a per-row allocation.
+    if (!profile_name_ && context.is_profile_query) {
+      profile_name_ = self_.ToStringNamed(context.db_accessor, "ExpandVariable");
+    }
+    SCOPED_PROFILE_OP(profile_name_ ? profile_name_->c_str() : "ExpandVariable");
 
     AbortCheck(context);
 
@@ -2301,6 +2366,7 @@ class ExpandVariableCursor : public Cursor {
  private:
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
+  std::optional<std::string> profile_name_;
   // bounds. in the cursor they are not optional but set to
   // default values if missing in the ExpandVariable operator
   int64_t upper_bound_{-1};
@@ -3015,7 +3081,10 @@ class PruningBFSCursor : public query::plan::Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
-    SCOPED_PROFILE_OP("PruningBFSExpand");
+    if (!profile_name_ && context.is_profile_query) {
+      profile_name_ = self_.ToStringNamed(context.db_accessor, "PruningBFSExpand");
+    }
+    SCOPED_PROFILE_OP(profile_name_ ? profile_name_->c_str() : "PruningBFSExpand");
 
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
@@ -3235,6 +3304,7 @@ class PruningBFSCursor : public query::plan::Cursor {
 
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
+  std::optional<std::string> profile_name_;
 
   int64_t lower_bound_{};
   int64_t upper_bound_{};
@@ -3253,6 +3323,58 @@ class PruningBFSCursor : public query::plan::Cursor {
   // BFS frontier: current depth level and next depth level
   utils::pmr::vector<VertexAccessor> to_visit_current_;
   utils::pmr::vector<VertexAccessor> to_visit_next_;
+};
+
+/// Only a lower bound of at most one lets a pruning BFS reach the same vertices
+/// as a depth-first walk: a vertex the BFS first arrives at below the bound is
+/// marked visited and never emitted, where the walk would still arrive at it
+/// along a longer edge-unique path.
+class PruningBFSDispatchCursor : public query::plan::Cursor {
+ public:
+  PruningBFSDispatchCursor(const ExpandVariable &self, utils::MemoryResource *mem,
+                           metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self), mem_(mem), metric_handles_(metric_handles) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    if (!chosen_) chosen_ = Choose(frame, context);
+    return chosen_->Pull(frame, context);
+  }
+
+  void Shutdown() override {
+    if (chosen_) chosen_->Shutdown();
+  }
+
+  void Reset() override {
+    // The bound reads no symbol and the parameters do not change over a cursor's
+    // life, so a reset cannot change which expansion the bound calls for.
+    if (chosen_) chosen_->Reset();
+  }
+
+ private:
+  UniqueCursorPtr Choose(Frame &frame, ExecutionContext &context) {
+    if (BoundPermitsPruning(frame, context))
+      return MakeUniqueCursorPtr<PruningBFSCursor>(mem_, self_, mem_, metric_handles_);
+    return MakeUniqueCursorPtr<ExpandVariableCursor>(mem_, self_, mem_, metric_handles_);
+  }
+
+  /// A walk of at most one edge is the threshold below which a pruning BFS
+  /// reaches the same vertices as a depth-first walk, so a bound above one goes
+  /// to the depth-first walk, as does one of the wrong type. That walk reads its
+  /// bounds only once it holds a row, so rejecting a bad one stays off the
+  /// expansions that find nothing to expand.
+  /// Must agree with ExpandVariable::OperatorName(Parameters*), which answers
+  /// the same question for EXPLAIN output.
+  bool BoundPermitsPruning(Frame &frame, ExecutionContext &context) const {
+    if (!self_.lower_bound_) return true;
+    ExpressionEvaluator evaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    TypedValue const bound = self_.lower_bound_->Accept(evaluator);
+    return bound.IsInt() && bound.ValueInt() <= 1;
+  }
+
+  const ExpandVariable &self_;
+  utils::MemoryResource *mem_;
+  metrics::DatabaseMetricHandles &metric_handles_;
+  UniqueCursorPtr chosen_;
 };
 
 void ValidateWeight(TypedValue current_weight) {
@@ -4688,7 +4810,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
       return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::PRUNING_BFS: {
-      return MakeUniqueCursorPtr<PruningBFSCursor>(mem, *this, mem, metric_handles);
+      return MakeUniqueCursorPtr<PruningBFSDispatchCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::SINGLE: {
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
@@ -4698,10 +4820,16 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
   }
 }  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 
-std::string ExpandVariable::ToString(const DbAccessor *dba) const {
+std::string ExpandVariable::ToString(const DbAccessor *dba) const { return ToStringNamed(dba, OperatorName()); }
+
+std::string ExpandVariable::ToStringWithParameters(const DbAccessor *dba, Parameters const &parameters) const {
+  return ToStringNamed(dba, OperatorName(&parameters));
+}
+
+std::string ExpandVariable::ToStringNamed(const DbAccessor *dba, std::string_view operator_name) const {
   return fmt::format(
       "{} ({}){}[{}{}]{}({})",
-      OperatorName(),
+      operator_name,
       input_symbol_.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
@@ -4733,7 +4861,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
   return object;
 }
 
-std::string_view ExpandVariable::OperatorName() const {
+std::string_view ExpandVariable::OperatorName(Parameters const *parameters) const {
   using namespace std::string_view_literals;
   using Type = query::EdgeAtom::Type;
   switch (type_) {
@@ -4747,8 +4875,16 @@ std::string_view ExpandVariable::OperatorName() const {
       return "AllShortestPaths"sv;
     case Type::KSHORTEST:
       return "KShortest"sv;
-    case Type::PRUNING_BFS:
-      return "PruningBFSExpand"sv;
+    case Type::PRUNING_BFS: {
+      // Which walk runs is settled from the bound, so naming one before the
+      // bound can be read would name a walk that may not be the one taken.
+      // Must agree with PruningBFSDispatchCursor::BoundPermitsPruning, which
+      // makes the runtime decision.
+      if (!parameters || !lower_bound_) return "PruningBFSExpand"sv;
+      auto const bound = ConstExternalPropertyValue(lower_bound_, *parameters);
+      if (bound && bound->IsInt() && bound->ValueInt() <= 1) return "PruningBFSExpand"sv;
+      return "ExpandVariable"sv;
+    }
     case Type::SINGLE:
       LOG_FATAL("Unexpected ExpandVariable::type_");
     default:
@@ -5393,6 +5529,26 @@ std::unique_ptr<LogicalOperator> SetProperty::Clone(AstStorage *storage) const {
   return object;
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+// The labels to check a vertex's property permissions against, or nullopt when no property
+// permissions are configured and the whole check has nothing to consult. Skipping it spares a
+// per-row label read, and where the check would go on to enumerate the properties being written,
+// a per-row read of those as well.
+using VertexLabels = std::remove_cvref_t<decltype(*std::declval<VertexAccessor const &>().Labels(storage::View::NEW))>;
+
+std::optional<VertexLabels> PropertyPermissionLabels(FineGrainedAuthChecker const *auth_checker,
+                                                     VertexAccessor const &vertex, storage::View view) {
+  if (!auth_checker || !auth_checker->HasPropertyRestrictions()) return std::nullopt;
+  auto maybe_labels = vertex.Labels(view);
+  if (!maybe_labels) [[unlikely]] {
+    ThrowVertexLabelsReadFailure(maybe_labels.error());
+  }
+  return std::move(*maybe_labels);
+}
+}  // namespace
+#endif
+
 SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils::MemoryResource *mem,
                                                   metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
@@ -5416,18 +5572,15 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueVertex(),
-                                       storage::View::NEW,
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(
+                lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
-        auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (!maybe_labels) {
-          ThrowVertexLabelsReadFailure(maybe_labels.error());
-        }
-        if (!context.auth_checker->HasPropertyPermission(
-                *maybe_labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) {
+        auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
+        if (labels && !context.auth_checker->HasPropertyPermission(
+                          *labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
           throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -5451,13 +5604,13 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     case TypedValue::Type::Edge: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueEdge(),
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
         }
         if (!context.auth_checker->HasPropertyPermission(
-                lhs.ValueEdge().EdgeType(), self_.property_, AuthQuery::PropertyPermissionType::WRITE)) {
+                lhs.ValueEdge().EdgeType(), self_.property_, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
           throw QueryRuntimeException("Setting edge property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -5635,18 +5788,15 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueVertex(),
-                                       storage::View::NEW,
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(
+                lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
-        auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (!maybe_labels) {
-          ThrowVertexLabelsReadFailure(maybe_labels.error());
-        }
-        if (!context.auth_checker->HasPropertyPermission(
-                *maybe_labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) {
+        auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
+        if (labels && !context.auth_checker->HasPropertyPermission(
+                          *labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
           throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -5657,13 +5807,14 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
     case TypedValue::Type::Edge: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueEdge(),
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
         }
         if (!context.auth_checker->HasPropertyPermission(
-                lhs.ValueEdge().EdgeType(), self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) {
+                lhs.ValueEdge().EdgeType(), self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE))
+            [[unlikely]] {
           throw QueryRuntimeException("Setting edge property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -5895,12 +6046,10 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
 #ifdef MG_ENTERPRISE
-      if (context->auth_checker) {
-        auto maybe_labels = rhs.ValueVertex().Labels(storage::View::NEW);
-        if (!maybe_labels) ThrowVertexLabelsReadFailure(maybe_labels.error());
+      if (auto const labels = PropertyPermissionLabels(context->auth_checker, rhs.ValueVertex(), storage::View::NEW)) {
         mask_denied_properties(new_properties, [&](storage::PropertyId prop_id) {
           return context->auth_checker->HasPropertyPermission(
-              *maybe_labels, prop_id, AuthQuery::PropertyPermissionType::READ);
+              *labels, prop_id, AuthQuery::PropertyPermissionType::READ);
         });
       }
 #endif
@@ -5964,24 +6113,23 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueVertex(),
-                                       storage::View::NEW,
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(
+                lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Setting node properties failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
-        auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (!maybe_labels) {
-          ThrowVertexLabelsReadFailure(maybe_labels.error());
+        if (auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW)) {
+          auto check_prop = [&](storage::PropertyId prop) {
+            if (!context.auth_checker->HasPropertyPermission(*labels, prop, AuthQuery::PropertyPermissionType::WRITE))
+                [[unlikely]] {
+              throw QueryRuntimeException(
+                  "Setting node properties failed: missing SET PROPERTY permission on property.");
+            }
+          };
+          CheckPropertyPermissionsForSetProperties(
+              rhs, self_.op_, lhs.ValueVertex(), context, cached_name_id_, check_prop);
         }
-        auto check_prop = [&](storage::PropertyId prop) {
-          if (!context.auth_checker->HasPropertyPermission(
-                  *maybe_labels, prop, AuthQuery::PropertyPermissionType::WRITE)) {
-            throw QueryRuntimeException("Setting node properties failed: missing SET PROPERTY permission on property.");
-          }
-        };
-        CheckPropertyPermissionsForSetProperties(
-            rhs, self_.op_, lhs.ValueVertex(), context, cached_name_id_, check_prop);
       }
 #endif
       auto set_properties_on_record = [&](TypedValue &vertex) {
@@ -5993,14 +6141,15 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
     case TypedValue::Type::Edge: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueEdge(),
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Setting edge properties failed: missing SET PROPERTY or UPDATE permission on edge type.");
         }
         auto const &edge_type = lhs.ValueEdge().EdgeType();
         auto check_prop = [&](storage::PropertyId prop) {
-          if (!context.auth_checker->HasPropertyPermission(edge_type, prop, AuthQuery::PropertyPermissionType::WRITE)) {
+          if (!context.auth_checker->HasPropertyPermission(edge_type, prop, AuthQuery::PropertyPermissionType::WRITE))
+              [[unlikely]] {
             throw QueryRuntimeException("Setting edge properties failed: missing SET PROPERTY permission on property.");
           }
         };
@@ -6199,18 +6348,15 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     case TypedValue::Type::Vertex:
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueVertex(),
-                                       storage::View::NEW,
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(
+                lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
-        auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (!maybe_labels) {
-          ThrowVertexLabelsReadFailure(maybe_labels.error());
-        }
-        if (!context.auth_checker->HasPropertyPermission(
-                *maybe_labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) {
+        auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
+        if (labels && !context.auth_checker->HasPropertyPermission(
+                          *labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
           throw QueryRuntimeException("Removing node property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -6221,13 +6367,13 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueEdge(),
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Removing edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
         }
         if (!context.auth_checker->HasPropertyPermission(
-                lhs.ValueEdge().EdgeType(), self_.property_, AuthQuery::PropertyPermissionType::WRITE)) {
+                lhs.ValueEdge().EdgeType(), self_.property_, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
           throw QueryRuntimeException("Removing edge property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -6343,18 +6489,15 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueVertex(),
-                                       storage::View::NEW,
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(
+                lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
-        auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (!maybe_labels) {
-          ThrowVertexLabelsReadFailure(maybe_labels.error());
-        }
-        if (!context.auth_checker->HasPropertyPermission(
-                *maybe_labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) {
+        auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
+        if (labels && !context.auth_checker->HasPropertyPermission(
+                          *labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
           throw QueryRuntimeException("Removing node property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -6365,13 +6508,14 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
     case TypedValue::Type::Edge: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
-        if (!context.auth_checker->Has(lhs.ValueEdge(),
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+        if (!context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
+            [[unlikely]] {
           throw QueryRuntimeException(
               "Removing edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
         }
         if (!context.auth_checker->HasPropertyPermission(
-                lhs.ValueEdge().EdgeType(), self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) {
+                lhs.ValueEdge().EdgeType(), self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE))
+            [[unlikely]] {
           throw QueryRuntimeException("Removing edge property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -6760,6 +6904,17 @@ void DefaultAggregation(ExecutionContext &context, const std::vector<Aggregate::
 }
 
 inline size_t align_forward(size_t ptr, size_t alignment) { return (ptr + (alignment - 1)) & ~(alignment - 1); }
+
+/// Whether a container leaves each element where it is for as long as that element is in it.
+///
+/// True of the associative containers that hold each element in its own node, which the standard
+/// requires to keep references and pointers good through any rehash. False by default, so a
+/// container that has not said it keeps addresses is treated as one that does not.
+template <typename>
+inline constexpr bool kKeepsElementAddresses = false;
+
+template <typename Key, typename T, typename Hash, typename Pred, typename Alloc>
+inline constexpr bool kKeepsElementAddresses<std::unordered_map<Key, T, Hash, Pred, Alloc>> = true;
 }  // namespace
 
 #ifdef MG_ENTERPRISE
@@ -6775,7 +6930,19 @@ class AggregateCursor : public Cursor {
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem, metric_handles)),
         aggregation_(mem),
-        reused_group_by_(self.group_by_.size(), mem) {}
+        reused_group_by_(self.group_by_.size(), mem) {
+    // Which aggregations are a COUNT over a plain identifier, and so can be answered from the
+    // frame slot that identifier names. Settling it once for the cursor keeps both the question
+    // and the dispatch that answering it per row would take out of the row loop.
+    count_from_frame_slot_.reserve(self.aggregations_.size());
+    for (auto const &aggregation : self.aggregations_) {
+      auto const *identifier = (aggregation.op == Aggregation::Op::COUNT && aggregation.arg1 != nullptr)
+                                   ? utils::Downcast<Identifier>(aggregation.arg1)
+                                   : nullptr;
+      auto const unmapped = identifier == nullptr || identifier->symbol_pos_ < 0;
+      count_from_frame_slot_.push_back(unmapped ? -1 : identifier->symbol_pos_);
+    }
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -6809,7 +6976,7 @@ class AggregateCursor : public Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    aggregation_.clear();
+    ResetAggregation();
     aggregation_it_ = aggregation_.begin();
     pulled_all_input_ = false;
   }
@@ -6950,20 +7117,48 @@ class AggregateCursor : public Cursor {
     }
   };
 
+  // Accumulated groups: keyed by the vector of group-by values, holding an AggregationValue.
+  using AggregationMap =
+      utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, CompactAggregationValue,
+                                // use FNV collection hashing specialized for a
+                                // vector of TypedValues
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                // custom equality
+                                TypedValueVectorEqual>;
+
+  // `single_group_` keeps the address of a mapped value for as long as rows keep arriving, so the
+  // container has to be one that leaves its elements where they are as it grows. A map that stores
+  // its elements in nodes does; one that stores them in an open-addressed array moves them on
+  // rehash, which would leave that address naming a slot the map no longer owns.
+  static_assert(kKeepsElementAddresses<AggregationMap>,
+                "AggregateCursor holds a pointer to a mapped value, which this container would move");
+
+  /// Gives `aggregation_` the contents of `replacement`, or no contents when given none.
+  ///
+  /// `single_group_` names an element of that map and is dropped here, because an alias cannot
+  /// outlive what it names. This is the only place the map's contents change, so the two cannot
+  /// come apart.
+  void ResetAggregation(AggregationMap *replacement = nullptr) {
+    if (replacement == nullptr) {
+      aggregation_.clear();
+    } else {
+      aggregation_ = std::move(*replacement);
+    }
+    single_group_ = nullptr;
+  }
+
   const Aggregate &self_;
   const UniqueCursorPtr input_cursor_;
-  // storage for aggregated data
-  // map key is the vector of group-by values
-  // map value is an AggregationValue struct
-  utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, CompactAggregationValue,
-                            // use FNV collection hashing specialized for a
-                            // vector of TypedValues
-                            utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
-                            // custom equality
-                            TypedValueVectorEqual>
-      aggregation_;
+  AggregationMap aggregation_;
   // this is a for object reuse, to avoid re-allocating this buffer
   utils::pmr::vector<TypedValue> reused_group_by_;
+  // The one group of an aggregation with no grouping key, once it exists, and null until then.
+  // It names an element of `aggregation_`, so `ResetAggregation` is what may change that map's
+  // contents: an alias must not outlive the element it names.
+  CompactAggregationValue *single_group_{nullptr};
+  // Per aggregation: the frame slot a COUNT over a plain identifier reads, or -1 when the
+  // aggregation is anything else. Parallel to `self_.aggregations_`.
+  std::vector<int32_t> count_from_frame_slot_;
   // iterator over the accumulated cache
   decltype(aggregation_.begin()) aggregation_it_ = aggregation_.begin();
   // this LogicalOp pulls all from the input on it's first pull
@@ -6972,10 +7167,18 @@ class AggregateCursor : public Cursor {
   DbAccessor *db_accessor_{nullptr};
   FineGrainedAuthChecker const *auth_checker_{nullptr};
 
+  static bool ProjectsGraphValues(const Aggregate::Element &element) {
+    using Op = Aggregation::Op;
+    return element.op == Op::PROJECT_PATH || element.op == Op::PROJECT_LISTS || element.op == Op::DERIVE;
+  }
+
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
     db_accessor_ = context->db_accessor;
     auth_checker_ = context->auth_checker;
-    MG_ASSERT(db_accessor_, "Aggregation expects a current DB transaction");
+    // Only the projecting aggregations build graph values; the scalar ones fold what they are given.
+    if (db_accessor_ == nullptr && std::ranges::any_of(self_.aggregations_, ProjectsGraphValues)) [[unlikely]] {
+      throw QueryRuntimeException("Aggregation expects a current DB transaction.");
+    }
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};
 
@@ -7031,8 +7234,21 @@ class AggregateCursor : public Cursor {
     reused_group_by_.clear();
     evaluator->ResetPropertyLookupCache();
 
-    // TODO: if self_.group_by_.size() == 0, aggregation_ -> there is only one (becasue we are doing *)
-    //       can this be optimised so we don't need to do aggregation_.try_emplace which has a hash cost
+    // An aggregation with no grouping key has exactly one group, so holding it spares every row
+    // after the first a hash and a probe that can have only one answer. The held group keeps its
+    // address because the map is one that leaves elements where they are, nothing erases it, and
+    // the map's contents only change through `ResetAggregation`, which lets go of it.
+    if (self_.group_by_.empty()) {
+      if (single_group_ == nullptr) {
+        auto *mem = aggregation_.get_allocator().resource();
+        auto res = aggregation_.try_emplace(reused_group_by_, mem, self_.aggregations_.size(), self_.remember_.size());
+        single_group_ = &res.first->second;
+        if (res.second /*was newly inserted*/) EnsureInitialized(frame, single_group_);
+      }
+      Update(frame, evaluator, single_group_);
+      return;
+    }
+
     for (Expression *expression : self_.group_by_) {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));
     }
@@ -7040,7 +7256,7 @@ class AggregateCursor : public Cursor {
     auto res = aggregation_.try_emplace(reused_group_by_, mem, self_.aggregations_.size(), self_.remember_.size());
     auto &agg_value = res.first->second;
     if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
-    Update(evaluator, &agg_value);
+    Update(frame, evaluator, &agg_value);
   }
 
   /** Ensures the new AggregationValue has been initialized. This means
@@ -7065,12 +7281,25 @@ class AggregateCursor : public Cursor {
     }
   }
 
+  /// Takes `value` into the aggregation at `pos`: a Null is not aggregated, DISTINCT drops a
+  /// repeat, and anything that survives both is counted.
+  ///
+  /// Answers whether the value still has to reach the aggregation itself. A COUNT never needs it
+  /// to, its result being read from the counts, so a COUNT may ignore the answer.
+  static bool TakeRowIn(CompactAggregationValue *agg_value, size_t pos, bool distinct, TypedValue const &value) {
+    if (value.IsNull()) return false;
+    if (distinct && !agg_value->unique_values_[pos].insert(value).second) return false;
+    agg_value->counts_[pos] += 1;
+    return true;
+  }
+
   /** Updates the given AggregationValue with new data. Assumes that
    * the AggregationValue has been initialized */
-  void Update(ExpressionEvaluator *evaluator, AggregateCursor::CompactAggregationValue *agg_value) {
+  void Update(const Frame &frame, ExpressionEvaluator *evaluator, AggregateCursor::CompactAggregationValue *agg_value) {
     DMG_ASSERT(self_.aggregations_.size() == agg_value->num_aggs_,
                "Expected as much AggregationValue.values_ as there are "
                "aggregations.");
+    DMG_ASSERT(count_from_frame_slot_.size() == agg_value->num_aggs_, "Classification is indexed by aggregation");
 
     for (size_t pos = 0; pos < agg_value->num_aggs_; ++pos) {
       const auto &agg_elem = self_.aggregations_[pos];
@@ -7083,18 +7312,18 @@ class AggregateCursor : public Cursor {
         continue;
       }
 
-      TypedValue input_value = input_expr_ptr->Accept(*evaluator);
-
-      // Aggregations skip Null input values.
-      if (input_value.IsNull()) continue;
-      const auto &agg_op = agg_elem.op;
-      if (agg_elem.distinct) {
-        auto insert_result = agg_value->unique_values_[pos].insert(input_value);
-        if (!insert_result.second) {
-          continue;
-        }
+      // COUNT asks only whether there is a value, and for a plain identifier the frame slot
+      // answers that without the value having to be built to be asked.
+      if (auto const slot = count_from_frame_slot_[pos]; slot >= 0) {
+        DMG_ASSERT(static_cast<size_t>(slot) < frame.elems().size(), "Identifier names no frame slot");
+        TakeRowIn(agg_value, pos, agg_elem.distinct, frame.elems()[slot]);
+        continue;
       }
-      agg_value->counts_[pos] += 1;
+
+      TypedValue input_value = input_expr_ptr->Accept(*evaluator);
+      if (!TakeRowIn(agg_value, pos, agg_elem.distinct, input_value)) continue;
+
+      const auto &agg_op = agg_elem.op;
       if (agg_value->counts_[pos] == 1) {
         // first value, nothing to aggregate. check type, set and continue.
         switch (agg_op) {
@@ -7175,7 +7404,7 @@ class AggregateCursor : public Cursor {
         // the input has been processed
         case Aggregation::Op::SUM:
           EnsureOkForAvgSum(input_value);
-          agg_value->values_[pos] = agg_value->values_[pos] + input_value;
+          AddInto(agg_value->values_[pos], input_value);
           break;
         case Aggregation::Op::COLLECT_LIST:
           agg_value->values_[pos].ValueList().push_back(std::move(input_value));
@@ -7387,6 +7616,24 @@ class AggregateCursor : public Cursor {
             "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX "
             "aggregations.");
     }
+  }
+
+  /// Adds `addend` into the running total `total`. Each must be an integer or a double.
+  ///
+  /// Where the two are the same kind of number the addition happens in place, sparing a result
+  /// value per row. An integer total meeting a double stops being an integer, and addition owns
+  /// that rule, so that pair is handed to it.
+  static void AddInto(TypedValue &total, const TypedValue &addend) {
+    if (total.IsDouble()) {
+      total.ValueDouble() +=
+          addend.IsDouble() ? addend.UnsafeValueDouble() : static_cast<double>(addend.UnsafeValueInt());
+      return;
+    }
+    if (total.IsInt() && addend.IsInt()) {
+      total.ValueInt() += addend.UnsafeValueInt();
+      return;
+    }
+    total = total + addend;
   }
 
   /** Checks if the given TypedValue is legal in AVG and SUM. If not
@@ -8430,7 +8677,7 @@ std::unique_ptr<LogicalOperator> OutputTableStream::Clone(AstStorage *storage) c
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure)
+                             size_t memory_scale, GraphAccess graph_access, int64_t procedure_id, bool void_procedure)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(std::move(name)),
       arguments_(std::move(args)),
@@ -8438,7 +8685,7 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       result_symbols_(std::move(symbols)),
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
-      is_write_(is_write),
+      graph_access_(graph_access),
       procedure_id_(procedure_id),
       void_procedure_(void_procedure) {}
 
@@ -8505,6 +8752,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   if (call_initializer) {
     MG_ASSERT(proc.initializer);
     mgp_memory initializer_memory{memory};
+    const utils::MemoryTracker::RefusalHandledScope refusal_handled;
     proc.initializer.value()(&proc_args, &graph, &initializer_memory);
   }
   if (memory_limit) {
@@ -8548,9 +8796,13 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     mgp_memory proc_memory{&memory_tracking_resource};
 
     // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
-    proc.cb(&proc_args, &graph, result, &proc_memory);
+    {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+      proc.cb(&proc_args, &graph, result, &proc_memory);
+    }
 
-    if (graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+    if (auto *impl = graph.TryGetImpl();
+        impl != nullptr && impl->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
 
@@ -8563,9 +8815,13 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // memory leaks in procedure.
     mgp_memory proc_memory{memory};
     // TODO: What about cross library boundary exceptions? OMG C++?!
-    proc.cb(&proc_args, &graph, result, &proc_memory);
+    {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+      proc.cb(&proc_args, &graph, result, &proc_memory);
+    }
 
-    if (graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+    if (auto *impl = graph.TryGetImpl();
+        impl != nullptr && impl->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
   }
@@ -8604,12 +8860,11 @@ class CallProcedureCursor : public Cursor {
     module_ = std::move(maybe_found->first);
     proc_ = maybe_found->second;
 
-    if (proc_->info.is_write != self_->is_write_) {
-      auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+    if (proc_->info.graph_access != self_->graph_access_) {
       throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
                                   self_->procedure_name_,
-                                  get_proc_type_str(self_->is_write_),
-                                  get_proc_type_str(proc_->info.is_write));
+                                  ToString(self_->graph_access_),
+                                  ToString(proc_->info.graph_access));
     }
 
     for (size_t i = 0UZ; i < self_->result_fields_.size(); ++i) {
@@ -8660,6 +8915,7 @@ class CallProcedureCursor : public Cursor {
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
           if (proc_->cleanup) {
+            const utils::MemoryTracker::RefusalHandledScope refusal_handled;
             proc_->cleanup.value()();
           }
           return false;
@@ -8668,6 +8924,7 @@ class CallProcedureCursor : public Cursor {
         if (proc_->initializer) {
           call_initializer = true;
           MG_ASSERT(proc_->cleanup);
+          const utils::MemoryTracker::RefusalHandledScope refusal_handled;
           proc_->cleanup.value()();
         }
       }
@@ -8676,14 +8933,22 @@ class CallProcedureCursor : public Cursor {
       }
       result_.rows.clear();
 
-      const auto graph_view = proc_->info.is_write ? storage::View::NEW : storage::View::OLD;
+      const auto graph_view = proc_->info.graph_access == GraphAccess::Write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
 
-      result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
+      // Re-check the declaration: a module reload can change what a name resolves to after planning.
+      const bool has_accessor = context.db_accessor != nullptr;
+      if (!has_accessor && proc_->info.graph_access != GraphAccess::None) {
+        throw QueryRuntimeException("The procedure named '{}' requires graph access.", self_->procedure_name_);
+      }
+      const auto storage_mode =
+          has_accessor ? context.db_accessor->GetStorageMode() : storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+      result_.is_transactional = storage::IsTransactional(storage_mode);
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
-      auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
+      auto graph = has_accessor ? mgp_graph::WritableGraph(*context.db_accessor, graph_view, context)
+                                : mgp_graph::GraphlessGraph(graph_view, context, storage_mode);
       CallCustomProcedure(self_->procedure_name_,
                           *proc_,
                           self_->arguments_,
@@ -8739,12 +9004,14 @@ class CallProcedureCursor : public Cursor {
     result_.rows.clear();
     result_row_it_ = result_.rows.begin();
     if (cleanup_) {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
       cleanup_.value()();
     }
   }
 
   void Shutdown() override {
     if (cleanup_) {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
       cleanup_.value()();
     }
   }
@@ -8769,7 +9036,7 @@ std::unique_ptr<LogicalOperator> CallProcedure::Clone(AstStorage *storage) const
   object->result_symbols_ = result_symbols_;
   object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
   object->memory_scale_ = memory_scale_;
-  object->is_write_ = is_write_;
+  object->graph_access_ = graph_access_;
   object->procedure_id_ = procedure_id_;
   object->void_procedure_ = void_procedure_;
   return object;
@@ -11598,7 +11865,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
         }
         // Reuse already completed section if available
         if (complete_aggregation != nullptr) {
-          static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*complete_aggregation);
+          static_cast<AggregateCursor *>(cursor)->ResetAggregation(complete_aggregation);
         }
       };
       auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor,

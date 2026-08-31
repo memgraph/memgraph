@@ -13,14 +13,11 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
-#include <optional>
 #include <unordered_set>
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 
@@ -28,34 +25,19 @@ namespace memgraph::query::plan {
 
 namespace {
 
-/// True when the bound is fixed by the plan alone, rather than by the parameters
-/// a particular execution supplies. Query stripping turns a written-out bound
-/// into a parameter, so most bounds are not.
-bool IsStaticallyKnown(Expression *lower_bound) {
-  return lower_bound == nullptr || utils::Downcast<PrimitiveLiteral>(lower_bound) != nullptr;
-}
-
-/// The bound's value, or nullopt when it cannot be settled before execution
-/// because it reads something only a frame supplies. An absent bound means one.
-std::optional<int64_t> ResolveLowerBound(Expression *lower_bound, Parameters const &parameters) {
-  if (!lower_bound) return 1;
-
-  auto const value = std::invoke([&]() -> std::optional<storage::ExternalPropertyValue> {
-    if (auto const *literal = utils::Downcast<PrimitiveLiteral>(lower_bound)) return literal->value_;
-    if (auto const *param = utils::Downcast<ParameterLookup>(lower_bound)) {
-      return parameters.AtTokenPosition(param->token_position_);
-    }
-    return std::nullopt;
-  });
-
-  if (!value || !value->IsInt()) return std::nullopt;
-  return value->ValueInt();
+/// True when the cursor can settle the bound's value and OperatorName can name
+/// the walk it calls for: null (absent), a literal, or a parameter lookup.
+/// Anything else (a function call, an arithmetic expression) is out of
+/// ConstExternalPropertyValue's reach, which would leave OperatorName unable to
+/// agree with the cursor on which walk runs.
+bool BoundIsResolvable(Expression *bound) {
+  if (!bound) return true;
+  return utils::Downcast<PrimitiveLiteral>(bound) || utils::Downcast<ParameterLookup>(bound);
 }
 
 class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  PruningBFSRewriter(SymbolTable const &symbol_table, Parameters const &parameters, bool *reads_parameters)
-      : symbol_table_(symbol_table), parameters_(parameters), reads_parameters_(reads_parameters) {}
+  explicit PruningBFSRewriter(SymbolTable const &symbol_table) : symbol_table_(symbol_table) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -161,7 +143,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     CollectSymbolsFromExpressions(op.arguments_);
     // A write procedure runs once per row, so how many rows reach it is part of
     // what it does. A read procedure's results are collapsed along with the rows.
-    if (op.is_write_) {
+    if (op.graph_access_ == GraphAccess::Write) {
       deduplicates_ = false;
     }
     return true;
@@ -238,13 +220,10 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (!deduplicates_ || rewrite_blocked_) return true;
     if (used_symbols_.contains(op.common_.edge_symbol.position())) return true;
 
-    // Everything else already permits pruning, so the bound is what settles this
-    // expansion, and reading it from the parameters ties the plan to them. That
-    // holds whether or not the bound then permits pruning, because caching the
-    // depth-first plan would serve it to the bounds that do permit it.
-    if (!IsStaticallyKnown(op.lower_bound_)) *reads_parameters_ = true;
-    auto const lower_bound = ResolveLowerBound(op.lower_bound_, parameters_);
-    if (!lower_bound || *lower_bound > 1) return true;
+    // The cursor settles the bound, but OperatorName must be able to agree on
+    // which walk it calls for. Only literals and parameter lookups are in
+    // ConstExternalPropertyValue's reach; anything else is left as depth-first.
+    if (!BoundIsResolvable(op.lower_bound_)) return true;
 
     op.type_ = EdgeAtom::Type::PRUNING_BFS;
     return true;
@@ -305,8 +284,6 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
  private:
   SymbolTable const &symbol_table_;
-  Parameters const &parameters_;
-  bool *reads_parameters_;
   std::unordered_set<int64_t> used_symbols_;
   bool deduplicates_{false};
   bool rewrite_blocked_{false};
@@ -316,9 +293,8 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 }  // namespace
 
 std::unique_ptr<LogicalOperator> RewriteWithPruningBFS(std::unique_ptr<LogicalOperator> root_op,
-                                                       SymbolTable const *symbol_table, Parameters const &parameters,
-                                                       bool *reads_parameters) {
-  auto rewriter = PruningBFSRewriter(*symbol_table, parameters, reads_parameters);
+                                                       SymbolTable const *symbol_table) {
+  auto rewriter = PruningBFSRewriter(*symbol_table);
   root_op->Accept(rewriter);
   return root_op;
 }

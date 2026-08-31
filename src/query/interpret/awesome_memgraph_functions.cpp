@@ -39,6 +39,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -2273,7 +2274,10 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
     auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
     auto maybe_res = mgp_func_result{};
     auto memory = mgp_memory{ctx.memory};
-    func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+      func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    }
     if (maybe_res.error_msg) [[unlikely]] {
       throw QueryRuntimeException(*maybe_res.error_msg);
     }

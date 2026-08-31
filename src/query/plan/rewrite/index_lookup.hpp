@@ -231,8 +231,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       Filters own_filters;
       own_filters.CollectFilterExpression(op.expression_, *symbol_table_);
       for (auto const &filter : own_filters) {
-        if (filter_exprs_for_removal_.contains(filter.expression) ||
-            filter_exprs_keying_a_seek_.contains(filter.expression)) {
+        if (filter_exprs_for_removal_.contains(filter.expression)) {
           removed_filters.push_back(filter);
         }
       }
@@ -248,9 +247,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // A Cartesian pulls its right branch once per pass, not once per left row, so it cannot feed a
     // seek keyed on the other branch. Convert only when a consumed filter created such a dependency.
-    // A retained post-filter is not removed, but may still have keyed the seek below (STARTS WITH),
-    // so `did_remove` alone would miss the dependency it created.
-    if (removal.did_remove || !removed_filters.empty()) {
+    // Every node predicate that keys a seek is consumed by the scan, so removal detects them all.
+    if (removal.did_remove) {
       LogicalOperator *input = op.input().get();
       LogicalOperator *parent = &op;
 
@@ -973,8 +971,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
-  // Expressions kept in a Filter that still supplied a seek key to a scan below it.
-  std::unordered_set<Expression *> filter_exprs_keying_a_seek_;
   // Enclosing scope's symbols: live on the frame, but not produced by this branch, so they must stay
   // out of the plan - ModifiedSymbols has consumers that read it as "produced by this subtree".
   std::unordered_set<Symbol> const inherited_bound_symbols_;
@@ -1186,36 +1182,36 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return std::ranges::any_of(filter.used_symbols, [&scanned_symbol](Symbol const &s) { return s != scanned_symbol; });
   }
 
+  // Whether a scan of `scanned_symbol` may read this filter's value expression. Every path that
+  // hands a filter to a scan asks here, so none of them can admit a value the scan cannot evaluate
+  // where it runs.
+  static bool CanKeyIndexScan(const Symbol &scanned_symbol, const std::unordered_set<Symbol> &bound_symbols,
+                              FilterInfo const &filter) {
+    // Skip filter expressions which use the symbol whose property we are
+    // looking up or aren't bound. We cannot scan by such expressions. For
+    // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
+    // cannot scan `n` by property index.
+
+    // TODO: technically we could filter for existance of n.a or n.b, BUT ATM when we replace
+    //       scan+filter with index based scanby we remove the associated filter
+    //       `n.a = 2 + n.b` would an example of a filter that could be enhanced by an index but does not
+    //       remove the need for the filter
+    if (filter.property_filter->is_symbol_in_value_) return false;
+    if (!std::ranges::all_of(filter.used_symbols, [&](Symbol const &s) { return bound_symbols.contains(s); })) {
+      return false;
+    }
+    return !IsCorrelatedStringPredicate(scanned_symbol, filter);
+  }
+
   auto GetCandidateLabelPropertiesIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
       -> CandidateLabelPropertiesIndices {
-    auto are_bound = [&bound_symbols](const auto &used_symbols) {
-      for (const auto &used_symbol : used_symbols) {
-        if (!bound_symbols.contains(used_symbol)) {
-          return false;
-        }
-      }
-      return true;
-    };
-
     auto candidate_label_properties_indices = CandidateLabelPropertiesIndices{};
 
     namespace r = ranges;
     namespace rv = r::views;
 
     auto as_storage_label = [&](auto const &label) { return GetLabel(label); };
-    auto valid_filter = [&](auto const &filter) {
-      // Skip filter expressions which use the symbol whose property we are
-      // looking up or aren't bound. We cannot scan by such expressions. For
-      // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
-      // cannot scan `n` by property index.
-
-      // TODO: technically we could filter for existance of n.a or n.b, BUT ATM when we replace
-      //       scan+filter with index based scanby we remove the associated filter
-      //       `n.a = 2 + n.b` would an example of a filter that could be enhanced by an index but does not
-      //       remove the need for the filter
-      return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols) &&
-             !IsCorrelatedStringPredicate(symbol, filter);
-    };
+    auto valid_filter = [&](auto const &filter) { return CanKeyIndexScan(symbol, bound_symbols, filter); };
     auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_ids_; };
     auto as_property_path = [&](auto const &filter) -> storage::PropertyPath {
       std::vector<storage::PropertyId> storage_property_ids;
@@ -1710,8 +1706,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct ScanByIndexMetadata {
     std::vector<FilterInfo> filters_to_erase;
     std::vector<Expression *> expressions_to_mark_for_removal;
-    // Retained post-filters that nonetheless supplied the scan's seek key.
-    std::vector<Expression *> expressions_keying_a_seek;
     std::vector<LabelIx> labels_to_erase;   // For EraseLabelFilter or EraseOrLabelFilter
     bool is_or_label_filter = false;        // If true, use EraseOrLabelFilter instead of EraseLabelFilter
     bool all_property_filters_same = true;  // For OR labels: whether all filters are the same
@@ -1741,10 +1735,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::optional<Candidate> best;
 
     for (auto const &filter : property_filters) {
-      if (filter.property_filter->is_symbol_in_value_ ||
-          !std::ranges::all_of(filter.used_symbols, [&](auto const &s) { return bound_symbols.contains(s); }) ||
-          IsCorrelatedStringPredicate(node_symbol, filter))
-        continue;
+      if (!CanKeyIndexScan(node_symbol, bound_symbols, filter)) continue;
       if (filter.property_filter->property_ids_.path.size() != 1) continue;
       auto const &prop_ix = filter.property_filter->property_ids_.path[0];
       auto property = GetProperty(prop_ix);
@@ -1763,10 +1754,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (max_vertex_count && best->estimated_count > *max_vertex_count) return std::nullopt;
 
     auto const &prop_filter = *best->filter.property_filter;
-    if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
+    if (!PropertyFilter::RequiresPostFilterOnNodeScan(prop_filter.type_)) {
       metadata.expressions_to_mark_for_removal.push_back(best->filter.expression);
-    } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
-      metadata.expressions_keying_a_seek.push_back(best->filter.expression);
     }
     metadata.filters_to_erase.push_back(best->filter);
 
@@ -1786,13 +1775,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto const make_string_range = [&]() -> std::optional<ExpressionRange> {
       switch (prop_filter.type_) {
         case PropertyFilter::Type::REGEX_MATCH:
-          return ExpressionRange::RegexMatch();
+          return ExpressionRange::RegexMatch(prop_filter.value_);
         case PropertyFilter::Type::STARTS_WITH:
           return ExpressionRange::StartsWith(prop_filter.value_);
         case PropertyFilter::Type::CONTAINS:
-          return ExpressionRange::Contains();
+          return ExpressionRange::Contains(prop_filter.value_);
         case PropertyFilter::Type::ENDS_WITH:
-          return ExpressionRange::EndsWith();
+          return ExpressionRange::EndsWith(prop_filter.value_);
         default:
           return std::nullopt;
       }
@@ -1866,16 +1855,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return ExpressionRange::In(filter.property_filter->value_, membership_list);
         }
         case PropertyFilter::Type::REGEX_MATCH: {
-          return ExpressionRange::RegexMatch();
+          return ExpressionRange::RegexMatch(filter.property_filter->value_);
         }
         case PropertyFilter::Type::STARTS_WITH: {
           return ExpressionRange::StartsWith(filter.property_filter->value_);
         }
         case PropertyFilter::Type::CONTAINS: {
-          return ExpressionRange::Contains();
+          return ExpressionRange::Contains(filter.property_filter->value_);
         }
         case PropertyFilter::Type::ENDS_WITH: {
-          return ExpressionRange::EndsWith();
+          return ExpressionRange::EndsWith(filter.property_filter->value_);
         }
         case PropertyFilter::Type::RANGE: {
           return ExpressionRange::Range(filter.property_filter->lower_bound_, filter.property_filter->upper_bound_);
@@ -2006,14 +1995,35 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count) && or_labels.empty()) {
+      // When a selected filter is IS_NOT_NULL but a string predicate (CONTAINS/ENDS_WITH/REGEX)
+      // exists for the same property, upgrade to the string predicate. Both scan the same index
+      // range, but the string predicate attaches a ValuePredicate enabling index skip scan.
+      std::vector<FilterInfo> superseded_filters;
+      for (auto &filter_info : found_index->filters) {
+        if (filter_info.property_filter->type_ != PropertyFilter::Type::IS_NOT_NULL) continue;
+        for (auto const &candidate : filters_.PropertyFilters(node_symbol)) {
+          if (candidate.property_filter->property_ids_ != filter_info.property_filter->property_ids_) continue;
+          auto const ct = candidate.property_filter->type_;
+          if (ct != PropertyFilter::Type::CONTAINS && ct != PropertyFilter::Type::ENDS_WITH &&
+              ct != PropertyFilter::Type::REGEX_MATCH)
+            continue;
+          if (!CanKeyIndexScan(node_symbol, bound_symbols, candidate)) continue;
+          superseded_filters.push_back(filter_info);
+          filter_info = candidate;
+          break;
+        }
+      }
+      for (auto const &f : superseded_filters) {
+        metadata.filters_to_erase.push_back(f);
+        metadata.expressions_to_mark_for_removal.push_back(f.expression);
+      }
+
       // Collect metadata for filter cleanup
       for (auto const &filter_info : found_index->filters) {
         const PropertyFilter prop_filter = *filter_info.property_filter;
 
-        if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
+        if (!PropertyFilter::RequiresPostFilterOnNodeScan(prop_filter.type_)) {
           metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
-        } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
-          metadata.expressions_keying_a_seek.push_back(filter_info.expression);
         }
 
         metadata.filters_to_erase.push_back(filter_info);
@@ -2095,10 +2105,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             // Filter cleanup, track which expressions to remove
             for (auto const &filter_info : label_property_index.filters) {
               const PropertyFilter prop_filter = *filter_info.property_filter;
-              if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
+              if (!PropertyFilter::RequiresPostFilterOnNodeScan(prop_filter.type_)) {
                 metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
-              } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
-                metadata.expressions_keying_a_seek.push_back(filter_info.expression);
               }
             }
             auto or_membership_lists =
@@ -2154,8 +2162,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                        metadata.expressions_to_mark_for_removal.end());
     }
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-    filter_exprs_keying_a_seek_.insert(metadata.expressions_keying_a_seek.begin(),
-                                       metadata.expressions_keying_a_seek.end());
   }
 
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node

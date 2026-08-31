@@ -288,26 +288,36 @@ class PropertyFilter {
     ENDS_WITH = 7
   };
 
-  /// True when the index scan is a superset and the original expression
-  /// must be retained as a post-filter.
-  static constexpr bool RequiresPostFilter(Type t) {
+  /// True when an edge index scan admits rows the filter rejects, so the original expression must
+  /// be retained as a post-filter. An edge scan ranges upwards from a single bound with no ceiling,
+  /// so even a prefix match reads past the prefix and on into the types that sort after strings.
+  static constexpr bool RequiresPostFilterOnEdgeScan(Type t) {
     return t == Type::REGEX_MATCH || t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
+  /// True when a node index scan admits rows the filter rejects, so the original expression must be
+  /// retained as a post-filter. A node scan bounds a prefix match above as well as below, and those
+  /// two bounds span exactly the strings carrying the prefix, so STARTS_WITH has nothing left to
+  /// check. The rest have no bound narrower than the whole string type.
+  static constexpr bool RequiresPostFilterOnNodeScan(Type t) {
+    return t == Type::REGEX_MATCH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
+  /// The predicates that read a search term to narrow a scan over the property's string values,
+  /// as the seek key or as the predicate that skips whole groups of equal values. One whose search
+  /// term reads a symbol other than the scanned one is refused as an index candidate: the term
+  /// then describes a single row of the other branch, while a Cartesian evaluates it once for the
+  /// whole pass. It stays a filter over a scan, which is also why an indexed search term is the
+  /// same for the whole execution.
+  static constexpr bool IsStringPredicate(Type t) {
+    return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH || t == Type::REGEX_MATCH;
   }
 
   /// True when the index seek key is built from this filter's value expression, rather than being a
   /// constant span of the property's type. Such a scan can only run where that expression's symbols
-  /// are bound, so a Cartesian above it has to be converted into an IndexedJoin. Types that both
-  /// require a post-filter and seek on their value (STARTS_WITH) create that dependency without
-  /// their expression ever being removed, so removal alone cannot be used to detect it.
-  /// The three predicates this feature made index candidates. A correlated one -- whose value reads a
-  /// symbol other than the one being scanned -- is deliberately not indexed: on a node it turns a
-  /// Cartesian into an IndexedJoin that re-seeks the index once per outer row, and on an edge it is
-  /// not plannable at all. Before the feature they were plain filters over a scan, and a correlated
-  /// one stays that way.
-  static constexpr bool IsStringPredicate(Type t) {
-    return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
-  }
-
+  /// are bound, so a Cartesian above it has to be converted into an IndexedJoin. On an edge scan
+  /// STARTS_WITH both keeps its post-filter and seeks on its value, creating that dependency without
+  /// its expression ever being removed, so removal alone cannot be used to detect it.
   static constexpr bool SeeksOnValue(Type t) {
     return t == Type::EQUAL || t == Type::RANGE || t == Type::IN || t == Type::STARTS_WITH;
   }

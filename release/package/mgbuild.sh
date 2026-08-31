@@ -77,6 +77,10 @@ DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
+DEFAULT_MGBENCH_CACHE_ENABLED="true"
+MGBENCH_CACHE_CONTAINER_DIR="/home/mg/.cache/mgbench"
+DEFAULT_CARGO_CACHE_ENABLED="true"
+CARGO_CACHE_CONTAINER_DIR="/home/mg/.cargo"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
 DEFAULT_RUST_VERSION="1.89"
 
@@ -126,6 +130,10 @@ print_help () {
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
   echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
+  echo -e "  --no-mgbench-cache            Disable mgbench cache volume mounting (default \"$DEFAULT_MGBENCH_CACHE_ENABLED\") -> without it mgbench recalibrates query counts and re-downloads datasets every run"
+  echo -e "  --mgbench-cache-dir string    Specify host directory for the mgbench cache (default \"\$HOME/.cache/mgbench-ci\")"
+  echo -e "  --no-cargo-cache              Disable cargo cache volume mounting (default \"$DEFAULT_CARGO_CACHE_ENABLED\") -> without it every build re-downloads crates from crates.io"
+  echo -e "  --cargo-cache-dir string      Specify host directory for the cargo registry and git caches (default \"\$HOME/.cargo-ci\")"
   echo -e "  --enable-monitoring           Ship test metrics/logs to a remote monitoring stack (default \"false\"); requires --monitoring-host, --cluster-id and --cluster-env"
   echo -e "  --monitoring-host string      Hostname or IP of the remote monitoring stack (required with --enable-monitoring)"
   echo -e "  --cluster-id string           Cluster identifier label attached to exported metrics/logs (required with --enable-monitoring)"
@@ -148,10 +156,11 @@ print_help () {
   echo -e "  --ubsan                       Build with UBSAN"
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
-  echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
+  echo -e "  --link-threads int            Pin the number of concurrent link steps (default 0: derived from the memory available to the container). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
+  echo -e "  --no-python                   Build memgraph without the embedded Python interpreter (maps to -DMG_PYTHON_SUPPORT=OFF; the package then has no libpython/python3/pip dependencies)."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
@@ -217,6 +226,15 @@ print_help () {
   echo -e "  --dataset string              Specify dataset to benchmark (default \"pokec\")"
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
+  echo -e "  --no-authorization            Skip the fine-grained authorization run of each workload"
+
+
+
+  echo -e "\nmgbench-ha options:"
+  echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
+  echo -e "  --export-results-file string  Output file for results (default \"benchmark_result_ha.json\")"
+  echo -e "  --cluster-description string  Cluster description in tests/mgbench (default \"ha_cluster.yaml\"; ha_cluster_2_replicas.yaml for two replicas)"
+  echo -e "  Measures only a main with one SYNC replica behind three coordinators. Needs an enterprise license."
 
   echo -e "\ngenerate-memgraph-build-sbom options:"
   echo -e "  --conan-remote string         Specify conan remote (optional)"
@@ -371,11 +389,35 @@ version_lt() {
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
 
+# Returns 0 (true) if at least one host cache is mounted into the containers.
+any_cache_enabled() {
+  [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]] \
+    || [[ "$mgbench_cache_enabled" == "true" ]] || [[ "$cargo_cache_enabled" == "true" ]]
+}
+
+# Emits the enabled cache bind mounts, indented as entries of a compose
+# service's `volumes:` list.
+emit_cache_volumes() {
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo "      - ~/.cache/ccache:/home/mg/.cache/ccache"
+  fi
+  if [[ "$conan_cache_enabled" == "true" ]]; then
+    echo "      - $conan_cache_dir:/home/mg/.conan2"
+  fi
+  if [[ "$mgbench_cache_enabled" == "true" ]]; then
+    echo "      - $mgbench_cache_dir:$MGBENCH_CACHE_CONTAINER_DIR"
+  fi
+  if [[ "$cargo_cache_enabled" == "true" ]]; then
+    echo "      - $cargo_cache_dir/registry:$CARGO_CACHE_CONTAINER_DIR/registry"
+    echo "      - $cargo_cache_dir/git:$CARGO_CACHE_CONTAINER_DIR/git"
+  fi
+}
+
 # Function to handle cache override file creation and cleanup
 setup_cache_override() {
   local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
 
-  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]]; then
+  if any_cache_enabled; then
     cat > cache-override.yml << EOF
 services:
 EOF
@@ -386,23 +428,13 @@ EOF
         service_name=$(echo "$line" | sed 's/://')
         echo "  $service_name:" >> cache-override.yml
         echo "    volumes:" >> cache-override.yml
-        if [[ "$ccache_enabled" == "true" ]]; then
-          echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> cache-override.yml
-        fi
-        if [[ "$conan_cache_enabled" == "true" ]]; then
-          echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
-        fi
+        emit_cache_volumes >> cache-override.yml
       done
     else
       # For specific OS, only add volume to the target service
       echo "  $build_container:" >> cache-override.yml
       echo "    volumes:" >> cache-override.yml
-      if [[ "$ccache_enabled" == "true" ]]; then
-        echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> cache-override.yml
-      fi
-      if [[ "$conan_cache_enabled" == "true" ]]; then
-        echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
-      fi
+      emit_cache_volumes >> cache-override.yml
     fi
     compose_files="$compose_files -f cache-override.yml"
   fi
@@ -411,7 +443,7 @@ EOF
 }
 
 cleanup_cache_override() {
-  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]]; then
+  if any_cache_enabled; then
     rm -f cache-override.yml
   fi
 }
@@ -438,6 +470,26 @@ setup_host_cache_permissions() {
     chmod -R a+rwX $conan_cache_dir 2>/dev/null || true
 
     echo "Host conan cache directory permissions set to a+rwX (open access)"
+  fi
+
+  if [[ "$mgbench_cache_enabled" == "true" ]]; then
+    echo "Setting up host mgbench cache directory permissions..."
+    mkdir -pv -- "$mgbench_cache_dir"
+
+    # Set open permissions on the mgbench cache directory to allow cross-container access
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX -- "$mgbench_cache_dir" 2>/dev/null || true
+
+    echo "Host mgbench cache directory permissions set to a+rwX (open access)"
+  fi
+
+  if [[ "$cargo_cache_enabled" == "true" ]]; then
+    echo "Setting up host cargo cache directory permissions..."
+    mkdir -pv -- "$cargo_cache_dir/registry" "$cargo_cache_dir/git"
+
+    chmod a+rwX -- "$cargo_cache_dir" "$cargo_cache_dir/registry" "$cargo_cache_dir/git" 2>/dev/null || true
+
+    echo "Host cargo cache directory permissions set to a+rwX (open access)"
   fi
 }
 
@@ -550,6 +602,40 @@ report_libpython_link () {
 }
 
 
+# Warm cargo's registry cache in a dedicated, retried step. Arg: <mage mode>.
+prefetch_cargo_deps () {
+  local mage_mode="$1"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+  local crate_dirs=()
+  # Mirrors what the build actually compiles: mgcxx is part of memgraph proper
+  # (skipped for --mage only), the rust query modules come with MAGE.
+  if [[ "$mage_mode" != "only" ]]; then
+    crate_dirs+=("mgcxx/text_search")
+  fi
+  if [[ "$mage_mode" != "off" ]]; then
+    crate_dirs+=("src/mage/rust/rsmgp-example")
+  fi
+
+  local crate_dir attempt
+  for crate_dir in "${crate_dirs[@]}"; do
+    if ! docker exec -u mg "$build_container" bash -c "test -f $MGBUILD_ROOT_DIR/$crate_dir/Cargo.toml"; then
+      continue
+    fi
+    echo "Fetching cargo dependencies for $crate_dir..."
+    for attempt in 1 2 3; do
+      if docker exec -u mg "$build_container" bash -c "$ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/$crate_dir && cargo fetch"; then
+        break
+      fi
+      if [[ "$attempt" -eq 3 ]]; then
+        echo "Warning: cargo fetch for $crate_dir failed after $attempt attempts, continuing anyway"
+        break
+      fi
+      echo "cargo fetch for $crate_dir failed (attempt $attempt), retrying in $((attempt * 10))s..."
+      sleep $((attempt * 10))
+    done
+  done
+}
+
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
@@ -580,6 +666,7 @@ build_memgraph () {
   local python_build_version=""
   local python_build_version_flag=""
   local python_runtime_version=""
+  local python_support_flag=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -658,6 +745,10 @@ build_memgraph () {
         python_build_version="$2"
         python_build_version_flag="-DMG_PYTHON_VERSION=$2"
         shift 2
+      ;;
+      --no-python)
+        python_support_flag="-DMG_PYTHON_SUPPORT=OFF"
+        shift 1
       ;;
       --python-runtime-version)
         python_runtime_version="$2"
@@ -765,8 +856,14 @@ build_memgraph () {
   # (or any tar/copy that resets /opt/toolchain-v8/bin/clang++ mtime) would
   # otherwise invalidate every ccache entry. Content hashing of the 191 KB
   # clang frontend driver is sub-millisecond, so the overhead is negligible.
+  #
+  # One cache serves every configuration a runner builds, and each keeps its own entries for the
+  # same sources, so ccache's default size holds a fraction of that set and a build misses on
+  # entries another configuration evicted. Set from the environment where a runner has less disk
+  # to spare.
   if [[ "$ccache_enabled" == "true" ]]; then
     CMD_START="$CMD_START && export CCACHE_COMPILERCHECK=content"
+    CMD_START="$CMD_START && export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-20G}"
   fi
 
   # Set up Conan environment
@@ -852,7 +949,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then
@@ -872,9 +969,9 @@ build_memgraph () {
     fi
   fi
 
-  # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
+  # Pin link concurrency instead of deriving it from the container's memory.
   if [[ "$link_threads" -gt 0 ]]; then
-    additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
+    additional_options="$additional_options -DMG_LINK_JOBS=$link_threads"
   fi
 
   # Extract debug info into sidecar .debug files post-link (requires RWD/Debug).
@@ -924,6 +1021,8 @@ build_memgraph () {
     fi
     return
   fi
+
+  prefetch_cargo_deps "$mage_mode"
 
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
@@ -1635,6 +1734,7 @@ test_memgraph() {
   local EXPORT_AWS_SECRET_KEY="export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
   local default_benchmark_result_file='benchmark_result.json'
+  local default_benchmark_result_ha_file='benchmark_result_ha.json'
 
   # Parse key=value output from a deployment.sh monitoring-targets invocation
   # and export recognized vars if not already set. Uses `<<<` (not a pipe) so
@@ -1836,6 +1936,7 @@ test_memgraph() {
       local DATASET='pokec'
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1851,48 +1952,104 @@ test_memgraph() {
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench"
-            echo "Supported flags: --dataset, --size, --export-results-file"
+            echo "Supported flags: --dataset, --size, --export-results-file, --no-authorization"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
+    ;;
+    mgbench-ha)
+      shift 1
+      local DATASET_SIZE='medium'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
+      local CLUSTER_DESCRIPTION='ha_cluster.yaml'
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --size)
+            DATASET_SIZE="$2"
+            shift 2
+          ;;
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          --cluster-description)
+            CLUSTER_DESCRIPTION="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-ha"
+            echo "Supported flags: --size, --export-results-file, --cluster-description"
+            exit 1
+          ;;
+        esac
+      done
+
+      check_support pokec_size $DATASET_SIZE
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
     ;;
     mgbench-supernode)
       shift 1
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-supernode" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE supernode"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION supernode"
     ;;
     mgbench-load-parquet)
       shift 1
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-load-parquet" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE load_parquet"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION load_parquet"
     ;;
     mgbench-vector-search-index)
       shift 1
       local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
       while [[ $# -gt 0 ]]; do
         local flag="$1"
         case "$flag" in
@@ -1900,19 +2057,24 @@ test_memgraph() {
             export_results_file="$2"
             shift 2
           ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$flag' for mgbench-vector-search-index"
-            echo "Supported flags: --export-results-file"
+            echo "Supported flags: --export-results-file, --no-authorization"
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
     ;;
     mgbench-vector-search-edge-index)
       shift 1
       local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
       while [[ $# -gt 0 ]]; do
         local flag="$1"
         case "$flag" in
@@ -1920,19 +2082,24 @@ test_memgraph() {
             export_results_file="$2"
             shift 2
           ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$flag' for mgbench-vector-search-edge-index" >&2
-            echo "Supported flags: --export-results-file" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
     ;;
     mgbench-text-search-index)
       shift 1
       local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
       while [[ $# -gt 0 ]]; do
         local flag="$1"
         case "$flag" in
@@ -1940,19 +2107,24 @@ test_memgraph() {
             export_results_file="$2"
             shift 2
           ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$flag' for mgbench-text-search-index" >&2
-            echo "Supported flags: --export-results-file" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
     ;;
     mgbench-text-search-edge-index)
       shift 1
       local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
       while [[ $# -gt 0 ]]; do
         local flag="$1"
         case "$flag" in
@@ -1960,15 +2132,19 @@ test_memgraph() {
             export_results_file="$2"
             shift 2
           ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$flag' for mgbench-text-search-edge-index" >&2
-            echo "Supported flags: --export-results-file" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
     ;;
     upload-to-bench-graph)
       shift 1
@@ -2941,6 +3117,10 @@ mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
 ccache_enabled=$DEFAULT_CCACHE_ENABLED
 conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 conan_cache_dir=""
+mgbench_cache_enabled=$DEFAULT_MGBENCH_CACHE_ENABLED
+mgbench_cache_dir=""
+cargo_cache_enabled=$DEFAULT_CARGO_CACHE_ENABLED
+cargo_cache_dir=""
 command=""
 build_container=""
 cugraph=false
@@ -3015,6 +3195,22 @@ while [[ $# -gt 0 ]]; do
       conan_cache_dir=$2
       shift 2
     ;;
+    --no-mgbench-cache)
+      mgbench_cache_enabled="false"
+      shift 1
+    ;;
+    --mgbench-cache-dir)
+      mgbench_cache_dir=$2
+      shift 2
+    ;;
+    --no-cargo-cache)
+      cargo_cache_enabled="false"
+      shift 1
+    ;;
+    --cargo-cache-dir)
+      cargo_cache_dir=$2
+      shift 2
+    ;;
     --enable-monitoring)
       enable_monitoring=true
       shift 1
@@ -3058,6 +3254,21 @@ fi
 
 if [[ -z "$conan_cache_dir" ]]; then
   conan_cache_dir="$HOME/.conan2-ci"
+fi
+
+if [[ -z "$mgbench_cache_dir" ]]; then
+  mgbench_cache_dir="$HOME/.cache/mgbench-ci"
+fi
+
+if [[ -z "$cargo_cache_dir" ]]; then
+  cargo_cache_dir="$HOME/.cargo-ci"
+fi
+
+# Points mgbench at the mounted cache so query counts and datasets survive between runs.
+# Empty when disabled, which leaves mgbench using .cache inside the checkout.
+MGBENCH_CACHE_ARG=""
+if [[ "$mgbench_cache_enabled" == "true" ]]; then
+  MGBENCH_CACHE_ARG="--cache-directory $MGBENCH_CACHE_CONTAINER_DIR"
 fi
 
 if [[ "$os" != "all" ]]; then
@@ -3182,6 +3393,12 @@ case $command in
       if [[ "$conan_cache_enabled" == "true" ]]; then
         echo "Setting conan cache directory: $conan_cache_dir"
       fi
+      if [[ "$mgbench_cache_enabled" == "true" ]]; then
+        echo "Setting mgbench cache directory: $mgbench_cache_dir"
+      fi
+      if [[ "$cargo_cache_enabled" == "true" ]]; then
+        echo "Setting cargo cache directory: $cargo_cache_dir"
+      fi
 
       # Set up host ccache permissions
       setup_host_cache_permissions
@@ -3257,6 +3474,29 @@ case $command in
           echo 'Conan cache directory permissions set for cross-container access'
         "
       fi
+
+      # Set up cargo cache directory permissions if the cargo cache is enabled
+      if [[ "$cargo_cache_enabled" == "true" ]]; then
+        echo "Setting up cargo cache directory permissions..."
+        docker exec -u root $build_container bash -c "
+          mkdir -p $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          chown mg:mg $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          chmod a+rwX $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          echo 'Cargo cache directory permissions set'
+        "
+      fi
+
+      # Make cargo more tolerant of the transient crates.io connectivity blips
+      echo "Writing cargo network configuration..."
+      docker exec -i -u mg $build_container bash -c "mkdir -p $CARGO_CACHE_CONTAINER_DIR && cat > $CARGO_CACHE_CONTAINER_DIR/config.toml" << 'EOF'
+# Managed by release/package/mgbuild.sh - changes here are overwritten on `run`.
+[net]
+retry = 10
+git-fetch-with-cli = true
+
+[http]
+timeout = 60
+EOF
 
       # This network will allo w the mgbuild container to access the mgdeps cache container
       # check for `mgbuild_network` network and create it if it doesn't exist

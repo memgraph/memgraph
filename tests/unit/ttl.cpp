@@ -10,8 +10,10 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 #include <chrono>
 #include <filesystem>
+#include <string>
 #include <thread>
 #include <tuple>
 #include <type_traits>
@@ -32,8 +34,19 @@
 #include "utils/settings.hpp"
 
 namespace {
+// The storage directories here are emptied wholesale, so their names must be private to this
+// process: a name shared with a concurrently running test deletes that test's storage out from
+// under it. Resolved once, so a directory is removed under the name it was created under even if
+// the process forks in between.
+const std::string &ProcessId() {
+  static const std::string id = std::to_string(static_cast<int>(getpid()));
+  return id;
+}
+
+std::filesystem::path GetDataDirectory() { return std::filesystem::temp_directory_path() / ("ttl-" + ProcessId()); }
+
 std::filesystem::path GetCleanDataDirectory() {
-  const auto path = std::filesystem::temp_directory_path() / "ttl";
+  const auto path = GetDataDirectory();
   std::filesystem::remove_all(path);
   return path;
 }
@@ -507,9 +520,9 @@ TYPED_TEST(TTLFixture, Edge) {
 
 // Needs user-defined timezone
 TEST(TtlInfo, PersistentTimezone) {
-  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all("/tmp/ttl"); });
+  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all(GetDataDirectory()); });
   {
-    memgraph::utils::Settings settings("/tmp/ttl");
+    memgraph::utils::Settings settings(GetDataDirectory());
     memgraph::flags::run_time::Initialize(settings);
     // Default value
     EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Etc/UTC");
@@ -519,7 +532,7 @@ TEST(TtlInfo, PersistentTimezone) {
   }
   {
     // Recover previous value
-    memgraph::utils::Settings settings("/tmp/ttl");
+    memgraph::utils::Settings settings(GetDataDirectory());
     memgraph::flags::run_time::Initialize(settings);
     EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
   }
@@ -527,8 +540,8 @@ TEST(TtlInfo, PersistentTimezone) {
 
 // Needs user-defined timezone
 TEST(TtlInfo, String) {
-  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all("/tmp/ttl"); });
-  memgraph::utils::Settings settings("/tmp/ttl");
+  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all(GetDataDirectory()); });
+  memgraph::utils::Settings settings(GetDataDirectory());
   memgraph::flags::run_time::Initialize(settings);
 
   {
@@ -602,7 +615,7 @@ TEST(TtlInfo, String) {
 TEST(TTLUserCheckTest, UserCheckFunctionality) {
   // Create a simple storage for testing
   memgraph::storage::Config config{};
-  config.durability.storage_directory = std::filesystem::temp_directory_path() / "ttl_user_check_test";
+  config.durability.storage_directory = std::filesystem::temp_directory_path() / ("ttl_user_check_test-" + ProcessId());
   std::filesystem::remove_all(config.durability.storage_directory);
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};

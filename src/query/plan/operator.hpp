@@ -24,6 +24,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/procedure/module_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "utils/algorithm.hpp"
@@ -37,6 +38,8 @@
 namespace memgraph::metrics {
 struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
+
+struct mgp_proc;
 
 namespace memgraph::query {
 
@@ -59,15 +62,24 @@ struct ExpressionRange {
 
   static auto Equal(Expression *value) -> ExpressionRange;
   static auto In(Expression *runtime_value, ListLiteral *membership_list) -> ExpressionRange;
-  static auto RegexMatch() -> ExpressionRange;
+  static auto RegexMatch(Expression *value) -> ExpressionRange;
   static auto StartsWith(Expression *value) -> ExpressionRange;
-  static auto Contains() -> ExpressionRange;
-  static auto EndsWith() -> ExpressionRange;
+  static auto Contains(Expression *value) -> ExpressionRange;
+  static auto EndsWith(Expression *value) -> ExpressionRange;
   static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
       -> ExpressionRange;
   static auto IsNotNull() -> ExpressionRange;
 
   auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
+
+  /// Which of the values inside the evaluated bounds satisfy the range, where the bounds alone
+  /// cannot say. Null unless the bounds merely narrow the scan to the string type.
+  ///
+  /// Kept apart from Evaluate because the two have different lifetimes: bounds may read a symbol
+  /// and so are evaluated per row, while a search term never can (PropertyFilter::IsStringPredicate
+  /// says why), leaving the predicate the same for the whole execution.
+  auto MakeValuePredicate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange::ValuePredicate;
+
   auto ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
       -> std::optional<storage::PropertyValueRange>;
 
@@ -1250,8 +1262,16 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   /// Limit for the number of paths returned in kshortest path expansion.
   Expression *limit_;
 
-  std::string_view OperatorName() const;
+  /// Names the expansion. Given the parameters an execution supplies, names the
+  /// walk the bound calls for; without them, the one the plan permits.
+  std::string_view OperatorName(Parameters const *parameters = nullptr) const;
 
+  /// The plan line, naming the walk the bound calls for.
+  std::string ToStringWithParameters(const DbAccessor *dba, Parameters const &parameters) const;
+
+  /// The plan line under a name the caller settles, for a walk that knows which
+  /// of the two it is where the plan only knows which it permits.
+  std::string ToStringNamed(const DbAccessor *dba, std::string_view operator_name) const;
   std::string ToString(const DbAccessor *dba) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2913,7 +2933,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure() = default;
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false);
+                size_t memory_scale, GraphAccess graph_access, int64_t procedure_id, bool void_procedure = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
@@ -2936,7 +2956,8 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> result_symbols_;
   Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
-  bool is_write_;
+  /// Copied from the procedure's own declaration, by way of the AST clause.
+  GraphAccess graph_access_{GraphAccess::Read};
   int64_t procedure_id_;
   bool void_procedure_;
 

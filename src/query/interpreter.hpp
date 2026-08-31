@@ -595,10 +595,11 @@ class Interpreter final {
     // prepared. System-only executions may pass nullptr because they do not run
     // inside a DB query-memory budget.
     explicit QueryExecution(utils::MemoryTracker *db_query_tracker = nullptr)
-        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker} {}
+        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker}, memory_tracker{db_query_tracker} {}
 
     QueryExecution(ThreadSafe /*marker*/, utils::MemoryTracker *db_query_tracker)
-        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker} {}
+        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker},
+          memory_tracker{db_query_tracker} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -609,6 +610,12 @@ class Interpreter final {
 
     std::variant<QueryAllocator, ThreadSafeQueryAllocator>
         execution_memory;  // NOTE: before all other fields which uses this memory
+
+    /// Tracks this query's allocations when there is no storage transaction to do it. A transaction
+    /// carries one of these for the same purpose; nothing about it needs the transaction, only the
+    /// database's tracker to report to, and that may be absent too.
+    /// NOTE: before `prepared_query`, whose plan holds a pointer to this.
+    utils::QueryMemoryTracker memory_tracker;
 
     std::optional<PreparedQuery> prepared_query;
     std::map<std::string, TypedValue> summary;
@@ -682,6 +689,8 @@ class Interpreter final {
 
   PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
+  // Resets tx-tracking left ACTIVE by SetupInterpreterTransaction when NOTHING skips Commit()/Abort()'s cleanup.
+  void FinishAutocommitNothing();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
@@ -794,10 +803,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             Abort();
             break;
           case QueryHandlerResult::NOTHING: {
-            // The only cases in which we have nothing to do are those where
-            // we're either in an explicit transaction or the query is such that
-            // a transaction wasn't started on a call to `Prepare()`.
+            // NOTHING means no storage transaction was opened on `Prepare()` (this switch only runs
+            // for autocommit queries -- it is inside `if (!in_explicit_transaction_)`).
             MG_ASSERT(!current_db_.db_transactional_accessor_);
+            // Unlike COMMIT/ABORT, NOTHING must dispose the ACTIVE state itself or the session stays active.
+            FinishAutocommitNothing();
             break;
           }
         }

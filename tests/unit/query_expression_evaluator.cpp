@@ -1394,6 +1394,100 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneWhereWrongType) {
   EXPECT_THROW(this->Eval(none), QueryRuntimeException);
 }
 
+// A list comprehension filters, so an element whose predicate is NULL is left
+// out and the rest of the list still comes back. This is what separates it from
+// the quantifiers above, which fold a NULL into their answer.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionKeepsElementsPastANullPredicate) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(0))),
+                         nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 2);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 1);
+  EXPECT_EQ(value.ValueList()[1].ValueInt(), 3);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionDropsTheElementWhosePredicateIsNull) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(2))),
+                         nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 1);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 3);
+}
+
+// A predicate that is null for every element leaves an empty list, the same as
+// one that is false for every element.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionOverAlwaysNullPredicateIsEmpty) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension = LIST_COMPREHENSION(
+      ident_x, LIST(LITERAL(1), LITERAL(2)), WHERE(LITERAL(memgraph::storage::ExternalPropertyValue())), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  EXPECT_TRUE(value.ValueList().empty());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionAppliesItsExpressionPastANullPredicate) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(0))),
+                         ADD(ident_x, LITERAL(10)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 2);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 11);
+  EXPECT_EQ(value.ValueList()[1].ValueInt(), 13);
+}
+
+// NULL is the only non-boolean a predicate may hold; anything else is still a
+// mistake in the query rather than an element to skip.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionWhereWrongType) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension = LIST_COMPREHENSION(ident_x, LIST(LITERAL(1)), WHERE(LITERAL(2)), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  EXPECT_THROW(this->Eval(list_comprehension), QueryRuntimeException);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionOverNullList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x, LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  EXPECT_TRUE(this->Eval(list_comprehension).IsNull());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionReduce) {
   AstStorage storage;
   auto *ident_sum = IDENT("sum");
@@ -3446,6 +3540,61 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                 {{2025, 1, 22}, {10, 33, 23, 42, 123}, memgraph::utils::Timezone("America/Los_Angeles")}));
 
   EXPECT_TRUE(this->EvaluateFunction("DATETIME", TypedValue()).IsNull());
+}
+
+// A query that opened no storage transaction evaluates its expressions with no accessor. Whatever it
+// evaluates must either succeed without one or say so; it must never reach through the null accessor.
+class NoAccessorEvaluatorTest : public ::testing::Test {
+ protected:
+  AstStorage storage;
+  memgraph::utils::MonotonicBufferResource mem{1024};
+  ExecutionContext execution_context{
+      .db_accessor = nullptr, .evaluation_context = {.memory = &mem, .timestamp = memgraph::query::QueryTimestamp()}};
+  Frame frame{128};
+  ExpressionEvaluator eval{&frame, execution_context, memgraph::storage::View::OLD};
+};
+
+TEST_F(NoAccessorEvaluatorTest, ArithmeticEvaluates) {
+  auto *expr = storage.Create<memgraph::query::AdditionOperator>(storage.Create<memgraph::query::PrimitiveLiteral>(2),
+                                                                 storage.Create<memgraph::query::PrimitiveLiteral>(3));
+  EXPECT_EQ(expr->Accept(eval).ValueInt(), 5);
+}
+
+TEST_F(NoAccessorEvaluatorTest, FunctionCallThrows) {
+  auto *expr = storage.Create<memgraph::query::Function>(
+      "TOSTRING", std::vector<memgraph::query::Expression *>{storage.Create<memgraph::query::PrimitiveLiteral>(1)});
+  EXPECT_THROW(expr->Accept(eval), QueryRuntimeException);
+}
+
+// A record cannot exist without an accessor, so the paths that read a property off one are unreachable
+// on a query that opened no transaction. They refuse rather than rely on that: the value here is a real
+// vertex, put in the frame by hand, which is the state the guard exists for.
+TYPED_TEST(ExpressionEvaluatorTest, RecordPropertyWithoutAccessorThrows) {
+  auto vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(vertex.SetProperty(this->dba.NameToProperty("prop"), memgraph::storage::PropertyValue(1)));
+
+  auto *identifier = this->CreateIdentifierWithValue("n", TypedValue(vertex));
+
+  ExecutionContext no_accessor_context{
+      .db_accessor = nullptr,
+      .symbol_table = this->symbol_table,
+      .evaluation_context = {.memory = &this->mem, .timestamp = memgraph::query::QueryTimestamp()}};
+  ExpressionEvaluator no_accessor_eval{&this->frame, no_accessor_context, memgraph::storage::View::OLD};
+
+  // n["prop"] resolves the property name at run time, so the name never reaches the AST's property list.
+  auto *by_string = this->storage.template Create<memgraph::query::SubscriptOperator>(
+      identifier, this->storage.template Create<memgraph::query::PrimitiveLiteral>("prop"));
+  EXPECT_THROW(by_string->Accept(no_accessor_eval), QueryRuntimeException);
+
+  // n.prop names the property at parse time and takes the other path into the same accessor.
+  auto *by_name =
+      this->storage.template Create<memgraph::query::PropertyLookup>(identifier, this->storage.GetPropertyIx("prop"));
+  EXPECT_THROW(by_name->Accept(no_accessor_eval), QueryRuntimeException);
+}
+
+TEST_F(NoAccessorEvaluatorTest, EnumValueAccessThrows) {
+  auto *expr = storage.Create<memgraph::query::EnumValueAccess>("Color", "RED");
+  EXPECT_THROW(expr->Accept(eval), QueryRuntimeException);
 }
 
 }  // namespace

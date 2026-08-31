@@ -212,6 +212,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # custom function definitions
 include(functions)
 
+include(BuildParallelism)
+
 # Build the Memgraph database itself. Turn OFF (together with
 # -DMG_BUILD_MAGE=ON) for a MAGE-only build — the Conan side of that mode is
 # the `mage_only` option in conanfile.py, which trims the dependency graph
@@ -410,9 +412,25 @@ if (TEST_COVERAGE)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
 endif()
 
+# -Og is the optimisation level meant to be debugged: it leaves assertions, and the code paths they
+# guard, exactly as they are, while costing a fraction of what unoptimised code does to run. A
+# coverage build is exempt because it compiles without a compilation cache, so it pays the optimiser
+# on every file on every build, which is more than its faster tests give back.
+if (NOT TEST_COVERAGE)
+    string(APPEND CMAKE_CXX_FLAGS_DEBUG " -Og")
+endif()
+
 if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()
+
+# Embedded Python interpreter (Python query modules). OFF builds a memgraph
+# with no libpython dependency; only .so query modules can be loaded.
+option(MG_PYTHON_SUPPORT "Embed the Python interpreter (enables Python query modules)" ON)
+if (MG_PYTHON_SUPPORT)
+  add_definitions(-DMG_PYTHON_SUPPORT)
+endif()
+message(STATUS "MG_PYTHON_SUPPORT: ${MG_PYTHON_SUPPORT}")
 
 option(ENABLE_JEMALLOC "Use jemalloc" ON)
 

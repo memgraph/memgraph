@@ -275,6 +275,9 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     case PropertyValueType::IntList:
     case PropertyValueType::DoubleList:
     case PropertyValueType::NumericList:
+    // A vector index holds its list out of line and leaves this in the record's place. It is the
+    // same list to the user, so it answers the same constraint kind.
+    case PropertyValueType::VectorIndexId:
       return TypeConstraintKind::LIST;
     case PropertyValueType::Map:
       return TypeConstraintKind::MAP;
@@ -298,8 +301,6 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     case PropertyValueType::Point2d:
     case PropertyValueType::Point3d:
       return TypeConstraintKind::POINT;
-    case PropertyValueType::VectorIndexId:
-      MG_ASSERT(false, "VectorIndexId is not supported for type constraints");
     case PropertyValueType::Null:
       MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
   }

@@ -12,35 +12,53 @@
 #include "disk_test_utils.hpp"
 
 #include <rocksdb/utilities/transaction_db.h>
+#include <unistd.h>
 #include <filesystem>
 #include <memory>
+#include <string>
 
 #include "dbms/constants.hpp"
 #include "storage/v2/disk/storage.hpp"
 
 namespace disk_test_utils {
 
+namespace {
+// These are relative to the working directory and are removed wholesale, so the prefix has to be
+// private to this process: test binaries run concurrently out of a shared working directory, and a
+// name two of them agree on has one deleting the other's storage mid-use.
+std::string DirectoryPrefix(const std::string &testName) {
+  // Resolved once, so a directory is removed under the name it was created under even if the
+  // process forks in between, as a death test does.
+  static const std::string id = std::to_string(static_cast<int>(getpid()));
+  return "rocksdb_" + testName + "_" + id + "_";
+}
+}  // namespace
+
 memgraph::storage::Config GenerateOnDiskConfig(const std::string &testName) {
-  return {.disk = {.main_storage_directory = "rocksdb_" + testName + "_db",
-                   .label_index_directory = "rocksdb_" + testName + "_label_index",
-                   .label_property_index_directory = "rocksdb_" + testName + "_label_property_index",
-                   .unique_constraints_directory = "rocksdb_" + testName + "_unique_constraints",
-                   .name_id_mapper_directory = "rocksdb_" + testName + "_name_id_mapper",
-                   .id_name_mapper_directory = "rocksdb_" + testName + "_id_name_mapper",
-                   .durability_directory = "rocksdb_" + testName + "_durability",
-                   .wal_directory = "rocksdb_" + testName + "_wal"},
+  const auto prefix = DirectoryPrefix(testName);
+  return {.disk = {.main_storage_directory = prefix + "db",
+                   .label_index_directory = prefix + "label_index",
+                   .label_property_index_directory = prefix + "label_property_index",
+                   .unique_constraints_directory = prefix + "unique_constraints",
+                   .name_id_mapper_directory = prefix + "name_id_mapper",
+                   .id_name_mapper_directory = prefix + "id_name_mapper",
+                   .durability_directory = prefix + "durability",
+                   .wal_directory = prefix + "wal"},
           .salient = {.name = memgraph::dbms::kDefaultDB}};
 }
 
 void RemoveRocksDbDirs(const std::string &testName) {
-  std::filesystem::remove_all("rocksdb_" + testName + "_db");
-  std::filesystem::remove_all("rocksdb_" + testName + "_label_index");
-  std::filesystem::remove_all("rocksdb_" + testName + "_label_property_index");
-  std::filesystem::remove_all("rocksdb_" + testName + "_unique_constraints");
-  std::filesystem::remove_all("rocksdb_" + testName + "_name_id_mapper");
-  std::filesystem::remove_all("rocksdb_" + testName + "_id_name_mapper");
-  std::filesystem::remove_all("rocksdb_" + testName + "_durability");
-  std::filesystem::remove_all("rocksdb_" + testName + "_wal");
+  const auto prefix = DirectoryPrefix(testName);
+  for (const auto *suffix : {"db",
+                             "label_index",
+                             "label_property_index",
+                             "unique_constraints",
+                             "name_id_mapper",
+                             "id_name_mapper",
+                             "durability",
+                             "wal"}) {
+    std::filesystem::remove_all(prefix + suffix);
+  }
 }
 
 uint64_t GetRealNumberOfEntriesInRocksDB(rocksdb::TransactionDB *disk_storage) {

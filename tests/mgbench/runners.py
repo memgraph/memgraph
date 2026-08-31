@@ -13,8 +13,10 @@ import atexit
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -23,7 +25,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
-from constants import BenchmarkInstallationType, GraphVendors
+from constants import PASSWORD, USERNAME, BenchmarkInstallationType, GraphVendors
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -163,17 +165,29 @@ class BaseClient(ABC):
 
 
 class BoltClient(BaseClient):
-    def __init__(self, benchmark_context: BenchmarkContext):
+    def __init__(self, benchmark_context: BenchmarkContext, runner=None):
         super().__init__(benchmark_context=benchmark_context)
         self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
-        self._bolt_port = (
+        self._configured_bolt_port = (
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
+        self._runner = runner
         self._bolt_address = benchmark_context.client_bolt_address
         self._databases = benchmark_context.databases
+
+    @property
+    def _bolt_port(self):
+        """
+        Resolved on every execution rather than cached, because the HA runner's main can move to a
+        different instance, and so a different port, across the cluster restarts between phases.
+        Without a runner this is the configured port, which is what every other vendor uses.
+        """
+        if self._runner is not None:
+            return self._runner.get_database_port()
+        return self._configured_bolt_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
@@ -190,6 +204,7 @@ class BoltClient(BaseClient):
         max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
+        log_args: bool = False,
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
@@ -210,8 +225,6 @@ class BoltClient(BaseClient):
             time_dependent_execution=time_dependent_execution,
             databases=self._databases,
         )
-
-        log.info("Client args: {}".format(client_args))
 
         while True:
             try:
@@ -250,7 +263,8 @@ class BoltClient(BaseClient):
             databases=self._databases,
         )
 
-        log.info("Client args: {}".format(args))
+        if log_args:
+            log.info("Client args: {}".format(args))
 
         ret = None
         try:
@@ -316,6 +330,7 @@ class BoltClientDocker(BaseClient):
         max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
+        log_args: bool = False,
     ):
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
@@ -438,13 +453,23 @@ class BoltClientDocker(BaseClient):
 
 
 class PythonClient(BaseClient):
-    def __init__(self, benchmark_context: BenchmarkContext, database_port: int):
+    def __init__(self, benchmark_context: BenchmarkContext, database_port: int, runner=None):
         super().__init__(benchmark_context=benchmark_context)
         self._client_binary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python_client.py")
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
-        self._database_port = database_port
+        self._configured_database_port = database_port
+        self._runner = runner
+
+    @property
+    def _database_port(self):
+        """
+        Same reason as BoltClient: the port is only stable for vendors whose database cannot move.
+        """
+        if self._runner is not None:
+            return self._runner.get_database_port()
+        return self._configured_database_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags("python3", self._client_binary, **kwargs)
@@ -461,6 +486,7 @@ class PythonClient(BaseClient):
         max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
+        log_args: bool = False,
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
@@ -585,6 +611,18 @@ class BaseRunner(ABC):
 
     def get_database_port(self):
         return self._bolt_port
+
+    def supports_snapshot_recovery(self):
+        """
+        Whether recover_snapshot can load a dataset on this runner. Off by default, and a runner
+        that says yes changes what its import phase means: loading a snapshot is one query, so the
+        import stops being measurable and stops being comparable with a run that replays the
+        dataset's import queries.
+        """
+        return False
+
+    def recover_snapshot(self, path, expected_size):
+        raise NotImplementedError("{} cannot recover a snapshot".format(type(self).__name__))
 
 
 class ExternalVendor(BaseRunner):
@@ -725,6 +763,462 @@ class Memgraph(BaseRunner):
                 f.write(str(rss))
                 f.write("\n")
             f.close()
+
+
+_E2E_DIRECTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "e2e")
+
+
+def _import_interactive_mg_runner():
+    """
+    tests/e2e is not a package, so it has to be on the path before interactive_mg_runner and the
+    memgraph module it star-imports can be found. Imported lazily so a standalone mgbench run does
+    not need the e2e dependencies.
+    """
+    if _E2E_DIRECTORY not in sys.path:
+        sys.path.insert(0, _E2E_DIRECTORY)
+    try:
+        import interactive_mg_runner
+    except ImportError as error:
+        # The runner star-imports the e2e memgraph module, which imports mgclient, so the failure
+        # surfaces several imports deep with nothing pointing at the cause.
+        raise Exception(
+            f"Could not import the cluster runner from {_E2E_DIRECTORY}: {error}. It needs the packages in "
+            "tests/requirements.txt, so run this from the tests/ve3 virtualenv that tests/../init-test builds, as the "
+            "e2e and stress suites do."
+        ) from error
+
+    return interactive_mg_runner
+
+
+def _assert_enterprise_license():
+    missing = [
+        variable
+        for variable in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME")
+        if not os.environ.get(variable)
+    ]
+    if missing:
+        raise Exception(
+            "High availability is an enterprise feature, so the HA benchmark needs {} in the "
+            "environment.".format(" and ".join(missing))
+        )
+
+
+def _is_coordinator(instance):
+    return any(argument.startswith("--coordinator-id") for argument in instance["args"])
+
+
+class MemgraphHA(BaseRunner):
+    """
+    Runs the benchmark against a coordinator-managed HA cluster described by a YAML file: three
+    coordinators, one main and one SYNC replica, driven through tests/e2e/interactive_mg_runner.py.
+
+    Every phase of a benchmark run restarts the whole cluster. Coordinators keep their Raft state
+    across those restarts, so instances are registered exactly once and the repeated setup queries
+    are expected to fail and are ignored.
+    """
+
+    DEFAULT_CLUSTER_YAML = "ha_cluster.yaml"
+    CLUSTER_YAML_ARG = "ha-cluster-yaml"
+    LOG_DIRECTORY = "ha_logs"
+    READY_TIMEOUT_SEC = 120
+    READY_POLL_SEC = 0.5
+    READY_REPORT_SEC = 10
+    CATCHUP_TIMEOUT_SEC = 600
+    WRITE_PROBE_QUERY = "CREATE (n:__mgbench_ha_probe) DELETE n;"
+    SNAPSHOT_TIMEOUT_SEC = 900
+    # Slower than the readiness poll: every SHOW STORAGE INFO walks the instance's storage directory
+    # to total its disk usage, and the directory holds the dataset being waited for.
+    SNAPSHOT_POLL_SEC = 2.0
+
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        # Set before anything that can raise, so a failed construction does not turn into an
+        # attribute error while cleaning up.
+        self._mg_runner = None
+        self._main_name = None
+        _assert_enterprise_license()
+        self._mg_runner = _import_interactive_mg_runner()
+        if benchmark_context.vendor_binary is not None:
+            # interactive_mg_runner starts every instance from this module-level path.
+            self._mg_runner.MEMGRAPH_BINARY = benchmark_context.vendor_binary
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._description = self._load_description()
+        self._coordinators = [name for name, instance in self._description.items() if _is_coordinator(instance)]
+        self._data_instances = [name for name in self._description if name not in self._coordinators]
+        if not self._coordinators or len(self._data_instances) < 2:
+            raise Exception(
+                "The cluster description needs at least one coordinator and two data instances, got "
+                "coordinators {} and data instances {}.".format(self._coordinators, self._data_instances)
+            )
+        self._bolt_ports = {
+            name: self._mg_runner.extract_bolt_port(instance["args"]) for name, instance in self._description.items()
+        }
+        # Until the cluster is up there is no main to ask about, so the client falls back to the
+        # first data instance, which is the one the description elects.
+        self._bolt_port = self._bolt_ports[self._data_instances[0]]
+        atexit.register(self._cleanup)
+
+    def __del__(self):
+        self._cleanup()
+        atexit.unregister(self._cleanup)
+
+    def _load_description(self):
+        import yaml
+
+        # A relative path resolves against this directory rather than the working directory, so a
+        # caller can name a description by filename without knowing where it was invoked from.
+        path = self.benchmark_context.vendor_args.get(self.CLUSTER_YAML_ARG, self.DEFAULT_CLUSTER_YAML)
+        if not os.path.isabs(path):
+            path = os.path.join(os.path.dirname(os.path.realpath(__file__)), path)
+        with open(path, "r") as description_file:
+            description = yaml.safe_load(description_file)
+        if not isinstance(description, dict) or not description:
+            raise Exception("{} does not describe any instances!".format(path))
+        # Absolute paths, because interactive_mg_runner otherwise resolves both of these under the
+        # build directory, which a benchmark run has no reason to depend on.
+        log_directory = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.LOG_DIRECTORY)
+        os.makedirs(log_directory, exist_ok=True)
+        for name, instance in description.items():
+            # Pinned for the whole run so the dataset survives the phase restarts, and under a
+            # fresh temporary directory so the next run does not benchmark this run's data.
+            instance["data_directory"] = os.path.join(self._directory.name, name)
+            instance["log_file"] = os.path.join(log_directory, os.path.basename(instance["log_file"]))
+            # A run restarts every instance once per measurement, and each start writes a banner, a
+            # flag deprecation notice and a query module import note to the console. The instances
+            # keep logging to their log files. A description can opt back in per instance.
+            instance.setdefault("silence_output", True)
+        return description
+
+    def _fetch(self, instance_name, query):
+        """
+        Runs one query against an instance, connecting with whatever credentials that instance
+        currently accepts. Two sets are tried, because the cluster's answer changes during a run:
+        the instance's own, from the cluster description, which is what it accepts while no user
+        exists; and the benchmark's, once the fine-grained authorization pass has created its user
+        and anonymous connections start being refused. Only a failure to connect falls through to
+        the next set — a query that fails once connected is the caller's business.
+        """
+        instance = self._mg_runner.MEMGRAPH_INSTANCES[instance_name]
+        candidates = [(instance.username or "", instance.password or "")]
+        if (USERNAME, PASSWORD) not in candidates:
+            candidates.append((USERNAME, PASSWORD))
+
+        connect_error = None
+        for username, password in candidates:
+            try:
+                connection = instance.get_connection(username, password)
+            except Exception as error:
+                connect_error = error
+                continue
+            try:
+                cursor = connection.cursor()
+                cursor.execute(query)
+                return cursor.fetchall()
+            finally:
+                connection.close()
+        raise connect_error
+
+    def _cluster_state(self):
+        """
+        Returns (main_name, problem). The main name is set only once the cluster is fully usable:
+        a coordinator leader exists, every data instance is registered and up, exactly one of them
+        is main, every replica is ready on that main, and it accepts a write.
+        """
+        rows = None
+        problem = "no coordinator answered SHOW INSTANCES"
+        for coordinator in self._coordinators:
+            try:
+                # The last column is the elapsed time since the last response, which is dropped so
+                # that the role and health are the final two, as the e2e helpers also assume.
+                rows = [row[:-1] for row in self._fetch(coordinator, "SHOW INSTANCES;")]
+                break
+            except Exception as error:
+                problem = "no coordinator answered SHOW INSTANCES ({})".format(error)
+        if rows is None:
+            return None, problem
+
+        if not any(row[-1] == "leader" for row in rows):
+            return None, "no coordinator leader yet"
+
+        instances = {row[0]: row for row in rows if row[0] in self._data_instances}
+        unregistered = [name for name in self._data_instances if name not in instances]
+        if unregistered:
+            return None, "data instances not registered yet: {}".format(unregistered)
+        down = [name for name, row in instances.items() if row[-2] != "up"]
+        if down:
+            return None, "data instances not up yet: {}".format(down)
+
+        mains = [name for name, row in instances.items() if row[-1] == "main"]
+        if len(mains) != 1:
+            return None, "expected exactly one main, saw {}".format(mains)
+        main_name = mains[0]
+
+        try:
+            replicas = self._fetch(main_name, "SHOW REPLICAS;")
+        except Exception as error:
+            return None, "main {} is not answering SHOW REPLICAS ({})".format(main_name, error)
+        expected_replicas = len(self._data_instances) - 1
+        if len(replicas) != expected_replicas:
+            return None, "main {} reports {} replicas, expected {}".format(main_name, len(replicas), expected_replicas)
+        for row in replicas:
+            statuses = [field["status"] for field in row if isinstance(field, dict) and "status" in field]
+            if not statuses or any(status != "ready" for status in statuses):
+                return None, "replica {} is not ready yet: {}".format(row[0], row)
+
+        try:
+            self._fetch(main_name, self.WRITE_PROBE_QUERY)
+        except Exception as error:
+            return None, "main {} is not writeable yet ({})".format(main_name, error)
+
+        return main_name, ""
+
+    def _start_cluster(self):
+        started_at = time.time()
+        log.info(
+            "Starting the HA cluster: {} coordinators and {} data instances.".format(
+                len(self._coordinators), len(self._data_instances)
+            )
+        )
+        # The cluster setup queries are applied once and fail on every later restart, by design, so
+        # their failures are not worth a warning per restart per query.
+        self._mg_runner.start_all(
+            self._description,
+            keep_directories=True,
+            ignore_setup_failures=True,
+            log_ignored_setup_failures=False,
+        )
+        log.info(
+            "Instances are up after {:.1f}s, waiting for the cluster to converge.".format(time.time() - started_at)
+        )
+
+        deadline = started_at + self.READY_TIMEOUT_SEC
+        problem = ""
+        reported_at = 0.0
+        while time.time() < deadline:
+            main_name, problem = self._cluster_state()
+            if main_name is not None:
+                self._main_name = main_name
+                log.info(
+                    "HA cluster is ready after {:.1f}s, main is {} on bolt port {}.".format(
+                        time.time() - started_at, main_name, self.get_database_port()
+                    )
+                )
+                return
+            # Convergence can take tens of seconds, and a silent wait is indistinguishable from a
+            # hang, so say what is still missing rather than only reporting it on timeout.
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info("Waiting for the cluster ({:.0f}s): {}".format(time.time() - started_at, problem))
+            time.sleep(self.READY_POLL_SEC)
+        raise Exception(
+            "The HA cluster did not become ready in {}s, last seen: {}".format(self.READY_TIMEOUT_SEC, problem)
+        )
+
+    def _replication_lag(self):
+        """
+        Transactions each instance is behind main, from a coordinator's SHOW REPLICATION LAG, as
+        {instance: behind} summed over its databases. None when no coordinator can be reached.
+        """
+        for coordinator in self._coordinators:
+            try:
+                rows = self._fetch(coordinator, "SHOW REPLICATION LAG;")
+            except Exception:
+                continue
+            return {
+                instance: sum(db.get("num_txns_behind_main", 0) for db in databases.values())
+                for instance, databases in rows
+            }
+        return None
+
+    def _wait_for_replicas_to_catch_up(self):
+        """
+        Blocks until no instance is behind main. This runs after the measurement, so the wait is not
+        part of the throughput the client reported -- that number was computed and returned before we
+        got here -- but it is part of the run's wall clock, and it is reported so the cost is visible.
+
+        It matters most for ASYNC, where main does not wait at commit and the replica can still be
+        applying a backlog long after the client has finished. Without this the workload would be
+        called done while replication was still outstanding, and the next phase would start from an
+        unconverged cluster. For SYNC and STRICT_SYNC the replicas are already caught up at commit, so
+        this costs one query.
+        """
+        if self._main_name is None:
+            return
+
+        started_at = time.time()
+        deadline = started_at + self.CATCHUP_TIMEOUT_SEC
+        reported_at = 0.0
+        behind = self._replication_lag()
+        if behind is None:
+            log.warning("Could not read replication lag from any coordinator, not waiting for catch-up.")
+            return
+
+        while any(behind.values()):
+            if time.time() > deadline:
+                raise Exception(
+                    "Replicas were still behind main after {}s, by this many transactions: {}".format(
+                        self.CATCHUP_TIMEOUT_SEC, {k: v for k, v in behind.items() if v}
+                    )
+                )
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info(
+                    "Waiting for replicas to catch up ({:.0f}s): {}".format(
+                        time.time() - started_at, {k: v for k, v in behind.items() if v}
+                    )
+                )
+            time.sleep(self.READY_POLL_SEC)
+            behind = self._replication_lag() or behind
+
+        elapsed = time.time() - started_at
+        if elapsed >= 1.0:
+            log.info("Replicas caught up in {:.1f}s, which is not counted in the throughput.".format(elapsed))
+
+    def _storage_counts(self, instance_name):
+        """(vertices, edges) an instance holds in its own storage. Both are exact counts."""
+        rows = self._fetch(instance_name, "SHOW STORAGE INFO ON CURRENT DATABASE;")
+        info = {row[0]: row[1] for row in rows}
+        return info["vertex_count"], info["edge_count"]
+
+    def _wait_for_replicas_to_hold(self, expected):
+        """
+        Blocks until every replica's own storage holds `expected` (vertices, edges).
+
+        Nothing has to prompt the transfer: recovering a snapshot force-recovers every replication
+        client from scratch, so by the time the query returns each replica is already being sent the
+        new dataset. What is left is knowing when it arrived, and the counts answer that about the
+        data itself rather than about a counter that tracks it.
+        """
+        replicas = [name for name in self._data_instances if name != self._main_name]
+        started_at = time.time()
+        deadline = started_at + self.SNAPSHOT_TIMEOUT_SEC
+        reported_at = 0.0
+        while True:
+            behind = {}
+            for name in replicas:
+                try:
+                    counts = self._storage_counts(name)
+                except Exception as error:
+                    behind[name] = "not answering ({})".format(error)
+                    continue
+                if counts != expected:
+                    behind[name] = "{} vertices, {} edges".format(*counts)
+            if not behind:
+                log.info("Replicas hold the snapshot after {:.1f}s.".format(time.time() - started_at))
+                return
+
+            if time.time() > deadline:
+                raise Exception(
+                    "Replicas did not receive the snapshot within {}s. Expected {} vertices and {} "
+                    "edges, but: {}".format(self.SNAPSHOT_TIMEOUT_SEC, expected[0], expected[1], behind)
+                )
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info("Waiting for replicas ({:.0f}s): {}".format(time.time() - started_at, behind))
+            time.sleep(self.SNAPSHOT_POLL_SEC)
+
+    def supports_snapshot_recovery(self):
+        return True
+
+    def recover_snapshot(self, path, expected_size):
+        """
+        Loads the dataset on main from a durability snapshot and blocks until every replica holds it
+        too, in place of replaying the dataset's import queries -- which on a cluster costs one
+        replicated transaction each.
+
+        FORCE because the recovery is refused on a storage that already holds data, and a phase can
+        start from a populated cluster. It is only accepted on main, which force-recovers every
+        replica as part of the same query; the wait below is for those transfers to land, so that
+        none of them overlaps a measurement.
+        """
+        if self._main_name is None:
+            raise Exception("The HA cluster is not running, cannot recover a snapshot!")
+        if "'" in path:
+            raise Exception("The snapshot path cannot contain a quote: {}".format(path))
+
+        started_at = time.time()
+        log.info("Recovering the dataset on main {} from {}.".format(self._main_name, path))
+        self._fetch(self._main_name, "RECOVER SNAPSHOT '{}' FORCE;".format(path))
+        log.info("Main loaded the snapshot in {:.1f}s.".format(time.time() - started_at))
+
+        # Checked before anything is written, so the counts are the snapshot's own. A snapshot of
+        # some other dataset would otherwise be benchmarked as though it were this one.
+        expected = (expected_size["vertices"], expected_size["edges"])
+        on_main = self._storage_counts(self._main_name)
+        if on_main != expected:
+            raise Exception(
+                "Main {} holds {} vertices and {} edges after loading {}, but the workload expects "
+                "{} and {}.".format(self._main_name, on_main[0], on_main[1], path, expected[0], expected[1])
+            )
+        # The snapshot carries its own indexes, and a query benchmark run against a dataset missing
+        # them measures something else entirely, so the count is logged rather than left implicit.
+        indexes = len(self._fetch(self._main_name, "SHOW INDEX INFO;"))
+        log.info("Main holds {} vertices, {} edges and {} indexes.".format(on_main[0], on_main[1], indexes))
+
+        self._wait_for_replicas_to_hold(expected)
+        log.info("The cluster loaded the dataset from a snapshot in {:.1f}s.".format(time.time() - started_at))
+        return True
+
+    def _stop_cluster(self):
+        # Read the usage first, so main's peak memory covers the measured run rather than the
+        # catch-up that follows it.
+        usage = self._main_usage()
+        self._wait_for_replicas_to_catch_up()
+        stopped_at = time.time()
+        self._mg_runner.stop_all(keep_directories=True)
+        self._main_name = None
+        log.info("Stopped the HA cluster in {:.1f}s.".format(time.time() - stopped_at))
+        return usage
+
+    def _main_usage(self):
+        if self._main_name is None:
+            return {"cpu": 0, "memory": 0}
+        instance = self._mg_runner.MEMGRAPH_INSTANCES.get(self._main_name)
+        if instance is None or instance.proc_mg is None:
+            return {"cpu": 0, "memory": 0}
+        return _get_usage(instance.proc_mg.pid)
+
+    def _cleanup(self):
+        if self._mg_runner is None:
+            return
+        self._mg_runner.stop_all(keep_directories=True)
+        self._main_name = None
+
+    def start_db_init(self, workload):
+        self._start_cluster()
+
+    def stop_db_init(self, workload):
+        return self._stop_cluster()
+
+    def start_db(self, workload):
+        self._start_cluster()
+
+    def stop_db(self, workload):
+        return self._stop_cluster()
+
+    def clean_db(self):
+        """
+        Clears the data instances' durability only. Coordinator state is what makes registration
+        durable across the phase restarts, so wiping it would force instances to be registered a
+        second time on an instance that already holds data.
+        """
+        if self._mg_runner.MEMGRAPH_INSTANCES:
+            raise Exception("The HA cluster is still running, cannot clear its data!")
+        for name in self._data_instances:
+            databases = os.path.join(self._description[name]["data_directory"], "databases")
+            if not os.path.isdir(databases):
+                continue
+            for tenant in os.listdir(databases):
+                for durability in ("snapshots", "wal"):
+                    path = os.path.join(databases, tenant, durability)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=True)
+                        os.makedirs(path, exist_ok=True)
+
+    def get_database_port(self):
+        if self._main_name is not None:
+            return self._bolt_ports[self._main_name]
+        return self._bolt_port
 
 
 class Neo4j(BaseRunner):

@@ -1595,6 +1595,32 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsListHeldByVectorIndex) {
   }
 }
 
+// The same list encoding reached through the other validation path: the label is already on the
+// vertex, so the value being written is checked directly rather than the record it lands in.
+TYPED_TEST(ConstraintsTest, TypeConstraintsListHeldByVectorIndexAddLabelFirst) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::LIST);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex1 = acc1->CreateVertex();
+    auto const held_by_index = PropertyValue(PropertyValue::VectorIndexIdData{
+        .ids = memgraph::utils::small_vector<uint64_t>{acc1->GetNameIdMapper()->NameToId("a_vector_index")},
+        .vector = memgraph::utils::small_vector<float>{1.0F, 2.0F}});
+
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, held_by_index));
+  }
+}
+
 TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalDataAddLabelLast) {
   if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "Type constraints not implemented for on-disk";

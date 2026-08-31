@@ -96,10 +96,13 @@ class AstStorage {
   template <typename T, typename... Args>
   T *Create(Args &&...args) {
     T *ptr = new T(std::forward<Args>(args)...);
-    std::unique_ptr<T> tmp(ptr);
-    storage_.emplace_back(std::move(tmp));
+    Adopt(std::unique_ptr<Tree>(ptr));
     return ptr;
   }
+
+  // Taking ownership through the base pointer keeps the vector's allocator
+  // machinery out of Create, which is instantiated once per node type.
+  void Adopt(std::unique_ptr<Tree> node);
 
   LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
 
@@ -112,7 +115,7 @@ class AstStorage {
   int64_t FindOrAddCallProcedure(const std::string &name) { return FindOrAddName(name, &call_procedures_); }
 
   /// True when building this AST read the query-module registry, so facts taken from it
-  /// (a procedure's result fields, is_write and required privilege; whether a function
+  /// (a procedure's result fields, graph access and required privilege; whether a function
   /// name resolves at all) are baked in here and go stale when a module is reloaded.
   bool DependsOnModules() const { return !user_functions_.empty() || !call_procedures_.empty(); }
 

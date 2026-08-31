@@ -38,6 +38,9 @@ target_link_libraries(${test_prefix}skip_list_insert mg-utils mg-memory)
 add_concurrent_test(skip_list_insert_competitive.cpp)
 target_link_libraries(${test_prefix}skip_list_insert_competitive mg-utils mg-memory)
 
+add_concurrent_test(skip_list_estimate.cpp)
+target_link_libraries(${test_prefix}skip_list_estimate mg-utils mg-memory)
+
 add_concurrent_test(skip_list_mixed.cpp)
 target_link_libraries(${test_prefix}skip_list_mixed mg-utils mg-memory)
 

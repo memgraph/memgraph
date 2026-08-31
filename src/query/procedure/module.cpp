@@ -24,11 +24,15 @@ extern "C" {
 #include <unistd.h>
 
 #include "license/license.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "py/py.hpp"
+#endif
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "query/procedure/py_module.hpp"
+#endif
 #include "utils/case_insensitve_set.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -44,6 +48,7 @@ auto ReservedBuiltInModuleNames() -> ::memgraph::utils::CaseInsensitiveSet const
 
 namespace memgraph::query::procedure {
 
+#ifdef MG_PYTHON_SUPPORT
 constexpr const char *func_code =
     "import ast\n\n"
     "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph', 'dgl', 'numpy', 'mgp', "
@@ -66,11 +71,15 @@ constexpr const char *func_code =
 
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref);
+#endif
 
 ModuleRegistry gModuleRegistry;
 
 Module::~Module() {}
 
+// Every procedure registered here ignores its `mgp_graph *`. `GraphAccess::None` is declared per
+// procedure rather than for the module because declaring it is also what opts one into running with no
+// transaction, which is only worth doing for those callers actually issue that way.
 class BuiltinModule final : public Module {
  public:
   BuiltinModule();
@@ -231,7 +240,10 @@ void RegisterMgProcedures(std::map<std::string, std::shared_ptr<Module>, std::le
         MgpUniquePtr<mgp_value> is_write_value{nullptr, mgp_value_destroy};
         if (!TryOrSetError(
                 [&, &proc = proc] {
-                  return CreateMgpObject(is_write_value, mgp_value_make_bool, proc.info.is_write ? 1 : 0, memory);
+                  return CreateMgpObject(is_write_value,
+                                         mgp_value_make_bool,
+                                         proc.info.graph_access == GraphAccess::Write ? 1 : 0,
+                                         memory);
                 },
                 result)) {
           return;
@@ -259,7 +271,7 @@ void RegisterMgProcedures(std::map<std::string, std::shared_ptr<Module>, std::le
       }
     }
   };
-  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
+  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), {.graph_access = GraphAccess::None});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<mgp_type *>(mgp_type_string)) ==
@@ -328,7 +340,8 @@ void RegisterMgTransformations(std::map<std::string, std::shared_ptr<Module>, st
       }
     }
   };
-  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource());
+  mgp_proc procedures(
+      "transformations", transformations_cb, utils::NewDeleteResource(), {.graph_access = GraphAccess::None});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "path", Call<mgp_type *>(mgp_type_string)) ==
@@ -405,7 +418,7 @@ void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::les
       }
     }
   };
-  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource());
+  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource(), {.graph_access = GraphAccess::None});
   MG_ASSERT(mgp_proc_add_result(&functions, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&functions, "signature", Call<mgp_type *>(mgp_type_string)) ==
@@ -504,10 +517,11 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
     }
   };
 
-  mgp_proc get_module_files("get_module_files",
-                            get_module_files_cb,
-                            utils::NewDeleteResource(),
-                            {.required_privilege = AuthQuery::Privilege::MODULE_READ});
+  mgp_proc get_module_files(
+      "get_module_files",
+      get_module_files_cb,
+      utils::NewDeleteResource(),
+      {.graph_access = GraphAccess::None, .required_privilege = AuthQuery::Privilege::MODULE_READ});
   MG_ASSERT(mgp_proc_add_result(&get_module_files, "path", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&get_module_files, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
@@ -959,6 +973,7 @@ const std::map<std::string, mgp_func, std::less<>> *SharedLibraryModule::Functio
   return &functions_;
 }
 
+#ifdef MG_PYTHON_SUPPORT
 class PythonModule final : public Module {
  public:
   PythonModule();
@@ -1282,6 +1297,7 @@ const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() co
             "not been loaded...");
   return &functions_;
 }
+#endif  // MG_PYTHON_SUPPORT
 
 namespace {
 
@@ -1315,9 +1331,15 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
     if (!lib_module->Load(path)) return nullptr;
     module = std::move(lib_module);
   } else if (path.extension() == ".py") {
+#ifdef MG_PYTHON_SUPPORT
     auto py_module = std::make_unique<PythonModule>();
     if (!py_module->Load(path)) return nullptr;
     module = std::move(py_module);
+#else
+    spdlog::warn(utils::MessageWithLink(
+        "Unable to load module {}; this Memgraph was built without Python support.", path, "https://memgr.ph/modules"));
+    return nullptr;
+#endif
   }
   return module;
 }

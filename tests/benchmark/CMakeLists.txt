@@ -48,6 +48,14 @@ target_link_libraries(${test_prefix}plan_v2_extract mg-query)
 add_benchmark(query/profile.cpp)
 target_link_libraries(${test_prefix}profile mg-query)
 
+add_benchmark(query/accessor_free_dispatch.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}accessor_free_dispatch mg-query mg-communication mg-glue mg-dbms mg-license)
+target_include_directories(${test_prefix}accessor_free_dispatch PRIVATE ${CMAKE_SOURCE_DIR}/tests/unit)
+# Built everywhere so it cannot rot unnoticed, since no other target compiles it, but not run by ctest:
+# it drives a whole interpreter against live storage to compare two execution paths, and nothing tracks a
+# baseline for what it reports. Run it directly when working on that path.
+set_tests_properties(${test_prefix}accessor_free_dispatch PROPERTIES DISABLED TRUE)
+
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
 
@@ -110,3 +118,6 @@ add_test(NAME ${test_prefix}usearch_index_add_simsimd COMMAND $<TARGET_FILE:${te
 set_tests_properties(${test_prefix}usearch_index_add_simsimd PROPERTIES LABELS "benchmark")
 add_dependencies(memgraph__benchmark ${test_prefix}usearch_index_add_simsimd)
 ]]
+
+add_benchmark(memory_new_delete.cpp)
+target_link_libraries(${test_prefix}memory_new_delete mg-utils)

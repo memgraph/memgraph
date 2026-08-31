@@ -575,8 +575,7 @@ class Client {
 
     std::optional<int> timeout_ms{std::nullopt};
 
-    auto const maybe_timeout = std::ranges::find_if(
-        rpc_timeouts_ms_, [req_type_name](auto const &entry) { return entry.first == req_type_name; });
+    auto const maybe_timeout = rpc_timeouts_ms_.find(req_type_name);
     if (maybe_timeout != rpc_timeouts_ms_.end()) {
       timeout_ms.emplace(maybe_timeout->second);
     }

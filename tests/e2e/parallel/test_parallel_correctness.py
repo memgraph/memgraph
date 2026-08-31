@@ -157,6 +157,18 @@ class TestParallelCorrectness:
             populated_db, "MATCH (n) RETURN count(*), sum(n.p), avg(n.p), min(n.p), max(n.p)"
         )
 
+    def test_aggregations_over_bound_variable(self, populated_db):
+        """Count a bound variable, which is answered from the frame rather than from a built value."""
+        verify_parallel_matches_serial(populated_db, "MATCH (n) RETURN count(n)")
+        verify_parallel_matches_serial(populated_db, "MATCH (n) RETURN count(DISTINCT n)")
+        verify_parallel_matches_serial(populated_db, "MATCH (n) RETURN count(n), count(DISTINCT n), count(*)")
+
+    def test_aggregations_over_null_bound_variable(self, populated_db):
+        """A variable that is Null for some rows: it is neither counted nor reaches the DISTINCT set."""
+        verify_parallel_matches_serial(
+            populated_db, "MATCH (n) OPTIONAL MATCH (n)-[]->(m) RETURN count(m), count(DISTINCT m)"
+        )
+
     def test_aggregations_grouped(self, populated_db):
         """Test grouped aggregations."""
         # Group by label (though we mostly have :A and :B and :Person)

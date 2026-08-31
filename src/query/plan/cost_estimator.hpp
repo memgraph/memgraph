@@ -783,10 +783,19 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         }
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
       }
-      case Type::RANGE:
       case Type::REGEX_MATCH:
       case Type::CONTAINS:
-      case Type::ENDS_WITH:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the band the property's string values
+        // occupy, which the resolved range describes and which is the same for every term -- as it
+        // has to be, since the plan outlives the term that was current when it was costed.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        auto const resolved = range.ResolveAtPlantime(parameters, mapper);
+        if (!resolved) return db_accessor_->VerticesCount(property);
+        return db_accessor_->VerticesCount(property, resolved->lower_, resolved->upper_);
+      }
+      case Type::RANGE:
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
     }
     std::unreachable();

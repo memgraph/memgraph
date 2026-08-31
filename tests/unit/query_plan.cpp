@@ -33,6 +33,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/read_write_type_checker.hpp"
 #include "query/plan/rewrite/balanced_union.hpp"
 #include "query/plan/used_index_checker.hpp"
 
@@ -2273,7 +2274,7 @@ TYPED_TEST(TestPlanner, FilterRegexMatchIndex) {
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanAllByLabelProperties(
-                label, std::vector{ms::PropertyPath{prop}}, std::vector{ExpressionRange::RegexMatch()}),
+                label, std::vector{ms::PropertyPath{prop}}, std::vector{ExpressionRange::RegexMatch(LITERAL("regex"))}),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -4864,6 +4865,70 @@ TEST(UsedIndexChecker, CollectsEveryBranchOfDisjunctionUnion) {
   root->Accept(checker);
 
   EXPECT_THAT(checker.required_indices_.label_, ::testing::UnorderedElementsAreArray(labels));
+}
+
+// Whether a plan can run with no storage transaction. An operator's classification comes from the
+// read-write type it already declares, so an operator added later is covered by that declaration.
+TEST(PlanRequiresStorageAccess, StorageFreePlans) {
+  const std::shared_ptr<LogicalOperator> once = std::make_shared<Once>();
+
+  EXPECT_FALSE(PlanRequiresStorageAccess(*once));
+
+  auto produce = std::make_shared<Produce>(once, std::vector<memgraph::query::NamedExpression *>{});
+  EXPECT_FALSE(PlanRequiresStorageAccess(*produce));
+
+  // Everything the graph-access analysis can admit ahead of a projection: an unwind, an aggregate, an
+  // ordering, and a call to a procedure that reaches no graph.
+  memgraph::query::AstStorage storage;
+  const memgraph::query::Symbol x_symbol{"x", 0, /*user_declared=*/true};
+  auto unwind = std::make_shared<Unwind>(once, storage.Create<memgraph::query::PrimitiveLiteral>(1), x_symbol);
+  EXPECT_FALSE(PlanRequiresStorageAccess(*unwind));
+
+  auto skip = std::make_shared<Skip>(unwind, storage.Create<memgraph::query::PrimitiveLiteral>(1));
+  EXPECT_FALSE(PlanRequiresStorageAccess(*skip));
+
+  auto distinct = std::make_shared<Distinct>(skip, std::vector<memgraph::query::Symbol>{x_symbol});
+  EXPECT_FALSE(PlanRequiresStorageAccess(*distinct));
+
+  auto call = std::make_shared<CallProcedure>();
+  call->input_ = distinct;
+  call->procedure_name_ = "mg.procedures";
+  call->result_fields_ = {"name"};
+  call->graph_access_ = memgraph::query::GraphAccess::None;
+  call->result_symbols_ = {memgraph::query::Symbol{"name", 1, /*user_declared=*/true}};
+  EXPECT_FALSE(PlanRequiresStorageAccess(*call));
+}
+
+TEST(PlanRequiresStorageAccess, PlansThatReachStorage) {
+  FakeDbAccessor dba;
+  const std::shared_ptr<LogicalOperator> once = std::make_shared<Once>();
+  const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
+
+  auto scan = std::make_shared<ScanAllByLabel>(once, node_symbol, dba.Label("L"));
+  EXPECT_TRUE(PlanRequiresStorageAccess(*scan));
+
+  // A scan anywhere under an otherwise storage-free plan still counts.
+  auto produce_over_scan = std::make_shared<Produce>(scan, std::vector<memgraph::query::NamedExpression *>{});
+  EXPECT_TRUE(PlanRequiresStorageAccess(*produce_over_scan));
+
+  // A procedure that made no declaration is assumed to reach the graph.
+  auto undeclared_call = std::make_shared<CallProcedure>();
+  undeclared_call->input_ = once;
+  undeclared_call->procedure_name_ = "example.proc";
+  undeclared_call->result_fields_ = {"name"};
+  undeclared_call->graph_access_ = memgraph::query::GraphAccess::Read;
+  undeclared_call->result_symbols_ = {memgraph::query::Symbol{"name", 1, /*user_declared=*/true}};
+  EXPECT_TRUE(PlanRequiresStorageAccess(*undeclared_call));
+
+  // A write procedure reaches storage. It cannot also be graph-free: a procedure writes through the
+  // graph it is handed, and registration rejects a declaration claiming both.
+  auto writing_call = std::make_shared<CallProcedure>();
+  writing_call->input_ = once;
+  writing_call->procedure_name_ = "example.writer";
+  writing_call->result_fields_ = {"name"};
+  writing_call->graph_access_ = memgraph::query::GraphAccess::Write;
+  writing_call->result_symbols_ = {memgraph::query::Symbol{"name", 1, /*user_declared=*/true}};
+  EXPECT_TRUE(PlanRequiresStorageAccess(*writing_call));
 }
 
 TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {

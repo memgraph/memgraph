@@ -61,6 +61,23 @@ def wait_for_transaction_count(cursor, expected_num_results: int, timeout_s: int
         time.sleep(0.1)
 
 
+def wait_for_query_count(cursor, query: str, expected_num_results: int, timeout_s: int = 10):
+    """Polls SHOW TRANSACTIONS until that many transactions are running query.
+
+    Every query a session runs is a transaction in its own right and is listed for as long as it
+    runs, commit included. A count of transactions can therefore be reached by an earlier query in
+    a session's sequence rather than by the one being waited for.
+    """
+    deadline = time.time() + timeout_s
+    while True:
+        results = execute_and_fetch_all(cursor, "SHOW TRANSACTIONS")
+        if sum(1 for result in results if query in result[2]) == expected_num_results:
+            return
+        if time.time() >= deadline:
+            assert False, f"Timed out waiting for {expected_num_results} transactions running {query}, saw {results}"
+        time.sleep(0.1)
+
+
 def process_function(cursor, queries: List[str]):
     try:
         for query in queries:
@@ -491,7 +508,10 @@ def test_wildcard_across_databases(request):
 
     # The sweeping session stays on the default database.
     admin_cursor = connect(username="admin", password="").cursor()
-    wait_for_transaction_count(admin_cursor, 3)
+    # Each victim switches database before starting its long query, and that switch is itself a
+    # listed transaction, so a count of transactions can be reached while neither long query has
+    # begun. The sweep below then has nothing of interest to kill, so wait for the long queries.
+    wait_for_query_count(admin_cursor, LONG_QUERY, 2)
 
     results = execute_and_fetch_all(admin_cursor, 'TERMINATE TRANSACTIONS "*"')
     assert len(results) == 2

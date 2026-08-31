@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 
 #include <barrier>
 #include <latch>
+#include <semaphore>
 #include <shared_mutex>
 #include <thread>
 
@@ -96,32 +97,57 @@ TEST(RWLock, SingleWriter) {
 
 TEST(RWLock, ReadPriority) {
   /*
-   * - Main thread is holding a shared lock until T = 100ms.
-   * - Thread 1 tries to acquire an unique lock at T = 30ms.
-   * - Thread 2 successfuly acquires a shared lock at T = 60ms, even though
-   *   there's a writer waiting.
+   * With read priority a shared lock is still granted while a writer waits for the exclusive one,
+   * so a succession of readers keeps the writer out for as long as it lasts.
    */
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
+
+  // Held across every one of the reader's acquisitions below, so the number of readers never falls
+  // back to zero between them and the waiting writer is never offered the lock in the gap.
   rwlock.lock_shared();
-  bool first = true;
 
-  std::thread t1([&rwlock, &first] {
-    std::this_thread::sleep_for(30ms);
+  constexpr int kAdmissions = 64;
+
+  // Deliberately not atomic: the lock is the barrier under test. The reader increments this
+  // holding the shared lock and the writer reads it holding the exclusive one, so a lock that
+  // failed to order the two would be a data race here rather than a passing test.
+  int admissions = 0;
+
+  std::binary_semaphore writer_requesting{0};
+  std::binary_semaphore reader_holds_lock{0};
+
+  std::thread writer([&] {
+    writer_requesting.release();
     auto lock = std::unique_lock{rwlock};
-    EXPECT_FALSE(first);
+    EXPECT_EQ(admissions, kAdmissions) << "writer was let in ahead of readers that asked later";
   });
 
-  std::thread t2([&rwlock, &first] {
-    std::this_thread::sleep_for(60ms);
-    auto lock = std::shared_lock{rwlock};
-    EXPECT_TRUE(first);
-    first = false;
+  // A writer waiting for the exclusive lock cannot be observed through the lock itself, so the
+  // writer announces the moment before it asks for one. Its arrival can only be raced by the
+  // reader's first admission, which is why the reader is admitted repeatedly rather than once. A
+  // lock without read priority stops the reader at the first admission and it never signals.
+  writer_requesting.acquire();
+
+  std::thread reader([&] {
+    for (int i = 0; i < kAdmissions; ++i) {
+      auto lock = std::shared_lock{rwlock};
+      ++admissions;
+      // Signalled while this lock is held, so the main thread gives up its own shared lock only
+      // once this reader is in. Releasing that on a timer instead would let a slow machine hand
+      // the lock to the waiting writer first, failing the test for want of scheduling.
+      if (i + 1 == kAdmissions) reader_holds_lock.release();
+    }
   });
 
-  std::this_thread::sleep_for(100ms);
+  bool const readers_were_admitted = reader_holds_lock.try_acquire_for(10s);
+
+  // Released before asserting so both threads run to completion whatever the outcome: leaving
+  // either blocked would end the test by terminate rather than by a failure.
   rwlock.unlock_shared();
-  t1.join();
-  t2.join();
+  writer.join();
+  reader.join();
+
+  EXPECT_TRUE(readers_were_admitted) << "reader could not take a shared lock while a writer was waiting";
 }
 
 TEST(RWLock, WritePriority) {
