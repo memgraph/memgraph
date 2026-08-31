@@ -589,7 +589,7 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   if (durability_) {
     const auto old_key = Durability::GenKey(old_name);
     const auto new_key = Durability::GenKey(new_name);
-    const auto old_val = durability_->Get(old_key);
+    auto old_val = durability_->Get(old_key);
 
     if (old_val) {
       // The stored value is name-independent (only "uuid"/"rel_dir"/cold fields; the name lives in
@@ -606,6 +606,8 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
         // the divergence (its durable key was never written, so the durability update silently no-ops).
         spdlog::error(
             "Failed to persist rename of database {} to {}; rolling back in-memory rename.", old_name, new_name);
+        // NOLINTNEXTLINE(readability-suspicious-call-argument): intentional reverse rename -- the DB is
+        // currently named new_name, so rename it back to old_name to undo the in-memory rename above.
         [[maybe_unused]] auto rolled_back = db_handler_.Rename(new_name, old_name);
         (*new_db)->storage()->config_.salient.name = old_name;
         return std::unexpected{RenameError::FAIL};
