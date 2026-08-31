@@ -131,7 +131,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 }
 
 auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::optional<ReplicaStream> &replica_stream,
-                                     uint64_t const durability_commit_timestamp, DatabaseProtector const &db_acc)
+                                     uint64_t const durability_commit_timestamp, DatabaseProtector const &db_acc) const
     -> ShipResult {
   raw_client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                      replica_stream);

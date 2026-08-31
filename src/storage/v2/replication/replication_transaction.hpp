@@ -117,7 +117,7 @@ class TransactionReplication {
   // Ships the transaction end for one replica: the 1st 2PC phase for STRICT_SYNC, the full finalize
   // when no 2PC runs. Quick and RPC-free for a null stream.
   auto ShipOne(ReplicationStorageClient *raw_client, std::optional<ReplicaStream> &replica_stream,
-               uint64_t durability_commit_timestamp, DatabaseProtector const &db_acc) -> ShipResult;
+               uint64_t durability_commit_timestamp, DatabaseProtector const &db_acc) const -> ShipResult;
 
   std::vector<std::optional<ReplicaStream>> streams;
   std::vector<std::pair<ReplicationStorageClient *, std::future<ShipResult>>> ship_futures_;
