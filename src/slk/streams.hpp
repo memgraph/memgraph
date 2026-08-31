@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -66,7 +67,11 @@ class Builder {
   explicit Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
 
   Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func)
-      : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{other.segment_} {
+      : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{std::move(other.segment_)} {
+    // Re-arm the moved-from builder with a fresh buffer so a stray Save into it stays harmless (its
+    // write_func discards everything anyway). An untouched allocation costs far less than copying the
+    // segment, which made every stream move memcpy the full buffer.
+    other.segment_ = std::unique_ptr<uint8_t[]>{new uint8_t[kSegmentMaxTotalSize]};
     other.write_func_ = [](const uint8_t *, size_t, bool) { /* Moved builder is defunct, no write possible */ };
   }
 
@@ -102,7 +107,9 @@ class Builder {
 
   std::function<void(const uint8_t *, size_t, bool)> write_func_;
   size_t pos_{0};
-  std::array<uint8_t, kSegmentMaxTotalSize> segment_;
+  // Heap-allocated so moving a builder (and everything holding one, e.g. an RPC stream into a worker
+  // task) swaps a pointer instead of copying the whole segment.
+  std::unique_ptr<uint8_t[]> segment_{new uint8_t[kSegmentMaxTotalSize]};
 };
 
 /// Exception that will be thrown if segments can't be decoded from the byte

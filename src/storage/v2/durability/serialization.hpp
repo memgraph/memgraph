@@ -123,6 +123,10 @@ class Encoder final : public BaseEncoder {
   // here so GetPosition never has to flush the buffer and seek — two syscalls per query which, on the
   // WAL hot path (every transaction records its start and end positions), defeat write batching.
   uint64_t logical_position_{0};
+  // High-water mark of logical_position_: the size of everything this encoder wrote, so GetSize
+  // never has to seek to the end of the file. Encoders write files from scratch or from their end
+  // (Initialize/OpenExisting), so the watermark is the file size.
+  uint64_t logical_size_{0};
 };
 
 /// Decoder interface class. Used to implement streams from different sources

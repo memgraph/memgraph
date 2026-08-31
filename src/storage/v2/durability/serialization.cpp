@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -39,6 +40,7 @@ void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
 template <typename FileType>
 bool Encoder<FileType>::Initialize(const std::filesystem::path &path) {
   logical_position_ = 0;
+  logical_size_ = 0;
   return file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
 }
 
@@ -60,6 +62,7 @@ bool Encoder<FileType>::OpenExisting(const std::filesystem::path &path) {
   }
   // The file is opened for appending, so writing continues from the current end of the file.
   logical_position_ = file_.GetSize();
+  logical_size_ = logical_position_;
   return true;
 }
 
@@ -74,6 +77,7 @@ template <typename FileType>
 void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
   file_.Write(data, size);
   logical_position_ += size;
+  logical_size_ = std::max(logical_size_, logical_position_);
   crc_acc.Update(data, size);
 }
 
@@ -296,6 +300,7 @@ std::optional<uint64_t> Encoder<FileType>::AppendFrom(int src_fd, uint64_t size)
   auto const appended = file_.AppendFrom(src_fd, size);
   if (appended) {
     logical_position_ += *appended;
+    logical_size_ = std::max(logical_size_, logical_position_);
   }
   return appended;
 }
@@ -346,7 +351,7 @@ std::pair<const uint8_t *, size_t> Encoder<FileType>::CurrentFileBuffer() const 
 
 template <typename FileType>
 size_t Encoder<FileType>::GetSize() {
-  return file_.GetSize();
+  return logical_size_;
 }
 
 template class Encoder<utils::OutputFile>;

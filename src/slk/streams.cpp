@@ -31,9 +31,9 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
 
     if (file_data_) {
-      memcpy(segment_.data() + pos_, data + offset, to_write);
+      memcpy(segment_.get() + pos_, data + offset, to_write);
     } else {
-      memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
+      memcpy(segment_.get() + sizeof(SegmentSize) + pos_, data + offset, to_write);
     }
 
     size -= to_write;
@@ -49,7 +49,7 @@ void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
   while (size > 0) {
     FlushFileSegment();
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
-    memcpy(segment_.data() + pos_, data + offset, to_write);
+    memcpy(segment_.get() + pos_, data + offset, to_write);
     size -= to_write;
     pos_ += to_write;
     offset += to_write;
@@ -58,7 +58,7 @@ void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
 
 // This should be invoked before preparing every file. The function writes kFileSegmentMask at the current position
 void Builder::PrepareForFileSending() {
-  memcpy(segment_.data() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
+  memcpy(segment_.get() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
   pos_ += sizeof(SegmentSize);
   file_data_ = true;
 }
@@ -70,7 +70,7 @@ void Builder::FlushInternal(size_t const size, bool const has_more) {
   // Callers that retry (e.g. recovery progress heartbeats) then start from a clean segment instead of tripping the
   // "buffer must be empty" guard.
   utils::OnScopeExit const reset_pos{[this] { pos_ = 0; }};
-  write_func_(segment_.data(), size, has_more);
+  write_func_(segment_.get(), size, has_more);
 }
 
 // Flushes data and resets position
@@ -81,7 +81,7 @@ void Builder::FlushFileSegment() {
 }
 
 void Builder::SaveFooter(uint64_t const total_size) {
-  memcpy(segment_.data() + total_size, &kFooter, sizeof(SegmentSize));
+  memcpy(segment_.get() + total_size, &kFooter, sizeof(SegmentSize));
 }
 
 void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
@@ -97,7 +97,7 @@ void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
 
   if (!file_data_) {
     SegmentSize const data_size = pos_;
-    memcpy(segment_.data(), &data_size, sizeof(SegmentSize));
+    memcpy(segment_.get(), &data_size, sizeof(SegmentSize));
   }
 
   if (final_segment) {
