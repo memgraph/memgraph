@@ -14,6 +14,8 @@
 #include <uuid/uuid.h>
 // NOLINTNEXTLINE
 #include <array>
+#include <cstddef>
+#include <functional>
 #include <nlohmann/json_fwd.hpp>
 #include <stdexcept>
 #include <string>
@@ -79,3 +81,20 @@ struct UUID {
 };
 
 }  // namespace memgraph::utils
+
+namespace std {
+// Lets UUID be an unordered_map/set key (e.g. the deferred-destruction registry keys on it). FNV-1a
+// over the 16 identity bytes, reached through the public operator arr_t() so uuid stays private.
+template <>
+struct hash<memgraph::utils::UUID> {
+  std::size_t operator()(const memgraph::utils::UUID &id) const noexcept {
+    const auto bytes = static_cast<memgraph::utils::UUID::arr_t>(id);
+    std::size_t h = 1469598103934665603ULL;  // FNV offset basis
+    for (const unsigned char b : bytes) {
+      h ^= b;
+      h *= 1099511628211ULL;  // FNV prime
+    }
+    return h;
+  }
+};
+}  // namespace std
