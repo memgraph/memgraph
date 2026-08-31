@@ -68,7 +68,10 @@ class Handler {
    * the still-held ones for the next tick (round-robin). See DeferDelete / DrainDeferred_.
    */
   Handler() {
-    defer_scheduler_.Run("defer-delete", [this] { DrainDeferred_(); });
+    defer_scheduler_.SetInterval(kDeferRetryInterval);
+    // Self-pacing worker: DrainDeferred_ returns Pause when nothing is left, so this Handler never
+    // juggles Pause()/Resume() itself -- DeferDelete just Wake()s it. Starts paused (nothing to drain).
+    defer_scheduler_.RunSelfPaced("defer-delete", [this] { return DrainDeferred_(); });
     defer_scheduler_.Pause();
   }
 
@@ -230,11 +233,11 @@ class Handler {
                              .pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
                              .gk = std::move(itr->second)});
       // Guarded and swallowed: the node above already owns the only handle to the Gatekeeper, so if the
-      // counter Increment, the throwing-capable spdlog::warn, or a Scheduler wake escaped, it would skip
-      // the unconditional items_.erase(itr) below and strand a moved-from husk under a live name. Silent
-      // on purpose -- logging is one of the things being guarded against. Resume() clears any pause left
-      // by a previous fully-drained tick; SetIntervalAndWake re-arms the tick period and wakes the
-      // (possibly parked) worker so the first retry is prompt, not up-to-one-interval late.
+      // counter Increment, the throwing-capable spdlog::warn, or the Scheduler Wake escaped, it would
+      // skip the unconditional items_.erase(itr) below and strand a moved-from husk under a live name.
+      // Silent on purpose -- logging is one of the things being guarded against. Wake() un-pauses the
+      // (possibly parked) worker and spins it so the first retry is prompt; if a tick was concurrently
+      // deciding to pause on the now-stale empty list, Wake() cancels that pause (no lost wakeup).
       try {
         metrics::Metrics().global.deferred_tenant_destructions->Increment();
         spdlog::warn(
@@ -242,8 +245,7 @@ class Handler {
             "stays accounted for until the last accessor is released ({} tenant destruction(s) pending).",
             name,
             pending_.size());
-        defer_scheduler_.Resume();
-        defer_scheduler_.SetIntervalAndWake(kDeferRetryInterval);
+        defer_scheduler_.Wake();
       } catch (...) {  // NOLINT(bugprone-empty-catch)
       }
     }
@@ -351,8 +353,8 @@ class Handler {
 
   // The reschedule tick: one pass over the pending tenants. Trylock each OFF defer_lock_ (so neither the
   // ~Gatekeeper teardown nor a re-entrant callback runs while the list mutex is held), splice out the
-  // ones that drained, run their callbacks, and pause the worker once nothing is left to retry.
-  void DrainDeferred_() {
+  // ones that drained, run their callbacks, and ask the scheduler to park once nothing is left to retry.
+  utils::SchedulerResult DrainDeferred_() {
     // Snapshot the nodes present now, under the lock, briefly. std::list nodes are stable and only this
     // (single) worker ever erases them, so each iterator stays valid until we splice it out below; a
     // concurrent DeferDelete only appends, and those newcomers are simply picked up on the next tick.
@@ -369,19 +371,22 @@ class Handler {
       if (it->TryReserve()) completed.push_back(it);
     }
 
-    // Splice the drained nodes out under the lock, then decide whether to park the worker.
+    // Splice the drained nodes out under the lock and read whether anything is left to retry.
     PendingList ready;
+    bool drained_empty = false;
     {
       auto guard = std::lock_guard{defer_lock_};
       for (auto it : completed) ready.splice(ready.end(), pending_, it);
-      // Pausing here is atomic with the empty check under defer_lock_: a DeferDelete that raced in a new
-      // entry either ran before this pass (its node is in pending_, so we don't pause) or takes
-      // defer_lock_ after us and Resume()s -- no lost wakeup either way.
-      if (pending_.empty()) defer_scheduler_.Pause();
+      drained_empty = pending_.empty();
     }
 
     // Callbacks OFF the lock; `ready` then destructs -- moved-from gks are no-ops, ScopedGauges decrement.
     for (auto &entry : ready) entry.RunCallback();
+
+    // Park iff still empty. A DeferDelete that raced a new entry in either appended to pending_ before
+    // the empty check above (so drained_empty is false) or ran its Wake() after we return -- and Wake()
+    // cancels this pause (the scheduler skips it when a wake landed during the tick). No lost wakeup.
+    return drained_empty ? utils::SchedulerResult::Pause : utils::SchedulerResult::KeepRunning;
   }
 
   // Declaration order is LOAD-BEARING for shutdown (members destruct in reverse):

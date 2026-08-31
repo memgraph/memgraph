@@ -480,3 +480,38 @@ TEST(Scheduler, TimeDrift) {
 
   scheduler.Stop();
 }
+
+// A self-pacing Run() callback parks itself (returns Pause) when idle and is revived by Wake(),
+// without the caller ever touching Pause()/Resume(). Guards the deferred-tenant drain worker.
+TEST(Scheduler, SelfPacingPauseThenWake) {
+  using namespace std::chrono_literals;
+  using memgraph::utils::SchedulerResult;
+
+  std::atomic<int> ticks{0};
+  std::atomic<bool> has_work{true};
+
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval(20ms);
+  scheduler.RunSelfPaced("Test", [&]() -> SchedulerResult {
+    ticks.fetch_add(1, std::memory_order_acq_rel);
+    return has_work.load(std::memory_order_acquire) ? SchedulerResult::KeepRunning : SchedulerResult::Pause;
+  });
+
+  // Keeps ticking while there is work.
+  std::this_thread::sleep_for(200ms);
+  EXPECT_GE(ticks.load(), 3) << "a self-pacing worker must keep ticking while it returns KeepRunning";
+
+  // Return Pause: it parks and stops ticking (no busy-spin).
+  has_work.store(false, std::memory_order_release);
+  std::this_thread::sleep_for(200ms);
+  const int settled = ticks.load();
+  std::this_thread::sleep_for(200ms);
+  EXPECT_EQ(ticks.load(), settled) << "a self-paused worker must not keep ticking";
+
+  // Wake() revives it for at least one more tick even though the callback still returns Pause.
+  scheduler.Wake();
+  std::this_thread::sleep_for(200ms);
+  EXPECT_GT(ticks.load(), settled) << "Wake() must run the tick again after a self-pause";
+
+  scheduler.Stop();
+}

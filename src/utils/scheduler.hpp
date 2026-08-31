@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <thread>
 #include <variant>
@@ -59,6 +60,14 @@ struct SchedulerInterval {
   }
 };
 
+// Returned by a self-pacing Run() callback to tell the worker what to do after the tick:
+//   KeepRunning — keep ticking on the interval;
+//   Pause       — nothing left to do, park until Wake() (or an explicit Resume()).
+// A callback that returns Pause and a concurrent Wake() cannot race into a lost wakeup: the worker
+// applies the pause under the same mutex_ Wake() takes, and skips it if a Wake() landed since the
+// tick started (see ThreadRun / Wake).
+enum class SchedulerResult : uint8_t { KeepRunning, Pause };
+
 /**
  * Class used to run scheduled function execution.
  */
@@ -66,6 +75,12 @@ class Scheduler {
  public:
   Scheduler() = default;
   void Run(const std::string &service_name, const std::function<void()> &f);
+
+  // Self-pacing variant: the callback returns SchedulerResult to park itself when idle instead of the
+  // caller juggling Pause()/Resume() around a shared flag. Wake() the worker when new work arrives.
+  // Distinct name (not a Run() overload) because a SchedulerResult-returning callable also converts to
+  // std::function<void()> (return discarded), which would make the two overloads ambiguous.
+  void RunSelfPaced(const std::string &service_name, std::function<SchedulerResult()> f);
 
   void SetInterval(const SchedulerInterval &setup);
 
@@ -94,6 +109,10 @@ class Scheduler {
 
   void Pause();
 
+  // Un-pause and run the tick promptly, and guarantee no self-pause from an in-flight tick is lost.
+  // Pairs with a Run(SchedulerResult) callback: call it after enqueueing work the callback drains.
+  void Wake();
+
   void Stop();
 
   bool IsRunning();
@@ -118,7 +137,7 @@ class Scheduler {
 
   void SetInterval_(std::string_view cron_expr);
 
-  void ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token);
+  void ThreadRun(std::string service_name, std::function<SchedulerResult()> f, std::stop_token token);
 
   Synchronized<std::function<time_point(const time_point &, bool)>> find_next_{
       [](auto && /* unused */, bool /* unused */) { return time_point::max(); }};  // default to infinity
@@ -132,6 +151,12 @@ class Scheduler {
    * Variable is true when thread is paused.
    */
   bool is_paused_ = false;
+
+  /**
+   * Set by Wake(), consumed after each tick. Records that work arrived while a self-pacing tick was
+   * deciding to pause, so the worker skips that pause instead of parking on just-arrived work.
+   */
+  bool wake_requested_ = false;
 
   /**
    * Mutex used to synchronize threads using condition variable.
