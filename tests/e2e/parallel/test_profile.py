@@ -217,8 +217,10 @@ class TestParallelProfileWarmup:
         First run may include thread pool initialization overhead.
         Subsequent runs should report similar CPU times.
         """
-        # Create test data
-        self.memgraph.execute_query("UNWIND range(1, 300) AS i CREATE (:ConsistNode {id: i})")
+        # Create enough data that a warm scan takes several ms of CPU. A small scan is sub-millisecond,
+        # and its run-to-run CPU time is dominated by scheduler/cache noise on shared CI runners -- the
+        # max/min ratio below is only a real signal once the absolute time clears NOISE_FLOOR_MS.
+        self.memgraph.execute_query("UNWIND range(1, 50000) AS i CREATE (:ConsistNode {id: i})")
 
         query = pq("MATCH (n:ConsistNode) RETURN n.id ORDER BY n.id")
 
@@ -241,8 +243,11 @@ class TestParallelProfileWarmup:
             for i, t in enumerate(warm_times):
                 assert t >= 0, f"Warm run {i+2} has invalid CPU time {t}"
 
-            # Warm runs should be within 10x of each other (conservative)
-            if all(t > 0 for t in warm_times):
+            # Warm runs should be within 10x of each other (conservative). Enforce this only once the
+            # measured CPU time is large enough to be meaningful: below NOISE_FLOOR_MS the reading is
+            # noise-dominated and the ratio is not a real signal (it flaked here at ratios ~10-12).
+            NOISE_FLOOR_MS = 3.0
+            if all(t >= NOISE_FLOOR_MS for t in warm_times):
                 max_ratio = max(warm_times) / min(warm_times)
                 assert max_ratio < 10, f"Warm run CPU times vary too much: {warm_times}, ratio={max_ratio:.2f}"
 
