@@ -466,10 +466,8 @@ class Interpreter final {
 
   std::optional<uint64_t> GetTransactionId() const;
 
-  // True iff an active transaction is open as READ (declared read-only at BEGIN). A read-only COMMIT
-  // is near-noop (no engine_lock/WAL/replication), so the scheduler routes it HIGH to drain fast and
-  // keep in-flight read transactions from piling up (which would pin the GC horizon).
-  bool IsCurrentTransactionRead() const;
+  // True iff an active transaction has no pending writes; its COMMIT is a near-noop the scheduler routes HIGH.
+  bool IsCurrentTransactionEmpty() const;
 
   // Returns the notification produced by the commit, if any. A SYNC replication failure does not abort the
   // transaction, so it is reported as a notification instead of an exception.

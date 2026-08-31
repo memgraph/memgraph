@@ -234,12 +234,11 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
   if (parsed_res_ && state_ == memgraph::communication::bolt::State::Parsed) {
     return std::visit(utils::Overloaded{
                           [this](const query::Interpreter::TransactionQuery &tx_query) {
-                            // BEGIN; COMMIT; ROLLBACK -> LOW, EXCEPT a read-only COMMIT: it is near-noop (no
-                            // engine_lock/WAL/replication), so route it HIGH to drain in-flight read transactions
-                            // fast instead of queueing them behind heavy LOW work (which keeps them open and pins
-                            // the GC horizon).
+                            // A write-free COMMIT is a near-noop (empty deltas -> no engine_lock/WAL/replication);
+                            // route it HIGH so read txns drain fast instead of queueing behind heavy LOW work
+                            // (which keeps them open and pins the GC horizon). BEGIN/ROLLBACK/write-COMMIT stay LOW.
                             if (tx_query == query::Interpreter::TransactionQuery::COMMIT &&
-                                interpreter_.IsCurrentTransactionRead()) {
+                                interpreter_.IsCurrentTransactionEmpty()) {
                               return utils::Priority::HIGH;
                             }
                             return utils::Priority::LOW;
