@@ -326,8 +326,8 @@ TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  // Dropping held_acc's count to 0 is what lets the worker thread's already-blocked ~Gatekeeper()
-  // proceed to destroy the probe.
+  // Dropping held_acc's count to 0 is what lets the next reschedule tick's try_delete(0) finally see
+  // count_==1 and destroy the probe (until now every tick trylocked and backed off).
   held_acc.reset();
 
   const auto wait_start = std::chrono::steady_clock::now();
