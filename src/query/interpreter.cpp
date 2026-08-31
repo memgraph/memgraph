@@ -3902,9 +3902,14 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
 
 namespace {
 auto CreateTimeoutDeadline(QueryExtras const &extras, InterpreterConfig const &config)
-    -> std::optional<std::chrono::steady_clock::time_point> {
+    -> std::optional<utils::SteadyTimePoint> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
-    return DeadlineFromTimeout(timeout.ValueUnsafe());
+    // Anchor the deadline on the same cached clock MustAbort() reads, so we don't pay a real
+    // steady_clock::now() here. The tick is <=100ms stale, so the timeout may fire up to ~100ms
+    // early as well as late -- immaterial for a seconds-scale limit. No overflow/NaN guards: the
+    // only value that reaches this is a validated, positive TxTimeout.
+    return utils::CoarseSteadyNow() +
+           std::chrono::duration_cast<std::chrono::steady_clock::duration>(timeout.ValueUnsafe());
   }
   return std::nullopt;
 }

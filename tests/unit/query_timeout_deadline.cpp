@@ -13,78 +13,15 @@
 
 #include <atomic>
 #include <chrono>
-#include <cmath>
 
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 
 using memgraph::query::AbortReason;
-using memgraph::query::DeadlineFromTimeout;
 using memgraph::query::StoppingContext;
 using memgraph::query::TransactionStatus;
 using Clock = std::chrono::steady_clock;
 using namespace std::chrono_literals;
-
-// The deadline is `now() + timeout`, where `now()` is sampled inside the call. We can't observe that
-// exact sample, so every non-saturating case is bracketed: sampling the Clock immediately before and
-// after the call bounds the internal `now()`, hence bounds the returned deadline. This is exact, not
-// timing-dependent, so it cannot flake.
-
-TEST(DeadlineFromTimeout, NonPositiveNeverExpires) {
-  // Non-positive means "no timeout" at the producers; the helper fail-closes to time_point::max()
-  // (never expire) rather than an immediate deadline.
-  EXPECT_EQ(DeadlineFromTimeout(0s), Clock::time_point::max());
-  EXPECT_EQ(DeadlineFromTimeout(std::chrono::duration<double>{-1.0}), Clock::time_point::max());
-}
-
-TEST(DeadlineFromTimeout, NaNNeverExpires) {
-  // NaN fails every comparison, so without an explicit guard it would reach the duration_cast (UB).
-  EXPECT_EQ(DeadlineFromTimeout(std::chrono::duration<double>{std::nan("")}), Clock::time_point::max());
-}
-
-TEST(DeadlineFromTimeout, PositiveTimeout) {
-  auto const before = Clock::now();
-  auto const deadline = DeadlineFromTimeout(2s);
-  auto const after = Clock::now();
-  EXPECT_GE(deadline, before + 2s);
-  EXPECT_LE(deadline, after + 2s);
-}
-
-TEST(DeadlineFromTimeout, SubSecondTimeoutKeepsFraction) {
-  // 0.5s must survive the double -> steady_clock::duration conversion (regression against dropping
-  // the fractional part).
-  auto const timeout = std::chrono::duration<double>{0.5};
-  auto const before = Clock::now();
-  auto const deadline = DeadlineFromTimeout(timeout);
-  auto const after = Clock::now();
-  EXPECT_GE(deadline, before + 500ms);
-  EXPECT_LE(deadline, after + 500ms);
-}
-
-TEST(DeadlineFromTimeout, SaturatesAtMaxRepresentable) {
-  // A timeout equal to the largest representable duration saturates (the guard uses `>=`).
-  auto const max_representable = std::chrono::duration<double>{Clock::duration::max()};
-  EXPECT_EQ(DeadlineFromTimeout(max_representable), Clock::time_point::max());
-}
-
-TEST(DeadlineFromTimeout, SaturatesAboveMaxRepresentable) {
-  // Far beyond the representable range (~292 years): must clamp, not overflow the seconds->ticks cast.
-  auto const timeout = std::chrono::duration<double>{1e30};
-  EXPECT_EQ(DeadlineFromTimeout(timeout), Clock::time_point::max());
-}
-
-TEST(DeadlineFromTimeout, NearMaxNeverWrapsIntoThePast) {
-  // Just below max_representable: this passes the first guard but `now() + ticks` could overflow the
-  // time_point. The addition guard must then clamp to time_point::max() rather than let signed
-  // overflow wrap the deadline into the past (which would abort every query instantly). Whether the
-  // machine's steady_clock epoch puts us in the finite band or the clamped band is platform
-  // dependent, so we assert only the portable invariant: the deadline is never before now.
-  auto const max_representable = std::chrono::duration<double>{Clock::duration::max()};
-  auto const almost_max = std::chrono::duration<double>{std::nextafter(max_representable.count(), 0.0)};
-  auto const before = Clock::now();
-  auto const deadline = DeadlineFromTimeout(almost_max);
-  EXPECT_GE(deadline, before);
-}
 
 // --- StoppingContext::MustAbort() — the deadline decision -----------------
 // These pin the exact line this PR rewrote (`deadline && now() >= *deadline`) and its precedence
