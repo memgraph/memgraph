@@ -206,7 +206,11 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     case storage::StorageAccessType::READ:
       [[fallthrough]];
     case storage::StorageAccessType::WRITE:
-      if (try_mode == storage::EngineLockMode::Blocking) {
+      // TryBounded is an in-memory-only fast path: DiskStorage has no non-blocking mint (CreateTransaction
+      // asserts Blocking, TryAccess returns nullptr), so on disk take the blocking Access rather than bail
+      // and reschedule on every query.
+      if (try_mode == storage::EngineLockMode::Blocking ||
+          db_acc->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
         db_transactional_accessor_ = db_acc->Access(acc_type,
                                                     override_isolation_level,
                                                     /*allow timeout*/ timeout);

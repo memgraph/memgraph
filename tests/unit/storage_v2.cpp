@@ -3212,10 +3212,19 @@ class StorageEngineLockContentionTest : public ::testing::Test {
       .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
 
   // TEST_F's body runs in a class derived from this fixture, and friendship is not inherited, so the
-  // private engine_lock_ access must live in a member of the befriended fixture itself.
+  // private engine_lock_ / main_lock_ access must live in members of the befriended fixture itself.
   void LockEngine() { static_cast<memgraph::storage::Storage &>(store).engine_lock_.lock(); }
 
   void UnlockEngine() { static_cast<memgraph::storage::Storage &>(store).engine_lock_.unlock(); }
+
+  // Takes main_lock_ in UNIQUE (exclusive) mode via ResourceLock::lock(), which is the same hold a
+  // concurrent DDL / schema-only operation acquires. UNIQUE is admitted only when the lock is fully
+  // UNLOCKED and blocks every shared mode (READ, WRITE, READ_ONLY) on admission; see
+  // ResourceLock::can_acquire<UNIQUE> and can_acquire<READ/WRITE/READ_ONLY> in resource_lock.hpp.
+  void LockMainExclusive() { static_cast<memgraph::storage::Storage &>(store).main_lock_.lock(); }
+
+  // Releases the UNIQUE hold taken by LockMainExclusive via ResourceLock::unlock().
+  void UnlockMain() { static_cast<memgraph::storage::Storage &>(store).main_lock_.unlock(); }
 };
 
 // A TryBounded TryAccess bails with nullptr while engine_lock_ is held; once released the lock is
@@ -3241,4 +3250,45 @@ TEST_F(StorageEngineLockContentionTest, EngineLockHeldMakesTryBoundedAccessBailA
   auto blocking_acc = store.Access(READ);
   ASSERT_NE(blocking_acc, nullptr);
   EXPECT_NO_THROW(blocking_acc->Abort());
+}
+
+// A TryBounded TryAccess bails with nullptr while main_lock_ is held exclusively; once released
+// the lock is reusable (no leak/poison) via a fresh TryAccess. The UNIQUE hold simulates a
+// concurrent DDL or schema-only operation that takes main_lock_ exclusively; READ and WRITE
+// TryAccess probes must both bail because can_acquire<READ/WRITE> requires state != UNIQUE.
+TEST_F(StorageEngineLockContentionTest, MainLockHeldMakesTryBoundedAccessBail) {
+  using namespace memgraph::storage;
+
+  // Hold main_lock_ in UNIQUE (exclusive) mode, as a concurrent DDL operation would.
+  LockMainExclusive();
+  // Both WRITE and READ probes must bail: they try main_lock_ first (before engine_lock_), and
+  // UNIQUE is in the way — can_acquire<WRITE> and can_acquire<READ> both require state != UNIQUE.
+  EXPECT_EQ(store.TryAccess(WRITE), nullptr);
+  EXPECT_EQ(store.TryAccess(READ), nullptr);
+  UnlockMain();
+
+  // Once the exclusive hold is released, a READ probe must succeed, proving nothing leaked or
+  // was poisoned by the two bailed attempts.
+  auto after = store.TryAccess(READ);
+  ASSERT_NE(after, nullptr);
+  EXPECT_NO_THROW(after->Abort());
+  after.reset();  // destroy the accessor to release its READ hold on main_lock_
+}
+
+// With nothing held (fresh fixture, no lock helpers called), a TryBounded TryAccess wins on
+// the very first probe for both WRITE and READ — it never has to bail or time out. This pins
+// the neutrality property: the reschedule path costs nothing when uncontended.
+TEST_F(StorageEngineLockContentionTest, UncontendedTryBoundedAccessSucceedsFirstTry) {
+  using namespace memgraph::storage;
+
+  // No lock is held; the first bounded-try probe on both main_lock_ and engine_lock_ must succeed.
+  auto write_acc = store.TryAccess(WRITE);
+  ASSERT_NE(write_acc, nullptr);
+  EXPECT_NO_THROW(write_acc->Abort());
+  write_acc.reset();  // release the WRITE hold on main_lock_ before the next probe
+
+  auto read_acc = store.TryAccess(READ);
+  ASSERT_NE(read_acc, nullptr);
+  EXPECT_NO_THROW(read_acc->Abort());
+  read_acc.reset();
 }
