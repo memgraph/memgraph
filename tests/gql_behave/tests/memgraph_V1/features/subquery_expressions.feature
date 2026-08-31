@@ -561,7 +561,7 @@ Feature: Subquery expressions
           | name   |
           | 'John' |
 
-  Scenario: Test EXISTS subquery with WITH clause
+  Scenario: Test EXISTS subquery with a WITH clause shadowing an outer variable
       Given an empty graph
       And having executed:
           """
@@ -572,7 +572,7 @@ Feature: Subquery expressions
           """
           WITH 'Peter' as name MATCH (person:Person {name: name}) WHERE EXISTS { WITH "Ozzy" AS name MATCH (person)-[:HAS_DOG]->(d:Dog) WHERE d.name = name } RETURN person.name AS name;
           """
-      Then the result should be empty
+      Then an error should be raised
 
   Scenario: Test EXISTS subquery with nested WITH
       Given an empty graph
@@ -2748,3 +2748,86 @@ Feature: Subquery expressions
           | star | named | sub |
           | 1    | 1     | 0   |
           | 1    | 1     | 1   |
+
+  Scenario: Test COUNT subquery body accepts a named path under a name of its own
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(d:Dog {name: 'Ozzy'})-[:HAS_TOY]->(:Toy {name: 'Ball'})
+          """
+      When executing query:
+          """
+          MATCH pp = (person:Person)-[:HAS_DOG]->(:Dog)
+          RETURN length(pp) AS L, COUNT { MATCH qq = (a:Person)-[:HAS_DOG]->()-[:HAS_TOY]->(b:Toy) } AS c;
+          """
+      Then the result should be:
+          | L | c |
+          | 1 | 1 |
+
+  Scenario: Test EXISTS subquery body may project an outer variable through unchanged
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(d:Dog) WITH person, d WHERE d.name = 'Ozzy' RETURN d }
+          RETURN person.name AS pn;
+          """
+      Then the result should be:
+          | pn      |
+          | 'Peter' |
+
+  Scenario: Test COUNT subquery body may return an outer variable unchanged
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (a:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          CREATE (a)-[:HAS_DOG]->(:Dog {name: 'Bo'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE COUNT { MATCH (person)-[:HAS_DOG]->(d:Dog) RETURN person } = 1
+          RETURN person.name AS pn;
+          """
+      Then the result should be:
+          | pn      |
+          | 'Peter' |
+
+  Scenario: Test EXISTS subquery body inside a CALL may declare an un-imported outer name
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          """
+      When executing query:
+          """
+          WITH 'Peter' AS name
+          MATCH (person:Person {name: name})
+          CALL { MATCH (d:Dog) WHERE EXISTS { WITH 'Ozzy' AS name MATCH (z:Dog) WHERE z.name = name } RETURN d.name AS dn }
+          RETURN person.name AS pn, dn;
+          """
+      Then the result should be:
+          | pn      | dn     |
+          | 'Peter' | 'Ozzy' |
+
+  Scenario: Test a CALL subquery body importing with WITH may redeclare the name afterwards
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          CALL { WITH person WITH 1 AS person MATCH (d:Dog) RETURN d.name AS dn }
+          RETURN person.name AS pn, dn;
+          """
+      Then the result should be:
+          | pn      | dn     |
+          | 'Peter' | 'Ozzy' |

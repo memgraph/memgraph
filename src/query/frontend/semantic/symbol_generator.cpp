@@ -38,6 +38,12 @@ std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
 
   return identifier_map;
 }
+
+// A variable projected straight through under its own name declares nothing new, so it cannot shadow anything.
+bool ProjectsItself(const NamedExpression &named_expr) {
+  auto const *ident = utils::Downcast<Identifier>(named_expr.expression_);
+  return ident != nullptr && ident->name_ == named_expr.name_;
+}
 }  // namespace
 
 SymbolGenerator::SymbolGenerator(SymbolTable *symbol_table, const std::vector<Identifier *> &predefined_identifiers)
@@ -124,6 +130,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     if (!new_names.insert(name).second) {
       throw SemanticException("Multiple results with the same name '{}' are not allowed.", name);
     }
+    CheckDoesNotShadow(*named_expr, scopes_[scope_idx]);
     // An improvement would be to infer the type of the expression, so that the
     // new symbol would have a more specific type.
     named_expr->MapTo(CreateSymbol(name, true, Symbol::Type::ANY, named_expr->token_position_));
@@ -208,7 +215,10 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
   next_scope.in_subquery_body = prev_scope.in_subquery_body;
-  next_scope.call_subquery_base = prev_scope.call_subquery_base;
+  // This replaces the scope at its own index, so a boundary that scope opened comes with it: a UNION branch is
+  // still the same body.
+  next_scope.boundary = prev_scope.boundary;
+  next_scope.subquery_fold = prev_scope.subquery_fold;
   // Carry over explicit `CALL (v1, v2) { ... }` imports so each UNION branch
   // within the subquery still sees the imported variables.
   next_scope.call_subquery_imports = prev_scope.call_subquery_imports;
@@ -276,8 +286,7 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
 
 bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
   Scope new_scope{.in_call_subquery = true};
-  // The scope about to be pushed is the subquery's outermost one; names below it need an explicit import.
-  new_scope.call_subquery_base = scopes_.size();
+  new_scope.boundary = Scope::Boundary::kCallImport;
 
   if (call_sub.has_variable_scope_) {
     // `CALL (...) { ... }`: resolve imports against the current outer scope
@@ -451,10 +460,8 @@ bool SymbolGenerator::PostVisit(Match &) {
 
 bool SymbolGenerator::PreVisit(Foreach &for_each) {
   const auto &name = for_each.named_expression_->name_;
-  auto const call_subquery_base = scopes_.back().call_subquery_base;
   scopes_.emplace_back(Scope());
   scopes_.back().in_foreach = true;
-  scopes_.back().call_subquery_base = call_subquery_base;
   for_each.named_expression_->MapTo(
       CreateSymbol(name, true, Symbol::Type::ANY, for_each.named_expression_->token_position_));
   return true;
@@ -475,7 +482,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
 
   // Inside a `CALL {}` subquery only its own scopes outwards are visible. A pattern occurrence of an un-imported
   // outer name declares a fresh variable, rather than writing through the frame slot the caller shares.
-  auto const from = scope.in_pattern ? scope.call_subquery_base.value_or(0) : 0;
+  auto const from = scope.in_pattern ? InnermostBoundary(Scope::Boundary::kCallImport).value_or(0) : 0;
   // Treated as undeclared below: patterns declare it afresh, `exists()` rejects it.
   const bool name_in_scope = HasSymbol(ident.name_, from);
   const bool shadows_outer_name = !name_in_scope && from != 0 && HasSymbol(ident.name_);
@@ -509,6 +516,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name. Shadowed: declare here, as for node and edge atoms below.
+    // A named path assigns a path of its own, so it declares the name rather than referencing it.
+    CheckPathDoesNotShadow(ident.name_, scope);
     symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH)
                                 : GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
   } else if (scope.in_pattern && scope.in_pattern_atom_identifier) {
@@ -738,13 +747,12 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
 
   // Each form declares only its own variables, so each gets a scope; the pattern form's are named at parse time, so
   // leaving them outside redeclared them wherever one expression is reached twice, as a simple CASE reaches its test.
-  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name, and the fold name
-  // with it, so a diagnostic raised inside names the construct the user wrote.
+  // Carry the fold name in, so a diagnostic raised inside names the construct the user wrote.
   // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
   scopes_.emplace_back(Scope{.in_subquery_pattern = subquery.HasPattern(),
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
-                             .call_subquery_base = scope.call_subquery_base});
+                             .boundary = Scope::Boundary::kSubqueryBody});
 
   return true;
 }
@@ -1050,9 +1058,7 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
-  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name.
-  scopes_.emplace_back(
-      Scope{.in_pattern_comprehension = true, .call_subquery_base = scopes_.back().call_subquery_base});
+  scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
@@ -1115,6 +1121,55 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
 bool SymbolGenerator::HasSymbol(const std::string &name, size_t from) const {
   auto const visible = std::ranges::subrange(scopes_.begin() + static_cast<std::ptrdiff_t>(from), scopes_.end());
   return std::ranges::any_of(visible, [&name](const auto &scope) { return scope.symbols.contains(name); });
+}
+
+std::optional<size_t> SymbolGenerator::InnermostBoundary(Scope::Boundary kind) const {
+  for (auto idx = scopes_.size(); idx > 0; --idx) {
+    if (scopes_[idx - 1].boundary == kind) return idx - 1;
+  }
+  return std::nullopt;
+}
+
+bool SymbolGenerator::ShadowsEnclosingName(const std::string &name) const {
+  auto const body = InnermostBoundary(Scope::Boundary::kSubqueryBody);
+  if (!body) return false;
+  // A `CALL {}` bounds what the body can see: an un-imported name is out of reach, so redeclaring it shadows
+  // nothing. One opened *inside* the body starts above it, leaving the range empty - the same conclusion.
+  auto const lo = InnermostBoundary(Scope::Boundary::kCallImport).value_or(0);
+  auto const hi = std::max(lo, *body);
+  return std::ranges::any_of(std::views::iota(lo, hi),
+                             [&](auto const idx) { return scopes_[idx].symbols.contains(name); });
+}
+
+void SymbolGenerator::CheckPathDoesNotShadow(const std::string &name, const Scope &scope) const {
+  if (scope.call_subquery_imports.contains(name)) {
+    throw SemanticException("Variable '{}' shadows the variable of the same name imported into this subquery.", name);
+  }
+  if (ShadowsEnclosingName(name)) {
+    throw SemanticException("Variable '{}' in {} shadows a variable with the same name from the outer scope.",
+                            name,
+                            SubqueryExpression::FoldName(scope.subquery_fold));
+  }
+}
+
+void SymbolGenerator::CheckDoesNotShadow(const NamedExpression &named_expr, const Scope &scope) const {
+  auto const &name = named_expr.name_;
+  if (scope.call_subquery_imports.contains(name)) {
+    // Returning an imported name reintroduces it into the outer scope, which already holds it. An intermediate WITH
+    // may still carry it through, because that name never leaves the body.
+    if (scope.in_return) {
+      throw SemanticException("Variable '{}' in subquery already declared in outer scope!", name);
+    }
+    if (!ProjectsItself(named_expr)) {
+      throw SemanticException("Variable '{}' shadows the variable of the same name imported into this subquery.", name);
+    }
+    return;
+  }
+  if (!ProjectsItself(named_expr) && ShadowsEnclosingName(name)) {
+    throw SemanticException("Variable '{}' in {} shadows a variable with the same name from the outer scope.",
+                            name,
+                            SubqueryExpression::FoldName(scope.subquery_fold));
+  }
 }
 
 bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {

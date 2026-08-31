@@ -3282,14 +3282,15 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportRestoredAfterNestedLegacySubquery) {
   DeleteListContent(&nested_branch);
 }
 
-// A named expression may redeclare an import's name; the import must stay suppressed, not coexist with
-// the shadow. Plans identically before and after the fix - it guards `GenWith`'s shadow check, without
-// which `WITH *` projects `m` twice.
+// A named expression may reproject an import under its own name; the import must stay suppressed, not coexist with
+// the new symbol. Guards `GenWith`'s shadow check, without which `WITH *` projects `m` twice. Aliasing a *different*
+// expression to `m` is refused by the symbol generator, so projecting the import through is the only spelling that
+// reaches the guard.
 TYPED_TEST(TestPlanner, SubqueryScopedImportShadowedByNamedExpressionIsNotProjectedTwice) {
-  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a, a AS m WITH * RETURN a } RETURN a
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a, m WITH * RETURN a } RETURN a
   FakeDbAccessor dba;
   auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
-                                WITH(NEXPR("a", IDENT("a")), NEXPR("m", IDENT("a"))),
+                                WITH(NEXPR("a", IDENT("a")), NEXPR("m", IDENT("m"))),
                                 WITH("*"),
                                 RETURN("a"));
   auto *query = QUERY(SINGLE_QUERY(

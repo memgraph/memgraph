@@ -174,9 +174,14 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     std::map<std::string, Symbol> symbols;
     // Symbols imported into a `CALL (v1, v2, ...) { ... }` subquery scope.
     std::map<std::string, Symbol> call_subquery_imports;
-    // Index of the scope that opened the innermost enclosing `CALL {}`. A name resolving only below it belongs to
-    // the enclosing query and needs an explicit import.
-    std::optional<size_t> call_subquery_base;
+    // Which visibility boundary this scope opens, if any. Both bounds of the shadowing range are found by walking
+    // outwards, so a scope pushed inside one inherits the answer.
+    enum class Boundary : uint8_t {
+      kNone,
+      kCallImport,    ///< a `CALL {}`: a name resolving only outside it needs an explicit import
+      kSubqueryBody,  ///< a subquery expression's body: it sees those names, but may not redeclare them
+    };
+    Boundary boundary{Boundary::kNone};
     // Identifiers found in property maps of patterns or as variable length path
     // bounds in a single Match clause. They need to be checked after visiting
     // Match. Identifiers created by naming vertices, edges and paths are *not*
@@ -196,8 +201,18 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   /// unlisted position leaves the frame slot unwritten and the expression reads it without an error.
   static bool IsSupportedSubqueryPosition(const Scope &scope);
 
-  // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.
+  // Whether @p name resolves in any scope from @p from outwards; pass a `kCallImport` index to ask about a subquery.
   bool HasSymbol(const std::string &name, size_t from = 0) const;
+
+  // Whether @p name belongs to a scope the innermost enclosing subquery expression's body can see but did not
+  // declare.
+  bool ShadowsEnclosingName(const std::string &name) const;
+  // Index of the innermost scope opening @p kind, if any.
+  std::optional<size_t> InnermostBoundary(Scope::Boundary kind) const;
+
+  // Refuses a WITH/RETURN item whose alias redeclares a name its subquery can already see.
+  void CheckDoesNotShadow(const NamedExpression &named_expr, const Scope &scope) const;
+  void CheckPathDoesNotShadow(const std::string &name, const Scope &scope) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
