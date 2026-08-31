@@ -66,9 +66,9 @@ TwoPCCommitCache::Owner::~Owner() {
       }
     });
     delete slot;
-    // NOLINTNEXTLINE(bugprone-empty-catch): intentional silent swallow -- see the note above; a
-    // destructor must not throw, and at process teardown there is nothing safe left to do.
-  } catch (...) {
+    // Intentional silent swallow: a destructor must not throw (see the note above), and at process
+    // teardown there is nothing safe left to do.
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
   }
 }
 
