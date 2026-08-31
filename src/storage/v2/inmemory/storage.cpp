@@ -4334,6 +4334,8 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Handle MVCC deltas
   if (!transaction_.deltas.empty()) {
+    // Upper bound: append_deltas skips deltas whose action carries no durability record.
+    commands.data.reserve(transaction_.deltas.size());
     append_deltas([&](const Delta &delta, auto *parent, uint64_t /*durability_commit_timestamp_arg*/) {
       if constexpr (std::is_same_v<decltype(parent), Edge *>) {
         // Connect the edge to the in-vertex and edge type for faster lookup.
@@ -4353,14 +4355,17 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   }
 
   // WAL appends stay in commit order because tasks are enqueued while holding engine_lock_ and are
-  // drained by the storage's single WAL worker.
-  std::packaged_task<durability::WalTxnDataPos()> wal_task{[mem_storage,
-                                                            &commands,
-                                                            &commit_args,
-                                                            durability_commit_timestamp,
-                                                            two_phase_commit,
-                                                            access_type = original_access_type_] {
-    const memory::DbArenaScope db_arena_scope{mem_storage->DbArenaPool()};
+  // drained by the storage's single WAL worker. The task writes wal_txn_positions_ directly; its
+  // future carries only completion and a durability failure, and is shared with the replica tasks
+  // because durability gates their transaction ends.
+  std::packaged_task<void()> wal_task{[mem_storage,
+                                       &commands,
+                                       &commit_args,
+                                       durability_commit_timestamp,
+                                       two_phase_commit,
+                                       access_type = original_access_type_,
+                                       positions_out = &wal_txn_positions_] {
+    // No arena scope here: wal_worker_ installs this storage's arena for the worker's lifetime.
     durability::WalTxnDataPos positions;
     // Append txn start delta and remember the position in the WAL file in which this delta is saved.
     positions.commit_flag_wal_position_ =
@@ -4387,36 +4392,31 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     if (!two_phase_commit) {
       mem_storage->FinalizeWalFile();
     }
-    return positions;
+    *positions_out = positions;
   }};
 
-  auto wal_result = wal_task.get_future();
+  std::shared_future<void> const wal_result = wal_task.get_future().share();
   // Every worker borrows this frame (commands, commit_args, streams), so if anything below throws
-  // before the barrier collected them, collect them here; a task that never got enqueued surfaces as
-  // an already-satisfied broken-promise future. On the normal path the barrier already ran and this
-  // is a no-op.
+  // before ShipDeltas collected them, collect them here; a task that never got enqueued surfaces as
+  // an already-satisfied broken-promise future. On the normal path everything was already collected
+  // and this is a no-op.
   auto const collect_workers = utils::OnScopeExit{[&]() noexcept {
-    // Separate try blocks: a throw while collecting the encode tasks must not skip collecting the WAL
-    // task, and neither throw may escape the noexcept guard.
+    // Drain the fused tasks first: they wait on the WAL future themselves, and neither wait may
+    // escape the noexcept guard.
+    replicating_txn.DrainShipFutures();
     try {
-      replicating_txn.WaitEncodeDone();
-      // NOLINTNEXTLINE(bugprone-empty-catch)
-    } catch (...) {
-    }
-    try {
-      if (wal_result.valid()) {
-        wal_result.wait();
-      }
+      wal_result.wait();
       // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (...) {
     }
   }};
   mem_storage->wal_worker_.AddTask(std::move(wal_task));
 
-  // Each replica encodes on its own worker, concurrently with the WAL task and each other. It does not
-  // matter what gets sent in the `commit` argument of the transaction start as it always gets ignored
-  // EXCEPT when loading from a WAL file, which uses what the WAL task wrote above.
-  replicating_txn.ScheduleEncode(
+  // One fused task per streaming replica encodes concurrently with the WAL task and the other
+  // replicas, waits on the durability gate, and ships the transaction end. It does not matter what
+  // gets sent in the `commit` argument of the transaction start as it always gets ignored EXCEPT when
+  // loading from a WAL file, which uses what the WAL task wrote above.
+  replicating_txn.ScheduleEncodeAndShip(
       [mem_storage, &commands, durability_commit_timestamp, two_phase_commit, access_type = original_access_type_](
           ReplicaStream &stream) {
         const memory::DbArenaScope db_arena_scope{mem_storage->DbArenaPool()};
@@ -4433,25 +4433,26 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
             stream.AppendDelta(*cmd.delta, cmd.vertex, durability_commit_timestamp, mem_storage);
           }
         }
-      });
+      },
+      wal_result,
+      durability_commit_timestamp,
+      commit_args.replication_allowed() ? &commit_args.database_protector() : nullptr);
 
-  // Workers reference this frame, so all of them must be collected before leaving on any path (the
-  // collect_workers guard backstops the unwind paths). Encoding must also finish before the commit
-  // timestamp is published: EncodeDelta reads live vertex and edge state, which other transactions may
-  // overwrite in place the moment this transaction becomes visible.
-  //
-  // A replica encode failure is contained inside its encode task (the replica drops to recovery) and
-  // surfaces below as a replication failure: main and the healthy replicas still commit, consistent
-  // with the WAL which already recorded the transaction as committed.
-  replicating_txn.WaitEncodeDone();
+  // Collects every fused task, so no worker is left borrowing this frame, and folds their results
+  // into the replication failures (the collect_workers guard backstops the unwind paths). Encoding
+  // must finish before the commit timestamp is published: EncodeDelta reads live vertex and edge
+  // state, which other transactions may overwrite in place the moment this transaction becomes
+  // visible. A replica-side failure is contained inside its task (the replica drops to recovery):
+  // main and the healthy replicas still commit, consistent with the WAL.
+  bool const replicas_ok = replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
 
-  // A durability failure must not ship transaction ends: no replica can commit without one, and
-  // destroying the streams during unwind aborts this transaction on every replica.
-  wal_txn_positions_ = wal_result.get();
+  // The commit thread's side of the durability gate: rethrows on a WAL failure. The fused tasks saw
+  // the same failure and never shipped a transaction end, so no replica can commit this transaction,
+  // and destroying the streams during unwind aborts it on every replica.
+  wal_result.get();
 
-  // Ships transaction ends to instances and waits for the reply.
   // Returns only the status of SYNC and STRICT_SYNC replicas.
-  return replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
+  return replicas_ok;
 }
 
 std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

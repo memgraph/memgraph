@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <expected>
 #include <future>
 #include <optional>
 #include <unordered_set>
 #include <vector>
 
+#include "memory/db_arena_fwd.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -40,48 +42,59 @@ class TransactionReplication {
 
   ~TransactionReplication() = default;
 
-  // Schedules `encode` on every streaming replica's worker. The single worker per replica keeps this
-  // task ordered before the transaction-end task ShipDeltas schedules later. The caller must keep
-  // everything `encode` references alive until WaitEncodeDone returns.
-  //
-  // Any encode failure is contained per replica: the stream is dropped and the replica falls back to
-  // recovery, exactly like an RPC failure, so it surfaces as a replication failure in ShipDeltas while
-  // main and the healthy replicas commit. It must never abort main, whose WAL has already recorded the
-  // transaction as committed.
+  using ShipResult = std::expected<void, io::network::ClientCommunicationError>;
+
+  // Schedules one fused task per streaming replica: encode the transaction into the stream, wait on
+  // the WAL result — durability gates the transaction end, so a replica can never commit what main
+  // did not make durable — and ship the transaction end. Any failure is contained per replica (the
+  // stream is dropped and the replica falls back to recovery via MAYBE_BEHIND) and surfaces as that
+  // replica's ShipResult; it never aborts main by itself. `db_acc` may be null only when no client
+  // has a stream (a replica applying a transaction). The caller must keep everything `encode` and
+  // `db_acc` reference alive until ShipDeltas returns.
   template <InvocableWithStream F>
-  void ScheduleEncode(F encode) {
-    // Reserve first: a push_back that throws after its task was enqueued would orphan a running task
-    // with no future to collect.
-    encode_futures_.reserve(locked_clients->size());
+  void ScheduleEncodeAndShip(F encode, std::shared_future<void> wal_result, uint64_t durability_commit_timestamp,
+                             DatabaseProtector const *db_acc) {
+    // Reserve first: an emplace_back that throws after its task was enqueued would orphan a running
+    // task with no future to collect.
+    ship_futures_.reserve(locked_clients->size());
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      // A streamless replica already failed to start this transaction; there is nothing to encode.
-      // Queueing a no-op would make the commit thread await this replica's worker, whose queue may
-      // hold a recovery or state-check task that blocks on the engine_lock_ this thread holds.
+      // A streamless replica already failed to start this transaction; ShipDeltas runs its quick,
+      // RPC-free bookkeeping inline. Queueing a no-op would make the commit thread await this
+      // replica's worker, whose queue may hold a task that blocks on the engine_lock_ this thread
+      // holds.
       if (!replica_stream) {
         continue;
       }
       auto *raw_client = client.get();
       auto *stream_ptr = &replica_stream;
-      encode_futures_.push_back(raw_client->ScheduleTask([raw_client, stream_ptr, encode]() {
-        try {
-          raw_client->IfStreamingTransaction(encode, *stream_ptr);
-        } catch (...) {
-          spdlog::error("Failed to encode transaction data for replica {}.", raw_client->Name());
-          stream_ptr->reset();
-          raw_client->SetMaybeBehind();
-        }
-      }));
+      ship_futures_.emplace_back(
+          raw_client,
+          raw_client->ScheduleTask(
+              [this, raw_client, stream_ptr, encode, wal_result, durability_commit_timestamp, db_acc]() -> ShipResult {
+                try {
+                  const memory::DbArenaScope db_arena_scope{arena_pool_};
+                  raw_client->IfStreamingTransaction(encode, *stream_ptr);
+                  // The durability gate: rethrows on a WAL failure, so the transaction end never ships.
+                  wal_result.get();
+                  return ShipOne(raw_client, *stream_ptr, durability_commit_timestamp, *db_acc);
+                } catch (...) {
+                  spdlog::error("Failed to replicate transaction to replica {}.", raw_client->Name());
+                  stream_ptr->reset();
+                  raw_client->SetMaybeBehind();
+                  return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+                }
+              }));
     }
   }
 
-  // Waits for every scheduled encode task so no worker is left referencing the caller's frame. Encode
-  // failures are contained inside the tasks, so this throws only on internal future errors — and even
-  // then only after all of the tasks finished.
-  void WaitEncodeDone();
+  // Waits for every scheduled fused task without consuming results; for the unwind paths, so no
+  // worker is left referencing the caller's frame.
+  void DrainShipFutures() noexcept;
 
-  // RPC stream won't be destroyed at the end of this function.
+  // Collects every fused task scheduled by ScheduleEncodeAndShip and runs the inline bookkeeping for
+  // streamless replicas. RPC streams won't be destroyed at the end of this function.
   // Returns true if all SYNC/STRICT_SYNC replicas succeeded, false otherwise.
-  // Failures are cached internally in ship_failures_ for CollectAllFailures.
+  // Failures are cached internally in replication_failures_ for CollectAllFailures.
   auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool;
 
   auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
@@ -101,8 +114,13 @@ class TransactionReplication {
   void UpdateCommitTsInfo();
 
  private:
+  // Ships the transaction end for one replica: the 1st 2PC phase for STRICT_SYNC, the full finalize
+  // when no 2PC runs. Quick and RPC-free for a null stream.
+  auto ShipOne(ReplicationStorageClient *raw_client, std::optional<ReplicaStream> &replica_stream,
+               uint64_t durability_commit_timestamp, DatabaseProtector const &db_acc) -> ShipResult;
+
   std::vector<std::optional<ReplicaStream>> streams;
-  std::vector<std::future<void>> encode_futures_;
+  std::vector<std::pair<ReplicationStorageClient *, std::future<ShipResult>>> ship_futures_;
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr
       locked_clients;
   // The database's arena pool, installed on replica workers for the tasks scheduled by this transaction.

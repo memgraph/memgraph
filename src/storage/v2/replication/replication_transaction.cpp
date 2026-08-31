@@ -63,29 +63,6 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
             "handle ASYNC tasks");
 
   auto const &db_acc = commit_args.database_protector();
-  bool const should_run_2pc = ShouldRunTwoPC();
-
-  using ShipResult = std::expected<void, io::network::ClientCommunicationError>;
-  std::vector<std::pair<ReplicationStorageClient *, std::future<ShipResult>>> awaited;
-  awaited.reserve(locked_clients->size());
-
-  auto const ship_one = [&](ReplicationStorageClient *raw_client,
-                            std::optional<ReplicaStream> &replica_stream) -> ShipResult {
-    raw_client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
-                                       replica_stream);
-    // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
-    if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
-      return raw_client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp);
-    }
-    // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
-    // RPC stream gets destroyed => RPC lock released.
-    if (!should_run_2pc) {
-      return raw_client->FinalizeTransactionReplication(
-          db_acc, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
-    }
-    // SYNC replica cannot be part of 2PC
-    return {};
-  };
 
   auto const record_failure = [&](ReplicationStorageClient const *client, ShipResult const &finalized) {
     if (finalized.has_value()) {
@@ -112,66 +89,64 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
     }
   };
 
+  // A streamless replica got no fused task; its bookkeeping is quick and RPC-free, so run it inline.
+  // Queueing it would make the commit thread await this replica's worker, whose queue may hold a task
+  // that blocks on the engine_lock_ this thread holds — a deadlock.
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    if (replica_stream) {
+      continue;
+    }
     auto *raw_client = client.get();
-
-    // ASYNC is fire-and-forget: ship the transaction end here and let the client's worker await the
-    // response. This stays on the commit thread because nothing keeps the stream alive for an
-    // unawaited task once this object is destroyed.
     if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-      raw_client->IfStreamingTransaction(
-          [&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); }, replica_stream);
-      // An ASYNC replica which is part of 2PC finalizes with the 2nd-phase decision instead.
-      if (!should_run_2pc) {
-        // Even if it fails, we don't care, it's ASYNC
-        // NOLINTNEXTLINE(bugprone-unused-return-value)
-        raw_client->FinalizeTransactionReplication(
-            db_acc, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
-      }
+      // Even if it fails, we don't care, it's ASYNC
+      // NOLINTNEXTLINE(bugprone-unused-return-value)
+      ShipOne(raw_client, replica_stream, durability_commit_timestamp, db_acc);
       continue;
     }
-
-    // A streamless replica already failed and its finalize is quick and RPC-free, so run it inline.
-    // Queueing it would make the commit thread await this replica's worker, whose queue may hold a
-    // recovery or state-check task that blocks on the engine_lock_ this thread holds — a deadlock.
-    if (!replica_stream) {
-      record_failure(raw_client, ship_one(raw_client, replica_stream));
-      continue;
-    }
-
-    auto *stream_ptr = &replica_stream;
-    awaited.emplace_back(raw_client, raw_client->ScheduleTask([&, raw_client, stream_ptr]() -> ShipResult {
-      try {
-        const memory::DbArenaScope db_arena_scope{arena_pool_};
-        return ship_one(raw_client, *stream_ptr);
-      } catch (...) {
-        // Containment mirrors ScheduleEncode: left in REPLICATING, the replica would heal only on the
-        // next commit because the recovery checker reacts to MAYBE_BEHIND alone.
-        spdlog::error("Failed to ship transaction to replica {}.", raw_client->Name());
-        stream_ptr->reset();
-        raw_client->SetMaybeBehind();
-        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-      }
-    }));
+    record_failure(raw_client, ShipOne(raw_client, replica_stream, durability_commit_timestamp, db_acc));
   }
 
-  // Collect every future before rethrowing anything: an abandoned task keeps running against this
-  // frame's db_acc, streams and this — same rule as WaitEncodeDone. record_failure allocates, so it
-  // stays inside the try: a bad_alloc from it must not exit the loop before the drain finished.
+  // Collect every fused task before rethrowing anything: an abandoned task keeps running against this
+  // frame's db_acc, streams and this. record_failure allocates, so it stays inside the try: a
+  // bad_alloc from it must not exit the loop before the drain finished.
   std::exception_ptr first_error;
-  for (auto &[client, ship_result] : awaited) {
+  for (auto &[client, ship_result] : ship_futures_) {
     try {
-      record_failure(client, ship_result.get());
+      auto const finalized = ship_result.get();
+      // Even if it failed, we don't care, it's ASYNC
+      if (client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
+        record_failure(client, finalized);
+      }
     } catch (...) {
       if (!first_error) {
         first_error = std::current_exception();
       }
     }
   }
+  ship_futures_.clear();
   if (first_error) {
     std::rethrow_exception(first_error);
   }
   return replication_failures_.empty();
+}
+
+auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::optional<ReplicaStream> &replica_stream,
+                                     uint64_t const durability_commit_timestamp, DatabaseProtector const &db_acc)
+    -> ShipResult {
+  raw_client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
+                                     replica_stream);
+  // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
+  if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+    return raw_client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp);
+  }
+  // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
+  // RPC stream gets destroyed => RPC lock released.
+  if (!ShouldRunTwoPC()) {
+    return raw_client->FinalizeTransactionReplication(
+        db_acc, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
+  }
+  // SYNC replica cannot be part of 2PC; an ASYNC replica in 2PC finalizes with the 2nd-phase decision.
+  return {};
 }
 
 // RPC locks will get released at the end of this function for all STRICT_SYNC and ASYNC replicas
@@ -230,7 +205,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
 
   bool strict_sync_replicas_succ{true};
   // Collect every future before rethrowing anything: an abandoned task keeps running against this,
-  // which the caller's unwind destroys — same rule as WaitEncodeDone. The push_back allocates, so it
+  // which the caller's unwind destroys — same rule as ShipDeltas. The push_back allocates, so it
   // stays inside the try: a bad_alloc from it must not exit the loop before the drain finished.
   std::exception_ptr first_error;
   for (auto &[client, commit_result] : decisions) {
@@ -254,25 +229,15 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
   return strict_sync_replicas_succ;
 }
 
-void TransactionReplication::WaitEncodeDone() {
-  // Encode failures are contained inside the tasks (ScheduleEncode), so these futures complete
-  // successfully even for a replica whose encoding failed. The only exception get() can surface is a
-  // broken promise from a task that never ran — an internal error worth propagating, but only after
-  // every future was drained so no task is left referencing the caller's frame.
-  std::exception_ptr first_error;
-  for (auto &encode_done : encode_futures_) {
+void TransactionReplication::DrainShipFutures() noexcept {
+  for (auto &entry : ship_futures_) {
     try {
-      encode_done.get();
+      entry.second.wait();
+      // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (...) {
-      if (!first_error) {
-        first_error = std::current_exception();
-      }
     }
   }
-  encode_futures_.clear();
-  if (first_error) {
-    std::rethrow_exception(first_error);
-  }
+  ship_futures_.clear();
 }
 
 auto TransactionReplication::CollectAllFailures() -> std::vector<ReplicaFailure> {
