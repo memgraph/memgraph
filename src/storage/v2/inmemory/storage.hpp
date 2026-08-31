@@ -52,6 +52,7 @@
 #include "utils/resource_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/thread.hpp"
 #include "utils/thread_pool.hpp"
 
 import memgraph.utils.aws;
@@ -1048,6 +1049,7 @@ class InMemoryStorage final : public Storage {
   // to release them, on every commit. The worker serves this storage only, so the arena never
   // changes underneath it.
   utils::ThreadPool wal_worker_{1, [pool = DbArenaPool()]() -> utils::ThreadPool::TaskSignature {
+                                  utils::ThreadSetName("WAL worker");
                                   auto scope = std::make_unique<memory::DbArenaScope>(pool);
                                   return [scope = std::move(scope)]() mutable { scope.reset(); };
                                 }};

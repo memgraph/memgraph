@@ -119,6 +119,10 @@ class Encoder final : public BaseEncoder {
  private:
   FileType file_;
   utils::CrcAccumulator crc_acc;
+  // Logical write position: the file offset plus the bytes still sitting in file_'s buffer. Tracked
+  // here so GetPosition never has to flush the buffer and seek — two syscalls per query which, on the
+  // WAL hot path (every transaction records its start and end positions), defeat write batching.
+  uint64_t logical_position_{0};
 };
 
 /// Decoder interface class. Used to implement streams from different sources

@@ -38,6 +38,7 @@ void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
 
 template <typename FileType>
 bool Encoder<FileType>::Initialize(const std::filesystem::path &path) {
+  logical_position_ = 0;
   return file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
 }
 
@@ -54,7 +55,12 @@ bool Encoder<FileType>::Initialize(const std::filesystem::path &path, const std:
 
 template <typename FileType>
 bool Encoder<FileType>::OpenExisting(const std::filesystem::path &path) {
-  return file_.Open(path, FileType::Mode::APPEND_TO_EXISTING);
+  if (!file_.Open(path, FileType::Mode::APPEND_TO_EXISTING)) {
+    return false;
+  }
+  // The file is opened for appending, so writing continues from the current end of the file.
+  logical_position_ = file_.GetSize();
+  return true;
 }
 
 template <typename FileType>
@@ -67,6 +73,7 @@ void Encoder<FileType>::Close() {
 template <typename FileType>
 void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
   file_.Write(data, size);
+  logical_position_ += size;
   crc_acc.Update(data, size);
 }
 
@@ -279,19 +286,23 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
 
 template <typename FileType>
 uint64_t Encoder<FileType>::GetPosition() {
-  return file_.GetPosition();
+  return logical_position_;
 }
 
 template <typename FileType>
 std::optional<uint64_t> Encoder<FileType>::AppendFrom(int src_fd, uint64_t size)
   requires std::same_as<FileType, utils::NonConcurrentOutputFile>
 {
-  return file_.AppendFrom(src_fd, size);
+  auto const appended = file_.AppendFrom(src_fd, size);
+  if (appended) {
+    logical_position_ += *appended;
+  }
+  return appended;
 }
 
 template <typename FileType>
 void Encoder<FileType>::SetPosition(uint64_t position) {
-  file_.SetPosition(FileType::Position::SET, position);
+  logical_position_ = file_.SetPosition(FileType::Position::SET, position);
 }
 
 template <typename FileType>
