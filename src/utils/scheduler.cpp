@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,11 +34,19 @@ namespace memgraph::utils {
  * @throw std::bad_alloc
  */
 void Scheduler::Run(const std::string &service_name, const std::function<void()> &f) {
+  // A plain void callback always keeps running; pausing stays under the caller's Pause()/Resume().
+  RunSelfPaced(service_name, [f]() -> SchedulerResult {
+    f();
+    return SchedulerResult::KeepRunning;
+  });
+}
+
+void Scheduler::RunSelfPaced(const std::string &service_name, std::function<SchedulerResult()> f) {
   // stop any running thread
   thread_.request_stop();
 
   // Thread setup
-  thread_ = std::jthread([this, f = f, service_name = service_name](std::stop_token token) mutable {
+  thread_ = std::jthread([this, f = std::move(f), service_name = service_name](std::stop_token token) mutable {
     ThreadRun(std::move(service_name), std::move(f), token);
   });
 }
@@ -150,7 +158,7 @@ void Scheduler::SpinOnce() {
   condition_variable_.notify_one();
 }
 
-void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token) {
+void Scheduler::ThreadRun(std::string service_name, std::function<SchedulerResult()> f, std::stop_token token) {
   utils::ThreadSetName(service_name);
 
   while (true) {
@@ -185,7 +193,17 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       }
     }
 
-    f();
+    const auto result = f();
+
+    // Apply a self-pause request atomically with Wake(): if a Wake() landed while f() ran (or between
+    // its return and here), wake_requested_ is set and we skip the pause and re-tick — so work that
+    // arrived just as the tick decided "nothing to do" is never left parked. wake_requested_ is
+    // consumed every tick so a stale one can't suppress a later, legitimate pause.
+    {
+      auto lk = std::unique_lock{mutex_};
+      if (result == SchedulerResult::Pause && !wake_requested_) is_paused_ = true;
+      wake_requested_ = false;
+    }
   }
 }
 
@@ -218,6 +236,19 @@ void Scheduler::Resume() {
     auto lk = std::unique_lock{mutex_};
     if (!is_paused_) return;
     is_paused_ = false;
+  }
+  condition_variable_.notify_one();
+}
+
+// Un-pauses and spins the worker promptly, and records the wake so a self-pacing tick that is
+// concurrently deciding to pause skips that pause (see ThreadRun). wake_requested_ makes the wake
+// win regardless of whether it lands before or after the tick's pause decision.
+void Scheduler::Wake() {
+  {
+    auto lk = std::unique_lock{mutex_};
+    wake_requested_ = true;
+    is_paused_ = false;
+    spin_once_ = true;  // don't wait out the interval before the first retry
   }
   condition_variable_.notify_one();
 }
