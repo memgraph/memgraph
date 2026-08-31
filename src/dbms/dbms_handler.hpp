@@ -29,6 +29,7 @@
 #include <string>
 #include <system_error>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include "constants.hpp"
@@ -535,10 +536,10 @@ class DbmsHandler {
    * Also appends one DETACHED row per detached_ name not yet in out — out already holds everything
    * appended above (HOT/COLD and earlier DETACHED rows), so a HOT/COLD row always wins and, among
    * several detached_ entries sharing a name (DROP x -> CREATE x -> DROP x again; detached_ is
-   * uuid-keyed), only the first is listed: a duplicate name would just repeat in this name-keyed
-   * listing. TenantMemorySum()/AllDetached() still count every one, keyed by uuid, so completeness
-   * isn't lost. DETACHED is deliberate, not a failure — a live accessor delayed teardown — so it
-   * never triggers a WARN/health-downgrade (see interpreter.cpp).
+   * uuid-keyed), exactly one is listed: the rows are identical (name, "DETACHED"), so which uuid's
+   * entry wins the de-dup is irrelevant. TenantMemorySum()/AllDetached() still count every one, keyed
+   * by uuid, so completeness isn't lost. DETACHED is deliberate, not a failure — a live accessor
+   * delayed teardown — so it never triggers a WARN/health-downgrade (see interpreter.cpp).
    */
   std::vector<std::pair<std::string, std::string>> AllWithHotColdStatus() const {
     auto rd = std::shared_lock{lock_};
@@ -553,7 +554,7 @@ class DbmsHandler {
       if (!suspended_.contains(name)) out.emplace_back(std::move(name), "HOT");
     }
     auto dg = std::lock_guard{detached_lock_};
-    for (auto const &d : detached_) {
+    for (auto const &[_, d] : detached_) {
       if (std::ranges::none_of(out, [&](auto const &kv) { return kv.first == d.name; })) {
         out.emplace_back(d.name, "DETACHED");
       }
@@ -589,7 +590,10 @@ class DbmsHandler {
   std::vector<DetachedTenant> AllDetached() const {
     auto rd = std::shared_lock{lock_};
     auto dg = std::lock_guard{detached_lock_};
-    return detached_;
+    std::vector<DetachedTenant> out;
+    out.reserve(detached_.size());
+    for (auto const &[_, d] : detached_) out.push_back(d);
+    return out;
   }
 
   struct TenantMemorySums {
@@ -613,7 +617,7 @@ class DbmsHandler {
       if (auto db_acc = db_gk.access()) sums.hot += (*db_acc)->DbMemoryUsage();
     }
     auto dg = std::lock_guard{detached_lock_};
-    for (auto const &d : detached_) sums.detached += d.memory_at_detach;
+    for (auto const &[_, d] : detached_) sums.detached += d.memory_at_detach;
     return sums;
   }
 
@@ -1044,8 +1048,9 @@ class DbmsHandler {
 
   /// Publish a deferred-destruction row. Caller MUST hold lock_ exclusive (Delete_ does).
   void RecordDetached_(DetachedTenant row) {
+    const auto uuid = row.uuid;  // read before the move; uuid keys the row
     auto dg = std::lock_guard{detached_lock_};
-    detached_.push_back(std::move(row));
+    detached_.emplace(uuid, std::move(row));
   }
 
   /// Retire the row once the destruction has actually completed. Runs on the drain thread with NO
@@ -1053,7 +1058,7 @@ class DbmsHandler {
   /// ONLY detached_lock_.
   void ForgetDetached_(const utils::UUID &uuid) {
     auto dg = std::lock_guard{detached_lock_};
-    std::erase_if(detached_, [&](DetachedTenant const &d) { return d.uuid == uuid; });
+    detached_.erase(uuid);
   }
 
   // Refresh the global cold-databases gauge from the live suspended_ size. Caller MUST hold lock_
@@ -1208,9 +1213,10 @@ class DbmsHandler {
   //     destroyed synchronously. Don't "optimize" a reader to take detached_lock_ alone.
   //  d) The callback captures a raw DbmsHandler* `this`, safe only because ~Handler's join runs as
   //     part of ~DbmsHandler, so `this` stays a live (mid-destruction) object throughout the join.
-  mutable std::mutex detached_lock_;      //!< guards detached_; see lock-order note above
-  std::vector<DetachedTenant> detached_;  //!< metadata-only registry of deferred-destruction tenants
-  DatabaseHandler db_handler_;            //!< multi-tenancy storage handler
+  mutable std::mutex detached_lock_;  //!< guards detached_; see lock-order note above
+  std::unordered_map<utils::UUID, DetachedTenant>
+      detached_;                //!< metadata-only registry of deferred-destruction tenants, keyed by uuid
+  DatabaseHandler db_handler_;  //!< multi-tenancy storage handler
   // COLD tenant rebuild metadata; guarded by lock_. The transparent std::less<> comparator is LOAD-BEARING
   // for the Resume_ publish block's noexcept guarantee: that block does suspended_.find(name) (string_view,
   // no temporary std::string -> no allocation) AFTER the gatekeeper has been committed HOT, so it must not
