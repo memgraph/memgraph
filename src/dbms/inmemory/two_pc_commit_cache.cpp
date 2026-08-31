@@ -59,7 +59,7 @@ TwoPCCommitCache::Owner::~Owner() {
       spdlog::error(
           "TwoPCCommitCache::~Owner: slot still populated at shutdown -- leaking the accessor rather than aborting "
           "it against freed storage.");
-      (void)cache.commit_accessor_.release();
+      [[maybe_unused]] auto *const leaked = cache.commit_accessor_.release();
     }
   });
   delete slot;
