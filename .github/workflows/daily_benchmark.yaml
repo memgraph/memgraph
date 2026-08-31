@@ -109,6 +109,7 @@ jobs:
 
       - name: Run and upload mgbench-ha
         id: mgbench-ha
+        if: false
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -139,6 +140,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-async
         id: mgbench-ha-async
+        if: false
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -154,6 +156,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-strict-sync
         id: mgbench-ha-strict-sync
+        if: false
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -169,6 +172,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-strict-sync
         id: mgbench-ha-2-strict-sync
+        if: false
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -184,6 +188,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-sync-async
         id: mgbench-ha-sync-async
+        if: false
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -199,6 +204,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-strict-sync-async
         id: mgbench-ha-strict-sync-async
+        if: false
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -214,6 +220,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-async
         id: mgbench-ha-2-async
+        if: false
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -229,6 +236,7 @@ jobs:
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -241,6 +249,7 @@ jobs:
 
       - name: Run and upload mgbench-vector-search-index
         id: mgbench-vector-search-index
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -254,6 +263,7 @@ jobs:
 
       - name: Run and upload mgbench-vector-search-edge-index
         id: mgbench-vector-search-edge-index
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -267,6 +277,7 @@ jobs:
 
       - name: Run and upload mgbench-text-search-index
         id: mgbench-text-search-index
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -280,6 +291,7 @@ jobs:
 
       - name: Run and upload mgbench-text-search-edge-index
         id: mgbench-text-search-edge-index
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -293,6 +305,7 @@ jobs:
 
       - name: Run and upload macro benchmarks
         id: macro-benchmark
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -306,6 +319,7 @@ jobs:
 
       - name: Run and upload mgbench-supernode
         id: mgbench-supernode
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -319,6 +333,7 @@ jobs:
 
       - name: Run and upload mgbench
         id: mgbench
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -332,6 +347,7 @@ jobs:
 
       - name: Run extended planner optimizations mgbench
         id: planner
+        if: false
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \

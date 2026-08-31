@@ -42,7 +42,7 @@ instance_1:
 
 instance_2:
   args:
-    - "--log-level=WARNING"
+    - "--log-level=TRACE"
     - "--bolt-port=7688"
     - "--management-port=10012"
     - "--data-recovery-on-startup=true"
@@ -56,7 +56,7 @@ instance_2:
 
 instance_3:
   args:
-    - "--log-level=WARNING"
+    - "--log-level=TRACE"
     - "--bolt-port=7689"
     - "--management-port=10013"
     - "--data-recovery-on-startup=true"
