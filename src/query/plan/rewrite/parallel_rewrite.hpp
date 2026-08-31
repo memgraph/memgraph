@@ -70,7 +70,6 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(Merge)
   DEFAULT_VISITS(Optional)
   DEFAULT_VISITS(Foreach)
-  DEFAULT_VISITS(RollUpApply)
   DEFAULT_VISITS(PeriodicSubquery)
   DEFAULT_VISITS(Union)
   DEFAULT_VISITS(Cartesian)
@@ -135,6 +134,19 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(AggregateParallel)
 
 #undef DEFAULT_VISITS
+
+  // Only the input side is parallelizable: the list branch is rewound per input row and shares the
+  // enclosing frame, and ScanParallel overwrites that frame while OrderByParallel never rewinds.
+  bool PreVisit(RollUpApply &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(RollUpApply &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
 
   // Single threaded Aggregate (potentially parallelizable)
   bool PreVisit(Aggregate &op) override {
