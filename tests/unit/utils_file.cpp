@@ -980,6 +980,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   };
 
   static constexpr size_t number_of_writes = 500;
+  std::atomic_bool writer_done = false;
   std::thread writer_thread([&] {
     std::default_random_engine engine{586'478'780};
     uint8_t current_number = 0;
@@ -989,6 +990,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
       handle.TryFlushing();
       sleep_for(random_short_wait(engine));
     }
+    writer_done.store(true, std::memory_order_release);
   });
 
   static constexpr size_t reader_threads_num = 7;
@@ -1034,6 +1036,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
         // Last read will always have the highest amount of
         // bytes read.
         if (i == number_of_reads - 1) {
+          while (!writer_done.load(std::memory_order_acquire)) sleep_for(1);
           max_read_counts.WithLock([&](auto &read_counts) { read_counts.push_back(total_read_count); });
         }
         sleep_for(random_short_wait(engine));
