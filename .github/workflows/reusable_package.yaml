@@ -555,6 +555,7 @@ jobs:
             echo "::endgroup::"
           done
           rm -rf tests/smoke/env
+          docker rmi -f memgraph-smoke-kdc || true
 
       - name: "Rename Package"
         if: ${{ inputs.daily_build }}

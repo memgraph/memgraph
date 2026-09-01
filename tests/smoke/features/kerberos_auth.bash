@@ -106,9 +106,7 @@ test_kerberos_auth_setup() {
   docker network create "$KERBEROS_NETWORK" >/dev/null
 
   echo "SUBFEATURE: bringing up a throwaway KDC for realm $KERBEROS_REALM"
-  if ! docker image inspect "$KERBEROS_KDC_IMAGE" >/dev/null 2>&1; then
-    docker build -t "$KERBEROS_KDC_IMAGE" "$KERBEROS_DIR"
-  fi
+  docker build -t "$KERBEROS_KDC_IMAGE" "$KERBEROS_DIR"
   docker run -d --name "$KERBEROS_KDC_CONTAINER" \
     --network "$KERBEROS_NETWORK" --network-alias "$KERBEROS_KDC_HOST" \
     -v "$KERBEROS_SHARED_DIR:/krb5" \
