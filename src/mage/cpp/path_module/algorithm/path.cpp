@@ -909,12 +909,15 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
     // supernode's whole adjacency list is uninterruptible.
     path_data_.MaybeAbort();
 
-    const int64_t uniqueness_key = UniquenessKey(relationship, outgoing);
-    if (path_data_.visited_.contains(uniqueness_key)) {
+    // Under a node-keyed rule the uniqueness key is the node the relationship reaches, and reading its
+    // id means materialising it. The type test needs only a name the relationship already carries, so
+    // it goes first and keeps that construction off every relationship the filter rejects.
+    if (!path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, path_size)) {
       continue;
     }
 
-    if (path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, path_size)) {
+    const int64_t uniqueness_key = UniquenessKey(relationship, outgoing);
+    if (!path_data_.visited_.contains(uniqueness_key)) {
       ExpandPath(path, relationship, path_size, uniqueness_key);
     }
   }
