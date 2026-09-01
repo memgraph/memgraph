@@ -38,9 +38,6 @@ namespace memgraph::utils {
 
 using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
 
-auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
-    -> std::pair<std::filesystem::path, FileUniquePtr>;
-
 /// Get the path of the current executable.
 ///
 /// @throw std::filesystem::filesystem_error

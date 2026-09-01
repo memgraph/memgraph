@@ -9472,7 +9472,7 @@ class LoadJsonlCursor : public Cursor {
         s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
       }
 
-      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+      auto abort_check_erased = MakeThrowingAborter(context);
 
       reader_.emplace(std::string{maybe_file}, std::move(s3_config), mem, std::move(abort_check_erased));
     }
