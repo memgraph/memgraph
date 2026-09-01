@@ -64,7 +64,10 @@ struct PrepareCommitReq {
 
   static void Load(PrepareCommitReq *self, slk::Reader *reader);
   static void Save(const PrepareCommitReq &self, slk::Builder *builder);
-  PrepareCommitReq() = default;
+
+  // RPC requests are default-constructed immediately before deserialization. Use nil placeholders rather than
+  // generating two random UUIDs that Load() overwrites.
+  PrepareCommitReq() : main_uuid{utils::UUID::Nil()}, storage_uuid{utils::UUID::Nil()} {}
 
   PrepareCommitReq(const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
                    uint64_t const previous_commit_timestamp_arg, bool const two_phase_commit_arg,
