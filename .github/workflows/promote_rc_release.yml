@@ -117,6 +117,17 @@ jobs:
             malloc: false
             build_type: Release
             fips: true
+          - target: docker
+            arch: amd
+            malloc: false
+            build_type: Release
+            fips: true
+          - target: docker
+            arch: arm
+            malloc: false
+            build_type: Release
+            fips: true
+
     steps:
       - name: Validate “use_test_rc” only with test
         if: inputs.use_test_rc && ! inputs.test
@@ -166,7 +177,11 @@ jobs:
             dir="${dir}-relwithdebinfo"
           fi
           if [[ "${{ matrix.fips }}" == "true" ]]; then
-            dir="${dir}-no-python"
+            if [[ "{{ matrix.target }}" == "docker" ]]; then
+              dir="${dir}-fips"
+            else
+              dir="${dir}-no-python"
+            fi
           fi
           echo "package_path=${dir}/${package_name}" >> $GITHUB_ENV
 
