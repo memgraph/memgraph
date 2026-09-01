@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory_resource>
 #include <sstream>
 
@@ -710,6 +711,32 @@ TEST(PropertyValue, Equal) {
       }
     }
   }
+}
+
+TEST(PropertyValue, AListIsOrderedByEveryBitOfTheIntegersItHolds) {
+  // Two lists holding integers that differ only above 32 bits are not equal, and
+  // are ordered by which integer is larger.
+  auto const boxed = [](std::vector<int64_t> const &numbers) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const number : numbers) elements.emplace_back(number);
+    return PropertyValue{elements};
+  };
+  auto const packed = [](std::vector<int64_t> const &numbers) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const number : numbers) elements.emplace_back(number);
+    return PropertyValue{IntListTag{}, elements};
+  };
+
+  // The boxed element differs from the packed one only above the low 32 bits.
+  auto const big = int64_t{1} << 32;
+  EXPECT_TRUE(std::is_gt(boxed({big}) <=> packed({0})));
+  EXPECT_TRUE(std::is_lt(packed({0}) <=> boxed({big})));
+  EXPECT_FALSE(boxed({big}) == packed({0}));
+
+  // And one no narrower integer can hold at all.
+  auto const huge = std::numeric_limits<int64_t>::max();
+  EXPECT_TRUE(std::is_gt(boxed({huge}) <=> packed({1})));
+  EXPECT_FALSE(boxed({huge}) == packed({1}));
 }
 
 TEST(PropertyValue, EqualMap) {
