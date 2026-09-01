@@ -5,7 +5,7 @@ from conan.tools.build import build_jobs, cross_building, valid_min_cppstd, supp
 from conan.tools.env import VirtualBuildEnv
 from conan.tools.files import (
     apply_conandata_patches, chdir, collect_libs, copy, export_conandata_patches,
-    get, mkdir, rename, replace_in_file, rm, rmdir, save, trim_conandata
+    get, mkdir, rename, replace_in_file, rm, rmdir, save
 )
 from conan.tools.gnu import AutotoolsToolchain
 from conan.tools.layout import basic_layout
@@ -158,8 +158,6 @@ class BoostConan(ConanFile):
 
     def export(self):
         copy(self, f"dependencies/{self._dependency_filename}", src=self.recipe_folder, dst=self.export_folder)
-        # Stabilise recipe revision across conan export and local-recipes-index
-        trim_conandata(self)
 
     def export_sources(self):
         export_conandata_patches(self)
@@ -182,6 +180,7 @@ class BoostConan(ConanFile):
             cppstd_flags.setdefault("17", "17" if gcc_version >= "5.2" else "1z" if gcc_version >= "5" else None)
             cppstd_flags.setdefault("20", "2a" if gcc_version >= "8" else "20" if gcc_version >= "12" else None)
             cppstd_flags.setdefault("23", "2b" if gcc_version >= "11" else None)
+            cppstd_flags.setdefault("26", "26" if gcc_version >= "14" else None)
             return cppstd_flags.get(cppstd.lstrip("gnu"))
 
         def _cppstd_clang(clang_version, cppstd):
@@ -193,6 +192,7 @@ class BoostConan(ConanFile):
             cppstd_flags.setdefault("17", "17" if clang_version >= "5" else "1z" if clang_version >= "3.5" else None)
             cppstd_flags.setdefault("20", "2a" if clang_version >= "6" else "20" if clang_version >= "12" else None)
             cppstd_flags.setdefault("23", "2b" if clang_version >= "13"  else "23" if clang_version >= "17" else None)
+            cppstd_flags.setdefault("26", "26" if clang_version >= "17" else None)
             return cppstd_flags.get(cppstd.lstrip("gnu"))
 
 
@@ -205,6 +205,7 @@ class BoostConan(ConanFile):
             cppstd_flags.setdefault("17", "17" if clang_version >= "9.1" else "1z" if clang_version >= "6.1" else None)
             cppstd_flags.setdefault("20", "20" if clang_version >= "13.0" else "2a" if clang_version >= "10.0" else None)
             cppstd_flags.setdefault("23", "2b" if clang_version >= "13.0" else None)
+            cppstd_flags.setdefault("26", "26" if clang_version >= "17.0" else None)
             return cppstd_flags.get(cppstd.lstrip("gnu"))
 
         def _cppstd_msvc(visual_version, cppstd):
@@ -216,6 +217,7 @@ class BoostConan(ConanFile):
             cppstd_flags.setdefault("17", "17" if visual_version >= "191" else "latest" if visual_version >= "190" else None)
             cppstd_flags.setdefault("20", "20" if visual_version >= "192" else "latest" if visual_version >= "191" else None)
             cppstd_flags.setdefault("23", "latest" if visual_version >= "193" else None)
+            cppstd_flags.setdefault("26", "latest" if visual_version >= "195" else None)
             return cppstd_flags.get(cppstd)
 
         func = {"gcc": _cppstd_gcc, "clang": _cppstd_clang, "apple-clang": _cppstd_apple_clang, "msvc": _cppstd_msvc}.get(compiler)
@@ -601,7 +603,7 @@ class BoostConan(ConanFile):
             if Version(self.version) == "1.86.0" and is_msvc(self):
                 setattr(self.options, "without_process", True)
 
-        if Version(self.version) == "1.90.0":
+        if Version(self.version) in ["1.90.0", "1.91.0"]:
             # FIXME: boost.coroutine doesn't support Windows ARM64 due to missing context assembly
             # See https://github.com/boostorg/context/issues/296
             if self._is_windows_platform and "arm" in str(self.settings.arch):
@@ -631,6 +633,14 @@ class BoostConan(ConanFile):
         if Version(self.version) == "1.85.0":
             # https://github.com/boostorg/stacktrace/blob/boost-1.85.0/build/Jamfile.v2#L143
             return not self.options.header_only and not self.options.without_stacktrace and self.settings.os != "Windows"
+        elif Version(self.version) >= "1.91.0":
+            # INFO: from_exception is built for all targets; only Cygwin is excluded upstream
+            # https://github.com/boostorg/stacktrace/blob/boost-1.91.0/build/Jamfile.v2#L252
+            if self.options.header_only or self.options.without_stacktrace:
+                return False
+            if self.settings.get_safe("os.subsystem") == "cygwin":
+                return False
+            return True
         elif Version(self.version) >= "1.86.0":
             # https://github.com/boostorg/stacktrace/blob/boost-1.86.0/build/Jamfile.v2#L148
             return not self.options.header_only and not self.options.without_stacktrace and self._b2_architecture == "x86"
@@ -853,7 +863,7 @@ class BoostConan(ConanFile):
 
     def build_requirements(self):
         if not self.options.header_only:
-            self.tool_requires("b2/[>=5.4 <6]")
+            self.tool_requires("b2/[>=5.2 <6]")
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version],
@@ -1578,15 +1588,6 @@ class BoostConan(ConanFile):
                 contents += f" -arch {to_apple_arch(self)}"
 
         contents += " : \n"
-        # Clang-specific: set <triple> to prevent b2's init-flags-cross from
-        # generating --target=x86_64-pc-linux (wrong triple that breaks ASAN
-        # runtime lookup). "none" disables b2's target guessing, letting clang
-        # use its own default triple.
-        # For cross-compilation, set tools.gnu:host_triplet in the Conan profile.
-        # See https://github.com/bfgroup/b2/issues/584
-        if "clang" in str(self.settings.compiler):
-            triple = self.conf.get("tools.gnu:host_triplet", default="none")
-            contents += f'<triple>{triple} '
         if self._ar:
             ar_path = self._ar.replace("\\", "/")
             contents += f'<archiver>"{ar_path}" '
@@ -1991,6 +1992,10 @@ class BoostConan(ConanFile):
                 if self._dependencies["libs"][module] and not module_libraries:
                     continue
 
+                # b2 builds boost_numpy only when numpy headers are detected, otherwise b2 silently skips it
+                if module == "numpy" and not set(module_libraries).intersection(all_detected_libraries):
+                    continue
+
                 all_expected_libraries = all_expected_libraries.union(module_libraries)
                 if set(module_libraries).difference(all_detected_libraries):
                     incomplete_components.append(module)
@@ -2076,9 +2081,12 @@ class BoostConan(ConanFile):
                 if not self._shared:
                     self.cpp_info.components["python"].defines.append("BOOST_PYTHON_STATIC_LIB")
 
-                numpy_versioned_component_name = f"numpy{pyversion.major}{pyversion.minor}"
-                self.cpp_info.components[numpy_versioned_component_name].requires = ["numpy"]
-                self.cpp_info.components[numpy_versioned_component_name].set_property("cmake_target_name", "Boost::" + numpy_versioned_component_name)
+                # b2 builds boost_numpy only when numpy headers are detected, otherwise b2 silently skips it
+                numpy_libraries = filter_transform_module_libraries(self._dependencies["libs"]["numpy"])
+                if set(numpy_libraries).intersection(all_detected_libraries):
+                    numpy_versioned_component_name = f"numpy{pyversion.major}{pyversion.minor}"
+                    self.cpp_info.components[numpy_versioned_component_name].requires = ["numpy"]
+                    self.cpp_info.components[numpy_versioned_component_name].set_property("cmake_target_name", "Boost::" + numpy_versioned_component_name)
 
             if not self.options.get_safe("without_process"):
                 if self.settings.os == "Windows":
