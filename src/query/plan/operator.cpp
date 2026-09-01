@@ -5193,8 +5193,15 @@ void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                              Fold fold)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)), fold_(fold) {
-  MG_ASSERT(fold != Fold::kList, "EvaluatePatternFilter: the list fold has no column to read here.");
+  MG_ASSERT(fold != Fold::kList, "EvaluatePatternFilter: the list fold reads a column, so it needs its symbol.");
 }
+
+EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                             Symbol list_collection_symbol)
+    : input_(input ? input : std::make_shared<Once>()),
+      output_symbol_(std::move(output_symbol)),
+      fold_(Fold::kList),
+      list_collection_symbol_(std::move(list_collection_symbol)) {}
 
 ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
@@ -5218,6 +5225,7 @@ std::unique_ptr<LogicalOperator> EvaluatePatternFilter::Clone(AstStorage *storag
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
   object->fold_ = fold_;
+  object->list_collection_symbol_ = list_collection_symbol_;
   return object;
 }
 
@@ -5226,24 +5234,40 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
 
   AbortCheck(context);
 
-  std::function<void(TypedValue *)> function =
-      [&frame, fold = self_.fold_, input_cursor = this->input_cursor_.get(), &context](TypedValue *return_value) {
-        OOMExceptionEnabler const oom_exception;
-        input_cursor->Reset();
+  std::function<void(TypedValue *)> function = [&frame,
+                                                fold = self_.fold_,
+                                                list_symbol = self_.list_collection_symbol_,
+                                                input_cursor = this->input_cursor_.get(),
+                                                &context](TypedValue *return_value) {
+    OOMExceptionEnabler const oom_exception;
+    input_cursor->Reset();
 
-        if (fold == Fold::kCount) {
-          // Count, do not materialise - same reason as the forced fold's kCount arm.
-          int64_t rows = 0;
-          while (input_cursor->Pull(frame, context)) {
-            ++rows;
-          }
-          *return_value = TypedValue(rows, context.evaluation_context.memory);
-          return;
+    switch (fold) {
+      case Fold::kCount: {
+        // Count, do not materialise - same reason as the forced fold's kCount arm.
+        int64_t rows = 0;
+        while (input_cursor->Pull(frame, context)) {
+          ++rows;
         }
-
+        *return_value = TypedValue(rows, context.evaluation_context.memory);
+        return;
+      }
+      case Fold::kList: {
+        // The whole point of the fold is the list, so this one does materialise - in the branch's own row order.
+        TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
+        while (input_cursor->Pull(frame, context)) {
+          result.ValueList().emplace_back(frame[list_symbol]);
+        }
+        *return_value = std::move(result);
+        return;
+      }
+      case Fold::kBool:
         // One pull answers kBool - see the forced fold's arm.
         *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
-      };
+        return;
+    }
+    LOG_FATAL("Unhandled EvaluatePatternFilter fold");
+  };
 
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
   frame_writer.Write(self_.output_symbol_, TypedValue(std::move(function)));
@@ -10021,7 +10045,7 @@ std::string RollUpApply::ToString(const DbAccessor * /*dba*/) const {
     case Fold::kCount:
       return "RollUpApply (count)";
     case Fold::kList:
-      return "RollUpApply";
+      return "RollUpApply (list)";
   }
   LOG_FATAL("Unhandled RollUpApply fold");
 }

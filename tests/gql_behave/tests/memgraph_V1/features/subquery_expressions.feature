@@ -1837,7 +1837,7 @@ Feature: Subquery expressions
   # grouping key, and a grouped aggregate emits no row at all on empty input, so Carol flips to false. The body's
   # column list therefore decides the row count. Neither of these two answers depends on this change - both hold with
   # the body's RETURN discarded - so this pair guards a future rewrite that prunes an unread projection column from
-  # silently turning the grouped answer into the ungrouped one. Both measured against the reference engine.
+  # silently turning the grouped answer into the ungrouped one.
   Scenario: Test EXISTS subquery whose body RETURN aggregates with a grouping key
       Given an empty graph
       And having executed:
@@ -2748,3 +2748,161 @@ Feature: Subquery expressions
           | star | named | sub |
           | 1    | 1     | 0   |
           | 1    | 1     | 1   |
+
+
+  # COLLECT { ... } is the third fold on the same node: the body's one column, per row, in the body's order.
+
+  Scenario: Test COLLECT subquery collects its body's column per outer row
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (a)-[:KNOWS]->(:Friend {name: 'F1'})
+          CREATE (a)-[:KNOWS]->(:Friend {name: 'F2'})
+          CREATE (b)-[:KNOWS]->(:Friend {name: 'F3'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COLLECT { MATCH (p)-[:KNOWS]->(f) RETURN f.name AS fn ORDER BY fn } AS friends
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | friends      |
+          | 'Alice' | ['F1', 'F2'] |
+          | 'Bob'   | ['F3']       |
+          | 'Carol' | []           |
+
+  # No rows is an empty list, not null - so size() is 0 and the value is not null.
+  Scenario: Test COLLECT subquery with no rows is an empty list
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Alice'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN COLLECT { MATCH (n:Nope) RETURN n } AS r, size(COLLECT { MATCH (n:Nope) RETURN n }) AS sz,
+                 COLLECT { MATCH (n:Nope) RETURN n } IS NULL AS isnull;
+          """
+      Then the result should be:
+          | r  | sz | isnull |
+          | [] | 0  | false  |
+
+  # The collected order is the body's row order, so an ORDER BY in the body decides it.
+  Scenario: Test COLLECT subquery keeps its body's ORDER BY
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Item {x: 3}), (:Item {x: 1}), (:Item {x: 2})
+          """
+      When executing query:
+          """
+          RETURN COLLECT { MATCH (i:Item) RETURN i.x AS v ORDER BY v DESC } AS down,
+                 COLLECT { MATCH (i:Item) RETURN i.x AS v ORDER BY v ASC } AS up,
+                 COLLECT { MATCH (i:Item) RETURN i.x AS v ORDER BY v DESC SKIP 1 LIMIT 1 } AS middle;
+          """
+      Then the result should be:
+          | down      | up        | middle |
+          | [3, 2, 1] | [1, 2, 3] | [2]    |
+
+  Scenario: Test COLLECT subquery honours DISTINCT in its body
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Item {x: 1}), (:Item {x: 1}), (:Item {x: 2})
+          """
+      When executing query:
+          """
+          RETURN COLLECT { MATCH (i:Item) RETURN DISTINCT i.x AS v ORDER BY v } AS distinct_xs,
+                 COLLECT { MATCH (i:Item) RETURN i.x AS v ORDER BY v } AS all_xs;
+          """
+      Then the result should be:
+          | distinct_xs | all_xs    |
+          | [1, 2]      | [1, 1, 2] |
+
+  # UNION deduplicates across branches, UNION ALL does not - one column per branch either way.
+  Scenario: Test COLLECT subquery whose body is a UNION
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Item {x: 1}), (:Item {x: 2})
+          """
+      When executing query:
+          """
+          RETURN COLLECT { MATCH (i:Item) RETURN i.x AS v UNION MATCH (j:Item {x: 1}) RETURN j.x AS v } AS deduped,
+                 COLLECT { MATCH (i:Item) RETURN i.x AS v UNION ALL MATCH (j:Item {x: 1}) RETURN j.x AS v } AS kept;
+          """
+      Then the result should be:
+          | deduped | kept         |
+          | [1, 2]  | [1, 2, 1]    |
+
+  Scenario: Test COLLECT subquery in a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+          CREATE (a)-[:KNOWS]->(:Friend {name: 'F1'})
+          CREATE (a)-[:KNOWS]->(:Friend {name: 'F2'})
+          CREATE (b)-[:KNOWS]->(:Friend {name: 'F3'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE size(COLLECT { MATCH (p)-[:KNOWS]->(f) RETURN f }) > 1
+          RETURN p.name AS name;
+          """
+      Then the result should be:
+          | name    |
+          | 'Alice' |
+
+  Scenario: Test COLLECT subquery nested in another COLLECT subquery
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Item {x: 1}), (:Item {x: 2})
+          """
+      When executing query:
+          """
+          RETURN COLLECT { MATCH (i:Item) RETURN COLLECT { MATCH (j:Item) RETURN j.x AS v ORDER BY v } AS inner } AS r;
+          """
+      Then the result should be:
+          | r                |
+          | [[1, 2], [1, 2]] |
+
+  Scenario: Test COLLECT subquery beside the collect aggregation
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(:Friend {name: 'F1'})
+          CREATE (b:Person {name: 'Bob'})-[:KNOWS]->(:Friend {name: 'F2'})
+          CREATE (c:Person {name: 'Carol'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, collect(p.name) AS aggregated,
+                 COLLECT { MATCH (p)-[:KNOWS]->(f) RETURN f.name AS fn } AS subquery
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | aggregated | subquery |
+          | 'Alice' | ['Alice']  | ['F1']   |
+          | 'Bob'   | ['Bob']    | ['F2']   |
+          | 'Carol' | ['Carol']  | []       |
+
+  Scenario: Test COLLECT subquery body may reuse an outer name in a pattern
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          RETURN COLLECT { MATCH (person)-[:HAS_DOG]->(d:Dog) RETURN d.name AS dn } AS r;
+          """
+      Then the result should be:
+          | r        |
+          | ['Ozzy'] |

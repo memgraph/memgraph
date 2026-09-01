@@ -8152,6 +8152,77 @@ TEST_P(CypherMainVisitorTest, SubqueryPatternRefusesAnIdentifierByConstruct) {
                                                "Identifiers are not supported in a COUNT pattern.");
 }
 
+TEST_P(CypherMainVisitorTest, CollectSubqueryNeedsExactlyOneReturnColumn) {
+  auto &ast_generator = *GetParam();
+
+  // An ORDER BY / SKIP / LIMIT tail is part of the same RETURN, so it does not add a column.
+  EXPECT_NO_THROW(
+      ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN n AS v ORDER BY v SKIP 1 LIMIT 2 } AS r;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN DISTINCT n.x AS v } AS r;"));
+
+  // `RETURN *` is refused whatever the body binds, one variable included, so the check is a clause test and never
+  // has to count symbols.
+  const auto *const message = "COLLECT subquery must end with a RETURN of exactly one column.";
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { MATCH (n) } AS r;", ast_generator, message);
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { MATCH (n) RETURN * } AS r;", ast_generator, message);
+  // The body allow-list turns `UNWIND` away before the arity check reaches it, so what is pinned is the refusal,
+  // not which of the two produces it.
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { UNWIND [1] AS z RETURN * } AS r;",
+                                               ast_generator,
+                                               "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COLLECT "
+                                               "subqueries.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { MATCH (n) RETURN n AS a, n AS b } AS r;", ast_generator, message);
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { MATCH (n) WITH n AS v } AS r;", ast_generator, message);
+  // Every UNION branch is checked, not only the first: a branch is its own SingleQuery with its own RETURN.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { MATCH (n) RETURN n AS v UNION MATCH (m) RETURN m AS v, m AS w } AS r;", ast_generator, message);
+  // A bare pattern has no column at all, so the list fold can never take one - the other two folds still can.
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { (n)-[]->(m) } AS r;",
+                                               ast_generator,
+                                               "COLLECT needs a body returning a single column, and a bare pattern "
+                                               "returns none.");
+}
+
+TEST_P(CypherMainVisitorTest, CollectSubqueryCarriesTheListFold) {
+  auto &ast_generator = *GetParam();
+
+  // One column, so it parses - and it is the same AST node the other two spellings build, distinguished by its fold.
+  const auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN n } AS r;"));
+  ASSERT_TRUE(query);
+  const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(ret);
+  const auto *subquery = dynamic_cast<SubqueryExpression *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(subquery);
+  EXPECT_EQ(subquery->fold_, SubqueryExpression::Fold::kList);
+  EXPECT_TRUE(subquery->HasSubquery());
+}
+
+TEST_P(CypherMainVisitorTest, CollectKeywordStaysUsableAsAName) {
+  auto &ast_generator = *GetParam();
+
+  // `collect` is a lexer token, the aggregation, and a perfectly good identifier. It sits in `cypherKeyword`, so all
+  // three parse.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN collect(n) AS c;"));
+    ASSERT_TRUE(query);
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+    ASSERT_TRUE(ret);
+    const auto *aggregation = dynamic_cast<Aggregation *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(aggregation);
+    EXPECT_EQ(aggregation->op_, Aggregation::Op::COLLECT_LIST);
+  }
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (collect) RETURN collect;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("WITH 1 AS collect RETURN collect AS collect;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (n) RETURN n.collect AS c;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (n:collect) RETURN n;"));
+  // A map projection on a variable named `collect` is the spelling the brace alternative competes with.
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (collect) RETURN collect {.name};"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (collect) RETURN collect {.*};"));
+}
+
 TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
   auto &ast_generator = *GetParam();
 
@@ -8165,6 +8236,10 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
       "MATCH (n) RETURN COUNT { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } AS c;",
       ast_generator,
       "COUNT subqueries cannot have a periodic commit.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COLLECT { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } AS c;",
+      ast_generator,
+      "COLLECT subqueries cannot have a periodic commit.");
   // The outer query may still have one - only the body is refused.
   {
     const auto *query = dynamic_cast<CypherQuery *>(
@@ -8202,6 +8277,10 @@ TEST_P(CypherMainVisitorTest, SubqueryBodyRefusesUnsupportedClausesByConstruct) 
       "MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } AS c;",
       ast_generator,
       "COUNT subqueries cannot have a query memory limit.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COLLECT { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } AS c;",
+      ast_generator,
+      "COLLECT subqueries cannot have a query memory limit.");
 }
 
 TEST_P(CypherMainVisitorTest, CountSubqueryParsesToACountFold) {
@@ -8254,6 +8333,10 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesParallelExecution) {
       "MATCH (n) RETURN COUNT { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } AS c;",
       ast_generator,
       "COUNT subqueries cannot use parallel execution.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COLLECT { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } AS c;",
+      ast_generator,
+      "COLLECT subqueries cannot use parallel execution.");
   // The outer query may still have one - only the body is refused.
   {
     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(

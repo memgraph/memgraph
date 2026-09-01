@@ -131,11 +131,13 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   static_assert(static_cast<size_t>(BodyPosition::kWhere) + 1 == kBodyPositionCount,
                 "kBodyPositionCount must cover every BodyPosition - it sizes the branches_ array");
 
-  /// One planned EXISTS/COUNT branch, with the fold that decides which RollUpApply constructor it reaches.
+  /// One planned EXISTS/COUNT/COLLECT branch, with the fold that decides which RollUpApply constructor it reaches.
   struct SubqueryBranch {
     Symbol result_symbol;
     std::shared_ptr<LogicalOperator> op;
     Fold fold{Fold::kBool};
+    /// The branch column a list fold collects; unset for the column-less folds, which read none.
+    std::optional<Symbol> collected_column{};
   };
 
   /// The correlated-subquery branches spliced at one body position. Both are kept in visit order, so the spliced
@@ -755,8 +757,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     auto op =
         subquery_ctx_->planner->PlanSubqueryBranch(it->second, subquery_ctx_->write_occurred, BranchBoundSymbols());
     auto const fold = impl::ToOperatorFold(it->second.fold);
+    // Read before the operator is moved out, and only for the fold that has a column to read.
+    auto const collected_column =
+        fold == Fold::kList ? std::optional{impl::CollectedColumn(*op, symbol_table_)} : std::nullopt;
     subquery_ctx_->pending_subqueries.erase(it);
-    Bucket(position_).subqueries.emplace_back(result_sym, std::move(op), fold);
+    Bucket(position_).subqueries.emplace_back(result_sym, std::move(op), fold, collected_column);
   }
 
   BranchesAt &Bucket(BodyPosition position) { return branches_[static_cast<size_t>(position)]; }
@@ -813,6 +818,18 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // accumulation after updates, without advancing the command.
     last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
   }
+  // A planned branch, folded onto last_op: the list fold reads a column, the column-less folds do not, and that is
+  // the whole difference between the two RollUpApply constructors.
+  auto fold_onto = [&last_op](ReturnBodyContext::SubqueryBranch &branch) {
+    if (branch.fold == Fold::kList) {
+      last_op = std::make_unique<RollUpApply>(
+          std::move(last_op), std::move(branch.op), std::vector{*branch.collected_column}, branch.result_symbol);
+      return;
+    }
+    last_op =
+        std::make_unique<RollUpApply>(std::move(last_op), std::move(branch.op), branch.result_symbol, branch.fold);
+  };
+
   // When there are aggregations, ALL pattern comprehensions are planned BEFORE the
   // Aggregate operator. This ensures correct evaluation per input row rather than per group.
   const bool has_aggregations = !body.aggregations().empty();
@@ -855,9 +872,10 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     }
 
     const auto &subqueries_in_aggregations = body.subqueries_in_aggregations();
-    for (auto &[result_symbol, op, fold] : projection.subqueries) {
-      if (!op) continue;
-      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol, fold);
+    for (auto &branch : projection.subqueries) {
+      if (!branch.op) continue;
+      auto const result_symbol = branch.result_symbol;
+      fold_onto(branch);
       if (!std::ranges::contains(subqueries_in_aggregations, result_symbol)) {
         remember.push_back(result_symbol);
       }
@@ -866,7 +884,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
 
-  // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned EXISTS/COUNT with
+  // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned subquery with
   // its own fold. Anything already spliced above has had its operator moved out and is skipped.
   auto splice_branches = [&](auto &&branches) {
     for (auto &data : branches.comprehensions) {
@@ -875,9 +893,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
       last_op = std::make_unique<RollUpApply>(
           std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
     }
-    for (auto &[result_symbol, op, fold] : branches.subqueries) {
-      if (!op) continue;
-      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol, fold);
+    for (auto &branch : branches.subqueries) {
+      if (!branch.op) continue;
+      fold_onto(branch);
     }
   };
 
