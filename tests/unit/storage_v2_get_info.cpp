@@ -199,8 +199,12 @@ TYPED_TEST(InfoTest, InfoCheck) {
   ASSERT_EQ(info.vertex_count, 5);
   ASSERT_EQ(info.edge_count, 2);
   ASSERT_EQ(info.average_degree, 0.8);
-  ASSERT_GT(info.memory_res, 10'000'000);  // 256MB < > 10MB
-  ASSERT_LT(info.memory_res, 256'000'000);
+  // Resident size of the whole test process, so this says nothing about the
+  // handful of vertices above: it only checks a plausible figure was read. The
+  // ceiling has to clear the test binary itself, which grows as tests are added
+  // to it and which a sanitizer build inflates further.
+  ASSERT_GT(info.memory_res, 10'000'000);
+  ASSERT_LT(info.memory_res, 8'000'000'000);
   ASSERT_GT(info.disk_usage, 100);  // 1MB < > 100B
   ASSERT_LT(info.disk_usage, 1'000'000);
   ASSERT_EQ(info.label_indices, 1);
