@@ -31,20 +31,34 @@ INDEX_VECTOR_COUNT = 1000
 INDEX_CAPACITY = 50_000
 PAYLOAD_BYTES = 4096
 
-INSTANCE_200MB = {
-    "vector_index_test": {
-        "args": [
-            "--bolt-port",
-            str(BOLT_PORT),
-            "--memory-limit=50",
-            "--storage-gc-cycle-sec=180",
-            "--log-level=WARNING",
-        ],
-        "log_file": "vector-index-memory-e2e.log",
-        "setup_queries": [],
-        "validation_queries": [],
+
+def instance_with_memory_limit(limit_mib):
+    return {
+        "vector_index_test": {
+            "args": [
+                "--bolt-port",
+                str(BOLT_PORT),
+                f"--memory-limit={limit_mib}",
+                "--storage-gc-cycle-sec=180",
+                "--log-level=WARNING",
+            ],
+            "log_file": "vector-index-memory-e2e.log",
+            "setup_queries": [],
+            "validation_queries": [],
+        }
     }
-}
+
+
+# Only the OOM test is about the limit; it needs one low enough to be reached
+# after a bounded number of inserts.
+INSTANCE_AT_OOM_LIMIT = instance_with_memory_limit(50)
+
+# The rest measure how memory is attributed between the graph and the index, and
+# need only enough room to finish. Sharing the OOM limit left them a margin that
+# nothing in the test controls: most of it goes on reserving the index capacity,
+# which is far larger than the number of vectors these tests insert, so how much
+# survives for the test body depends on the machine rather than on the test.
+INSTANCE = instance_with_memory_limit(1024)
 
 
 @pytest.fixture(autouse=True)
@@ -108,7 +122,7 @@ def test_db_storage_and_embedding_sum_to_db_total():
     significantly after inserting vectors, meaning the tracker stays honest
     relative to actual OS memory usage.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
 
     global_info = get_global_storage_info(cursor)
@@ -150,7 +164,7 @@ def test_vector_insert_oom_throws_exception():
     When the global memory limit is exceeded during vector insertion, Memgraph
     must raise an OutOfMemoryException to the client.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_AT_OOM_LIMIT)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
 
     execute_and_fetch_all(
@@ -174,7 +188,7 @@ def test_remove_vector_property_vector_index_unchanged():
     Removing the vector property from vertices does not free vector index memory
     because usearch's bump-pointer allocator cannot free individual entries.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
 
@@ -195,7 +209,7 @@ def test_delete_vertices_graph_down_vector_index_unchanged():
     Deleting whole vertices frees graph memory (vertex objects) but not
     vector index memory (usearch arena stays allocated).
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
     # A vector is charged to the index rather than to the graph, so vertices holding nothing else
@@ -237,7 +251,7 @@ def test_drop_index_vector_index_zero():
     TrackedVectorAllocator::deallocate() → reset() → db_embedding_memory_tracker_.Free().
     Vector index memory should go to 0.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
 
