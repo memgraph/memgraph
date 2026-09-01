@@ -66,12 +66,11 @@ class Builder {
  public:
   explicit Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
 
-  Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func)
+  // noexcept because the RPC stream moves that call this run in noexcept contexts (vector reserve,
+  // task captures): nothing here may allocate. The moved-from builder keeps no segment; its write
+  // entry points treat the missing buffer as "discard", matching the defunct write_func below.
+  Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func) noexcept
       : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{std::move(other.segment_)} {
-    // Re-arm the moved-from builder with a fresh buffer so a stray Save into it stays harmless (its
-    // write_func discards everything anyway). An untouched allocation costs far less than copying the
-    // segment, which made every stream move memcpy the full buffer.
-    other.segment_ = std::unique_ptr<uint8_t[]>{new uint8_t[kSegmentMaxTotalSize]};
     other.write_func_ = [](const uint8_t *, size_t, bool) { /* Moved builder is defunct, no write possible */ };
   }
 

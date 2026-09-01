@@ -25,6 +25,8 @@ Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) 
 bool Builder::IsEmpty() const { return pos_ == 0; }
 
 void Builder::Save(const uint8_t *data, uint64_t size) {
+  // A moved-from builder has no segment: discard the write, matching its defunct write_func.
+  if (!segment_) return;
   size_t offset = 0;
   while (size > 0) {
     FlushSegment(false);
@@ -45,6 +47,8 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
 
 // Differs from saving normal buffer by not leaving space of 4B at the beginning of the buffer for size
 void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
+  // A moved-from builder has no segment: discard the write, matching its defunct write_func.
+  if (!segment_) return;
   size_t offset = 0;
   while (size > 0) {
     FlushFileSegment();
@@ -58,6 +62,8 @@ void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
 
 // This should be invoked before preparing every file. The function writes kFileSegmentMask at the current position
 void Builder::PrepareForFileSending() {
+  // A moved-from builder has no segment: discard the write, matching its defunct write_func.
+  if (!segment_) return;
   memcpy(segment_.get() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
   pos_ += sizeof(SegmentSize);
   file_data_ = true;
