@@ -2251,8 +2251,6 @@ test_memgraph() {
             shift 2
           ;;
           --fips)
-            # Runs the subset of features available without an embedded Python
-            # interpreter, plus the FIPS compliance checks.
             smoke_fips="--fips"
             shift
           ;;

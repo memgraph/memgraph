@@ -93,8 +93,7 @@ fi
 # Map the user-facing --package-flavour onto the dockerfile stage name. All
 # flavours share a single dockerfile per (toolchain, extension); 'debug' is a
 # thin layer on top of 'prod' adding the memgraph-debuginfo package and debug
-# tooling, while 'fips' is a parallel stage (it cannot layer on prod — see the
-# comment on prod-fips in the dockerfile).
+# tooling, while 'fips' is a parallel stage.
 docker_target="prod"
 docker_arg_source_code=""
 tag_extension=""

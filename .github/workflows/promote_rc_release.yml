@@ -165,9 +165,6 @@ jobs:
           if [[ "${{ matrix.target }}" == "docker" && "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             dir="${dir}-relwithdebinfo"
           fi
-          # reusable_package publishes the Python-less packages under
-          # <arch>-{deb,rpm}-no-python. The filenames inside are unchanged, so
-          # only the directory differs.
           if [[ "${{ matrix.fips }}" == "true" ]]; then
             dir="${dir}-no-python"
           fi

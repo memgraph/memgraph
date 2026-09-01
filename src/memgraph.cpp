@@ -314,9 +314,6 @@ int main(int argc, char **argv) {
   // Must run before anything builds an SSL context or hashes a password, and
   // after logger init so a failure is actually delivered.
   if (FLAGS_fips_mode) {
-    // Configuration before environment: the algorithm check is cheap and the
-    // operator controls it directly, so report it without first demanding a
-    // working provider. It also keeps this path testable off a FIPS image.
     memgraph::auth::EnableFipsMode();
     memgraph::communication::EnableFipsMode();
   }

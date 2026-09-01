@@ -10,8 +10,6 @@
 # The relwithdebinfo target is layered on top of prod (FROM prod AS …) so the
 # common memgraph install isn't redone — we only add the symbols and the
 # debugging tooling. Build the variant you want with `docker build --target`.
-#
-# prod-fips deliberately does NOT layer on prod; see the comment on that stage.
 
 ###############################################################################
 # python-base: shared runtime venv for both image flavours.

@@ -147,10 +147,6 @@ jobs:
             pkg_artifact_name_rpm="${pkg_artifact_name_rpm}-malloc"
           fi
 
-          # The packages and the image are named for different things on
-          # purpose: the package's distinguishing feature is that it has no
-          # embedded Python (independently useful), while the image's is that
-          # it runs the validated FIPS provider.
           if [[ "$FIPS" == "true" ]]; then
             pkg_artifact_name="${pkg_artifact_name}-no-python"
             pkg_artifact_name_deb="${pkg_artifact_name_deb}-no-python"
@@ -342,8 +338,6 @@ jobs:
             --mgconsole
 
       - name: "Build smoke image from package"
-        # Not for fips: this image installs the deb onto a stock distro base,
-        # which has no FIPS provider, so memgraph would exit 14 on startup.
         if: ${{ inputs.run_smoke_tests && !inputs.fips }}
         run: |
           for smoke_os in $SMOKE_OS_LIST; do
@@ -546,9 +540,6 @@ jobs:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
         run: |
-          # The FIPS image has no embedded Python, so the full feature list
-          # would fail on the modules it cannot load; --fips selects the subset
-          # that applies and adds the compliance checks.
           FIPS_ARG=""
           if [[ "$FIPS" == "true" ]]; then
             FIPS_ARG="--fips"

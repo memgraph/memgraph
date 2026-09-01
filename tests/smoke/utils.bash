@@ -51,7 +51,6 @@ MEMGRAPH_FULL_PROPERTIES_SET="{id:0, name:\"tester\", age:37, height:175.0, merr
 MEMGRAPH_PROPERTY_COMPRESSION_FLAGS="--storage-property-store-compression-enabled=true --storage-property-store-compression-level=mid"
 MEMGRAPH_SHOW_SCHEMA_INFO_FLAG="--schema-info-enabled=true"
 MEMGRAPH_SESSION_TRACE_FLAG="--query-log-directory=/var/log/memgraph/session_traces"
-# Empty unless the caller asks for FIPS mode (test_single.bash --fips).
 MEMGRAPH_FIPS_FLAGS="${MEMGRAPH_FIPS_FLAGS:-}"
 MEMGRAPH_EXEC="${MEMGRAPH_EXEC:-docker exec -u memgraph memgraph_smoke}"
 MEMGRAPH_DEFAULT_HOST="localhost"

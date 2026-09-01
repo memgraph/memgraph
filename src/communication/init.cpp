@@ -95,12 +95,12 @@ void EnableFipsMode() {
                        "--fips-mode=true but the OpenSSL FIPS provider reported as available could not be loaded.");
   }
 
-  char const *name = nullptr;
-  char const *version = nullptr;
+  char *name = nullptr;
+  char *version = nullptr;
   int status = 0;
   auto params = std::array{
-      OSSL_PARAM_construct_utf8_ptr(OSSL_PROV_PARAM_NAME, const_cast<char **>(&name), 0),
-      OSSL_PARAM_construct_utf8_ptr(OSSL_PROV_PARAM_VERSION, const_cast<char **>(&version), 0),
+      OSSL_PARAM_construct_utf8_ptr(OSSL_PROV_PARAM_NAME, &name, 0),
+      OSSL_PARAM_construct_utf8_ptr(OSSL_PROV_PARAM_VERSION, &version, 0),
       OSSL_PARAM_construct_int(OSSL_PROV_PARAM_STATUS, &status),
       OSSL_PARAM_construct_end(),
   };

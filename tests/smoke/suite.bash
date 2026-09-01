@@ -77,15 +77,10 @@ run_feature_tests() {
   if [ "$__mode" == "fips" ]; then
     run_fips_compliance_tests
   else
-    # The inverse assertion, and the one with far more CI coverage: a normal
-    # image must not claim approved mode.
     test_fips_info_disabled
   fi
 }
 
-# Assertions that only make sense against the prod-fips image. Kept separate
-# from the feature list because they check the image and the crypto module
-# rather than a database feature.
 run_fips_compliance_tests() {
   test_fips_show_info
   test_fips_provider_active
@@ -116,9 +111,6 @@ run_auth_feature_tests() {
   test_impersonate_user
   test_user_profiles
   test_user_role_functions
-  # Needs the admin user, so it runs here rather than with the other FIPS
-  # checks: it asserts the approved KDF is in use and that a user-supplied
-  # legacy hash is refused.
   if [ "$__mode" == "fips" ]; then
     test_fips_password_hashing
   fi

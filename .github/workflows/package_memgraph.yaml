@@ -186,9 +186,6 @@ jobs:
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
       run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
       package_smoke_os: ${{ needs.PackageSetup.outputs.workflow_input_package_smoke_os }}
-      # Read straight from inputs rather than via PackageSetup: there is no PR
-      # label for this, and on a pull_request trigger `inputs` is null, which
-      # correctly yields false.
       fips: ${{ inputs.fips || false }}
     secrets: inherit
 
