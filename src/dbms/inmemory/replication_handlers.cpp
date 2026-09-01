@@ -408,6 +408,12 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t const request_version,
     slk::Reader *req_reader, slk::Builder *res_builder) {
+  {
+    const storage::replication::PrepareCommitRes res{true};
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
   // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
   // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
   // take the read lock on repl state, main promotion will start after committing is finished.
