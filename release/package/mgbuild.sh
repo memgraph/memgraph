@@ -1321,14 +1321,15 @@ package_smoke_image() {
 
   local base_image=""
   local pkg_format=""
+  local centos_stream=""
   case "$os" in
     ubuntu-26.04*) base_image="ubuntu:26.04"; pkg_format="deb" ;;
     ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb" ;;
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb" ;;
     debian-13*)    base_image="debian:13";    pkg_format="deb" ;;
-    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
-    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; centos_stream="9-stream" ;;
+    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm"; centos_stream="10-stream" ;;
     rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
     fedora-43*)    base_image="fedora:43"; pkg_format="rpm" ;;
     fedora-44*)    base_image="fedora:44"; pkg_format="rpm" ;;
@@ -1416,13 +1417,33 @@ package_smoke_image() {
       ($gssapi_cmd) && \
       rm -rf /var/lib/apt/lists/*"
   else
+    # CentOS Stream metalinks often hand dnf a mirror that is mid-sync
+    # (repomd.xml fails its metalink checksum), so pin baseos/appstream to a
+    # list of nearby mirrors that dnf tries in order, with the upstream
+    # master as the final fallback.
+    local mirror_opts=""
+    if [[ -n "$centos_stream" ]]; then
+      local rpm_arch="x86_64"
+      [[ "$arch" == "arm" ]] && rpm_arch="aarch64"
+      local mirror baseos_urls="" appstream_urls=""
+      for mirror in \
+        "https://ftp.plusline.net/centos-stream" \
+        "https://ftp.gwdg.de/pub/linux/centos-stream" \
+        "https://centos.anexia.at/centos-stream" \
+        "https://mirror.stream.centos.org"; do
+        baseos_urls+="${baseos_urls:+,}$mirror/$centos_stream/BaseOS/$rpm_arch/os/"
+        appstream_urls+="${appstream_urls:+,}$mirror/$centos_stream/AppStream/$rpm_arch/os/"
+      done
+      mirror_opts="--setopt=baseos.metalink= --setopt=baseos.baseurl=$baseos_urls \
+      --setopt=appstream.metalink= --setopt=appstream.baseurl=$appstream_urls"
+    fi
     # Fedora/CentOS/Rocky minimal docker images set tsflags=nodocs in
     # /etc/dnf/dnf.conf, which strips memgraph's license files in
     # /usr/share/doc/memgraph/. Override on the dnf install line so the
     # smoke license check passes.
     # rpm demotes %post scriptlet failures to warnings, so a failed pip
     # install would still produce an image; assert the deps actually landed.
-    install_cmd="dnf install -y --setopt=tsflags='' libseccomp /pkg/$package_name && \
+    install_cmd="dnf install -y --setopt=tsflags='' $mirror_opts libseccomp /pkg/$package_name && \
       ls /var/lib/memgraph/.local/lib/python3.*/site-packages/networkx >/dev/null && \
       ($gssapi_cmd) && \
       dnf clean all"
