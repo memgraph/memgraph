@@ -232,6 +232,7 @@ void LogWrongMain(utils::UUID const &current_main_uuid, const utils::UUID &main_
 }  // namespace
 
 TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
+rpc::ProgressHeartbeat InMemoryReplicationHandlers::progress_heartbeat_;
 
 void InMemoryReplicationHandlers::Register(
     dbms::DbmsHandler *dbms_handler,
@@ -473,9 +474,11 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
   storage::replication::PrepareCommitRes res{false};
   {
     // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is O(deltas), and
-    // the first tick only fires one interval after construction. Scoped so the heartbeat is joined before the final
-    // response is written, since both write to res_builder and the socket behind it has no internal locking.
-    rpc::ProgressHeartbeat heartbeat{res_builder};
+    // the first tick only fires one interval after activation. The scope guard deactivates the reusable worker if an
+    // exception escapes; normal paths stop it before writing the final response because the socket has no locking.
+    auto &heartbeat = progress_heartbeat_;
+    heartbeat.Start(res_builder);
+    utils::OnScopeExit const stop_heartbeat{[] { progress_heartbeat_.Stop(); }};
 
     // Abort prev txn if needed
     // It could happen that the main instance died before sending finalize for the previous commit and then
@@ -660,14 +663,16 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   }
 
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is O(deltas), and
-  // the first tick only fires one interval after construction. It also covers the Clear() further down, which takes
+  // the first tick only fires one interval after activation. It also covers the Clear() further down, which takes
   // long enough on a large tenant to exhaust the peer's budget on its own.
-  rpc::ProgressHeartbeat heartbeat{res_builder};
+  auto &heartbeat = progress_heartbeat_;
+  heartbeat.Start(res_builder);
+  utils::OnScopeExit const stop_heartbeat{[] { progress_heartbeat_.Stop(); }};
   // Progress only, never cancellation: if the peer goes away mid-recovery this must not abort. Unlike delta
   // application, whose work sits in a transaction that can no longer be reported as committed and will simply be
   // resent, the snapshot is already loaded here. Finishing the derived state advances the commit timestamp, so a
   // reconnecting main may only need WAL deltas from that point instead of resending the whole snapshot.
-  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
+  auto const record_progress = [] { progress_heartbeat_.RecordProgress(); };
 
   AbortPrevTxnIfNeeded(storage, &heartbeat);
 
@@ -871,9 +876,11 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is
-  // O(deltas), and the first tick only fires one interval after construction.
-  rpc::ProgressHeartbeat heartbeat{res_builder};
-  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
+  // O(deltas), and the first tick only fires one interval after activation.
+  auto &heartbeat = progress_heartbeat_;
+  heartbeat.Start(res_builder);
+  utils::OnScopeExit const stop_heartbeat{[] { progress_heartbeat_.Stop(); }};
+  auto const record_progress = [] { progress_heartbeat_.RecordProgress(); };
 
   AbortPrevTxnIfNeeded(storage, &heartbeat);
 
@@ -1033,9 +1040,11 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is
-  // O(deltas), and the first tick only fires one interval after construction.
-  rpc::ProgressHeartbeat heartbeat{res_builder};
-  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
+  // O(deltas), and the first tick only fires one interval after activation.
+  auto &heartbeat = progress_heartbeat_;
+  heartbeat.Start(res_builder);
+  utils::OnScopeExit const stop_heartbeat{[] { progress_heartbeat_.Stop(); }};
+  auto const record_progress = [] { progress_heartbeat_.RecordProgress(); };
 
   AbortPrevTxnIfNeeded(storage, &heartbeat);
 
