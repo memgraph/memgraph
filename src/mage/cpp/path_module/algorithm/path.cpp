@@ -910,6 +910,35 @@ void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   }
 }
 
+namespace {
+// mgp::Node and mgp::Relationship copy out of storage on construction. Iterating the C handles defers
+// that to the candidates actually taken; the handles are borrowed and valid until the next step.
+class BorrowedEdges {
+ public:
+  BorrowedEdges(mgp_vertex *vertex, bool outgoing)
+      : iterator_(outgoing ? mgp::MemHandlerCallback(mgp::vertex_iter_out_edges, vertex)
+                           : mgp::MemHandlerCallback(mgp::vertex_iter_in_edges, vertex)) {
+    if (iterator_ == nullptr) {
+      throw mg_exception::NotEnoughMemoryException();
+    }
+  }
+
+  BorrowedEdges(const BorrowedEdges &) = delete;
+  BorrowedEdges &operator=(const BorrowedEdges &) = delete;
+  BorrowedEdges(BorrowedEdges &&) = delete;
+  BorrowedEdges &operator=(BorrowedEdges &&) = delete;
+
+  ~BorrowedEdges() { mgp::edges_iterator_destroy(iterator_); }
+
+  mgp_edge *First() const { return mgp::edges_iterator_get(iterator_); }
+
+  mgp_edge *Next() const { return mgp::edges_iterator_next(iterator_); }
+
+ private:
+  mgp_edges_iterator *iterator_;
+};
+}  // namespace
+
 void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size,
                                   const int64_t uniqueness_key, const mgp::Node &next_node) {
   path.Expand(relationship);
@@ -922,9 +951,12 @@ void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &rela
   path.Pop();
 }
 
-void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing,
-                                               int64_t path_size) {
-  for (const auto relationship : relationships) {
+void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp_vertex *vertex, const bool outgoing,
+                                               const int64_t path_size) {
+  const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
+
+  const BorrowedEdges edges{vertex, outgoing};
+  for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     if (path_data_.LimitReached()) {
       return;
     }
@@ -932,21 +964,18 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
     // supernode's whole adjacency list is uninterruptible.
     path_data_.MaybeAbort();
 
-    // Under a node-keyed rule the uniqueness key is the node the relationship reaches, and reading its
-    // id means materialising it. The type test needs only a name the relationship already carries, so
-    // it goes first and keeps that construction off every relationship the filter rejects.
-    if (!path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, path_size)) {
+    // Only the type name is needed here; everything below this copies.
+    if (!path_data_.helper_.RelationshipAdmitted(mgp::edge_get_type(edge).name, outgoing, path_size)) {
       continue;
     }
 
-    // The walk needs this node twice over -- to key uniqueness on, and to filter once the path reaches
-    // it -- and building it copies a vertex out of storage. Build it once and hand it down.
-    const mgp::Node next_node = outgoing ? relationship.To() : relationship.From();
-    const int64_t uniqueness_key =
-        IsNodeUniqueness(path_data_.helper_.GetUniqueness()) ? next_node.Id().AsInt() : relationship.Id().AsInt();
-    if (!path_data_.visited_.contains(uniqueness_key)) {
-      ExpandPath(path, relationship, path_size, uniqueness_key, next_node);
+    auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
+    const int64_t uniqueness_key = node_keyed ? mgp::vertex_get_id(next_vertex).as_int : mgp::edge_get_id(edge).as_int;
+    if (path_data_.visited_.contains(uniqueness_key)) {
+      continue;
     }
+
+    ExpandPath(path, mgp::Relationship(edge), path_size, uniqueness_key, mgp::Node(next_vertex));
   }
 }
 
@@ -983,10 +1012,10 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size, const mgp::Node &
 
   // Skip an adjacency list the step admits nothing from.
   if (path_data_.helper_.StepAdmitsDirection(path_size, false)) {
-    this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
+    this->ExpandFromRelationships(path, node.GetPtr(), false, path_size);
   }
   if (path_data_.helper_.StepAdmitsDirection(path_size, true)) {
-    this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
+    this->ExpandFromRelationships(path, node.GetPtr(), true, path_size);
   }
 }
 
@@ -1159,34 +1188,37 @@ mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
   return path;
 }
 
-void Path::PathExpand::ExpandBranch(const int64_t index, const mgp::Node & /*node*/, mgp::Relationships relationships,
-                                    const bool outgoing, std::queue<std::pair<int64_t, mgp::Node>> &frontier) {
+void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, const bool outgoing,
+                                    std::queue<std::pair<int64_t, mgp::Node>> &frontier) {
   // Read before the loop: pushing a branch can reallocate the vector out from under a reference.
   const int64_t depth = branches_[index].depth;
   const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
 
-  for (const auto relationship : relationships) {
+  const BorrowedEdges edges{vertex, outgoing};
+  for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     if (path_data_.LimitReached()) {
       return;
     }
     path_data_.MaybeAbort();
 
-    if (!path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, depth)) {
+    if (!path_data_.helper_.RelationshipAdmitted(mgp::edge_get_type(edge).name, outgoing, depth)) {
       continue;
     }
 
-    mgp::Node next_node = outgoing ? relationship.To() : relationship.From();
-    const int64_t key = node_keyed ? next_node.Id().AsInt() : relationship.Id().AsInt();
+    auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
+    const int64_t next_id = mgp::vertex_get_id(next_vertex).as_int;
+    const int64_t key = node_keyed ? next_id : mgp::edge_get_id(edge).as_int;
     if (OnBranch(index, key)) {
       continue;
     }
 
-    branches_.push_back({.node_id = next_node.Id().AsInt(),
-                         .relationship_id = relationship.Id().AsInt(),
+    branches_.push_back({.node_id = next_id,
+                         .relationship_id = mgp::edge_get_id(edge).as_int,
                          .parent = index,
                          .depth = depth + 1,
-                         .from_parent = relationship});
-    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, std::move(next_node));
+                         .from_parent = mgp::Relationship(edge)});
+    // The loop's only node copy, and only for a branch that will be followed.
+    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, mgp::Node(next_vertex));
   }
 }
 
@@ -1231,10 +1263,10 @@ void Path::PathExpand::RunPathScopedBfs() {
     }
 
     if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
-      ExpandBranch(index, node, node.InRelationships(), false, frontier);
+      ExpandBranch(index, node.GetPtr(), false, frontier);
     }
     if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
-      ExpandBranch(index, node, node.OutRelationships(), true, frontier);
+      ExpandBranch(index, node.GetPtr(), true, frontier);
     }
   }
 }

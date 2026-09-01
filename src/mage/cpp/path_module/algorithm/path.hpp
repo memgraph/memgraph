@@ -298,7 +298,7 @@ class PathExpand {
 
   void ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size, int64_t uniqueness_key,
                   const mgp::Node &next_node);
-  void ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing, int64_t path_size);
+  void ExpandFromRelationships(mgp::Path &path, mgp_vertex *vertex, bool outgoing, int64_t path_size);
   void StartAlgorithm(const mgp::Node &node);
   void Parse(const mgp::Value &value);
   // Takes the node the path now ends at: the caller has just built it to key uniqueness on.
@@ -335,7 +335,7 @@ class PathExpand {
   static constexpr int64_t kNoRelationship = std::numeric_limits<int64_t>::min();
 
   void RunPathScopedBfs();
-  void ExpandBranch(int64_t index, const mgp::Node &node, mgp::Relationships relationships, bool outgoing,
+  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing,
                     std::queue<std::pair<int64_t, mgp::Node>> &frontier);
   // Walks the parent chain rather than a visited set: the rule is scoped to this path, not the walk.
   [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
