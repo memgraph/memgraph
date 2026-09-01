@@ -178,9 +178,6 @@ struct Config {
   int64_t min_hops = 0;
   int64_t max_hops = std::numeric_limits<int64_t>::max();
   int64_t limit = kNoLimit;
-  // The depth the breadth-first driver is walking, or -1 outside it. Deliberately does not touch
-  // min_hops, which the label filters read to decide whether a terminator ends the walk.
-  int64_t pass_depth = -1;
   Uniqueness uniqueness = Uniqueness::kRelationshipPath;
   // An end or termination filter in any step puts every step in end-nodes-only mode, so a node a step
   // merely allowlists is walked through rather than returned.
@@ -228,15 +225,6 @@ class PathHelper {
 
   // Whether a mark survives the walk back out of a path, rather than being released with it.
   [[nodiscard]] bool GlobalUniqueness() const { return config_.uniqueness == Uniqueness::kNodeGlobal; }
-
-  void SetPassDepth(int64_t depth) { config_.pass_depth = depth; }
-
-  void ClearPassDepth() { config_.pass_depth = -1; }
-
-  // The upper hop bound, narrowed to the depth being walked.
-  [[nodiscard]] int64_t ExpansionCeiling() const {
-    return config_.pass_depth < 0 ? config_.max_hops : std::min(config_.max_hops, config_.pass_depth);
-  }
 
   static void FilterLabel(std::string_view label, const LabelStep &step, LabelBools &label_bools);
   static LabelStep ParseLabelStep(const mgp::List &list_of_labels);
@@ -331,6 +319,29 @@ class PathExpand {
     int64_t depth;
   };
 
+  // One partial path of the path-scoped breadth-first walk. A node can sit on many paths at once, so
+  // unlike TreeEntry there is one per partial path rather than per node -- hence ids, not accessors.
+  struct Branch {
+    int64_t node_id;
+    int64_t relationship_id;  // kNoRelationship on a start node
+    int64_t parent;           // index into branches_, kNoParent on a start node
+    int64_t depth;
+    // Held rather than looked up when the path is rebuilt: scanning a node's relationships for a
+    // matching id costs more than the walk itself once most branches are emitted.
+    std::optional<mgp::Relationship> from_parent;
+  };
+
+  static constexpr int64_t kNoParent = -1;
+  static constexpr int64_t kNoRelationship = std::numeric_limits<int64_t>::min();
+
+  void RunPathScopedBfs();
+  void ExpandBranch(int64_t index, const mgp::Node &node, mgp::Relationships relationships, bool outgoing,
+                    std::queue<std::pair<int64_t, mgp::Node>> &frontier);
+  // Walks the parent chain rather than a visited set: the rule is scoped to this path, not the walk.
+  [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
+  // Rebuilds the path a branch stands for. Only emitted branches pay for it.
+  [[nodiscard]] mgp::Path BranchPath(int64_t index);
+
   void RunNodeGlobalBfs();
   void ExpandTreeEntry(int64_t index, int64_t depth, mgp::Relationships relationships, bool outgoing,
                        std::queue<int64_t> &frontier);
@@ -338,9 +349,8 @@ class PathExpand {
   [[nodiscard]] mgp::Path PathTo(int64_t index);
 
   PathData path_data_;
-  // Deepest path reached this pass; bounds the driver when no upper hop bound was given.
-  int64_t deepest_reached_ = -1;
   std::vector<TreeEntry> tree_;
+  std::vector<Branch> branches_;
 };
 
 class PathSubgraph {
