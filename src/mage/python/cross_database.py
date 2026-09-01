@@ -46,11 +46,25 @@ class Constants:
         "Cross database module with these parameters is already running. "
         "Please wait for it to finish before starting a new one."
     )
+    ENTERPRISE_LICENSE_ERROR = (
+        "To use the cross_database (migrate) module you need a valid Memgraph Enterprise license."
+    )
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+
+def _check_enterprise_license() -> None:
+    """Cross-database migration is an enterprise-only feature.
+
+    The module is not even loaded without a valid license (see kEnterpriseModuleList in
+    src/query/procedure/module.cpp), so this guards the case of a license that expires or
+    is removed while the module is already loaded.
+    """
+    if not mgp.is_enterprise_valid():
+        raise RuntimeError(Constants.ENTERPRISE_LICENSE_ERROR)
 
 
 def _get_cache_key(start_ts: int, query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] = None) -> str:
@@ -331,6 +345,7 @@ def _init_bolt(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
+    _check_enterprise_license()
     _bolt_init_state(_bolt_state, ctx.graph.start_timestamp, label_or_rel_or_query, config, config_path, params)
 
 
@@ -375,6 +390,7 @@ def _init_neo4j(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
+    _check_enterprise_license()
     _bolt_init_state(
         _neo4j_state,
         ctx.graph.start_timestamp,
@@ -431,6 +447,8 @@ def init_migrate_mysql(
     params: mgp.Nullable[mgp.Any] = None,
 ):
     global mysql_dict
+
+    _check_enterprise_license()
 
     if params:
         _check_params_type(params)
@@ -536,6 +554,8 @@ def init_migrate_sql_server(
     params: mgp.Nullable[mgp.Any] = None,
 ):
     global sql_server_dict
+
+    _check_enterprise_license()
 
     if params:
         _check_params_type(params, (list, tuple))
@@ -647,6 +667,8 @@ def init_migrate_oracle_db(
     params: mgp.Nullable[mgp.Any] = None,
 ):
     global oracle_db_dict
+
+    _check_enterprise_license()
 
     if params:
         _check_params_type(params)
@@ -769,6 +791,8 @@ def init_migrate_postgresql(
 ):
     global postgres_dict
 
+    _check_enterprise_license()
+
     if params:
         _check_params_type(params, (list, tuple))
     else:
@@ -887,6 +911,8 @@ def init_migrate_s3(
     """
     global s3_dict
 
+    _check_enterprise_license()
+
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
@@ -988,6 +1014,8 @@ def init_migrate_arrow_flight(
     config_path: str = "",
 ):
     global flight_dict
+
+    _check_enterprise_license()
 
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
@@ -1094,6 +1122,8 @@ def init_migrate_duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullabl
     """
     global duckdb_dict
 
+    _check_enterprise_license()
+
     setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
     cache_key = _get_cache_key(ctx.graph.start_timestamp, query, {}, setup_queries_str)
 
@@ -1178,6 +1208,8 @@ def init_migrate_servicenow(
     :param params: Optional query parameters for filtering results
     """
     global servicenow_dict
+
+    _check_enterprise_license()
 
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
