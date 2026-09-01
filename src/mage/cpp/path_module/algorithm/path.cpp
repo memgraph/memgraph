@@ -568,10 +568,6 @@ Path::Evaluation Path::PathHelper::Evaluate(const mgp::Node &node, const int64_t
 }
 
 bool Path::PathHelper::PathSizeOk(const int64_t path_size) const {
-  // Each pass emits its own depth only, so the passes partition the results.
-  if (config_.pass_depth >= 0 && path_size != config_.pass_depth) {
-    return false;
-  }
   return (path_size <= config_.max_hops) && (path_size >= config_.min_hops);
 }
 
@@ -953,9 +949,6 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size, const mgp::Node &
                               "; lower the upper hop bound to bound the traversal.");
   }
 
-  // Counts whether or not the filters keep it: this tells the driver a deeper pass has somewhere to go.
-  deepest_reached_ = std::max(deepest_reached_, path_size);
-
   const Evaluation evaluation = path_data_.helper_.Evaluate(node, path_size);
 
   if (evaluation.include && path_data_.helper_.PathSizeOk(path_size)) {
@@ -1120,37 +1113,123 @@ void Path::PathExpand::RunNodeGlobalBfs() {
   }
 }
 
-// Breadth-first emits every path of one length before any longer one, which is what makes a `limit`
-// return the shortest paths. It is driven by re-walking once per depth, so the traversal, the filters
-// and the uniqueness rule stay the ones the depth-first walk uses. A queue of partial paths would
-// instead hold the whole frontier, which here is as large as the result set it is about to build --
-// except under the node-global rule, which bounds it by the graph and gets its own walk.
-void Path::PathExpand::RunAlgorithm() {
-  if (path_data_.helper_.GlobalUniqueness() && path_data_.helper_.Bfs()) {
-    RunNodeGlobalBfs();
-    return;
+bool Path::PathExpand::OnBranch(const int64_t index, const int64_t key) const {
+  const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
+  for (int64_t i = index; i != kNoParent; i = branches_[i].parent) {
+    const int64_t seen = node_keyed ? branches_[i].node_id : branches_[i].relationship_id;
+    if (seen == key) {
+      return true;
+    }
+  }
+  return false;
+}
+
+mgp::Path Path::PathExpand::BranchPath(const int64_t index) const {
+  std::vector<int64_t> chain;
+  for (int64_t i = index; i != kNoParent; i = branches_[i].parent) {
+    chain.push_back(i);
+  }
+  std::ranges::reverse(chain);
+
+  mgp::Path path{path_data_.graph_.GetNodeById(mgp::Id::FromInt(branches_[chain.front()].node_id))};
+  for (size_t step = 1; step < chain.size(); ++step) {
+    path.Expand(*branches_[chain[step]].from_parent);
+  }
+  return path;
+}
+
+void Path::PathExpand::ExpandBranch(const int64_t index, const mgp::Node & /*node*/, mgp::Relationships relationships,
+                                    const bool outgoing, std::queue<std::pair<int64_t, mgp::Node>> &frontier) {
+  // Read before the loop: pushing a branch can reallocate the vector out from under a reference.
+  const int64_t depth = branches_[index].depth;
+  const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
+
+  for (const auto relationship : relationships) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
+
+    if (!path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, depth)) {
+      continue;
+    }
+
+    mgp::Node next_node = outgoing ? relationship.To() : relationship.From();
+    const int64_t key = node_keyed ? next_node.Id().AsInt() : relationship.Id().AsInt();
+    if (OnBranch(index, key)) {
+      continue;
+    }
+
+    branches_.push_back({.node_id = next_node.Id().AsInt(),
+                         .relationship_id = relationship.Id().AsInt(),
+                         .parent = index,
+                         .depth = depth + 1,
+                         .from_parent = relationship});
+    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, std::move(next_node));
+  }
+}
+
+void Path::PathExpand::RunPathScopedBfs() {
+  std::queue<std::pair<int64_t, mgp::Node>> frontier;
+  for (const auto &node : path_data_.start_nodes_) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
+    branches_.push_back({.node_id = node.Id().AsInt(),
+                         .relationship_id = kNoRelationship,
+                         .parent = kNoParent,
+                         .depth = 0,
+                         .from_parent = std::nullopt});
+    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, node);
   }
 
+  while (!frontier.empty()) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
+
+    auto entry = std::move(frontier.front());
+    frontier.pop();
+    const int64_t index = entry.first;
+    const mgp::Node &node = entry.second;
+    const int64_t depth = branches_[index].depth;
+
+    const Evaluation evaluation = path_data_.helper_.Evaluate(node, depth);
+    if (evaluation.include && path_data_.helper_.PathSizeOk(depth)) {
+      Emit(BranchPath(index));
+      if (path_data_.LimitReached()) {
+        return;
+      }
+    }
+
+    if (!evaluation.expand || std::cmp_greater(depth + 1, path_data_.helper_.ExpansionCeiling())) {
+      continue;
+    }
+
+    if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
+      ExpandBranch(index, node, node.InRelationships(), false, frontier);
+    }
+    if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
+      ExpandBranch(index, node, node.OutRelationships(), true, frontier);
+    }
+  }
+}
+
+// Breadth-first emits every path of one length before any longer one, which is what makes a `limit`
+// return the shortest paths. Both walks below hold a tree of what they have reached rather than a
+// frontier of whole paths; they differ in what may not repeat, and so in how big that tree gets.
+void Path::PathExpand::RunAlgorithm() {
   if (!path_data_.helper_.Bfs()) {
     RunAllStarts();
     return;
   }
-
-  const int64_t min_hops = path_data_.helper_.MinHops();
-  const int64_t max_hops = path_data_.helper_.MaxHops();
-
-  for (int64_t depth = std::max(min_hops, int64_t{0}); depth <= max_hops; ++depth) {
-    deepest_reached_ = -1;
-    path_data_.helper_.SetPassDepth(depth);
-    RunAllStarts();
-    // Stop on the limit, or when nothing reached this depth -- nothing can then reach a greater one,
-    // which is what bounds the loop with no upper hop bound.
-    if (path_data_.LimitReached() || deepest_reached_ < depth) {
-      break;
-    }
+  if (path_data_.helper_.GlobalUniqueness()) {
+    RunNodeGlobalBfs();
+    return;
   }
-
-  path_data_.helper_.ClearPassDepth();
+  RunPathScopedBfs();
 }
 
 namespace {
