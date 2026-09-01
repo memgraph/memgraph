@@ -201,6 +201,9 @@ class PathHelper {
   [[nodiscard]] bool StepAdmitsDirection(int64_t depth, bool outgoing) const;
 
   [[nodiscard]] static LabelBools GetLabelBools(const mgp::Node &node, const LabelStep &step);
+  // Same answer for the same node and step, and a path-scoped walk re-enters a node once per path
+  // that reaches it, so the verdict is kept rather than re-read from storage.
+  [[nodiscard]] LabelBools CachedLabelBools(const mgp::Node &node, int64_t depth) const;
 
   // Whether to return the node, and whether to walk on through it.
   [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const;
@@ -248,6 +251,9 @@ class PathHelper {
 
   // The step a node at `depth`, or a relationship out of a node at `depth`, is tested against.
   [[nodiscard]] const LabelStep &LabelStepAt(int64_t depth) const;
+  [[nodiscard]] int64_t LabelStepIndexAt(int64_t depth) const;
+  // One map per label step; empty under a graph-wide uniqueness rule, which visits a node once.
+  mutable std::vector<std::unordered_map<int64_t, LabelBools>> label_bools_cache_;
   [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
 
   [[nodiscard]] bool EndNodesOnly() const { return config_.end_nodes_only; }

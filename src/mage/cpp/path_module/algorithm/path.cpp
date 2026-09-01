@@ -424,10 +424,31 @@ void Path::PathHelper::ParseNodeFilters(const mgp::Map &config, const mgp::Graph
 }
 
 // Cyclic, so the sequence repeats for as long as the walk goes on.
-const Path::LabelStep &Path::PathHelper::LabelStepAt(const int64_t depth) const {
+int64_t Path::PathHelper::LabelStepIndexAt(const int64_t depth) const {
   const int64_t position = config_.begin_sequence_at_start ? depth : depth - 1;
   // Depth 0 with the sequence starting one node out never reaches here: EvaluateLabels bypasses it.
-  return config_.label_steps[position % static_cast<int64_t>(config_.label_steps.size())];
+  return position % static_cast<int64_t>(config_.label_steps.size());
+}
+
+const Path::LabelStep &Path::PathHelper::LabelStepAt(const int64_t depth) const {
+  return config_.label_steps[LabelStepIndexAt(depth)];
+}
+
+Path::LabelBools Path::PathHelper::CachedLabelBools(const mgp::Node &node, const int64_t depth) const {
+  const int64_t step_index = LabelStepIndexAt(depth);
+  // A graph-wide rule reaches each node once, so a cache would only ever be written to.
+  if (GlobalUniqueness()) {
+    return GetLabelBools(node, config_.label_steps[step_index]);
+  }
+  if (label_bools_cache_.size() != config_.label_steps.size()) {
+    label_bools_cache_.resize(config_.label_steps.size());
+  }
+  auto &cache = label_bools_cache_[static_cast<size_t>(step_index)];
+  const int64_t id = node.Id().AsInt();
+  if (const auto it = cache.find(id); it != cache.end()) {
+    return it->second;
+  }
+  return cache.emplace(id, GetLabelBools(node, config_.label_steps[step_index])).first->second;
 }
 
 const Path::RelStep &Path::PathHelper::RelStepAt(const int64_t depth) const {
@@ -486,7 +507,7 @@ Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const i
   }
 
   const LabelStep &step = LabelStepAt(depth);
-  const LabelBools label_bools = GetLabelBools(node, step);
+  const LabelBools label_bools = CachedLabelBools(node, depth);
   // Below the lower bound a node cannot be returned, but the walk still passes through it -- including
   // through a terminator, which ends the walk only once it could be returned.
   const bool below_min_hops = depth < config_.min_hops;
