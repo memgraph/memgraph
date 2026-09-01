@@ -227,11 +227,11 @@ jobs:
         with:
           job-name: "Coverage / Core tests"
 
-  clang-tidy-community:
+  clang-tidy:
     if: ${{ inputs.run_clang_tidy == 'true' }}
-    name: "Clang tidy community"
+    name: "Clang tidy"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -269,7 +269,7 @@ jobs:
           fi
           echo "BASE_BRANCH=origin/$base_branch" >> $GITHUB_ENV
 
-      - name: Configure cmake
+      - name: Configure cmake (community)
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -284,7 +284,11 @@ jobs:
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
 
-      - name: Run clang-tidy
+      # The community check continues on error so the enterprise check always
+      # runs; the "Determine job status" step below fails the job afterwards.
+      - name: Run clang-tidy (community)
+        id: clang_tidy_community
+        continue-on-error: true
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -294,71 +298,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
 
-      - name: Stop mgbuild container
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          stop --remove
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
-        uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Coverage / Clang tidy community"
-
-  clang-tidy-enterprise:
-    if: ${{ inputs.run_clang_tidy == 'true' }}
-    name: "Clang tidy enterprise"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.ref || github.ref }}
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Set base branch
-        run: |
-          base_branch="master"
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base_branch="${{ github.base_ref }}"
-          fi
-          echo "BASE_BRANCH=origin/$base_branch" >> $GITHUB_ENV
-
-      - name: Configure cmake
+      - name: Configure cmake (enterprise)
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -373,7 +313,8 @@ jobs:
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
 
-      - name: Run clang-tidy
+      - name: Run clang-tidy (enterprise)
+        id: clang_tidy_enterprise
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -382,6 +323,14 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Determine job status
+        run: |
+          if [[ "${{ steps.clang_tidy_community.outcome }}" == "failure" ]]; then
+            echo "ERROR: community clang-tidy check failed"
+            exit 1
+          fi
+          echo "Both clang-tidy checks passed"
 
       - name: Stop mgbuild container
         if: always()
@@ -403,4 +352,4 @@ jobs:
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
         with:
-          job-name: "Coverage / Clang tidy enterprise"
+          job-name: "Coverage / Clang tidy"
