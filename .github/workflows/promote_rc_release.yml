@@ -165,6 +165,8 @@ jobs:
                 package_name=${package_docker_relwithdebinfo}
               elif [[ "${{ matrix.malloc }}" == "true" ]]; then
                 package_name=${package_docker_relwithdebinfo_malloc}
+              elif [[ "${{ matrix.fips }}" == "true" ]]; then
+                package_name=${package_docker_fips}
               else
                 package_name=${package_docker}
               fi
