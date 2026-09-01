@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <climits>
 #include <cstdio>
@@ -864,6 +865,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   };
 
   static constexpr size_t number_of_writes = 500;
+  std::atomic<bool> writer_finished{false};
   std::thread writer_thread([&] {
     std::default_random_engine engine{586'478'780};
     uint8_t current_number = 0;
@@ -873,19 +875,18 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
       handle.TryFlushing();
       sleep_for(random_short_wait(engine));
     }
+    writer_finished.store(true, std::memory_order_release);
   });
 
   static constexpr size_t reader_threads_num = 7;
-  // number_of_reads needs to be higher than number_of_writes
-  // so we maximize the chance of having at least one reading
-  // thread that will read all of the data.
-  static constexpr size_t number_of_reads = 550;
   std::vector<std::thread> reader_threads(reader_threads_num);
-  memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> max_read_counts;
+  memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> settled_read_counts;
   for (size_t i = 0; i < reader_threads_num; ++i) {
     reader_threads.emplace_back([&, thread_id = i] {
       std::default_random_engine engine{586'478'780 + thread_id};
-      for (size_t i = 0; i < number_of_reads; ++i) {
+      while (true) {
+        // Read before the snapshot, so a snapshot taken once this is false must hold every write.
+        const bool writer_still_running = !writer_finished.load(std::memory_order_acquire);
         handle.DisableFlushing();
         // An assertion below returns from this thread. Without this the writer would be left waiting
         // on a lock nobody releases, and the test would hang rather than report the failure.
@@ -917,10 +918,9 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
           --buffer_size;
           ++total_read_count;
         }
-        // Last read will always have the highest amount of
-        // bytes read.
-        if (i == number_of_reads - 1) {
-          max_read_counts.WithLock([&](auto &read_counts) { read_counts.push_back(total_read_count); });
+        if (!writer_still_running) {
+          settled_read_counts.WithLock([&](auto &counts) { counts.push_back(total_read_count); });
+          return;
         }
         sleep_for(random_short_wait(engine));
       }
@@ -937,11 +937,12 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   }
 
   handle.Close();
-  // Check if any of the threads read the entire data.
-  ASSERT_TRUE(max_read_counts.WithLock([&](auto &read_counts) {
-    return std::any_of(
-        read_counts.cbegin(), read_counts.cend(), [](const auto read_count) { return read_count == number_of_writes; });
-  }));
+  settled_read_counts.WithLock([&](auto &counts) {
+    ASSERT_EQ(counts.size(), reader_threads_num);
+    for (size_t i = 0; i < counts.size(); ++i) {
+      EXPECT_EQ(counts[i], number_of_writes) << "a snapshot taken after the writer had finished missed writes";
+    }
+  });
 }
 
 // Writeback pacing is advisory: every syscall it issues can be refused by the kernel with no visible
