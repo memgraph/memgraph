@@ -54,10 +54,6 @@ on:
         type: boolean
         default: true
         description: "Release: Stress"
-      malloc_build:
-        type: boolean
-        default: true
-        description: "Malloc: Build"
       mage_amd:
         type: boolean
         default: true
@@ -97,7 +93,6 @@ jobs:
       release_benchmark: ${{ inputs.release_benchmark }}
       release_e2e: ${{ inputs.release_e2e }}
       release_stress: ${{ inputs.release_stress }}
-      malloc_build: ${{ inputs.malloc_build }}
       mage_amd: ${{ inputs.mage_amd }}
       mage_arm: ${{ inputs.mage_arm }}
       mage_cuda: ${{ inputs.mage_cuda }}

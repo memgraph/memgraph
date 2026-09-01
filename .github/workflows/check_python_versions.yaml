@@ -33,10 +33,6 @@ on:
                 type: boolean
                 default: true
                 description: "Run the Release core + e2e suites across the matrix (benchmark/stress skipped)."
-            malloc:
-                type: boolean
-                default: true
-                description: "Run the Malloc build across the matrix."
             mage:
                 type: boolean
                 default: true

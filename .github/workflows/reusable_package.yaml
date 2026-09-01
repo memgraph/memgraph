@@ -538,6 +538,8 @@ jobs:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
         run: |
+          # --reuse-env true: the first iteration sets up tests/smoke/env, the
+          # rest reuse it; each iteration still removes its own smoke image.
           for smoke_os in $SMOKE_OS_LIST; do
             image_tag="smoke-${smoke_os}-${ARCH}-${BUILD_TYPE}"
             echo "::group::Smoke tests on $smoke_os"
@@ -548,9 +550,12 @@ jobs:
               --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
               --organization-name $MEMGRAPH_ORGANIZATION_NAME \
               test-memgraph smoke \
-              --image "memgraph/memgraph:${image_tag}"
+              --image "memgraph/memgraph:${image_tag}" \
+              --reuse-env true
             echo "::endgroup::"
           done
+          rm -rf tests/smoke/env
+          docker rmi -f memgraph-smoke-kdc || true
 
       - name: "Rename Package"
         if: ${{ inputs.daily_build }}

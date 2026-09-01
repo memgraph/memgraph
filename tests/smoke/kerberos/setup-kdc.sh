@@ -1,8 +1,9 @@
 #!/bin/bash
-# Turns a bare ubuntu container into a throwaway MIT Kerberos realm for
-# tests/smoke/features/kerberos_auth.bash. The same container doubles as the
-# Bolt client host (client.py), so it also gets the client-side krb5 config,
-# python3-gssapi and the neo4j driver.
+# Creates a throwaway MIT Kerberos realm for
+# tests/smoke/features/kerberos_auth.bash, inside a container from the
+# prebuilt KDC image (see the Dockerfile next to this script, which bakes in
+# the krb5 stack, python3-gssapi and the neo4j driver). The same container
+# doubles as the Bolt client host (client.py).
 #
 # Everything here is disposable — the realm, the KDC master key and the
 # principal passwords live and die with the container — so they are passed in
@@ -21,24 +22,6 @@ set -euo pipefail
 : "${KRB5_CLIENT_PRINCIPAL:?}"
 : "${KRB5_CLIENT_PASSWORD:?}"
 : "${KRB5_SHARED_DIR:?}"
-
-# A flaky apt or PyPI mirror is the one failure in here that says nothing about
-# memgraph, so give every network step five tries before failing the test.
-retry() {
-  local attempt
-  for attempt in 1 2 3 4 5; do
-    (( attempt == 1 )) || sleep $(( attempt * 5 ))
-    "$@" && return 0
-    echo "attempt $attempt/3 failed: $*" >&2
-  done
-  return 1
-}
-
-export DEBIAN_FRONTEND=noninteractive
-retry apt-get update -qq
-retry apt-get install -y -qq --no-install-recommends \
-  krb5-kdc krb5-admin-server krb5-user python3-gssapi python3-pip
-retry pip3 install --quiet --no-cache-dir --break-system-packages neo4j==5.23
 
 # One krb5.conf for both sides: written into the shared dir so the memgraph
 # container can mount the very same file.

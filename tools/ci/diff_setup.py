@@ -48,8 +48,7 @@ class DiffSetup:
             "debug": {"core": value, "integration": value},
             "jepsen": {"core": value},
             "release": {"core": value, "benchmark": value, "e2e": value, "stress": value},
-            "malloc": {"build": value},
-            "mage": {"amd": value, "arm": value, "cuda": False},
+            "mage": {"amd": False, "arm": value, "cuda": False},
             "mgcxx": {"unit": value},
         }
 
