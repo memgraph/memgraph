@@ -17,10 +17,14 @@
  */
 #pragma once
 
+#include <unistd.h>
+
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
