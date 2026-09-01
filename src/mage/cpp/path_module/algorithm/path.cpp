@@ -880,18 +880,11 @@ void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   }
 }
 
-int64_t Path::PathExpand::UniquenessKey(const mgp::Relationship &relationship, const bool outgoing) const {
-  if (IsNodeUniqueness(path_data_.helper_.GetUniqueness())) {
-    return (outgoing ? relationship.To() : relationship.From()).Id().AsInt();
-  }
-  return relationship.Id().AsInt();
-}
-
 void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size,
-                                  const int64_t uniqueness_key) {
+                                  const int64_t uniqueness_key, const mgp::Node &next_node) {
   path.Expand(relationship);
   path_data_.visited_.insert(uniqueness_key);
-  DFS(path, path_size + 1);
+  DFS(path, path_size + 1, next_node);
   // A path-scoped rule releases the mark on the way back out; a global one holds it for the whole walk.
   if (!path_data_.helper_.GlobalUniqueness()) {
     path_data_.visited_.erase(uniqueness_key);
@@ -916,9 +909,13 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
       continue;
     }
 
-    const int64_t uniqueness_key = UniquenessKey(relationship, outgoing);
+    // The walk needs this node twice over -- to key uniqueness on, and to filter once the path reaches
+    // it -- and building it copies a vertex out of storage. Build it once and hand it down.
+    const mgp::Node next_node = outgoing ? relationship.To() : relationship.From();
+    const int64_t uniqueness_key =
+        IsNodeUniqueness(path_data_.helper_.GetUniqueness()) ? next_node.Id().AsInt() : relationship.Id().AsInt();
     if (!path_data_.visited_.contains(uniqueness_key)) {
-      ExpandPath(path, relationship, path_size, uniqueness_key);
+      ExpandPath(path, relationship, path_size, uniqueness_key, next_node);
     }
   }
 }
@@ -930,7 +927,7 @@ void Path::PathExpand::Emit(const mgp::Path &path) {
 }
 
 /*function used for traversal and filtering*/
-void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
+void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size, const mgp::Node &node) {
   if (path_data_.LimitReached()) {
     return;
   }
@@ -943,8 +940,6 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
     throw mgp::ValueException("Path expansion exceeded the maximum depth of " + std::to_string(kMaxExpandDepth) +
                               "; lower the upper hop bound to bound the traversal.");
   }
-
-  const mgp::Node node{path.GetNodeAt(path_size)};
 
   // Counts whether or not the filters keep it: this tells the driver a deeper pass has somewhere to go.
   deepest_reached_ = std::max(deepest_reached_, path_size);
@@ -978,7 +973,7 @@ void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
   if (mark_start) {
     path_data_.visited_.insert(node.Id().AsInt());
   }
-  DFS(path, 0);
+  DFS(path, 0, node);
   if (mark_start && !path_data_.helper_.GlobalUniqueness()) {
     path_data_.visited_.erase(node.Id().AsInt());
   }
