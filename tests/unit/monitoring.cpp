@@ -28,6 +28,7 @@
 #include <boost/beast/websocket.hpp>
 
 #include <nlohmann/json.hpp>
+#include "auth/exceptions.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 
@@ -42,6 +43,9 @@ inline constexpr auto kResponseMessage{"message"};
 
 struct MockAuth : public memgraph::communication::websocket::AuthenticationInterface {
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) const override {
+    if (authentication_throws) {
+      throw memgraph::auth::AuthException("mock hash cannot be verified");
+    }
     return authentication;
   }
 
@@ -52,6 +56,7 @@ struct MockAuth : public memgraph::communication::websocket::AuthenticationInter
   bool authentication{true};
   bool authorization{true};
   bool has_any_users{true};
+  bool authentication_throws{false};
 };
 
 class MonitoringServerTest : public ::testing::Test {
@@ -330,6 +335,29 @@ TEST_F(MonitoringServerTest, AuthenticationFails) {
 
     const auto response = client.Read();
     EXPECT_EQ(response, auth_fail);
+  }
+}
+
+TEST_F(MonitoringServerTest, AuthenticationThrows) {
+  auth.authentication_throws = true;
+
+  {
+    Client client;
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
+    EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
+
+    const auto response = client.Read();
+    EXPECT_THAT(response, ::testing::HasSubstr(R"("success":false)"));
+    EXPECT_THAT(response, ::testing::HasSubstr("mock hash cannot be verified"));
+  }
+
+  // The server is still serving: the throw took down one login, not the process.
+  auth.authentication_throws = false;
+  {
+    Client client;
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
+    EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
+    EXPECT_THAT(client.Read(), ::testing::HasSubstr(R"("success":true)"));
   }
 }
 
