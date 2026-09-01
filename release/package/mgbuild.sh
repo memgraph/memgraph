@@ -2722,8 +2722,9 @@ test_mage() {
         esac
       done
       cleanup_container() {
-        docker stop $neo4j_container || true
-        docker rm $neo4j_container || true
+        local container=$1
+        docker stop "$container" || true
+        docker rm "$container" || true
         # This trap replaces the outer stop_monitoring trap, so chain it here
         # to ensure the monitoring stack restarts fresh for the next test (and
         # picks up the new service_name/labels from the regenerated configs).
@@ -2731,7 +2732,11 @@ test_mage() {
           stop_monitoring || true
         fi
       }
-      trap cleanup_container EXIT INT TERM
+      # The container name is expanded now, while it is still in scope. Bash pops
+      # this branch's locals before running an EXIT trap, so a trap that read the
+      # local itself would abort under `set -u` on every failing path — leaving the
+      # container running and replacing the real error with "unbound variable".
+      trap "cleanup_container '$neo4j_container'" EXIT INT TERM
       create_e2e_test_env
       cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
@@ -2741,7 +2746,7 @@ test_mage() {
         $neo4j_container \
         $mage_container \
         $memgraph_network
-      cleanup_container
+      cleanup_container "$neo4j_container"
       if [[ "$clean_env" = true ]]; then
         rm -rf $PROJECT_ROOT/tests/mage/env
       fi
@@ -2780,12 +2785,11 @@ test_mage() {
       done
       # Define cleanup function for this case branch
       cleanup_containers() {
-        docker stop $mage_container || true
-        docker rm $mage_container || true
-        docker stop $mysql_container || true
-        docker rm $mysql_container || true
-        docker stop $postgresql_container || true
-        docker rm $postgresql_container || true
+        local container
+        for container in "$@"; do
+          docker stop "$container" || true
+          docker rm "$container" || true
+        done
         # This trap replaces the outer stop_monitoring trap, so chain it here
         # to ensure the monitoring stack restarts fresh for the next test (and
         # picks up the new service_name/labels from the regenerated configs).
@@ -2793,8 +2797,11 @@ test_mage() {
           stop_monitoring || true
         fi
       }
-      # Set trap to cleanup on exit/interrupt (scoped to this case branch)
-      trap cleanup_containers EXIT INT TERM
+      # The container names are expanded now, while they are still in scope. Bash
+      # pops this branch's locals before running an EXIT trap, so a trap that read
+      # the locals themselves would abort under `set -u` on every failing path —
+      # leaving the containers running and hiding the real error.
+      trap "cleanup_containers '$mage_container' '$mysql_container' '$postgresql_container'" EXIT INT TERM
       create_e2e_test_env
       cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
@@ -2803,7 +2810,7 @@ test_mage() {
         --mysql-container $mysql_container \
         --postgresql-container $postgresql_container
       # Normal cleanup
-      cleanup_containers
+      cleanup_containers "$mage_container" "$mysql_container" "$postgresql_container"
       if [[ "$clean_env" = true ]]; then
         rm -rf $PROJECT_ROOT/tests/mage/env
       fi
