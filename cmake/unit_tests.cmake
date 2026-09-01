@@ -58,6 +58,16 @@ function(add_unit_test exec_name)
         set(test_properties ${ARG_TEST_PROPERTIES})
     endif()
 
+    # This project calls enable_testing() without including the CTest module, so
+    # ctest applies no timeout of its own: a test that hangs runs until whatever
+    # is driving ctest gives up, and the report names no test. Cap it here, well
+    # above the slowest test so that only a hang trips it. A test that needs
+    # longer passes its own TIMEOUT in TEST_PROPERTIES.
+    list(FIND test_properties "TIMEOUT" timeout_index)
+    if(timeout_index EQUAL -1)
+        list(APPEND test_properties TIMEOUT 1800)
+    endif()
+
     # Use gtest_discover_tests if DISCOVER_TESTS is set, otherwise use add_test
     if(ARG_DISCOVER_TESTS)
         # Prepare test properties for gtest_discover_tests

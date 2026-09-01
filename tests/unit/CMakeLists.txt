@@ -761,9 +761,13 @@ add_unit_test(storage_v2_decoder_encoder
     LINK_TARGETS mg::storage
 )
 
+# Much the slowest test in the suite: it writes and recovers snapshots and WAL
+# across every durability mode, and under a sanitizer build it runs long enough
+# to need more than the default cap.
 add_unit_test(storage_v2_durability_inmemory
     SOURCES storage_v2_durability_inmemory.cpp
     LINK_TARGETS mg::storage mg-dbms storage_test_utils
+    TEST_PROPERTIES TIMEOUT 3600
 )
 
 add_unit_test(storage_v2_create_snapshot
