@@ -108,6 +108,7 @@ struct LabelStep {
   LabelWildcards wildcards;
   // No allowlist in this step, so every label is allowed by it.
   bool whitelist_empty = true;
+  bool constrains_nothing = true;
 };
 
 struct LabelBools {
@@ -202,6 +203,9 @@ class PathHelper {
   [[nodiscard]] bool StepAdmitsDirection(int64_t depth, bool outgoing) const;
 
   [[nodiscard]] static LabelBools GetLabelBools(const mgp::Node &node, const LabelStep &step);
+  // A path-scoped walk re-enters a node once per path reaching it, and the verdict is the same each
+  // time, so it is kept rather than re-read from storage.
+  [[nodiscard]] LabelBools CachedLabelBools(const mgp::Node &node, int64_t step_index) const;
 
   // Whether to return the node, and whether to walk on through it.
   [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const;
@@ -248,12 +252,15 @@ class PathHelper {
   [[nodiscard]] Evaluation EvaluateNodeLists(const mgp::Node &node, int64_t depth) const;
 
   // The step a node at `depth`, or a relationship out of a node at `depth`, is tested against.
-  [[nodiscard]] const LabelStep &LabelStepAt(int64_t depth) const;
+  [[nodiscard]] int64_t LabelStepIndexAt(int64_t depth) const;
+  void SizeLabelCache();
   [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
 
   [[nodiscard]] bool EndNodesOnly() const { return config_.end_nodes_only; }
 
   Config config_;
+  // One map per label step; empty under a graph-wide uniqueness rule, which visits a node once.
+  mutable std::vector<std::unordered_map<int64_t, LabelBools>> label_bools_cache_;
 };
 
 // A walk can run for a long time without allocating, so the memory tracker cannot stop it and only

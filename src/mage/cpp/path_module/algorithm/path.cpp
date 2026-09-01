@@ -60,6 +60,7 @@ Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relations
   config_.max_hops = MaxHopsOrNoLimit(max_hops);
   // No `bfs` argument in this form, so a caller could not opt out of the per-depth re-walk.
   config_.bfs = false;
+  SizeLabelCache();
 }
 
 namespace {
@@ -346,6 +347,7 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, co
   }
 
   ParseNodeFilters(config, graph);
+  SizeLabelCache();
 }
 
 // `sequence` spells one alternating string; the two filter keys spell a label and a relationship
@@ -434,10 +436,30 @@ void Path::PathHelper::ParseNodeFilters(const mgp::Map &config, const mgp::Graph
 }
 
 // Cyclic, so the sequence repeats for as long as the walk goes on.
-const Path::LabelStep &Path::PathHelper::LabelStepAt(const int64_t depth) const {
+int64_t Path::PathHelper::LabelStepIndexAt(const int64_t depth) const {
   const int64_t position = config_.begin_sequence_at_start ? depth : depth - 1;
   // Depth 0 with the sequence starting one node out never reaches here: EvaluateLabels bypasses it.
-  return config_.label_steps[position % static_cast<int64_t>(config_.label_steps.size())];
+  return position % static_cast<int64_t>(config_.label_steps.size());
+}
+
+Path::LabelBools Path::PathHelper::CachedLabelBools(const mgp::Node &node, const int64_t step_index) const {
+  // A graph-wide rule reaches each node once, so a cache would only ever be written to.
+  if (GlobalUniqueness()) {
+    return GetLabelBools(node, config_.label_steps[static_cast<size_t>(step_index)]);
+  }
+  auto &cache = label_bools_cache_[static_cast<size_t>(step_index)];
+  const int64_t id = node.Id().AsInt();
+  if (const auto it = cache.find(id); it != cache.end()) {
+    return it->second;
+  }
+  return cache.emplace(id, GetLabelBools(node, config_.label_steps[static_cast<size_t>(step_index)])).first->second;
+}
+
+void Path::PathHelper::SizeLabelCache() {
+  if (GlobalUniqueness()) {
+    return;
+  }
+  label_bools_cache_.resize(config_.label_steps.size());
 }
 
 const Path::RelStep &Path::PathHelper::RelStepAt(const int64_t depth) const {
@@ -490,11 +512,13 @@ Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const i
     return {.include = !EndNodesOnly(), .expand = true};
   }
 
-  const LabelStep &step = LabelStepAt(depth);
-  const LabelBools label_bools = GetLabelBools(node, step);
-  // Below the lower bound a node cannot be returned, but the walk still passes through it -- including
-  // through a terminator, which ends the walk only once it could be returned.
+  const int64_t step_index = LabelStepIndexAt(depth);
+  const LabelStep &step = config_.label_steps[static_cast<size_t>(step_index)];
   const bool below_min_hops = depth < config_.min_hops;
+  if (step.constrains_nothing) {
+    return {.include = !(EndNodesOnly() || below_min_hops), .expand = true};
+  }
+  const LabelBools label_bools = CachedLabelBools(node, step_index);
 
   if (label_bools.blacklisted) {
     return {.include = false, .expand = false};
@@ -633,6 +657,9 @@ Path::LabelStep Path::PathHelper::ParseLabelStep(const mgp::List &list_of_labels
   }
 
   step.whitelist_empty = step.sets.whitelist.empty() && !step.wildcards.whitelist;
+  step.constrains_nothing = step.whitelist_empty && step.sets.blacklist.empty() && step.sets.termination_list.empty() &&
+                            step.sets.end_list.empty() && !step.wildcards.blacklist && !step.wildcards.termination &&
+                            !step.wildcards.end_list;
   return step;
 }
 
