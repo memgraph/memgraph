@@ -858,89 +858,76 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   memgraph::utils::OutputFile handle;
   handle.Open(file_path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
-  std::uniform_int_distribution<int> random_short_wait(1, 10);
-
-  const auto sleep_for = [&](int milliseconds) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
-  };
-
   static constexpr size_t number_of_writes = 500;
-  std::atomic<bool> writer_finished{false};
-  std::thread writer_thread([&] {
-    std::default_random_engine engine{586'478'780};
-    uint8_t current_number = 0;
-    for (size_t i = 0; i < number_of_writes; ++i) {
-      handle.Write(&current_number, 1);
-      ++current_number;
-      handle.TryFlushing();
-      sleep_for(random_short_wait(engine));
-    }
-    writer_finished.store(true, std::memory_order_release);
-  });
-
   static constexpr size_t reader_threads_num = 7;
-  std::vector<std::thread> reader_threads(reader_threads_num);
-  memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> settled_read_counts;
-  for (size_t i = 0; i < reader_threads_num; ++i) {
-    reader_threads.emplace_back([&, thread_id = i] {
-      std::default_random_engine engine{586'478'780 + thread_id};
-      while (true) {
-        // Read before the snapshot, so a snapshot taken once this is false must hold every write.
-        const bool writer_still_running = !writer_finished.load(std::memory_order_acquire);
-        handle.DisableFlushing();
-        // An assertion below returns from this thread. Without this the writer would be left waiting
-        // on a lock nobody releases, and the test would hang rather than report the failure.
-        const memgraph::utils::OnScopeExit resume_flushing([&] { handle.EnableFlushing(); });
-        auto [buffer, buffer_size] = handle.CurrentBuffer();
-        memgraph::utils::InputFile input_handle;
-        input_handle.Open(file_path);
-        const memgraph::utils::OnScopeExit close_input([&] { input_handle.Close(); });
-        std::optional<uint8_t> previous_number;
-        size_t total_read_count = 0;
-        uint8_t current_number;
-        // Read the file
-        while (input_handle.Read(&current_number, 1)) {
-          if (previous_number) {
-            const uint8_t expected_next = *previous_number + 1;
-            ASSERT_TRUE(current_number == expected_next);
-          }
-          previous_number = current_number;
-          ++total_read_count;
-        }
-        // Read the buffer
-        while (buffer_size > 0) {
-          if (previous_number) {
-            const uint8_t expected_next = *previous_number + 1;
-            ASSERT_TRUE(*buffer == expected_next);
-          }
-          previous_number = *buffer;
-          ++buffer;
-          --buffer_size;
-          ++total_read_count;
-        }
-        if (!writer_still_running) {
-          settled_read_counts.WithLock([&](auto &counts) { counts.push_back(total_read_count); });
-          return;
-        }
-        sleep_for(random_short_wait(engine));
-      }
-    });
-  }
 
-  if (writer_thread.joinable()) {
-    writer_thread.join();
-  }
-  for (auto &reader_thread : reader_threads) {
-    if (reader_thread.joinable()) {
-      reader_thread.join();
+  std::atomic<bool> writer_finished{false};
+  memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> settled_read_counts;
+
+  {
+    std::vector<std::jthread> reader_threads;
+    reader_threads.reserve(reader_threads_num);
+    for (size_t i = 0; i < reader_threads_num; ++i) {
+      reader_threads.emplace_back([&] {
+        while (true) {
+          // Read before the snapshot, so a snapshot taken once this is false must hold every write.
+          const bool writer_still_running = !writer_finished.load(std::memory_order_acquire);
+          handle.DisableFlushing();
+          // An assertion below returns from this thread. Without this the writer would be left
+          // waiting on a lock nobody releases, and the test would hang rather than report it.
+          const memgraph::utils::OnScopeExit resume_flushing([&] { handle.EnableFlushing(); });
+          auto [buffer, buffer_size] = handle.CurrentBuffer();
+          memgraph::utils::InputFile input_handle;
+          input_handle.Open(file_path);
+          const memgraph::utils::OnScopeExit close_input([&] { input_handle.Close(); });
+          std::optional<uint8_t> previous_number;
+          size_t total_read_count = 0;
+          uint8_t current_number = 0;
+          while (input_handle.Read(&current_number, 1)) {
+            if (previous_number) {
+              const uint8_t expected_next = *previous_number + 1;
+              ASSERT_TRUE(current_number == expected_next);
+            }
+            previous_number = current_number;
+            ++total_read_count;
+          }
+          for (; buffer_size > 0; ++buffer, --buffer_size) {
+            if (previous_number) {
+              const uint8_t expected_next = *previous_number + 1;
+              ASSERT_TRUE(*buffer == expected_next);
+            }
+            previous_number = *buffer;
+            ++total_read_count;
+          }
+          if (!writer_still_running) {
+            settled_read_counts.WithLock([&](auto &counts) { counts.push_back(total_read_count); });
+            return;
+          }
+          std::this_thread::yield();
+        }
+      });
     }
+
+    // Declared after the readers so it is joined first: they run until it says it has finished.
+    std::jthread const writer_thread([&] {
+      uint8_t current_number = 0;
+      for (size_t i = 0; i < number_of_writes; ++i) {
+        handle.Write(&current_number, 1);
+        ++current_number;
+        handle.TryFlushing();
+        // Without this the writer keeps the lock and the file jumps forward in bursts no reader
+        // sees between.
+        std::this_thread::yield();
+      }
+      writer_finished.store(true, std::memory_order_release);
+    });
   }
 
   handle.Close();
   settled_read_counts.WithLock([&](auto &counts) {
     ASSERT_EQ(counts.size(), reader_threads_num);
-    for (size_t i = 0; i < counts.size(); ++i) {
-      EXPECT_EQ(counts[i], number_of_writes) << "a snapshot taken after the writer had finished missed writes";
+    for (const auto count : counts) {
+      EXPECT_EQ(count, number_of_writes) << "a snapshot taken after the writer had finished missed writes";
     }
   });
 }
