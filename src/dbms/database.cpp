@@ -72,12 +72,13 @@ std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType r
 
 std::unique_ptr<storage::Accessor> Database::TryAccess(storage::StorageAccessType rw_type,
                                                        std::optional<storage::IsolationLevel> override_isolation_level,
-                                                       storage::EngineLockMode engine_mode) {
+                                                       storage::EngineLockMode engine_mode,
+                                                       std::chrono::microseconds try_budget) {
   auto *in_memory = dynamic_cast<storage::InMemoryStorage *>(storage_.get());
   if (in_memory == nullptr) {
     return nullptr;
   }
-  return in_memory->TryAccess(rw_type, override_isolation_level, engine_mode);
+  return in_memory->TryAccess(rw_type, override_isolation_level, engine_mode, try_budget);
 }
 
 std::unique_ptr<storage::Accessor> Database::UniqueAccess(

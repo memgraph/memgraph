@@ -2493,7 +2493,8 @@ auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*pr
 PointIndexStorage DiskStorage::empty_point_index_ = PointIndexStorage{};
 
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                           EngineLockMode engine_mode) {
+                                           EngineLockMode engine_mode, std::chrono::microseconds try_budget) {
+  (void)try_budget;
   MG_ASSERT(engine_mode == EngineLockMode::Blocking, "DiskStorage has no non-blocking transaction mint");
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and

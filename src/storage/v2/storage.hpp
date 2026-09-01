@@ -395,7 +395,8 @@ class Storage {
   virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                        EngineLockMode engine_mode = EngineLockMode::Blocking) = 0;
+                                        EngineLockMode engine_mode = EngineLockMode::Blocking,
+                                        std::chrono::microseconds try_budget = std::chrono::microseconds{2}) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 
@@ -569,7 +570,8 @@ class Accessor {
   /// passed in: SetIsolationLevel and SetStorageMode write them under UNIQUE, so a caller reading
   /// them before acquiring could build a transaction against a mode that has since changed.
   Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard,
-           EngineLockMode engine_mode = EngineLockMode::Blocking);
+           EngineLockMode engine_mode = EngineLockMode::Blocking,
+           std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;

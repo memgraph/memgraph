@@ -629,7 +629,8 @@ class DiskStorage final : public Storage {
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                EngineLockMode engine_mode = EngineLockMode::Blocking) override;
+                                EngineLockMode engine_mode = EngineLockMode::Blocking,
+                                std::chrono::microseconds try_budget = std::chrono::microseconds{2}) override;
 
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 

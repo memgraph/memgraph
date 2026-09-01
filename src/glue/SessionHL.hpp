@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <chrono>
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
@@ -17,6 +18,7 @@
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
+
 #include "storage/v2/access_type.hpp"
 
 namespace memgraph::glue {
@@ -70,7 +72,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void Configure(const bolt_map_t &run_time_info);
 
-  void BeginTransaction(const bolt_map_t &extra, storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
+  void BeginTransaction(const bolt_map_t &extra, storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
+                        std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 
   bolt_map_t CommitTransaction();
 
@@ -79,7 +82,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra);
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare(
-      storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
+      storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
+      std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
                                                                     const bolt_map_t &extra) {
@@ -165,6 +169,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // re-evaluate if new work arrives mid-wait (bounded by the holding commit; the full fix is coroutines).
   storage::EngineLockMode AdmissionEngineLockMode() const noexcept {
     return PoolHasPendingWork() ? storage::EngineLockMode::TryBounded : storage::EngineLockMode::Blocking;
+  }
+
+  // Short budget when the pool has work to yield to (reschedule fast); longer when quiet (wait in-place,
+  // fewer wasted re-dispatches). S2c: replaces block-vs-try as the knob. Flags come in a later step.
+  std::chrono::microseconds AdmissionTryBudget() const noexcept {
+    return PoolHasPendingWork() ? std::chrono::microseconds{2} : std::chrono::microseconds{64};
   }
 
  private:

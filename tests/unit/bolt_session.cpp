@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
 #include <string>
 
 #include <gflags/gflags.h>
@@ -71,7 +72,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   }
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare(
-      memgraph::storage::EngineLockMode try_mode = memgraph::storage::EngineLockMode::Blocking) {
+      memgraph::storage::EngineLockMode try_mode = memgraph::storage::EngineLockMode::Blocking,
+      std::chrono::microseconds /*try_budget*/ = std::chrono::microseconds{2}) {
     // Pool bounded-try (mirrors BeginTransaction): lose the engine-lock race for the first N TryBounded
     // attempts, then succeed. The first loss bails HandlePrepare into State::PendingPrepare; the rest make
     // FinishPendingPrepare_ return Reschedule. Blocking (the fairness-cap fallback) is never gated, so the
@@ -125,7 +127,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) { return {}; }
 
   void BeginTransaction(const bolt_map_t &extra,
-                        memgraph::storage::EngineLockMode mode = memgraph::storage::EngineLockMode::Blocking) {
+                        memgraph::storage::EngineLockMode mode = memgraph::storage::EngineLockMode::Blocking,
+                        std::chrono::microseconds /*try_budget*/ = std::chrono::microseconds{2}) {
     // Pool bounded-try: simulate losing the engine-lock race for the first N attempts, then succeed. The
     // first loss happens inside HandleBegin (the BEGIN goes State::PendingBegin); the rest happen inside
     // FinishPendingBegin_ (each returns Reschedule). Blocking (the fairness-cap fallback) never throws
@@ -203,6 +206,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     return pool_has_pending_work_ ? memgraph::storage::EngineLockMode::TryBounded
                                   : memgraph::storage::EngineLockMode::Blocking;
   }
+
+  std::chrono::microseconds AdmissionTryBudget() const noexcept { return std::chrono::microseconds{2}; }
 
   void Execute() {
     while (Execute_(*this)) {

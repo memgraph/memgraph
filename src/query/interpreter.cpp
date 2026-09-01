@@ -195,7 +195,7 @@ TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expres
 // access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-    storage::StorageAccessType acc_type, storage::EngineLockMode try_mode) {
+    storage::StorageAccessType acc_type, storage::EngineLockMode try_mode, std::chrono::microseconds try_budget) {
   if (!db_acc_) {
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
@@ -215,7 +215,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
                                                     override_isolation_level,
                                                     /*allow timeout*/ timeout);
       } else {
-        db_transactional_accessor_ = db_acc->TryAccess(acc_type, override_isolation_level, try_mode);
+        db_transactional_accessor_ = db_acc->TryAccess(acc_type, override_isolation_level, try_mode, try_budget);
         if (!db_transactional_accessor_) throw WouldBlockInlineException{};
       }
       break;
@@ -3918,14 +3918,15 @@ auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &conf
 }
 
 PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum,
-                                                   QueryExtras const &extras, storage::EngineLockMode try_mode) {
+                                                   QueryExtras const &extras, storage::EngineLockMode try_mode,
+                                                   std::chrono::microseconds try_budget) {
   std::function<void()> handler;
 
   switch (tx_query_enum) {
     case TransactionQuery::BEGIN: {
       // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
       // becomes large.
-      handler = [this, extras = extras, try_mode] {
+      handler = [this, extras = extras, try_mode, try_budget] {
         if (in_explicit_transaction_) {
           throw ExplicitTransactionUsageException("Nested transactions are not supported.");
         }
@@ -3943,10 +3944,16 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         if (try_mode == storage::EngineLockMode::Blocking) {
           SetupInterpreterTransaction(extras);
           SetupDatabaseTransaction(
-              true, extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE, try_mode);
+              true,
+              extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE,
+              try_mode,
+              try_budget);
         } else {
           SetupDatabaseTransaction(
-              true, extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE, try_mode);
+              true,
+              extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE,
+              try_mode,
+              try_budget);
           SetupInterpreterTransaction(extras);
         }
         // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
@@ -10217,9 +10224,10 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
   return txn->deltas.empty() && txn->md_deltas.empty();
 }
 
-void Interpreter::BeginTransaction(QueryExtras const &extras, storage::EngineLockMode try_mode) {
+void Interpreter::BeginTransaction(QueryExtras const &extras, storage::EngineLockMode try_mode,
+                                   std::chrono::microseconds try_budget) {
   ResetInterpreter();
-  auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras, try_mode);
+  auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras, try_mode, try_budget);
   prepared_query.query_handler(nullptr, {});
 }
 
@@ -10579,7 +10587,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 };
 
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParameters_fn &params_getter,
-                                                QueryExtras const &extras, storage::EngineLockMode try_mode) {
+                                                QueryExtras const &extras, storage::EngineLockMode try_mode,
+                                                std::chrono::microseconds try_budget) {
   std::optional<memory::DbArenaScope> db_arena_scope;
   if (current_db_.db_acc_) {
     db_arena_scope.emplace(current_db_.db_acc_->get());
@@ -10594,7 +10603,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParamet
     // outside any DB query-memory budget.
     auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
-    query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
+    query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras, try_mode, try_budget);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
   }
@@ -10829,7 +10838,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParamet
         // Blocking cannot bail: mint first so the query is visible/killable during the lock wait.
         if (try_mode == storage::EngineLockMode::Blocking) open_interpreter_txn();
         SetupDatabaseTransaction(
-            transaction_requirements.could_commit_, *transaction_requirements.accessor_type_, try_mode);
+            transaction_requirements.could_commit_, *transaction_requirements.accessor_type_, try_mode, try_budget);
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index
@@ -11268,10 +11277,10 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
 }
 
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type,
-                                           storage::EngineLockMode try_mode) {
+                                           storage::EngineLockMode try_mode, std::chrono::microseconds try_budget) {
   // Peek (do not consume) so a WouldBlockInlineException bail leaves the one-shot override intact for
   // the retry; consume only after the accessor is successfully acquired.
-  current_db_.SetupDatabaseTransaction(PeekIsolationLevelOverride(), couldCommit, acc_type, try_mode);
+  current_db_.SetupDatabaseTransaction(PeekIsolationLevelOverride(), couldCommit, acc_type, try_mode, try_budget);
   next_transaction_isolation_level.reset();
 }
 

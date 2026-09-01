@@ -264,7 +264,8 @@ struct CurrentDB {
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
-                                storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
+                                storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
+                                std::chrono::microseconds try_budget = std::chrono::microseconds{2});
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
@@ -397,7 +398,8 @@ class Interpreter final {
   // WouldBlockInlineException (TryBounded mode) they are left untouched, so the caller can retry
   // Prepare with the same parsed input.
   Interpreter::PrepareResult Prepare(ParseRes &parse_res, UserParameters_fn &params_getter, QueryExtras const &extras,
-                                     storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
+                                     storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
+                                     std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 
   /**
    * Prepare a query for execution.
@@ -471,7 +473,8 @@ class Interpreter final {
                                          std::optional<int> qid = {});
 
   void BeginTransaction(QueryExtras const &extras = {},
-                        storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
+                        storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
+                        std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 
   std::optional<uint64_t> GetTransactionId() const;
 
@@ -700,7 +703,8 @@ class Interpreter final {
   static void AppendNotificationToSummary(const Notification &notification, std::map<std::string, TypedValue> &summary);
 
   PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {},
-                                        storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
+                                        storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
+                                        std::chrono::microseconds try_budget = std::chrono::microseconds{2});
   void Commit();
   // Resets tx-tracking left ACTIVE by SetupInterpreterTransaction when NOTHING skips Commit()/Abort()'s cleanup.
   void FinishAutocommitNothing();
@@ -717,7 +721,8 @@ class Interpreter final {
   void SetupInterpreterTransaction(const QueryExtras &extras);
   void SetupDatabaseTransaction(bool couldCommit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
-                                storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
+                                storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
+                                std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 };
 
 template <typename TStream>

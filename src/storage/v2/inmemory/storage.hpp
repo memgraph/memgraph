@@ -167,7 +167,8 @@ class InMemoryStorage final : public Storage {
 
     /// Takes ownership of a hold the caller acquired; see Accessor's constructor.
     explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
-                              utils::ResourceLockGuard guard, EngineLockMode engine_mode = EngineLockMode::Blocking);
+                              utils::ResourceLockGuard guard, EngineLockMode engine_mode = EngineLockMode::Blocking,
+                              std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
@@ -812,7 +813,8 @@ class InMemoryStorage final : public Storage {
   /// caller polling it would spin instead of learning that it should just block.
   std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
                                       std::optional<IsolationLevel> override_isolation_level = {},
-                                      EngineLockMode engine_mode = EngineLockMode::TryBounded);
+                                      EngineLockMode engine_mode = EngineLockMode::TryBounded,
+                                      std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 
   void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
@@ -854,7 +856,8 @@ class InMemoryStorage final : public Storage {
       std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                EngineLockMode engine_mode = EngineLockMode::Blocking) override;
+                                EngineLockMode engine_mode = EngineLockMode::Blocking,
+                                std::chrono::microseconds try_budget = std::chrono::microseconds{2}) override;
 
   void SetStorageMode(StorageMode storage_mode);
 

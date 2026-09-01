@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <chrono>
 #include <functional>
 #include <optional>
 #include <ranges>
@@ -567,7 +568,8 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
   }
 }
 
-std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare(storage::EngineLockMode try_mode) {
+std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare(
+    storage::EngineLockMode try_mode, std::chrono::microseconds try_budget) {
   if (!parsed_res_) {
     throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
   }
@@ -577,8 +579,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     // before it moves from parsed_res_, so on a would-block parsed_res_ stays intact and this Prepare
     // can be retried with the same parsed input. Only clear parsed_res_ once Prepare (and the
     // authorization check) have succeeded and consumed it.
-    auto result =
-        interpreter_.Prepare(parsed_res_->parsed_query, parsed_res_->get_params_pv, parsed_res_->extra, try_mode);
+    auto result = interpreter_.Prepare(
+        parsed_res_->parsed_query, parsed_res_->get_params_pv, parsed_res_->extra, try_mode, try_budget);
     interpreter_.CheckAuthorized(result.privileges, result.db);
     parsed_res_.reset();
     return {std::move(result.headers), result.qid};
@@ -688,9 +690,10 @@ bolt_map_t SessionHL::CommitTransaction() {
   }
 }
 
-void SessionHL::BeginTransaction(const bolt_map_t &extra, storage::EngineLockMode try_mode) {
+void SessionHL::BeginTransaction(const bolt_map_t &extra, storage::EngineLockMode try_mode,
+                                 std::chrono::microseconds try_budget) {
   try {
-    interpreter_.BeginTransaction(ToQueryExtras(extra), try_mode);
+    interpreter_.BeginTransaction(ToQueryExtras(extra), try_mode, try_budget);
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <exception>
 #include <map>
 #include <optional>
@@ -217,7 +218,8 @@ State HandlePrepare(TSession &session) {
     // Interpret can throw. Gated acquire (TryBounded when pool has queued work to yield to, else Blocking) so
     // this pool worker reschedules instead of busy-spinning behind a write commit: on contention InterpretPrepare
     // throws WouldBlock, parsed_res_ left intact.
-    const auto [header, qid] = session.InterpretPrepare(session.AdmissionEngineLockMode());
+    const auto [header, qid] =
+        session.InterpretPrepare(session.AdmissionEngineLockMode(), session.AdmissionTryBudget());
     // Send the header (exactly one SUCCESS). The PendingPrepare bail below must NOT send it.
     if (!session.SendPrepareHeader(header, qid)) {
       spdlog::trace("Couldn't send query header!");
@@ -435,7 +437,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
     // Gated engine-lock acquire (TryBounded when pool has queued work to yield to, else Blocking): rather than
     // busy-spin this pool worker behind a long write commit's durability hold, bail with WouldBlockInlineException
     // on contention and let the completion reschedule. Quiet pools take Blocking directly — zero regression.
-    session.BeginTransaction(extra.ValueMap(), session.AdmissionEngineLockMode());
+    session.BeginTransaction(extra.ValueMap(), session.AdmissionEngineLockMode(), session.AdmissionTryBudget());
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;

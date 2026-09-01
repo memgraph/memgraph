@@ -613,8 +613,9 @@ void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
                                                     std::optional<IsolationLevel> override_isolation_level,
-                                                    utils::ResourceLockGuard guard, EngineLockMode engine_mode)
-    : Accessor(storage, override_isolation_level, std::move(guard), engine_mode),
+                                                    utils::ResourceLockGuard guard, EngineLockMode engine_mode,
+                                                    std::chrono::microseconds try_budget)
+    : Accessor(storage, override_isolation_level, std::move(guard), engine_mode, try_budget),
       config_(storage->config_.salient.items) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
@@ -2870,7 +2871,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid edge
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                               EngineLockMode engine_mode) {
+                                               EngineLockMode engine_mode, std::chrono::microseconds try_budget) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -2883,7 +2884,6 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   {
     // Acquire must precede every mutation below: a contended TryBounded probe throws having
     // changed nothing -- no transaction_id_/timestamp_ bump, no index/constraint read.
-    constexpr auto kBeginEngineTryBudget = std::chrono::microseconds{2};
     std::unique_lock<utils::SpinLock> guard;
     switch (engine_mode) {
       case EngineLockMode::Blocking:
@@ -2892,7 +2892,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
       case EngineLockMode::TryBounded:
         // BoundedTryLock returns false WITHOUT holding the lock on timeout, so throwing leaks nothing;
         // on success it owns the lock -- adopt it so the scope-exit RAII unlock stays correct.
-        if (!utils::BoundedTryLock(engine_lock_, kBeginEngineTryBudget)) throw TransactionEngineWouldBlock{};
+        if (!utils::BoundedTryLock(engine_lock_, try_budget)) throw TransactionEngineWouldBlock{};
         guard = std::unique_lock{engine_lock_, std::adopt_lock};
         break;
     }
@@ -4853,16 +4853,16 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
                                                               std::optional<IsolationLevel> override_isolation_level,
-                                                              EngineLockMode engine_mode) {
+                                                              EngineLockMode engine_mode,
+                                                              std::chrono::microseconds try_budget) {
   // Bounded-try main_lock_ too (not just engine_lock_): a brief exclusive hold -- a transient UNIQUE
   // that gates shared acquirers under writer-preference -- should ride out within a tiny budget rather
-  // than fail instantly (std::try_to_lock) and force an admission reschedule. Mirrors engine_lock_'s ~2us try.
-  constexpr auto kMainLockTryBudget = std::chrono::microseconds{2};
+  // than fail instantly (std::try_to_lock) and force an admission reschedule. Mirrors engine_lock_'s try.
   utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::defer_lock};
-  if (!guard.try_lock_for(kMainLockTryBudget)) return nullptr;
+  if (!guard.try_lock_for(try_budget)) return nullptr;
   try {
     return std::unique_ptr<InMemoryAccessor>(
-        new InMemoryAccessor{this, override_isolation_level, std::move(guard), engine_mode});
+        new InMemoryAccessor{this, override_isolation_level, std::move(guard), engine_mode, try_budget});
   } catch (const TransactionEngineWouldBlock &) {
     return nullptr;  // engine lock contended (e.g. a write-commit's durability phase); caller falls back to pool
   }

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <concepts>
 #include <optional>
 
@@ -224,11 +225,12 @@ class Session {
     // (unchanged from master).
     const auto mode = (cap_reached || !impl.PoolHasPendingWork()) ? memgraph::storage::EngineLockMode::Blocking
                                                                   : memgraph::storage::EngineLockMode::TryBounded;
+    const auto budget = impl.AdmissionTryBudget();
     const Value &extra = *pending_begin_extra_;  // reference, NOT move -- may need it again on reschedule
     try {
       impl.Configure(
           extra.ValueMap());  // idempotent on identical extras (early-outs), so safe to re-run across reschedules
-      impl.BeginTransaction(extra.ValueMap(), mode);
+      impl.BeginTransaction(extra.ValueMap(), mode, budget);
       if (!encoder_.MessageSuccess({})) {
         state_ = State::Close;
         pending_begin_extra_.reset();
@@ -287,8 +289,9 @@ class Session {
     // Block on fairness cap OR when the pool has gone quiet (no pending work to yield to).
     const auto mode = (cap_reached || !impl.PoolHasPendingWork()) ? memgraph::storage::EngineLockMode::Blocking
                                                                   : memgraph::storage::EngineLockMode::TryBounded;
+    const auto budget = impl.AdmissionTryBudget();
     try {
-      auto [header, qid] = impl.InterpretPrepare(mode);  // consumes parsed_res_ on success
+      auto [header, qid] = impl.InterpretPrepare(mode, budget);  // consumes parsed_res_ on success
       if (!SendPrepareHeader(header, qid)) {
         state_ = State::Close;
         pending_prepare_ = false;

@@ -97,7 +97,8 @@ class Database {
   // to the blocking Access() path on nullptr; this is a one-shot try, never a poll loop.
   std::unique_ptr<storage::Accessor> TryAccess(
       storage::StorageAccessType rw_type, std::optional<storage::IsolationLevel> override_isolation_level = {},
-      storage::EngineLockMode engine_mode = storage::EngineLockMode::TryBounded);
+      storage::EngineLockMode engine_mode = storage::EngineLockMode::TryBounded,
+      std::chrono::microseconds try_budget = std::chrono::microseconds{2});
 
   std::unique_ptr<storage::Accessor> UniqueAccess(std::optional<storage::IsolationLevel> override_isolation_level = {},
                                                   std::optional<std::chrono::milliseconds> timeout = std::nullopt);
