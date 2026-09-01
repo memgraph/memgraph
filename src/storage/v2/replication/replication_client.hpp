@@ -128,6 +128,14 @@ class ReplicationStorageClient {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
   }
 
+  void MarkForRecovery() {
+    replica_state_.WithLock([](auto &state) {
+      if (state != replication::ReplicaState::RECOVERY && state != replication::ReplicaState::DIVERGED_FROM_MAIN) {
+        state = replication::ReplicaState::MAYBE_BEHIND;
+      }
+    });
+  }
+
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
   auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
@@ -158,6 +166,7 @@ class ReplicationStorageClient {
   // StartTransactionReplication, stream is created.
   template <InvocableWithStream F>
   void IfStreamingTransaction(F &&callback, std::optional<ReplicaStream> &replica_stream) {
+    if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) return;
     // We can only check the state because it guarantees to be only
     // valid during a single transaction replication (if the assumption
     // that this and other transaction replication functions can only be

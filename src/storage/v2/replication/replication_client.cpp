@@ -36,7 +36,6 @@
 
 namespace {
 constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
-constexpr auto kCommitRpcTimeout = std::chrono::milliseconds(50);
 
 using memgraph::storage::replication::ReplicaState;
 using namespace std::string_view_literals;
@@ -358,9 +357,9 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
   }
 }
 
-// The method which updates replication state machine. Used for all replication modes.
+// The method which updates the transaction replication state machine for SYNC and STRICT_SYNC replicas.
 // If replica is in state RECOVERY -> skip
-// If replica is REPLICATING old txn (ASYNC), set the state to MAYBE_BEHIND
+// If replica is REPLICATING an old txn, set the state to MAYBE_BEHIND
 // If replica is MAYBE_BEHIND, skip and asynchronously check the state of the replica
 // If replica is DIVERGED_FROM_MAIN, skip
 // If replica is READY, set it to replicating and create optional stream
@@ -373,18 +372,8 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
   spdlog::trace(
       "Starting transaction replication for replica {} in state {}", client_.name_, StateToString(*locked_state));
 
-  // ASYNC replication deliberately doesn't stream individual transactions. Mark the replica as potentially behind
-  // and let the periodic replica check recover it exclusively from durability files (snapshot/WAL/current WAL).
-  // In particular, don't enqueue a per-transaction finalize task on the replication client's thread pool.
-  if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-    if (*locked_state == ReplicaState::DIVERGED_FROM_MAIN) {
-      return std::unexpected{StartTxnReplicationError{ReplicaDivergedErr{}}};
-    }
-    if (*locked_state != ReplicaState::RECOVERY) {
-      *locked_state = ReplicaState::MAYBE_BEHIND;
-    }
-    return std::unexpected{StartTxnReplicationError{ReplicaNotInSyncErr{}}};
-  }
+  MG_ASSERT(client_.mode_ != replication_coordination_glue::ReplicationMode::ASYNC,
+            "ASYNC replicas must not start transaction replication");
 
   switch (*locked_state) {
     using enum ReplicaState;
@@ -415,34 +404,16 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     case READY: {
       try {
         metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.replica_stream_seconds};
-        std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
-
-        // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
-        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
-              std::optional{kCommitRpcTimeout},
-              main_uuid_,
-              storage->uuid(),
-              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              TwoPhaseCommit(),
-              durability_commit_timestamp);
-        } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
-          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
-              main_uuid_,
-              storage->uuid(),
-              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              TwoPhaseCommit(),
-              durability_commit_timestamp));
-        }
-
-        if (!maybe_stream_handler) {
-          spdlog::warn("Couldn't obtain RPC lock for committing to ASYNC replica.");
-          *locked_state = MAYBE_BEHIND;
-          return std::unexpected{StartTxnReplicationError{FailedToGetAsyncRpcLock{}}};
-        }
+        // Block for SYNC and STRICT_SYNC replicas until we obtain the RPC lock.
+        auto stream_handler = client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
+            main_uuid_,
+            storage->uuid(),
+            storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+            TwoPhaseCommit(),
+            durability_commit_timestamp);
 
         *locked_state = REPLICATING;
-        return ReplicaStream(storage, std::move(*maybe_stream_handler));
+        return ReplicaStream(storage, std::move(stream_handler));
       } catch (rpc::RpcFailedToConnectException const &) {
         *locked_state = MAYBE_BEHIND;
         spdlog::error("Failed to connect to replica {} while starting txn replication", client_.name_);

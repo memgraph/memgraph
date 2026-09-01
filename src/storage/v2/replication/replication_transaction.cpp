@@ -56,6 +56,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 
   bool const should_run_2pc = ShouldRunTwoPC();
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) continue;
     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                    replica_stream);
     // NOLINTNEXTLINE
@@ -69,15 +70,10 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
       // RPC stream gets destroyed => RPC lock released.
       if (!should_run_2pc) {
-        // ASYNC replicas intentionally have no transaction stream; periodic recovery will send durability files.
-        if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-          return {};
-        }
         // NOLINTNEXTLINE
         return client->FinalizeTransactionReplication(std::move(replica_stream));
       }
-      // If ASYNC replica which is part of 2PC, just skip this
-      // SYNC replica cannot be part of 2PC
+      // SYNC replica cannot be part of 2PC.
       return {};
     });
 
@@ -143,8 +139,12 @@ void TransactionReplication::UpdateCommitTsInfo() {
   CommitTsInfo const observed{.ldt_ = durability_commit_timestamp_, .num_committed_txns_ = commit_num_committed_txns_};
   for (auto const &client : *locked_clients) {
     if (failed_replicas_.contains(client->Name())) continue;
-    // ASYNC replicas don't stream transactions. Recovery updates their cached progress from durability-file RPCs.
-    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) continue;
+    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+      // The main transaction committed. Trigger periodic durability-file recovery without interrupting recovery that
+      // is already in progress.
+      client->MarkForRecovery();
+      continue;
+    }
     // Advance-only merge to this txn's absolute value rather than a blind +1, so a heartbeat that already folded in
     // the replica's self-reported count for this txn can't be double-counted.
     atomic_struct_update<CommitTsInfo>(client->commit_ts_info_,
@@ -167,17 +167,18 @@ TransactionReplication::TransactionReplication(uint64_t const durability_commit_
     for (const auto &client : *locked_clients) {
       // If any client requires two phase commit, then we are running that phase
       run_two_phase_commit |= client->TwoPhaseCommit();
+      if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+        streams.emplace_back(std::nullopt);
+        continue;
+      }
       auto res = client->StartTransactionReplication(storage, db_acc, durability_commit_timestamp);
       if (res.has_value()) {
         streams.emplace_back(std::move(res.value()));
       } else {
         streams.emplace_back(std::nullopt);
-        // ASYNC replica errors are not reported — fire-and-forget
-        if (client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
-          replication_failures_.push_back({.name = client->Name(),
-                                           .mode = ReplicationModeToString(client->Mode()),
-                                           .reason = StartTxnErrorToReason(res.error())});
-        }
+        replication_failures_.push_back({.name = client->Name(),
+                                         .mode = ReplicationModeToString(client->Mode()),
+                                         .reason = StartTxnErrorToReason(res.error())});
       }
     }
   }
