@@ -1444,8 +1444,23 @@ EOF
   cat "$build_dir/Dockerfile"
   echo "------------------"
 
-  if ! docker build -t "memgraph/memgraph:$image_tag" "$build_dir"; then
-    echo "Error: docker build failed for memgraph/memgraph:$image_tag" >&2
+  # Transient repo-mirror failures (e.g. a CentOS Stream mirror mid-sync whose
+  # repomd.xml fails its metalink checksum) dominate here; growing waits give
+  # the sync window time to close, and each attempt refetches the metadata.
+  local attempt
+  local built=false
+  for attempt in 1 2 3 4 5; do
+    if (( attempt > 1 )); then
+      echo "docker build failed (attempt $((attempt - 1))/5), retrying in $(( (attempt - 1) * 30 ))s..."
+      sleep $(( (attempt - 1) * 30 ))
+    fi
+    if docker build -t "memgraph/memgraph:$image_tag" "$build_dir"; then
+      built=true
+      break
+    fi
+  done
+  if [[ "$built" != true ]]; then
+    echo "Error: docker build failed for memgraph/memgraph:$image_tag after 5 attempts" >&2
     exit 1
   fi
   echo "Built smoke image: memgraph/memgraph:$image_tag"
