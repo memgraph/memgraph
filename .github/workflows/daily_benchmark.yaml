@@ -227,121 +227,121 @@ jobs:
             $BRANCH_NAME \
             mgbench
 
-      - name: Run and upload load_parquet benchmark
-        id: load-parquet
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            mgbench-load-parquet \
-            load-parquet \
-            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME
+            # - name: Run and upload load_parquet benchmark
+            #   id: load-parquet
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       mgbench-load-parquet \
+            #       load-parquet \
+            #       ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME
 
-      - name: Run and upload mgbench-vector-search-index
-        id: mgbench-vector-search-index
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            mgbench-vector-search-index \
-            vector-search-index \
-            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
+            # - name: Run and upload mgbench-vector-search-index
+            #   id: mgbench-vector-search-index
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       mgbench-vector-search-index \
+            #       vector-search-index \
+            #       ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME \
+            #       mgbench
 
-      - name: Run and upload mgbench-vector-search-edge-index
-        id: mgbench-vector-search-edge-index
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            mgbench-vector-search-edge-index \
-            vector-search-edge-index \
-            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
+            # - name: Run and upload mgbench-vector-search-edge-index
+            #   id: mgbench-vector-search-edge-index
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       mgbench-vector-search-edge-index \
+            #       vector-search-edge-index \
+            #       ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME \
+            #       mgbench
 
-      - name: Run and upload mgbench-text-search-index
-        id: mgbench-text-search-index
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            mgbench-text-search-index \
-            text-search-index \
-            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
+            # - name: Run and upload mgbench-text-search-index
+            #   id: mgbench-text-search-index
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       mgbench-text-search-index \
+            #       text-search-index \
+            #       ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME \
+            #       mgbench
 
-      - name: Run and upload mgbench-text-search-edge-index
-        id: mgbench-text-search-edge-index
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            mgbench-text-search-edge-index \
-            text-search-edge-index \
-            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
+            # - name: Run and upload mgbench-text-search-edge-index
+            #   id: mgbench-text-search-edge-index
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       mgbench-text-search-edge-index \
+            #       text-search-edge-index \
+            #       ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME \
+            #       mgbench
 
-      - name: Run and upload macro benchmarks
-        id: macro-benchmark
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            macro-benchmark \
-            macro_benchmark \
-            .harness_summary \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            macro_benchmark
+            # - name: Run and upload macro benchmarks
+            #   id: macro-benchmark
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       macro-benchmark \
+            #       macro_benchmark \
+            #       .harness_summary \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME \
+            #       macro_benchmark
 
-      - name: Run and upload mgbench-supernode
-        id: mgbench-supernode
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            mgbench-supernode \
-            supernode \
-            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
+            # - name: Run and upload mgbench-supernode
+            #   id: mgbench-supernode
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       mgbench-supernode \
+            #       supernode \
+            #       ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME \
+            #       mgbench
 
-      - name: Run and upload mgbench
-        id: mgbench
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            mgbench \
-            mgbench \
-            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
+            # - name: Run and upload mgbench
+            #   id: mgbench
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       mgbench \
+            #       mgbench \
+            #       ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME \
+            #       mgbench
 
-      - name: Run extended planner optimizations mgbench
-        id: planner
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            "mgbench --dataset pokec_planner_optimizations --size medium" \
-            mgbench-planner-optimizations \
-            benchmark_result_extended.json \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
+            # - name: Run extended planner optimizations mgbench
+            #   id: planner
+            #   continue-on-error: true
+            #   run: |
+            #     ./tools/ci/loop-benchmark.sh \
+            #       "mgbench --dataset pokec_planner_optimizations --size medium" \
+            #       mgbench-planner-optimizations \
+            #       benchmark_result_extended.json \
+            #       ${{ github.run_id }} \
+            #       ${{ github.run_number }} \
+            #       $BRANCH_NAME \
+            #       mgbench
 
       - name: Stop mgbuild container
         if: always()
