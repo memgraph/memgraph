@@ -750,6 +750,9 @@ class Node {
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(const mgp_vertex *const_ptr);
 
+  /// Borrowed handle, for call sites that must avoid the copy every accessor here makes.
+  mgp_vertex *GetPtr() const;
+
   Node(const Node &other);
   Node(Node &&other) noexcept;
 
@@ -3183,6 +3186,8 @@ inline Node::~Node() {
 }
 
 inline bool Node::IsDeleted() const { return mgp::vertex_is_deleted(ptr_); }
+
+inline mgp_vertex *Node::GetPtr() const { return ptr_; }
 
 inline mgp::Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
 
