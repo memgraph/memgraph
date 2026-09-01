@@ -38,6 +38,16 @@ bool StepEndsNodesOnly(const Path::LabelStep &step) {
          step.wildcards.termination;
 }
 
+bool StepAdmits(const Path::RelStep &step, const bool outgoing) {
+  if (outgoing ? step.any_outgoing : step.any_incoming) {
+    return true;
+  }
+  const auto wanted = outgoing ? Path::RelDirection::kOutgoing : Path::RelDirection::kIncoming;
+  return std::ranges::any_of(step.types, [wanted](const auto &entry) {
+    return entry.second == Path::RelDirection::kAny || entry.second == wanted;
+  });
+}
+
 }  // namespace
 
 Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relationships, int64_t min_hops,
@@ -438,6 +448,13 @@ const Path::RelStep &Path::PathHelper::RelStepAt(const int64_t depth) const {
   return config_.rel_steps[position % static_cast<int64_t>(config_.rel_steps.size())];
 }
 
+// RelationshipAdmitted's direction test, hoisted: it depends on the step alone, so it can rule out a
+// whole adjacency list.
+bool Path::PathHelper::StepAdmitsDirection(const int64_t depth, const bool outgoing) const {
+  const RelStep &step = RelStepAt(depth);
+  return outgoing ? step.admits_outgoing : step.admits_incoming;
+}
+
 bool Path::PathHelper::RelationshipAdmitted(std::string_view rel_type, const bool outgoing, const int64_t depth) const {
   const RelStep &step = RelStepAt(depth);
   const bool any_directed = outgoing ? step.any_outgoing : step.any_incoming;
@@ -625,6 +642,8 @@ Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationsh
   if (list_of_relationships.Size() == 0) {  // no relationships given, so every relationship is allowed
     step.any_outgoing = true;
     step.any_incoming = true;
+    step.admits_incoming = true;
+    step.admits_outgoing = true;
     return step;
   }
 
@@ -682,6 +701,8 @@ Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationsh
     AddRelationshipDirection(step, std::move(type), direction);
   }
 
+  step.admits_incoming = StepAdmits(step, false);
+  step.admits_outgoing = StepAdmits(step, true);
   return step;
 }
 
@@ -938,8 +959,13 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
     return;
   }
 
-  this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
-  this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
+  // Skip an adjacency list the step admits nothing from.
+  if (path_data_.helper_.StepAdmitsDirection(path_size, false)) {
+    this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
+  }
+  if (path_data_.helper_.StepAdmitsDirection(path_size, true)) {
+    this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
+  }
 }
 
 void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
@@ -1249,8 +1275,12 @@ mgp::List Path::PathSubgraph::BFS() {
       continue;
     }
 
-    this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue);
-    this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue);
+    if (path_data_.helper_.StepAdmitsDirection(pair.second, false)) {
+      this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue);
+    }
+    if (path_data_.helper_.StepAdmitsDirection(pair.second, true)) {
+      this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue);
+    }
   }
 
   return to_be_returned_nodes_;
