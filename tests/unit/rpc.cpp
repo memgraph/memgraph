@@ -121,7 +121,9 @@ TEST(Rpc, ClientPool) {
   bool control_window_used = false;
 
   memgraph::communication::ServerContext server_context;
-  Server server({"127.0.0.1", 0}, &server_context);
+  // The worker count otherwise follows the machine, and a machine with fewer cores than this could
+  // not run the calls together however well the pool behaved.
+  Server server({"127.0.0.1", 0}, &server_context, kConcurrentCalls);
   server.Register<Sum>([&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
                            uint64_t const request_version,
                            const auto &req_reader,
