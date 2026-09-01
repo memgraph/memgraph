@@ -1,10 +1,10 @@
 sources:
-  "1.91.0":
+  "1.91.0-memgraph":
     url:
       - "https://archives.boost.io/release/1.91.0/source/boost_1_91_0.tar.bz2"
     sha256: "de5e6b0e4913395c6bdfa90537febd9028ea4c0735d2cdb0cd9b45d5f51264f5"
 patches:
-  "1.91.0":
+  "1.91.0-memgraph":
     - patch_file: "patches/1.88.0-locale-iconv-library-option.patch"
       patch_description: "Optional flag to specify iconv from either libc of libiconv"
       patch_type: "conan"

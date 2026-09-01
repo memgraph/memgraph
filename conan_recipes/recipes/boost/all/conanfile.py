@@ -5,7 +5,7 @@ from conan.tools.build import build_jobs, cross_building, valid_min_cppstd, supp
 from conan.tools.env import VirtualBuildEnv
 from conan.tools.files import (
     apply_conandata_patches, chdir, collect_libs, copy, export_conandata_patches,
-    get, mkdir, rename, replace_in_file, rm, rmdir, save
+    get, mkdir, rename, replace_in_file, rm, rmdir, save, trim_conandata
 )
 from conan.tools.gnu import AutotoolsToolchain
 from conan.tools.layout import basic_layout
@@ -158,6 +158,8 @@ class BoostConan(ConanFile):
 
     def export(self):
         copy(self, f"dependencies/{self._dependency_filename}", src=self.recipe_folder, dst=self.export_folder)
+        # Stabilise recipe revision across conan export and local-recipes-index
+        trim_conandata(self)
 
     def export_sources(self):
         export_conandata_patches(self)
@@ -863,7 +865,7 @@ class BoostConan(ConanFile):
 
     def build_requirements(self):
         if not self.options.header_only:
-            self.tool_requires("b2/[>=5.2 <6]")
+            self.tool_requires("b2/[>=5.4 <6]")
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version],
@@ -1588,6 +1590,15 @@ class BoostConan(ConanFile):
                 contents += f" -arch {to_apple_arch(self)}"
 
         contents += " : \n"
+        # Clang-specific: set <triple> to prevent b2's init-flags-cross from
+        # generating --target=x86_64-pc-linux (wrong triple that breaks ASAN
+        # runtime lookup). "none" disables b2's target guessing, letting clang
+        # use its own default triple.
+        # For cross-compilation, set tools.gnu:host_triplet in the Conan profile.
+        # See https://github.com/bfgroup/b2/issues/584
+        if "clang" in str(self.settings.compiler):
+            triple = self.conf.get("tools.gnu:host_triplet", default="none")
+            contents += f'<triple>{triple} '
         if self._ar:
             ar_path = self._ar.replace("\\", "/")
             contents += f'<archiver>"{ar_path}" '
