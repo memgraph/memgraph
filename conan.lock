@@ -43,7 +43,7 @@
         "cppitertools/2.2#387562fa5016e7692d673955f66d2e7a%1741517127.057",
         "civetweb/1.16#f4a42c8aa0bc0fe4bbe2a2270af0cea2%1750148475.207",
         "bzip2/1.0.8#c470882369c2d95c5c77e970c0c7e321%1762886692.465",
-        "boost/1.91.0-memgraph#5e904bc0648eba7160e97c7f6fc7d049%1787924063.0",
+        "boost/1.91.0-memgraph#e6b512f951f4cbf01f7603414a41cd95%1788282136.0",
         "benchmark/1.9.5#b885dc73ad67b40a55d45684d1c88ad1%1774363287.434",
         "aws-sdk-cpp/1.11.692#bd7bb8c05feab8e962413aef0768bb37%1782940101.827",
         "aws-crt-cpp/0.35.2#e11cf5e3d2a9273d4413bb5f8c6e502e%1763415447.617",
@@ -97,7 +97,7 @@
             "gflags/2.2.0-memgraph"
         ],
         "boost/[>=1.85.0 <=1.91.0]": [
-            "boost/1.91.0-memgraph#5e904bc0648eba7160e97c7f6fc7d049"
+            "boost/1.91.0-memgraph#e6b512f951f4cbf01f7603414a41cd95"
         ],
         "snappy/1.1.9": [
             "snappy/1.2.1"
@@ -106,7 +106,7 @@
             "libcurl/8.17.0"
         ],
         "boost/1.88.0": [
-            "boost/1.91.0-memgraph#5e904bc0648eba7160e97c7f6fc7d049"
+            "boost/1.91.0-memgraph#e6b512f951f4cbf01f7603414a41cd95"
         ],
         "libcurl/8.17.0": [
             "libcurl/8.17.0"
