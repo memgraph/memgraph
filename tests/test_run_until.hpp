@@ -25,8 +25,14 @@ namespace memgraph::tests {
 //
 // The quota is what decides how much traffic the test gets; the deadline only catches a stall, and
 // fails rather than letting the test pass on a fraction of the intended coverage.
+//
+// A run that is merely slow still meets its quota and returns as soon as it does, so the deadline
+// costs nothing when nothing is wrong and only has to sit above the slowest build. That is a debug
+// build, where the allocator is itself instrumented and this kind of contended traffic runs orders
+// of magnitude slower than an optimised one. A stall makes no progress at all, so a deadline this
+// far above the slowest healthy run still catches it.
 inline void RunUntil(std::atomic<uint64_t> const &counter, uint64_t quota, std::atomic<bool> &running,
-                     std::chrono::seconds deadline = std::chrono::seconds{30}) {
+                     std::chrono::seconds deadline = std::chrono::seconds{180}) {
   auto const start = std::chrono::steady_clock::now();
   while (counter.load(std::memory_order_relaxed) < quota) {
     if (std::chrono::steady_clock::now() - start > deadline) {
