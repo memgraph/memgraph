@@ -11,18 +11,25 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../utils.bash"
 
-# mgconsole quotes CSV values by type — strings are quoted, booleans and
-# numbers are not — so match the field/value pair tolerantly instead of pinning
-# a layout. Anchored at both ends so "module_name" cannot satisfy a check meant
-# for "module_version".
+# mgconsole's CSV wraps every field in quotes and doubles the quotes a string
+# value already carries, so `bcrypt` arrives as """bcrypt""", `false` as
+# "false" and an empty string as """""". Strip quotes outright rather than
+# trying to count them; no value here contains a comma.
+fips_info_field() {
+  local out="$1" field="$2"
+  echo "$out" | tr -d '"' | awk -F, -v f="$field" '$1 == f { print $2 }'
+}
+
 fips_info_field_is() {
-  local out="$1" field="$2" expected="$3"
-  echo "$out" | grep -qE "^\"?${field}\"?,\"?${expected}\"?[[:space:]]*$"
+  [ "$(fips_info_field "$1" "$2")" = "$3" ]
 }
 
 fips_info_field_is_empty() {
-  local out="$1" field="$2"
-  echo "$out" | grep -qE "^\"?${field}\"?,(\"\")?[[:space:]]*$"
+  [ -z "$(fips_info_field "$1" "$2")" ]
+}
+
+fips_info_field_matches() {
+  echo "$(fips_info_field "$1" "$2")" | grep -qE "$3"
 }
 
 # `SHOW FIPS INFO` is what an operator under audit is told to run, so its
@@ -37,13 +44,13 @@ test_fips_show_info() {
     || { echo "FAIL: approved_mode is not true"; return 1; }
   # The module identifies itself; an empty name would mean we reported approved
   # mode without ever having read the provider's parameters.
-  echo "$out" | grep -qE '^"?module_name"?,.*[A-Za-z]' \
+  fips_info_field_matches "$out" module_name '[A-Za-z]' \
     || { echo "FAIL: module_name is empty"; return 1; }
-  echo "$out" | grep -qE '^"?module_version"?,"?[0-9]+\.[0-9]+\.[0-9]+' \
+  fips_info_field_matches "$out" module_version '^[0-9]+\.[0-9]+\.[0-9]+' \
     || { echo "FAIL: module_version is not a version string"; return 1; }
   fips_info_field_is "$out" password_algorithm pbkdf2-sha256 \
     || { echo "FAIL: password_algorithm is not pbkdf2-sha256"; return 1; }
-  fips_info_field_is "$out" tls_min_version "TLSv1\.2" \
+  fips_info_field_is "$out" tls_min_version "TLSv1.2" \
     || { echo "FAIL: tls_min_version is not TLSv1.2"; return 1; }
 }
 
