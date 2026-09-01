@@ -58,6 +58,12 @@ class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
 
+  // Fairness caps: after this many reschedules the pending-BEGIN / pending-PREPARE path falls back to a
+  // blocking engine-lock acquire so neither request can starve indefinitely.  Exposed as public so tests
+  // can reference the constant directly instead of hardcoding the literal.
+  static constexpr uint32_t kBeginRescheduleCap = 32;
+  static constexpr uint32_t kPrepareRescheduleCap = 32;
+
   /**
    * @brief Construct a new Session object
    *
@@ -212,6 +218,10 @@ class Session {
     memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
     const bool cap_reached = pending_begin_retries_ >= kBeginRescheduleCap;
     // Block on fairness cap OR when the pool has gone quiet (no pending work to yield to).
+    // Timeout semantics: the storage-access timeout is enforced by the Blocking Access at this
+    // cap/quiet fallback (on main_lock_); the reschedule window is bounded by the cap so it cannot
+    // meaningfully outrun that timeout. engine_lock_ itself has no acquire timeout on either path
+    // (unchanged from master).
     const auto mode = (cap_reached || !impl.PoolHasPendingWork()) ? memgraph::storage::EngineLockMode::Blocking
                                                                   : memgraph::storage::EngineLockMode::TryBounded;
     const Value &extra = *pending_begin_extra_;  // reference, NOT move -- may need it again on reschedule
@@ -347,8 +357,6 @@ class Session {
 
   // Times FinishPendingBegin_ lost the bounded-try engine-lock race for the current BEGIN; reset on a fresh stash.
   uint32_t pending_begin_retries_{0};
-  // After this many reschedules, FinishPendingBegin_ does one blocking acquire (fairness: a BEGIN cannot starve).
-  static constexpr uint32_t kBeginRescheduleCap = 32;
 
   // Cleared once the PREPARE completes (header sent) or fails. Mutually exclusive with pending_begin_extra_
   // (state_ is single-valued, so a BEGIN and a PREPARE step cannot both be mid-flight on the same session).
@@ -356,8 +364,6 @@ class Session {
 
   // Times FinishPendingPrepare_ lost the bounded-try engine-lock race for the current PREPARE; reset on a fresh stash.
   uint32_t pending_prepare_retries_{0};
-  // After this many reschedules, FinishPendingPrepare_ does one blocking acquire (fairness: a PREPARE cannot starve).
-  static constexpr uint32_t kPrepareRescheduleCap = 32;
 
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)

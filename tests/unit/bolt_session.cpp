@@ -1455,8 +1455,7 @@ TEST(BoltSession, PendingBeginFairnessCapForcesBlockingTerminal) {
   // Under unbounded contention the pool-side completion must still terminate: after kBeginRescheduleCap
   // reschedules FinishPendingBegin_ does one Blocking acquire (which is never gated by the fail hook and
   // never throws WouldBlock), completing the BEGIN. Count the reschedules to prove it is the cap -- not a
-  // lucky bounded-try -- that breaks the loop. kBeginRescheduleCap is private, so the expected count is a
-  // literal kept in sync with it.
+  // lucky bounded-try -- that breaks the loop.
   int reschedules = 0;
   constexpr int kSafetyBound = 100;
   for (int i = 0; i < kSafetyBound; ++i) {
@@ -1468,7 +1467,8 @@ TEST(BoltSession, PendingBeginFairnessCapForcesBlockingTerminal) {
     EXPECT_EQ(session.state_, State::PendingBegin);
     ++reschedules;
   }
-  EXPECT_EQ(reschedules, 32);  // == kBeginRescheduleCap; the terminal Blocking acquire fires on the next call
+  // Loop count tied to the cap: the terminal Blocking acquire fires on the next call.
+  EXPECT_EQ(reschedules, TestSession::kBeginRescheduleCap);
   EXPECT_FALSE(session.HasPendingBegin());
   EXPECT_EQ(session.state_, State::Idle);
   ASSERT_EQ(output.size(), sizeof(success_resp));  // exactly one SUCCESS, from the Blocking fallback
@@ -1627,8 +1627,7 @@ TEST(BoltSession, PendingPrepareFairnessCapForcesBlockingTerminal) {
   // Under unbounded contention the pool-side completion must still terminate: after kPrepareRescheduleCap
   // reschedules FinishPendingPrepare_ does one Blocking acquire (never gated by the fail hook, never throws
   // WouldBlock), completing the PREPARE. Count the reschedules to prove it is the cap -- not a lucky
-  // bounded-try -- that breaks the loop. kPrepareRescheduleCap is private, so the expected count is a literal
-  // kept in sync with it.
+  // bounded-try -- that breaks the loop.
   int reschedules = 0;
   constexpr int kSafetyBound = 100;
   for (int i = 0; i < kSafetyBound; ++i) {
@@ -1640,7 +1639,8 @@ TEST(BoltSession, PendingPrepareFairnessCapForcesBlockingTerminal) {
     EXPECT_EQ(session.state_, State::PendingPrepare);
     ++reschedules;
   }
-  EXPECT_EQ(reschedules, 32);  // == kPrepareRescheduleCap; the terminal Blocking acquire fires on the next call
+  // Loop count tied to the cap: the terminal Blocking acquire fires on the next call.
+  EXPECT_EQ(reschedules, TestSession::kPrepareRescheduleCap);
   EXPECT_FALSE(session.HasPendingPrepare());
   EXPECT_EQ(session.state_, State::Result);
   CheckSuccessMessage(output, /*clear=*/false);  // exactly one header, from the Blocking fallback

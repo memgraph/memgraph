@@ -89,6 +89,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
     pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
       // Divide work by each thread
       workers_[i] = std::make_unique<Worker>();
+      workers_[i]->productive_pending_ = &productive_pending_;
       barrier.arrive_and_wait();
       // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
       if (thread_init_callback) {
@@ -101,6 +102,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
       hp_workers_[i] = std::make_unique<Worker>();
+      hp_workers_[i]->productive_pending_ = &productive_pending_;
       barrier.arrive_and_wait();
       // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
       if (thread_init_callback) {
@@ -132,7 +134,11 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
                         if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
                         // Update flag as soon as possible
                         worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
-                        Worker::Work work{.id = worker->work_.top().id, .work = std::move(worker->work_.top().work)};
+                        const bool prod = worker->work_.top().productive;
+                        Worker::Work work{.id = worker->work_.top().id,
+                                          .work = std::move(worker->work_.top().work),
+                                          .productive = prod};
+                        if (prod) productive_pending_.fetch_sub(1, std::memory_order_relaxed);
                         worker->work_.pop();
                         l.unlock();
 
@@ -143,14 +149,14 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
                             static size_t last_hp_thread = 0;
                             auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
                             if (!hp_worker->has_pending_work_) {
-                              hp_worker->push(std::move(work.work), work.id);
+                              hp_worker->push(std::move(work.work), work.id, work.productive);
                               continue;
                             }
                           }
                           // No hot thread and low priority work, schedule to the next lp worker
                           tid = (worker_id + 1) % workers_num;
                         }
-                        workers_[*tid]->push(std::move(work.work), work.id);
+                        workers_[*tid]->push(std::move(work.work), work.id, work.productive);
                       }
                     }
                   });
@@ -180,7 +186,7 @@ void PriorityThreadPool::ShutDown() {
   }
 }
 
-void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority priority) {
+void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, Priority priority, bool productive) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     return;
   }
@@ -195,23 +201,22 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     // If no hot thread found, give it to the next thread
     tid = last_wid_++ % max_wakeup_thread;
   }
-  workers_[*tid]->push(std::move(new_task), id);
+  workers_[*tid]->push(std::move(new_task), id, productive);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
   // HP threads are going to steal this work if not executed in time
 }
 
 bool PriorityThreadPool::HasPendingWork() const noexcept {
-  // Scan only mixed-work workers: hp_workers_ handle pings/health, not the yield-able backlog.
-  for (const auto &w : workers_) {
-    if (w->has_pending_work_.load(std::memory_order_relaxed)) return true;
-  }
-  return false;
+  // Productive (non-admission) queued work only: admission re-posts carry productive=false and never
+  // touch productive_pending_, so a reschedule storm cannot keep this gate open (see NB-3).
+  return productive_pending_.load(std::memory_order_relaxed) > 0;
 }
 
-void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id) {
+void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool productive) {
   {
     auto l = std::unique_lock{mtx_};
-    work_.emplace(id, std::move(new_task));
+    if (productive && productive_pending_) productive_pending_->fetch_add(1, std::memory_order_relaxed);
+    work_.emplace(id, std::move(new_task), productive);
   }
   has_pending_work_ = true;
   cv_.notify_one();
@@ -257,6 +262,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   auto pop_task = [&] {
     has_pending_work_.store(work_.size() > 1, std::memory_order::release);
     last_task_.store(work_.top().id, std::memory_order_release);
+    if (work_.top().productive && productive_pending_) productive_pending_->fetch_sub(1, std::memory_order_relaxed);
     task = std::move(work_.top().work);
     work_.pop();
   };
@@ -308,6 +314,8 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 
         // Move work to current thread
         last_task_.store(worker->work_.top().id, std::memory_order_release);
+        if (worker->work_.top().productive && productive_pending_)
+          productive_pending_->fetch_sub(1, std::memory_order_relaxed);
         task = std::move(worker->work_.top().work);
 
         worker->work_.pop();

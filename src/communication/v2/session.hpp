@@ -436,6 +436,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   // Completes a would-block BEGIN on the POOL (AddTask, never the strand): Reschedule re-posts so the worker never
   // blocks behind a slow commit; a terminal outcome resumes DoWork/DoRead. FinishPendingBegin emits SUCCESS once.
+  // LOW priority + non-productive: admission retry must not compete with real work or hold the gate open.
   void PostFinishPendingBegin() {
     session_context_->AddTask(
         [shared_this = shared_from_this()](const auto /*thread_priority*/) {
@@ -458,10 +459,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                               [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
           }
         },
-        session_.ApproximateQueryPriority());
+        utils::Priority::LOW,
+        /*productive=*/false);
   }
 
   // PREPARE mirror of PostFinishPendingBegin above; FinishPendingPrepare emits the run header (not SUCCESS) once.
+  // LOW priority + non-productive: admission retry must not compete with real work or hold the gate open.
   void PostFinishPendingPrepare() {
     session_context_->AddTask(
         [shared_this = shared_from_this()](const auto /*thread_priority*/) {
@@ -484,7 +487,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                               [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
           }
         },
-        session_.ApproximateQueryPriority());
+        utils::Priority::LOW,
+        /*productive=*/false);
   }
 
   void OnError(const boost::system::error_code &ec) {

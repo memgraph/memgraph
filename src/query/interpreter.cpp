@@ -10601,6 +10601,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParamet
 
   MG_ASSERT(std::holds_alternative<ParseInfo>(parse_res), "Unkown ParseRes type");
 
+  // parse_info/parsed_query alias into parse_res (a non-const ref, moved-from only on the success path).
+  // INVARIANT for the TryBounded bail: nothing below may move-from parse_res before the accessor is
+  // acquired in SetupDatabaseTransaction, or a would-block bail would leave parse_res unusable for the
+  // retry. Today the first move happens only after that point.
   auto &parse_info = std::get<ParseInfo>(parse_res);
   auto &parsed_query = parse_info.parsed_query;
 

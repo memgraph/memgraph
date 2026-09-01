@@ -161,6 +161,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   // Admission engine-lock mode: TryBounded (reschedule) only when there is work to yield to; else
   // Blocking (behave like master — no wasted try/reschedule when nothing else can run).
+  // One-shot decision: once Blocking is chosen the worker commits to the acquire and does not
+  // re-evaluate if new work arrives mid-wait (bounded by the holding commit; the full fix is coroutines).
   storage::EngineLockMode AdmissionEngineLockMode() const noexcept {
     return PoolHasPendingWork() ? storage::EngineLockMode::TryBounded : storage::EngineLockMode::Blocking;
   }
