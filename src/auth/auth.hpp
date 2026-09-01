@@ -11,6 +11,7 @@
 #include <mutex>
 #include <optional>
 #include <regex>
+#include <utility>
 #include <vector>
 
 #include "auth/atomic_auth_overlay.hpp"
@@ -505,6 +506,15 @@ class Auth final {
 
   AtomicAuthOverlay *GetOverlay() const { return overlay_; }
 
+  /// Flush the active overlay and detach it. Returns false on conflict, leaving storage untouched.
+  /// Clears the overlay either way, so a conflicted transaction cannot keep writing into it.
+  [[nodiscard]] bool CommitOverlay() {
+    auto *overlay = std::exchange(overlay_, nullptr);
+    if (!overlay || !overlay->Flush()) return false;
+    UpdateEpoch();
+    return true;
+  }
+
  private:
   /**
    * @brief
@@ -515,7 +525,12 @@ class Auth final {
    */
   bool NameRegexMatch(const std::string &user_or_role) const;
 
-  void UpdateEpoch() { ++epoch_; }
+  // An active overlay means nothing is durable yet, so the epoch must not move: bumping it would invalidate every
+  // session's permission cache against state that is still uncommitted, and spend the invalidation that CommitOverlay
+  // owes them once the flush lands.
+  void UpdateEpoch() {
+    if (!overlay_) ++epoch_;
+  }
 
   // Storage dispatch helpers: route through overlay when active, otherwise direct to storage_
   std::optional<std::string> StorageGet(std::string_view key) const {
