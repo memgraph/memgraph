@@ -48,6 +48,7 @@
 #include "glue/auth_handler.hpp"
 #include "glue/run_id.hpp"
 #include "helpers.hpp"
+#include "license/license.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -79,6 +80,7 @@
 #include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/signals.hpp"
+#include "utils/startup_failure.hpp"
 #include "utils/stat.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
@@ -503,6 +505,18 @@ int main(int argc, char **argv) {
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
+
+  // FIPS mode engages much earlier (it has to precede the first SSL context and
+  // password hash), but the license cannot be evaluated until here — it may come
+  // from settings, which need the data directory. Both are still well before the
+  // Bolt server starts, so no traffic is ever served in approved mode without a
+  // valid licence.
+  if (FLAGS_fips_mode) {
+    if (auto const res = memgraph::license::global_license_checker.IsEnterpriseValid(*settings); !res.has_value()) {
+      memgraph::utils::FailStartup(memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
+                                   memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"));
+    }
+  }
 
   // Has to be initialized after the storage and license startup
   memgraph::flags::run_time::Initialize(*settings);

@@ -136,6 +136,25 @@ test_fips_password_hashing() {
   run_query_admin "DROP USER fips_user;"
 }
 
+# FIPS mode is an enterprise feature. Run without a licence and startup must
+# refuse rather than quietly serve traffic in approved mode unlicensed.
+test_fips_requires_enterprise_licence() {
+  echo "FEATURE: FIPS - requires an enterprise licence"
+  local out status
+  # Deliberately no $MEMGRAPH_ENTERPRISE_DOCKER_ENVS.
+  out="$(docker run --rm "$MEMGRAPH_DOCKERHUB_IMAGE" --fips-mode=true 2>&1)" && status=0 || status=$?
+  echo "$out"
+
+  # 16 is ExitCode::FipsModeRequiresEnterprise.
+  if [ "$status" -ne 16 ]; then
+    echo "FAIL: expected exit 16, got $status"
+    return 1
+  fi
+  echo "$out" | grep -qi "license" \
+    || { echo "FAIL: the error did not mention the licence"; return 1; }
+  echo "  refused with exit 16 as expected"
+}
+
 # Refusing to start under a non-approved password algorithm is a startup-time
 # guarantee, so it cannot be checked against the already-running container.
 # bcrypt is the default, so this is also what an operator hits first if they
