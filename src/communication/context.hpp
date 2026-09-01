@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "utils/tls.hpp"
 
@@ -28,6 +29,9 @@
 #undef FALSE
 
 namespace memgraph::communication {
+
+inline constexpr int kFipsMinTlsVersion = TLS1_2_VERSION;
+inline constexpr std::string_view kFipsMinTlsVersionName = "TLSv1.2";
 
 /// Applies the TLS version policy to a freshly built context.
 ///

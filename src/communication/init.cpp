@@ -11,6 +11,8 @@
 
 #include "init.hpp"
 
+#include "context.hpp"
+
 #include <openssl/err.h>
 #include <openssl/opensslv.h>
 #include <openssl/ssl.h>
@@ -123,7 +125,8 @@ void EnableFipsMode() {
   // storage owned by the provider.
   auto fips_status = utils::FipsStatus{.enabled = true,
                                        .provider_name = name != nullptr ? name : "unknown",
-                                       .provider_version = version != nullptr ? version : "unknown"};
+                                       .provider_version = version != nullptr ? version : "unknown",
+                                       .tls_min_version = std::string{kFipsMinTlsVersionName}};
 
   OSSL_PROVIDER_unload(provider);
 

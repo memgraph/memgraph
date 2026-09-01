@@ -43,6 +43,8 @@ test_fips_show_info() {
     || { echo "FAIL: module_version is not a version string"; return 1; }
   fips_info_field_is "$out" password_algorithm pbkdf2-sha256 \
     || { echo "FAIL: password_algorithm is not pbkdf2-sha256"; return 1; }
+  fips_info_field_is "$out" tls_min_version "TLSv1\.2" \
+    || { echo "FAIL: tls_min_version is not TLSv1.2"; return 1; }
 }
 
 # Runs on the normal image. Guards the failure that would matter most: an image
@@ -65,6 +67,10 @@ test_fips_info_disabled() {
   # also pins the shipped default.
   fips_info_field_is "$out" password_algorithm bcrypt \
     || { echo "FAIL: password_algorithm should be the bcrypt default"; return 1; }
+  # Blank rather than a version: outside approved mode Memgraph sets no floor,
+  # so naming one here would claim an enforcement that is not happening.
+  fips_info_field_is_empty "$out" tls_min_version \
+    || { echo "FAIL: tls_min_version should be empty when FIPS is off"; return 1; }
 }
 
 # The binary reports approved mode; these check the module underneath actually

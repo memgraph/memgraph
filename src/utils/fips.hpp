@@ -25,6 +25,11 @@ struct FipsStatus {
   /// consulting a provider (which tests do).
   std::string provider_name;
   std::string provider_version;
+
+  /// The TLS floor approved mode pins, for `SHOW FIPS INFO`. Empty when
+  /// `enabled` is false, because Memgraph then sets no floor of its own and the
+  /// effective minimum is whatever the OpenSSL configuration says.
+  std::string tls_min_version;
 };
 
 /// Publish the approved-mode state. Called from startup wiring once the state

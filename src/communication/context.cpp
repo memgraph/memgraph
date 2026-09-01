@@ -30,9 +30,9 @@ bool ApplyTlsVersionPolicy(SSL_CTX *ctx) {
   if (!utils::FipsEnabled()) return true;
 
   // Raise the floor, never lower it.
-  if (SSL_CTX_get_min_proto_version(ctx) >= TLS1_2_VERSION) return true;
+  if (SSL_CTX_get_min_proto_version(ctx) >= kFipsMinTlsVersion) return true;
 
-  return SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION) == 1;
+  return SSL_CTX_set_min_proto_version(ctx, kFipsMinTlsVersion) == 1;
 }
 
 ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl) {

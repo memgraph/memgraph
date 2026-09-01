@@ -8180,7 +8180,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("approved_mode"), TypedValue(fips->enabled)},
             {TypedValue("module_name"), TypedValue(fips->provider_name)},
             {TypedValue("module_version"), TypedValue(fips->provider_version)},
-            {TypedValue("password_algorithm"), TypedValue(std::string{auth::AsString(auth::CurrentHashAlgorithm())})}};
+            {TypedValue("password_algorithm"), TypedValue(std::string{auth::AsString(auth::CurrentHashAlgorithm())})},
+            {TypedValue("tls_min_version"), TypedValue(fips->tls_min_version)}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;

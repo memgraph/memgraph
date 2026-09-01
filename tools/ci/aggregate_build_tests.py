@@ -114,6 +114,9 @@ def parse_file_os_arch(file, image_type):
         if "fips" in file:
             arch = f"{arch}-fips"
 
+        if "no-python" in file:
+            arch = f"{arch}-no-python"
+
         # debuginfo rpms share the os dir + arch of the main package, so suffix
         # the arch to give them their own key (e.g. centos-10.x86_64-debuginfo)
         # instead of overwriting the main package. `-debuginfo` (with the hyphen)
