@@ -8176,7 +8176,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"fips info", "value"};
       handler = [] {
         auto const fips = utils::GetFipsStatus();
-        std::vector<std::vector<TypedValue>> results{
+        const std::vector<std::vector<TypedValue>> results{
             {TypedValue("approved_mode"), TypedValue(fips->enabled)},
             {TypedValue("module_name"), TypedValue(fips->provider_name)},
             {TypedValue("module_version"), TypedValue(fips->provider_version)},

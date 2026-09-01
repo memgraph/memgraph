@@ -351,8 +351,6 @@ auto Derive(std::string_view password, std::string_view salt) -> std::array<unsi
   return derived;
 }
 
-}  // namespace
-
 /// Stored as hex(salt) || hex(derived key), matching the shape of the salted
 /// SHA hashes so the durable form stays fixed-width.
 std::string HashPassword(std::string_view password, std::string_view salt) {
@@ -367,6 +365,8 @@ bool VerifyPassword(std::string_view password, std::string_view hash) {
   auto const salt = SHA::ExtractSalt(hash.substr(0, SALT_SIZE_DURABLE));
   return HashPassword(password, {salt.data(), salt.size()}) == hash;
 }
+
+}  // namespace
 
 }  // namespace PBKDF2
 
@@ -504,7 +504,7 @@ auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
       return {SHA::SHA_LENGTH, SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
     case PasswordHashAlgorithm::PBKDF2_SHA256:
-      return {PBKDF2::HASH_LENGTH, PBKDF2::HASH_LENGTH + PBKDF2::SALT_SIZE_DURABLE};
+      return {.unsalted = PBKDF2::HASH_LENGTH, .salted = PBKDF2::HASH_LENGTH + PBKDF2::SALT_SIZE_DURABLE};
   }
 
 }
