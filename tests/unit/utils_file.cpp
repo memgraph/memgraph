@@ -887,9 +887,13 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
       std::default_random_engine engine{586'478'780 + thread_id};
       for (size_t i = 0; i < number_of_reads; ++i) {
         handle.DisableFlushing();
+        // An assertion below returns from this thread. Without this the writer would be left waiting
+        // on a lock nobody releases, and the test would hang rather than report the failure.
+        const memgraph::utils::OnScopeExit resume_flushing([&] { handle.EnableFlushing(); });
         auto [buffer, buffer_size] = handle.CurrentBuffer();
         memgraph::utils::InputFile input_handle;
         input_handle.Open(file_path);
+        const memgraph::utils::OnScopeExit close_input([&] { input_handle.Close(); });
         std::optional<uint8_t> previous_number;
         size_t total_read_count = 0;
         uint8_t current_number;
@@ -913,8 +917,6 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
           --buffer_size;
           ++total_read_count;
         }
-        handle.EnableFlushing();
-        input_handle.Close();
         // Last read will always have the highest amount of
         // bytes read.
         if (i == number_of_reads - 1) {
