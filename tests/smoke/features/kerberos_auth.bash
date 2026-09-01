@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/../utils.bash"
 # (--auth-module-mappings) and the acceptor needs a keytab, so the test brings
 # up its own containers and tears them down again.
 #
-#   memgraph_smoke_kdc  ubuntu + MIT KDC, and the Bolt client (kerberos/client.py)
+#   memgraph_smoke_kdc  krb5 base image + MIT KDC, and the Bolt client (kerberos/client.py)
 #   memgraph_smoke_krb  the image under test, SSO enabled, keytab mounted
 #
 # It is also split in two: test_kerberos_auth_setup builds the realm and the
@@ -24,6 +24,7 @@ source "$SCRIPT_DIR/../utils.bash"
 # the environment so the realm and principals are defined exactly once.
 KERBEROS_DIR="$SMOKE_DIR/kerberos"
 KERBEROS_NETWORK="memgraph_smoke_kerberos"
+KERBEROS_KDC_IMAGE="memgraph-smoke-kdc"
 KERBEROS_KDC_CONTAINER="memgraph_smoke_kdc"
 KERBEROS_MG_CONTAINER="memgraph_smoke_krb"
 KERBEROS_BOOTSTRAP_CONTAINER="memgraph_smoke_krb_bootstrap"
@@ -52,6 +53,9 @@ KERBEROS_SHARED_DIR="${TMPDIR:-/tmp}/memgraph_smoke_kerberos"
 kerberos_cleanup() {
   docker rm -f "$KERBEROS_MG_CONTAINER" "$KERBEROS_BOOTSTRAP_CONTAINER" \
     "$KERBEROS_KDC_CONTAINER" >/dev/null 2>&1 || true
+  if [[ "${MEMGRAPH_SMOKE_REUSE_ENV:-false}" != "true" ]]; then
+    docker rmi -f "$KERBEROS_KDC_IMAGE" >/dev/null 2>&1 || true
+  fi
   docker network rm "$KERBEROS_NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$KERBEROS_DATA_VOLUME" >/dev/null 2>&1 || true
   # setup-kdc.sh chowns the shared dir back to the invoking user, so an
@@ -102,6 +106,9 @@ test_kerberos_auth_setup() {
   docker network create "$KERBEROS_NETWORK" >/dev/null
 
   echo "SUBFEATURE: bringing up a throwaway KDC for realm $KERBEROS_REALM"
+  if ! docker image inspect "$KERBEROS_KDC_IMAGE" >/dev/null 2>&1; then
+    docker build -t "$KERBEROS_KDC_IMAGE" "$KERBEROS_DIR"
+  fi
   docker run -d --name "$KERBEROS_KDC_CONTAINER" \
     --network "$KERBEROS_NETWORK" --network-alias "$KERBEROS_KDC_HOST" \
     -v "$KERBEROS_SHARED_DIR:/krb5" \
@@ -114,7 +121,7 @@ test_kerberos_auth_setup() {
     -e KRB5_SHARED_DIR=/krb5 \
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
-    ubuntu:24.04 sleep infinity >/dev/null
+    "$KERBEROS_KDC_IMAGE" sleep infinity >/dev/null
   docker exec "$KERBEROS_KDC_CONTAINER" bash /kerberos/setup-kdc.sh
 
   # The role the principal maps onto has to exist before SSO is switched on,

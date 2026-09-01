@@ -2215,6 +2215,7 @@ test_memgraph() {
         esac
       done
       export MEMGRAPH_DOCKERHUB_IMAGE=$smoke_image
+      export MEMGRAPH_SMOKE_REUSE_ENV=$reuse_env
       cleanup() {
         local status=$?
         if [[ "$reuse_env" != "true" ]]; then
@@ -2844,6 +2845,8 @@ test_mage() {
         esac
       done
       export MEMGRAPH_DOCKERHUB_IMAGE=$smoke_image
+      # Lets the kerberos feature retain its KDC base image across runs.
+      export MEMGRAPH_SMOKE_REUSE_ENV=$reuse_env
       cleanup() {
         local status=$?
         if [[ "$reuse_env" != "true" ]]; then
