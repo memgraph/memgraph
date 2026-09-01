@@ -11,6 +11,7 @@
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <openssl/core_names.h>
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/opensslv.h>
@@ -363,7 +364,8 @@ bool VerifyPassword(std::string_view password, std::string_view hash) {
     return false;
   }
   auto const salt = SHA::ExtractSalt(hash.substr(0, SALT_SIZE_DURABLE));
-  return HashPassword(password, {salt.data(), salt.size()}) == hash;
+  auto const candidate = HashPassword(password, {salt.data(), salt.size()});
+  return candidate.size() == hash.size() && CRYPTO_memcmp(candidate.data(), hash.data(), hash.size()) == 0;
 }
 
 }  // namespace

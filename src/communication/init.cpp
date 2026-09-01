@@ -121,11 +121,17 @@ void EnableFipsMode() {
         fmt::format("--fips-mode=true but the OpenSSL FIPS provider is not operational (status {}).", status));
   }
 
+  if (name == nullptr || version == nullptr) {
+    OSSL_PROVIDER_unload(provider);
+    utils::FailStartup(utils::ExitCode::FipsModeUnavailable,
+                       "--fips-mode=true but the OpenSSL FIPS provider did not report its name and version.");
+  }
+
   // Copy the identity out before unloading: `name` and `version` point into
   // storage owned by the provider.
   auto fips_status = utils::FipsStatus{.enabled = true,
-                                       .provider_name = name != nullptr ? name : "unknown",
-                                       .provider_version = version != nullptr ? version : "unknown",
+                                       .provider_name = name,
+                                       .provider_version = version,
                                        .tls_min_version = std::string{kFipsMinTlsVersionName}};
 
   OSSL_PROVIDER_unload(provider);
