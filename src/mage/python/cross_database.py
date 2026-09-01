@@ -1,3 +1,9 @@
+# Copyright 2026 Memgraph Ltd.
+#
+# Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
+# License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
+# this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
+
 import base64
 import csv
 import datetime
@@ -59,9 +65,11 @@ class Constants:
 def _check_enterprise_license() -> None:
     """Cross-database migration is an enterprise-only feature.
 
-    The module is not even loaded without a valid license (see kEnterpriseModuleList in
-    src/query/procedure/module.cpp), so this guards the case of a license that expires or
-    is removed while the module is already loaded.
+    Enterprise builds additionally refuse to load this module at all when no valid license
+    is present (kEnterpriseModuleList in src/query/procedure/module.cpp), but that check is
+    compiled out of community builds and only runs at load time. This is the per-call guard,
+    and therefore the one that covers community builds and licenses that expire or are
+    removed while the module is already loaded.
     """
     if not mgp.is_enterprise_valid():
         raise RuntimeError(Constants.ENTERPRISE_LICENSE_ERROR)
