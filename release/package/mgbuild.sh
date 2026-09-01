@@ -128,7 +128,7 @@ print_help () {
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
-  echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
+  echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> pass it to the run, stop and build-memgraph commands together, so the mount matches"
   echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
   echo -e "  --no-mgbench-cache            Disable mgbench cache volume mounting (default \"$DEFAULT_MGBENCH_CACHE_ENABLED\") -> without it mgbench recalibrates query counts and re-downloads datasets every run"
   echo -e "  --mgbench-cache-dir string    Specify host directory for the mgbench cache (default \"\$HOME/.cache/mgbench-ci\")"

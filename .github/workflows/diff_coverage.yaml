@@ -84,7 +84,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --no-ccache \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Check core dump support
@@ -115,7 +114,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --no-ccache \
           build-memgraph --init-only \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
@@ -142,7 +140,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --no-ccache \
           --threads 12 \
           build-memgraph --coverage --asan --ubsan \
           --link-threads $LINK_THREADS \
@@ -212,7 +209,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --no-ccache \
           stop --remove
 
       - name: Clean up Docker
