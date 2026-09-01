@@ -197,6 +197,8 @@ class PathHelper {
 
   // Whether a relationship of this type, traversed this way out of a node at `depth`, may be followed.
   [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const;
+  // Whether the step for this depth admits anything at all in this direction.
+  [[nodiscard]] bool StepAdmitsDirection(int64_t depth, bool outgoing) const;
 
   [[nodiscard]] static LabelBools GetLabelBools(const mgp::Node &node, const LabelStep &step);
 

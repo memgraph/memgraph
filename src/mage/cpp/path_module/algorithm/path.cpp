@@ -438,6 +438,18 @@ const Path::RelStep &Path::PathHelper::RelStepAt(const int64_t depth) const {
   return config_.rel_steps[position % static_cast<int64_t>(config_.rel_steps.size())];
 }
 
+// The direction test of RelationshipAdmitted, hoisted out of the per-relationship loop: it depends on
+// the step alone, so a step that admits nothing this way rules out the whole adjacency list at once.
+bool Path::PathHelper::StepAdmitsDirection(const int64_t depth, const bool outgoing) const {
+  const RelStep &step = RelStepAt(depth);
+  if (outgoing ? step.any_outgoing : step.any_incoming) {
+    return true;
+  }
+  const RelDirection wanted = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
+  return std::ranges::any_of(
+      step.types, [wanted](const auto &entry) { return entry.second == RelDirection::kAny || entry.second == wanted; });
+}
+
 bool Path::PathHelper::RelationshipAdmitted(std::string_view rel_type, const bool outgoing, const int64_t depth) const {
   const RelStep &step = RelStepAt(depth);
   const bool any_directed = outgoing ? step.any_outgoing : step.any_incoming;
@@ -938,8 +950,14 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
     return;
   }
 
-  this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
-  this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
+  // Reading an adjacency list costs a storage round trip and a copy of every relationship in it, all of
+  // which a directed step then rejects. Ask the step first.
+  if (path_data_.helper_.StepAdmitsDirection(path_size, false)) {
+    this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
+  }
+  if (path_data_.helper_.StepAdmitsDirection(path_size, true)) {
+    this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
+  }
 }
 
 void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
