@@ -2196,10 +2196,15 @@ test_memgraph() {
     smoke)
       shift 1
       smoke_image=""
+      reuse_env=false
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --image)
             smoke_image=$2
+            shift 2
+          ;;
+          --reuse-env)
+            reuse_env=$2
             shift 2
           ;;
           *)
@@ -2212,16 +2217,23 @@ test_memgraph() {
       export MEMGRAPH_DOCKERHUB_IMAGE=$smoke_image
       cleanup() {
         local status=$?
-        rm -rf env || true
+        if [[ "$reuse_env" != "true" ]]; then
+          rm -rf env || true
+        fi
         docker rmi -f $smoke_image || true
         exit $status
       }
       trap cleanup EXIT INT TERM
       cd "$PROJECT_ROOT/tests/smoke"
-      ./init_workflow.bash
-      python3 -m venv env
-      source env/bin/activate
-      pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
+      # With --reuse-env true, an env left by a previous run is reused as-is.
+      if [[ "$reuse_env" == "true" && -d env ]]; then
+        source env/bin/activate
+      else
+        ./init_workflow.bash
+        python3 -m venv env
+        source env/bin/activate
+        pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
+      fi
       ./test_single.bash "memgraph"
     ;;
     *)
@@ -2813,10 +2825,15 @@ test_mage() {
     smoke)
       shift 1
       smoke_image=""
+      reuse_env=false
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --image)
             smoke_image=$2
+            shift 2
+          ;;
+          --reuse-env)
+            reuse_env=$2
             shift 2
           ;;
           *)
@@ -2829,16 +2846,23 @@ test_mage() {
       export MEMGRAPH_DOCKERHUB_IMAGE=$smoke_image
       cleanup() {
         local status=$?
-        rm -rf env || true
+        if [[ "$reuse_env" != "true" ]]; then
+          rm -rf env || true
+        fi
         docker rmi -f $smoke_image || true
         exit $status
       }
       trap cleanup EXIT INT TERM
       cd "$PROJECT_ROOT/tests/smoke"
-      ./init_workflow.bash
-      python3 -m venv env
-      source env/bin/activate
-      pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
+      # With --reuse-env true, an env left by a previous run is reused as-is.
+      if [[ "$reuse_env" == "true" && -d env ]]; then
+        source env/bin/activate
+      else
+        ./init_workflow.bash
+        python3 -m venv env
+        source env/bin/activate
+        pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
+      fi
       ./test_single.bash "mage"
     ;;
     *)
