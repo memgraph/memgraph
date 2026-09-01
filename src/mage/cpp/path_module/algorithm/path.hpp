@@ -301,13 +301,14 @@ class PathExpand {
   explicit PathExpand(PathData &&path_data) : path_data_(std::move(path_data)) {}
 
   // The id the uniqueness rule keys on when crossing `relationship`.
-  [[nodiscard]] int64_t UniquenessKey(const mgp::Relationship &relationship, bool outgoing) const;
 
-  void ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size, int64_t uniqueness_key);
+  void ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size, int64_t uniqueness_key,
+                  const mgp::Node &next_node);
   void ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing, int64_t path_size);
   void StartAlgorithm(const mgp::Node &node);
   void Parse(const mgp::Value &value);
-  void DFS(mgp::Path &path, int64_t path_size);
+  // Takes the node the path now ends at: the caller has just built it to key uniqueness on.
+  void DFS(mgp::Path &path, int64_t path_size, const mgp::Node &node);
   void RunAlgorithm();
 
  private:
