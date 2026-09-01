@@ -22,12 +22,16 @@ docker run --rm \
 
 echo "Waiting for Neo4j to start..."
 counter=0
-timeout=30
+# Neo4j downloads and installs the APOC plugin during startup, so this waits on a
+# network fetch as well as the server itself. Long enough that only a container
+# that is never coming up reaches it.
+timeout=180
 while ! curl --silent --fail http://localhost:7474; do
   sleep 1
   counter=$((counter+1))
   if [ $counter -gt $timeout ]; then
     echo "Neo4j failed to start in $timeout seconds"
+    docker logs "$NEO4J_CONTAINER" 2>&1 | tail -50
     exit 1
   fi
 done
