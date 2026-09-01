@@ -22,10 +22,10 @@ function file_get_try_double () {
     filename="$(basename "$secondary_url")"
     if [[ "$use_cache" == true ]]; then
       echo "Download primary from $primary_url secondary from $secondary_url"
-      timeout $WGET_TIMEOUT wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || timeout $WGET_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
+      timeout $WGET_TIMEOUT wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || timeout $WGET_TIMEOUT wget -nv "$secondary_url" -O "$filename" || return 1
     else
       echo "Download from $secondary_url"
-      timeout $WGET_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
+      timeout $WGET_TIMEOUT wget -nv "$secondary_url" -O "$filename" || return 1
     fi
 }
 
@@ -55,7 +55,20 @@ function setup_neo4j () {
     local neo4j_dir="neo4j-community-5.6.0"
     local primary_url="http://${local_cache_host}/${neo4j_archive}"
     local secondary_url="https://dist.neo4j.org/${neo4j_archive}"
-    file_get_try_double "$primary_url" "$secondary_url"
+    local max_attempts=5
+    local attempt
+    local backoff=5
+    for (( attempt=1; attempt<=max_attempts; attempt++ )); do
+        if file_get_try_double "$primary_url" "$secondary_url"; then
+            break
+        fi
+        if (( attempt == max_attempts )); then
+            echo "Failed to download Neo4j after $max_attempts attempts." && exit 1
+        fi
+        echo "Download failed (attempt $attempt/$max_attempts), retrying in ${backoff}s..."
+        sleep "$backoff"
+        backoff=$(( backoff * 2 ))
+    done
 
     tar -xzf "$neo4j_archive"
     mv "$neo4j_dir" neo4j
