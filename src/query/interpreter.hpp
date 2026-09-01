@@ -706,7 +706,7 @@ class Interpreter final {
   void FinishAutocommitNothing();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
-  std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
+  std::optional<storage::IsolationLevel> PeekIsolationLevelOverride() const;
 
   size_t ActiveQueryExecutions() {
     return std::ranges::count_if(query_executions_,

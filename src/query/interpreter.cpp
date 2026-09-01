@@ -3937,11 +3937,18 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         if ((*current_db_.db_acc_)->storage()->IsBroken()) {
           throw QueryException(kBrokenDatabaseError);
         }
-        // Accessor first: on the try (bounded) path a would-block bail must leave interpreter txn state untouched
-        // (no id consumed, status still IDLE) so the caller can fall back to the blocking path.
-        SetupDatabaseTransaction(
-            true, extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE, try_mode);
-        SetupInterpreterTransaction(extras);
+        // Mint order is mode-dependent: Blocking cannot bail so mint first (transaction is visible/killable during
+        // the lock wait); TryBounded may throw WouldBlockInlineException so accessor comes first to satisfy M3
+        // (no id consumed, status still IDLE on a bail).
+        if (try_mode == storage::EngineLockMode::Blocking) {
+          SetupInterpreterTransaction(extras);
+          SetupDatabaseTransaction(
+              true, extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE, try_mode);
+        } else {
+          SetupDatabaseTransaction(
+              true, extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE, try_mode);
+          SetupInterpreterTransaction(extras);
+        }
         // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
         current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
         in_explicit_transaction_ = true;
@@ -10801,10 +10808,22 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParamet
         }
       }
 
+      // Mints the tx id, marks ACTIVE, and records the query string. Called at most once per query.
+      bool interpreter_txn_opened = false;
+      auto open_interpreter_txn = [&] {
+        transaction_queries_->push_back(parsed_query.query_string);
+        SetupInterpreterTransaction(extras);
+        memgraph::logging::EmitSessionTraceEvent(
+            "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
+        interpreter_txn_opened = true;
+      };
+
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
         }
+        // Blocking cannot bail: mint first so the query is visible/killable during the lock wait.
+        if (try_mode == storage::EngineLockMode::Blocking) open_interpreter_txn();
         SetupDatabaseTransaction(
             transaction_requirements.could_commit_, *transaction_requirements.accessor_type_, try_mode);
 
@@ -10819,12 +10838,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParamet
         }
       }
 
-      // Deferred from the autocommit branch above: the storage accessor is now held, so record the
-      // query and open the interpreter transaction (consumes the tx id, marks the status ACTIVE).
-      transaction_queries_->push_back(parsed_query.query_string);
-      SetupInterpreterTransaction(extras);
-      memgraph::logging::EmitSessionTraceEvent(
-          "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
+      // TryBounded and no-accessor queries mint here (exactly once).
+      if (!interpreter_txn_opened) open_interpreter_txn();
     }
 
     if (current_db_.db_acc_) {
@@ -11205,6 +11220,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParamet
             .privileges = query_execution->prepared_query->privileges,
             .qid = qid,
             .db = query_execution->prepared_query->db};
+  } catch (const WouldBlockInlineException &) {
+    // Reschedule signal, not a query failure — rethrow before failure accounting.
+    throw;
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
     // query_execution holds the query string copy that survives Prepare* moving it out.
@@ -11247,7 +11265,10 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
 
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type,
                                            storage::EngineLockMode try_mode) {
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type, try_mode);
+  // Peek (do not consume) so a WouldBlockInlineException bail leaves the one-shot override intact for
+  // the retry; consume only after the accessor is successfully acquired.
+  current_db_.SetupDatabaseTransaction(PeekIsolationLevelOverride(), couldCommit, acc_type, try_mode);
+  next_transaction_isolation_level.reset();
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
@@ -11802,14 +11823,8 @@ void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution)
   }
 }
 
-std::optional<storage::IsolationLevel> Interpreter::GetIsolationLevelOverride() {
-  if (next_transaction_isolation_level) {
-    const auto isolation_level = *next_transaction_isolation_level;
-    next_transaction_isolation_level.reset();
-    return isolation_level;
-  }
-
-  return interpreter_isolation_level;
+std::optional<storage::IsolationLevel> Interpreter::PeekIsolationLevelOverride() const {
+  return next_transaction_isolation_level.has_value() ? next_transaction_isolation_level : interpreter_isolation_level;
 }
 
 void Interpreter::SetNextTransactionIsolationLevel(const storage::IsolationLevel isolation_level) {
