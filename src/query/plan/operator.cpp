@@ -428,11 +428,26 @@ uint64_t ComputeProfilingKey(const T *obj) {
 // impact on performance for the expected (non-abort) case.
 thread_local auto maybe_check_abort = utils::ResettableCounter{20};
 
+// Ending a query that must stop always takes this form, so the two places that check share it
+// rather than each deciding what an abort means.
+inline void ThrowIfAborting(StoppingContext const &stopping_context) {
+  if (auto const reason = stopping_context.MustAbort(); reason != AbortReason::NO_ABORT) [[unlikely]] {
+    throw HintedAbortError(reason);
+  }
+}
+
 inline void AbortCheck(ExecutionContext const &context) {
   if (!maybe_check_abort()) return;
 
-  if (auto const reason = context.stopping_context.MustAbort(); reason != AbortReason::NO_ABORT)
-    throw HintedAbortError(reason);
+  ThrowIfAborting(context.stopping_context);
+}
+
+// A download runs to completion inside a single Pull, so the check above gets no chance to run while
+// it does. The transfer takes this one instead, which must signal by throwing: that is the only form
+// a transfer can act on. A transfer offers this far less often than a scan offers rows, and how
+// promptly a download stops is what the caller waits on, so it looks every time.
+auto MakeThrowingAborter(ExecutionContext const &context) -> std::function<void()> {
+  return [stopping_context = context.stopping_context]() { ThrowIfAborting(stopping_context); };
 }
 
 std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
@@ -9333,7 +9348,7 @@ class LoadParquetCursor : public Cursor {
                                     utils::kAwsEndpointUrlQuerySetting);
       }
 
-      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+      auto abort_check_erased = MakeThrowingAborter(context);
 
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
