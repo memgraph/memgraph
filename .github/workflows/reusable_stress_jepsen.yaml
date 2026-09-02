@@ -110,6 +110,8 @@ jobs:
           ./run.sh cluster-refresh --nodes-no $NODES_NO
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH run
 

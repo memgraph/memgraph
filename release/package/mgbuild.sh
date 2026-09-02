@@ -413,38 +413,72 @@ emit_cache_volumes() {
   fi
 }
 
-# Function to handle cache override file creation and cleanup
-setup_cache_override() {
+# GITHUB_TOKEN is forwarded into the container so in-container git fetches from
+# github.com are authenticated (see github_auth_in_container). Anonymous clones
+# from the shared runner IP get rate-limited with a 401.
+github_token_enabled() {
+  [[ -n "${GITHUB_TOKEN:-}" ]]
+}
+
+compose_override_enabled() {
+  any_cache_enabled || github_token_enabled
+}
+
+# Emits the per-service override entries (cache mounts, forwarded env).
+emit_service_override() {
+  if any_cache_enabled; then
+    echo "    volumes:"
+    emit_cache_volumes
+  fi
+  if github_token_enabled; then
+    # Interpolated by compose at `up` time, so the token never lands on disk.
+    echo "    environment:"
+    echo "      - GITHUB_TOKEN=\${GITHUB_TOKEN:-}"
+  fi
+}
+
+# Function to handle compose override file creation and cleanup
+setup_compose_override() {
   local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
 
-  if any_cache_enabled; then
-    cat > cache-override.yml << EOF
+  if compose_override_enabled; then
+    cat > compose-override.yml << EOF
 services:
 EOF
-    # Add cache volumes for all services in the compose file
     if [[ "$os" == "all" ]]; then
-      # For all OS, we need to add volumes to all services
+      # For all OS, we need to add the override to all services
       grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | while read -r line; do
         service_name=$(echo "$line" | sed 's/://')
-        echo "  $service_name:" >> cache-override.yml
-        echo "    volumes:" >> cache-override.yml
-        emit_cache_volumes >> cache-override.yml
+        echo "  $service_name:" >> compose-override.yml
+        emit_service_override >> compose-override.yml
       done
     else
-      # For specific OS, only add volume to the target service
-      echo "  $build_container:" >> cache-override.yml
-      echo "    volumes:" >> cache-override.yml
-      emit_cache_volumes >> cache-override.yml
+      # For specific OS, only add the override to the target service
+      echo "  $build_container:" >> compose-override.yml
+      emit_service_override >> compose-override.yml
     fi
-    compose_files="$compose_files -f cache-override.yml"
+    compose_files="$compose_files -f compose-override.yml"
   fi
 
   echo "$compose_files"
 }
 
-cleanup_cache_override() {
-  if any_cache_enabled; then
-    rm -f cache-override.yml
+cleanup_compose_override() {
+  if compose_override_enabled; then
+    rm -f compose-override.yml
+  fi
+}
+
+# Point git at the forwarded GITHUB_TOKEN via a credential helper that reads it
+# from the environment at fetch time. Written once to /home/mg/.gitconfig, so
+# every later `docker exec -u mg` (and any nested clone, e.g. mgconsole's
+# ExternalProjects) is covered without touching individual commands.
+github_auth_in_container() {
+  local container=$1
+  if github_token_enabled; then
+    echo "Configuring authenticated github.com access in $container..."
+    docker exec -u mg "$container" git config --global credential.helper \
+      '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
   fi
 }
 
@@ -3452,7 +3486,7 @@ case $command in
       done
 
       # Create ccache override file if ccache is enabled
-      compose_files=$(setup_cache_override)
+      compose_files=$(setup_compose_override)
       if [[ "$conan_cache_enabled" == "true" ]]; then
         echo "Setting conan cache directory: $conan_cache_dir"
       fi
@@ -3472,6 +3506,9 @@ case $command in
             $docker_compose_cmd $compose_files pull --ignore-pull-failures --policy missing
         fi
         $docker_compose_cmd $compose_files up -d
+        for service_name in $(grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | sed 's/://'); do
+          github_auth_in_container "$service_name"
+        done
       else
         if [[ "$pull" == "true" ]]; then
           $docker_compose_cmd $compose_files pull $build_container
@@ -3479,6 +3516,7 @@ case $command in
           $docker_compose_cmd $compose_files pull --ignore-pull-failures $build_container
         fi
         $docker_compose_cmd $compose_files up -d $build_container
+        github_auth_in_container "$build_container"
       fi
 
       # set custom mirror for CI
@@ -3572,7 +3610,7 @@ EOF
       docker network connect mgbuild_network mgdeps-cache || true  # allow this to fail if the mgdeps cache container is not running
 
       # Clean up override files if they were created
-      cleanup_cache_override
+      cleanup_compose_override
     ;;
     stop)
       cd $SCRIPT_DIR
@@ -3605,7 +3643,7 @@ EOF
       echo "mgbuild_network network removed"
 
       # Create cache override files (same logic as run command)
-      compose_files=$(setup_cache_override)
+      compose_files=$(setup_compose_override)
 
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd $compose_files down
@@ -3617,13 +3655,13 @@ EOF
       fi
 
       # Clean up override files if they were created
-      cleanup_cache_override
+      cleanup_compose_override
     ;;
     pull)
       cd $SCRIPT_DIR
 
       # Create cache override files (same logic as run command)
-      compose_files=$(setup_cache_override)
+      compose_files=$(setup_compose_override)
 
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd $compose_files pull --ignore-pull-failures
@@ -3632,7 +3670,7 @@ EOF
       fi
 
       # Clean up override files if they were created
-      cleanup_cache_override
+      cleanup_compose_override
     ;;
     push)
       docker login $@
