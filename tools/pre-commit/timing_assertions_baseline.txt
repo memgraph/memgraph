@@ -1,0 +1,18 @@
+# Wall-clock upper bounds that predate check_timing_assertions.py.
+# Each asserts how fast the machine is, so each is a latent flaky failure.
+# Entries may be deleted as they are converted; none may be added.
+tests/unit/database_protector_test.cpp	EXPECT_LT(shutdown_time, 1000) << "Storage shutdown took too long, async indexer may not have stopped";
+tests/unit/database_protector_test.cpp	EXPECT_LT(shutdown_time, 500) << "Storage shutdown should be fast when async indexer completed";
+tests/unit/hot_cold_gatekeeper.cpp	EXPECT_LT(elapsed, std::chrono::seconds(1));
+tests/unit/integrations_kafka_consumer.cpp	EXPECT_LE(elapsed, timeout * kTimingTolerance);
+tests/unit/query_streams.cpp	EXPECT_LE(elapsed, timeout * 1.2);
+tests/unit/rpc.cpp	EXPECT_LE(t2.Elapsed(), 200ms);
+tests/unit/rpc.cpp	EXPECT_LT(timer.Elapsed(), 200ms);
+tests/unit/rpc_in_progress.cpp	EXPECT_LT(elapsed, 5s);
+tests/unit/utils_async_timer.cpp	EXPECT_LT(elapsed, kQuickExpirationWindow)
+tests/unit/utils_resource_lock.cpp	ASSERT_LT(w2_duration.load(), 100ms);
+tests/unit/utils_resource_lock.cpp	EXPECT_LT(latency_large_burst, latency_small_burst + 50ms)
+tests/unit/utils_rwlock.cpp	EXPECT_LE(elapsed, 150ms);
+tests/unit/utils_rwlock.cpp	EXPECT_LE(total_time, 350ms);
+tests/unit/utils_safe_string.cpp	EXPECT_LT(duration.count(), 1000);
+tests/unit/utils_temporal.cpp	ASSERT_LT(local_date_time.MicrosecondsSinceEpoch(), 0);

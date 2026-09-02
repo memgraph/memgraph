@@ -27,6 +27,15 @@ repos:
     hooks:
       - id: clang-format
         exclude: ^src/mage/cpp/community_detection_module/grappolo/
+  - repo: local
+    hooks:
+      - id: timing-assertions
+        name: no wall-clock upper bounds in tests
+        description: Rejects a test assertion that an operation finished within an elapsed-time bound
+        entry: python3 tools/pre-commit/check_timing_assertions.py
+        language: system
+        files: ^tests/.*\.(cpp|hpp|h|cc)$
+        pass_filenames: true
 #  - repo: local
 #    hooks:
 #      - id: clang-tidy
