@@ -265,7 +265,8 @@ bool WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_e
     if (res.snapshot_size > 0) {
       element_count += res.count;
       used_ids.merge(std::move(res.used_ids));
-      const auto current_offset = snapshot_encoder.GetPosition();  // Flushes as well
+      // AppendFrom below flushes pending buffered bytes before copying, so the part lands here.
+      const auto current_offset = snapshot_encoder.GetPosition();
       // Update batch positions
       for (auto &[offset, _] : res.batch_info) {
         offset += current_offset;
