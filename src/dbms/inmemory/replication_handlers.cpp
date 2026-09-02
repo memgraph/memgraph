@@ -740,9 +740,15 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                                            .num_committed_txns_ = snapshot_info.num_committed_txns};
       storage->repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
       if (storage->config_.experimental_lockfree_read_snapshot) {
-        // Rewound by the Clear() above; reseed the read-snapshot watermark to the recovered durable ts
-        // so post-sync readers on this replica freeze a correct SI boundary (not the reset initial id).
-        storage->last_committed_mvcc_ts_.store(snapshot_info.durable_timestamp, std::memory_order_release);
+        // Rewound by the Clear() above; reseed the read-snapshot watermark from the local MVCC counter
+        // (storage->timestamp_ - 1 = highest committed ts in this replica's own timestamp space).
+        // Using the local counter is space-correct: readers compare against local MVCC delta timestamps,
+        // which live in the same space.  Guard against underflow at the initial counter value.
+        storage->last_committed_mvcc_ts_.store(
+            std::max(storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
+                     storage->timestamp_ > storage::kTimestampInitialId ? storage->timestamp_ - 1
+                                                                        : storage::kTimestampInitialId),
+            std::memory_order_release);
       }
       spdlog::trace("Set num committed txns to {} after loading snapshot.", snapshot_info.num_committed_txns);
       // We are the only active transaction, so mark everything up to the next timestamp

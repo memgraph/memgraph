@@ -447,12 +447,14 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       // EXPERIMENTAL (lock-free-read-snapshot): restore the read-snapshot watermark to the highest recovered
-      // committed timestamp so a post-recovery reader sees every recovered commit (and a new commit, minted
-      // at next_timestamp > LDT, stays invisible). Runtime-only; gated so the OFF path is unchanged.
+      // committed timestamp.  We derive it from the local MVCC counter (timestamp_ - 1 = highest committed ts
+      // in this storage's own timestamp space) rather than from a durability-space field, so the watermark is
+      // space-correct: readers compare it against local MVCC delta timestamps, which live in the same space.
+      // Guard against underflow when the counter is still at its initial value.
       if (config_.experimental_lockfree_read_snapshot) {
-        last_committed_mvcc_ts_.store(
-            std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed), info->last_durable_timestamp),
-            std::memory_order_release);
+        last_committed_mvcc_ts_.store(std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed),
+                                               timestamp_ > kTimestampInitialId ? timestamp_ - 1 : kTimestampInitialId),
+                                      std::memory_order_release);
       }
       CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
                                   .num_committed_txns_ = info->num_committed_txns};
@@ -4774,9 +4776,13 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+    // EXPERIMENTAL (lock-free-read-snapshot): seed the watermark from the local MVCC counter
+    // (timestamp_ - 1 = highest committed ts in this storage's own timestamp space).  Using the
+    // local counter is space-correct: readers compare against local MVCC delta timestamps.
+    // Guard against underflow when the counter is still at its initial value.
     if (config_.experimental_lockfree_read_snapshot) {
       last_committed_mvcc_ts_.store(std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed),
-                                             recovered_snapshot.snapshot_info.durable_timestamp),
+                                             timestamp_ > kTimestampInitialId ? timestamp_ - 1 : kTimestampInitialId),
                                     std::memory_order_release);
     }
     loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
