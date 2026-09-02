@@ -241,6 +241,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
+  // EXPERIMENTAL (lock-free-read-snapshot): engine_lock_ alone is stale for the ldt read at ~line 287;
+  // under the flag, ldt advances at publish outside the post-mint engine_lock_ hold, so hold commit_mutex_
+  // first (committer's order: commit_mutex_ then engine_lock_) to exclude any in-flight committer.
+  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  if (static_cast<InMemoryStorage *>(main_storage)->config_.experimental_lockfree_read_snapshot) {
+    commit_serializer.emplace(static_cast<InMemoryStorage *>(main_storage)->commit_mutex_);
+  }
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
 
@@ -978,6 +985,16 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   // could check that the replica state isn't replicating, this recovery sets the
   // replica state to ready. When the next txn starts, we are in state ready without
   // actually sending data to replica
+  //
+  // EXPERIMENTAL (lock-free-read-snapshot): engine_lock_ alone is insufficient for the ldt read below.
+  // Under the flag, ldt advances at publish (a separate engine_lock_ hold after the post-mint release),
+  // so a reader holding only engine_lock_ can see a stale ldt and mark the replica READY across a commit
+  // it will miss. Hold commit_mutex_ first (committer's order: commit_mutex_ then engine_lock_) to exclude
+  // any in-flight committer so the READY decision reflects it.
+  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  if (main_mem_storage->config_.experimental_lockfree_read_snapshot) {
+    commit_serializer.emplace(main_mem_storage->commit_mutex_);
+  }
   auto lock = std::lock_guard{main_storage->engine_lock_};
   const auto last_durable_timestamp =
       main_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
