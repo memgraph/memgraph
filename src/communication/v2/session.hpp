@@ -438,57 +438,77 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // blocks behind a slow commit; a terminal outcome resumes DoWork/DoRead. FinishPendingBegin emits SUCCESS once.
   // LOW priority + non-productive: admission retry must not compete with real work or hold the gate open.
   void PostFinishPendingBegin() {
-    session_context_->AddTask(
-        [shared_this = shared_from_this()](const auto /*thread_priority*/) {
-          try {
-            switch (shared_this->session_.FinishPendingBegin()) {
-              case memgraph::communication::bolt::PendingBeginOutcome::Reschedule:
-                shared_this->PostFinishPendingBegin();  // re-post to the POOL, never post(strand_)
-                return;
-              case memgraph::communication::bolt::PendingBeginOutcome::Done:
-              case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
-                if (shared_this->session_.HasBufferedData()) {
-                  shared_this->DoWork();
-                } else {
-                  shared_this->DoRead();
-                }
-                return;
+    auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+      try {
+        switch (shared_this->session_.FinishPendingBegin()) {
+          case memgraph::communication::bolt::PendingBeginOutcome::Reschedule:
+            shared_this->PostFinishPendingBegin();  // re-post to the POOL, never post(strand_)
+            return;
+          case memgraph::communication::bolt::PendingBeginOutcome::Done:
+          case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
+            shared_this->pending_begin_task_id_.store(0, std::memory_order_relaxed);
+            if (shared_this->session_.HasBufferedData()) {
+              shared_this->DoWork();
+            } else {
+              shared_this->DoRead();
             }
-          } catch (const std::exception & /* unused */) {
-            boost::asio::post(shared_this->strand_,
-                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
-          }
-        },
-        utils::Priority::LOW,
-        /*productive=*/false);
+            return;
+        }
+      } catch (const std::exception & /* unused */) {
+        boost::asio::post(shared_this->strand_,
+                          [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+      }
+    };
+
+    auto const id = pending_begin_task_id_.load(std::memory_order_relaxed);
+    if (id == 0) {
+      // First post: mint a fresh id and remember it for place-keeping on subsequent reschedules.
+      // A pool thread that races to reschedule before the store below lands will see 0 and re-mint
+      // its own id — at most one reschedule misses place-keeping; no correctness impact.
+      pending_begin_task_id_.store(
+          session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
+          std::memory_order_relaxed);
+    } else {
+      session_context_->AddReTask(std::move(lambda), id, utils::Priority::LOW, /*productive=*/false);
+    }
   }
 
   // PREPARE mirror of PostFinishPendingBegin above; FinishPendingPrepare emits the run header (not SUCCESS) once.
   // LOW priority + non-productive: admission retry must not compete with real work or hold the gate open.
   void PostFinishPendingPrepare() {
-    session_context_->AddTask(
-        [shared_this = shared_from_this()](const auto /*thread_priority*/) {
-          try {
-            switch (shared_this->session_.FinishPendingPrepare()) {
-              case memgraph::communication::bolt::PendingPrepareOutcome::Reschedule:
-                shared_this->PostFinishPendingPrepare();  // re-post to the POOL, never post(strand_)
-                return;
-              case memgraph::communication::bolt::PendingPrepareOutcome::Done:
-              case memgraph::communication::bolt::PendingPrepareOutcome::ClientError:
-                if (shared_this->session_.HasBufferedData()) {
-                  shared_this->DoWork();
-                } else {
-                  shared_this->DoRead();
-                }
-                return;
+    auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+      try {
+        switch (shared_this->session_.FinishPendingPrepare()) {
+          case memgraph::communication::bolt::PendingPrepareOutcome::Reschedule:
+            shared_this->PostFinishPendingPrepare();  // re-post to the POOL, never post(strand_)
+            return;
+          case memgraph::communication::bolt::PendingPrepareOutcome::Done:
+          case memgraph::communication::bolt::PendingPrepareOutcome::ClientError:
+            shared_this->pending_prepare_task_id_.store(0, std::memory_order_relaxed);
+            if (shared_this->session_.HasBufferedData()) {
+              shared_this->DoWork();
+            } else {
+              shared_this->DoRead();
             }
-          } catch (const std::exception & /* unused */) {
-            boost::asio::post(shared_this->strand_,
-                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
-          }
-        },
-        utils::Priority::LOW,
-        /*productive=*/false);
+            return;
+        }
+      } catch (const std::exception & /* unused */) {
+        boost::asio::post(shared_this->strand_,
+                          [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+      }
+    };
+
+    auto const id = pending_prepare_task_id_.load(std::memory_order_relaxed);
+    if (id == 0) {
+      // First post: mint a fresh id and remember it for place-keeping on subsequent reschedules.
+      // A pool thread that races to reschedule before the store below lands will see 0 and re-mint
+      // its own id — at most one reschedule misses place-keeping; no correctness impact.
+      pending_prepare_task_id_.store(
+          session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
+          std::memory_order_relaxed);
+    } else {
+      session_context_->AddReTask(std::move(lambda), id, utils::Priority::LOW, /*productive=*/false);
+    }
   }
 
   void OnError(const boost::system::error_code &ec) {
@@ -607,5 +627,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
+  // Place-keeping ids for in-flight admission retries. 0 = no admission in progress (sentinel).
+  // Written by strand thread on first post; read/written by pool thread on reschedule → must be atomic.
+  // Relaxed ops suffice: these are fairness hints, not synchronisation barriers.
+  std::atomic<utils::PriorityThreadPool::TaskID> pending_begin_task_id_{0};
+  std::atomic<utils::PriorityThreadPool::TaskID> pending_prepare_task_id_{0};
 };
 }  // namespace memgraph::communication::v2

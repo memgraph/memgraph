@@ -72,8 +72,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void Configure(const bolt_map_t &run_time_info);
 
-  void BeginTransaction(const bolt_map_t &extra, storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
-                        std::chrono::microseconds try_budget = std::chrono::microseconds{2});
+  void BeginTransaction(
+      const bolt_map_t &extra, storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
+      std::chrono::microseconds try_budget = std::chrono::microseconds{2},
+      std::chrono::steady_clock::time_point admission_deadline = std::chrono::steady_clock::time_point::max());
 
   bolt_map_t CommitTransaction();
 
@@ -83,7 +85,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare(
       storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking,
-      std::chrono::microseconds try_budget = std::chrono::microseconds{2});
+      std::chrono::microseconds try_budget = std::chrono::microseconds{2},
+      std::chrono::steady_clock::time_point admission_deadline = std::chrono::steady_clock::time_point::max());
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
                                                                     const bolt_map_t &extra) {
@@ -163,16 +166,17 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // True iff the pool has other queued work a freed worker could run. Gates reschedule-vs-block.
   bool PoolHasPendingWork() const noexcept { return worker_pool_ != nullptr && worker_pool_->HasPendingWork(); }
 
-  // Admission engine-lock mode: TryBounded (reschedule) only when there is work to yield to; else
-  // Blocking (behave like master — no wasted try/reschedule when nothing else can run).
-  // One-shot decision: once Blocking is chosen the worker commits to the acquire and does not
-  // re-evaluate if new work arrives mid-wait (bounded by the holding commit; the full fix is coroutines).
-  storage::EngineLockMode AdmissionEngineLockMode() const noexcept {
-    return PoolHasPendingWork() ? storage::EngineLockMode::TryBounded : storage::EngineLockMode::Blocking;
-  }
+  // Never-block: READ/WRITE admission always uses TryBounded so this worker never sleeps behind a commit's
+  // durability hold. The F1 guard in InterpretPrepare/BeginTransaction still forces Blocking for disk /
+  // UNIQUE / READ_ONLY paths. The finite deadline (AdmissionDeadline) is the only non-success terminator.
+  storage::EngineLockMode AdmissionEngineLockMode() const noexcept { return storage::EngineLockMode::TryBounded; }
+
+  // Wall-clock terminal for a never-block admission — reuses storage_access_timeout_sec (finite; grounded
+  // in MySQL innodb_lock_wait_timeout / CockroachDB lock_timeout — never infinite).
+  std::chrono::steady_clock::time_point AdmissionDeadline() const noexcept;
 
   // Short budget when the pool has work to yield to (reschedule fast); longer when quiet (wait in-place,
-  // fewer wasted re-dispatches). S2c: replaces block-vs-try as the knob. Flags come in a later step.
+  // fewer wasted re-dispatches).
   std::chrono::microseconds AdmissionTryBudget() const noexcept {
     return PoolHasPendingWork() ? std::chrono::microseconds{2} : std::chrono::microseconds{64};
   }

@@ -215,9 +215,8 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
 template <typename TSession>
 State HandlePrepare(TSession &session) {
   try {
-    // Interpret can throw. Gated acquire (TryBounded when pool has queued work to yield to, else Blocking) so
-    // this pool worker reschedules instead of busy-spinning behind a write commit: on contention InterpretPrepare
-    // throws WouldBlock, parsed_res_ left intact.
+    // Never-block: TryBounded acquire bails with WouldBlock on contention so this pool worker reschedules
+    // instead of sleeping behind a write commit; parsed_res_ left intact on WouldBlock for retry.
     const auto [header, qid] =
         session.InterpretPrepare(session.AdmissionEngineLockMode(), session.AdmissionTryBudget());
     // Send the header (exactly one SUCCESS). The PendingPrepare bail below must NOT send it.
@@ -228,7 +227,7 @@ State HandlePrepare(TSession &session) {
     return State::Result;
   } catch (const memgraph::query::WouldBlockInlineException &) {
     // parsed_res_ is intact (re-runnable); the pool retries via FinishPendingPrepare_, which emits the one SUCCESS.
-    session.StashPendingPrepare();
+    session.StashPendingPrepare(session.AdmissionDeadline());
     return State::PendingPrepare;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -434,9 +433,8 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
   try {
     session.Configure(extra.ValueMap());
-    // Gated engine-lock acquire (TryBounded when pool has queued work to yield to, else Blocking): rather than
-    // busy-spin this pool worker behind a long write commit's durability hold, bail with WouldBlockInlineException
-    // on contention and let the completion reschedule. Quiet pools take Blocking directly — zero regression.
+    // Never-block: TryBounded acquire bails with WouldBlockInlineException on contention so this pool worker
+    // reschedules rather than sleeping behind a long write commit's durability hold.
     session.BeginTransaction(extra.ValueMap(), session.AdmissionEngineLockMode(), session.AdmissionTryBudget());
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
@@ -446,7 +444,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   } catch (const memgraph::query::WouldBlockInlineException &) {
     // Accessor-first reorder left interpreter txn state pristine (no id consumed), so the pool can retry.
     // Do NOT MessageSuccess here -- the one SUCCESS is emitted by FinishPendingBegin_ when the BEGIN completes.
-    session.StashPendingBegin(std::move(extra));
+    session.StashPendingBegin(std::move(extra), session.AdmissionDeadline());
     return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);

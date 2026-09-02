@@ -59,12 +59,6 @@ class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
 
-  // Fairness caps: after this many reschedules the pending-BEGIN / pending-PREPARE path falls back to a
-  // blocking engine-lock acquire so neither request can starve indefinitely.  Exposed as public so tests
-  // can reference the constant directly instead of hardcoding the literal.
-  static constexpr uint32_t kBeginRescheduleCap = 32;
-  static constexpr uint32_t kPrepareRescheduleCap = 32;
-
   /**
    * @brief Construct a new Session object
    *
@@ -200,16 +194,17 @@ class Session {
   // Decides whether the post-BEGIN resume re-enters the worker (DoWork) or waits for the next async read (DoRead).
   bool HasBufferedData() const { return input_stream_.size() > 0; }
 
-  // Stash the BEGIN's decoded extras after HandleBegin's bounded-try acquire bailed with WouldBlock, so
-  // FinishPendingBegin_ can retry the Access on the pool without re-decoding.
-  void StashPendingBegin(Value extra) {
+  // Stash the BEGIN's decoded extras and admission deadline after HandleBegin's bounded-try acquire bailed
+  // with WouldBlock, so FinishPendingBegin_ can retry without re-decoding. Deadline is set once at first bail.
+  void StashPendingBegin(Value extra, std::chrono::steady_clock::time_point deadline) {
     pending_begin_extra_ = std::move(extra);
-    pending_begin_retries_ = 0;
+    pending_begin_deadline_ = deadline;
   }
 
-  // Pool-side completion of a BEGIN that HandleBegin bailed on with WouldBlock. Retries the Access with a
-  // bounded-try acquire (Blocking after kBeginRescheduleCap, so it can't starve); on loss returns Reschedule
-  // with the stash intact. Emits the BEGIN's one and only SUCCESS -- never on HandleBegin's bail path.
+  // Pool-side completion of a BEGIN that HandleBegin bailed on with WouldBlock. Always retries with
+  // TryBounded (never-block); on loss returns Reschedule with the stash intact. Terminates only when
+  // the acquire succeeds or the admission deadline (set once at first bail) elapses. Emits the BEGIN's
+  // one and only SUCCESS — never on HandleBegin's bail path.
   template <typename TImpl>
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
@@ -217,20 +212,13 @@ class Session {
   PendingBeginOutcome FinishPendingBegin_(TImpl &impl) {
     MG_ASSERT(pending_begin_extra_.has_value(), "FinishPendingBegin_ without a pending BEGIN");
     memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
-    const bool cap_reached = pending_begin_retries_ >= kBeginRescheduleCap;
-    // Block on fairness cap OR when the pool has gone quiet (no pending work to yield to).
-    // Timeout semantics: the storage-access timeout is enforced by the Blocking Access at this
-    // cap/quiet fallback (on main_lock_); the reschedule window is bounded by the cap so it cannot
-    // meaningfully outrun that timeout. engine_lock_ itself has no acquire timeout on either path
-    // (unchanged from master).
-    const auto mode = (cap_reached || !impl.PoolHasPendingWork()) ? memgraph::storage::EngineLockMode::Blocking
-                                                                  : memgraph::storage::EngineLockMode::TryBounded;
+    const auto mode = impl.AdmissionEngineLockMode();
     const auto budget = impl.AdmissionTryBudget();
     const Value &extra = *pending_begin_extra_;  // reference, NOT move -- may need it again on reschedule
     try {
       impl.Configure(
           extra.ValueMap());  // idempotent on identical extras (early-outs), so safe to re-run across reschedules
-      impl.BeginTransaction(extra.ValueMap(), mode, budget);
+      impl.BeginTransaction(extra.ValueMap(), mode, budget, pending_begin_deadline_);
       if (!encoder_.MessageSuccess({})) {
         state_ = State::Close;
         pending_begin_extra_.reset();
@@ -240,11 +228,10 @@ class Session {
       pending_begin_extra_.reset();
       return PendingBeginOutcome::Done;
     } catch (const memgraph::query::WouldBlockInlineException &) {
-      // Only TryBounded throws this; Blocking (at the cap or on an idle pool) never does, so either condition
-      // terminates the reschedule loop.
-      ++pending_begin_retries_;
       return PendingBeginOutcome::Reschedule;  // pending_begin_extra_ intentionally NOT reset
     } catch (const std::exception &e) {
+      // Catches SharedAccessTimeout (deadline) and all other failures; produces the same TransientError
+      // the blocking path would have produced on a storage-access timeout.
       state_ = HandleFailure(impl, e);
       pending_begin_extra_.reset();
       return PendingBeginOutcome::ClientError;
@@ -255,10 +242,10 @@ class Session {
   bool HasPendingPrepare() const { return pending_prepare_; }
 
   // Flag a PREPARE whose bounded-try acquire bailed with WouldBlock. The parse stays in SessionHL::parsed_res_
-  // (re-runnable), so the bolt layer only records that a completion is owed plus a fresh retry count.
-  void StashPendingPrepare() {
+  // (re-runnable), so the bolt layer only records that a completion is owed and the admission deadline.
+  void StashPendingPrepare(std::chrono::steady_clock::time_point deadline) {
     pending_prepare_ = true;
-    pending_prepare_retries_ = 0;
+    pending_prepare_deadline_ = deadline;
   }
 
   // Emits the RUN header (field names + optional qid) as the PREPARE's single SUCCESS. Shared by HandlePrepare's
@@ -275,9 +262,10 @@ class Session {
     return encoder_.MessageSuccess(data);
   }
 
-  // Pool-side completion of a PREPARE that HandlePrepare bailed on with WouldBlock. Retries InterpretPrepare with a
-  // bounded-try acquire (Blocking after kPrepareRescheduleCap, so it can't starve); on loss returns Reschedule with
-  // parsed_res_ intact. Emits the PREPARE's one and only header SUCCESS -- never on HandlePrepare's bail path.
+  // Pool-side completion of a PREPARE that HandlePrepare bailed on with WouldBlock. Always retries with
+  // TryBounded (never-block); on loss returns Reschedule with parsed_res_ intact. Terminates only when the
+  // acquire succeeds or the admission deadline (set once at first bail) elapses. Emits the PREPARE's one
+  // and only header SUCCESS — never on HandlePrepare's bail path.
   template <typename TImpl>
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
@@ -285,13 +273,10 @@ class Session {
   PendingPrepareOutcome FinishPendingPrepare_(TImpl &impl) {
     MG_ASSERT(pending_prepare_, "FinishPendingPrepare_ without a pending PREPARE");
     memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
-    const bool cap_reached = pending_prepare_retries_ >= kPrepareRescheduleCap;
-    // Block on fairness cap OR when the pool has gone quiet (no pending work to yield to).
-    const auto mode = (cap_reached || !impl.PoolHasPendingWork()) ? memgraph::storage::EngineLockMode::Blocking
-                                                                  : memgraph::storage::EngineLockMode::TryBounded;
+    const auto mode = impl.AdmissionEngineLockMode();
     const auto budget = impl.AdmissionTryBudget();
     try {
-      auto [header, qid] = impl.InterpretPrepare(mode, budget);  // consumes parsed_res_ on success
+      auto [header, qid] = impl.InterpretPrepare(mode, budget, pending_prepare_deadline_);
       if (!SendPrepareHeader(header, qid)) {
         state_ = State::Close;
         pending_prepare_ = false;
@@ -301,11 +286,10 @@ class Session {
       pending_prepare_ = false;
       return PendingPrepareOutcome::Done;
     } catch (const memgraph::query::WouldBlockInlineException &) {
-      // Only TryBounded throws this; Blocking (at the cap or on an idle pool) never does, so either condition
-      // terminates the reschedule loop. parsed_res_ stays intact in SessionHL and pending_prepare_ stays true.
-      ++pending_prepare_retries_;
+      // parsed_res_ stays intact in SessionHL and pending_prepare_ stays true.
       return PendingPrepareOutcome::Reschedule;
     } catch (const std::exception &e) {
+      // Catches SharedAccessTimeout (deadline) and all other failures.
       state_ = HandleFailure(impl, e);
       pending_prepare_ = false;
       return PendingPrepareOutcome::ClientError;
@@ -358,15 +342,15 @@ class Session {
   // BEGIN extras stashed on a WouldBlock bail, carried across the worker->pool reschedule (retry without re-decoding).
   std::optional<Value> pending_begin_extra_{};
 
-  // Times FinishPendingBegin_ lost the bounded-try engine-lock race for the current BEGIN; reset on a fresh stash.
-  uint32_t pending_begin_retries_{0};
+  // Admission deadline for the stashed BEGIN: set once at first bail, never extended on reschedule.
+  std::chrono::steady_clock::time_point pending_begin_deadline_{std::chrono::steady_clock::time_point::max()};
 
   // Cleared once the PREPARE completes (header sent) or fails. Mutually exclusive with pending_begin_extra_
   // (state_ is single-valued, so a BEGIN and a PREPARE step cannot both be mid-flight on the same session).
   bool pending_prepare_{false};
 
-  // Times FinishPendingPrepare_ lost the bounded-try engine-lock race for the current PREPARE; reset on a fresh stash.
-  uint32_t pending_prepare_retries_{0};
+  // Admission deadline for the stashed PREPARE: set once at first bail, never extended on reschedule.
+  std::chrono::steady_clock::time_point pending_prepare_deadline_{std::chrono::steady_clock::time_point::max()};
 
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)

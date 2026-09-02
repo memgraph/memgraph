@@ -43,6 +43,7 @@
 #include "query/frontend/semantic/graph_free.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
+#include "storage/v2/storage.hpp"  // SharedAccessTimeout (admission deadline throw)
 #include "utils/event_map.hpp"
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
@@ -568,8 +569,15 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
   }
 }
 
+std::chrono::steady_clock::time_point SessionHL::AdmissionDeadline() const noexcept {
+  return std::chrono::steady_clock::now() + flags::run_time::GetStorageAccessTimeoutSec();
+}
+
 std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare(
-    storage::EngineLockMode try_mode, std::chrono::microseconds try_budget) {
+    storage::EngineLockMode try_mode, std::chrono::microseconds try_budget,
+    std::chrono::steady_clock::time_point admission_deadline) {
+  if (std::chrono::steady_clock::now() >= admission_deadline) throw storage::SharedAccessTimeout{};
+
   if (!parsed_res_) {
     throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
   }
@@ -691,7 +699,10 @@ bolt_map_t SessionHL::CommitTransaction() {
 }
 
 void SessionHL::BeginTransaction(const bolt_map_t &extra, storage::EngineLockMode try_mode,
-                                 std::chrono::microseconds try_budget) {
+                                 std::chrono::microseconds try_budget,
+                                 std::chrono::steady_clock::time_point admission_deadline) {
+  if (std::chrono::steady_clock::now() >= admission_deadline) throw storage::SharedAccessTimeout{};
+
   try {
     interpreter_.BeginTransaction(ToQueryExtras(extra), try_mode, try_budget);
   } catch (const memgraph::query::QueryException &e) {

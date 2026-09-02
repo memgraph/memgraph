@@ -20,6 +20,7 @@
 #include "communication/exceptions.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/access_type.hpp"  // storage::EngineLockMode (BeginTransaction engine-mode arg)
+#include "storage/v2/storage.hpp"      // storage::SharedAccessTimeout (admission deadline throw)
 #include "utils/logging.hpp"
 
 using memgraph::communication::bolt::ChunkedEncoderBuffer;
@@ -73,11 +74,12 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare(
       memgraph::storage::EngineLockMode try_mode = memgraph::storage::EngineLockMode::Blocking,
-      std::chrono::microseconds /*try_budget*/ = std::chrono::microseconds{2}) {
-    // Pool bounded-try (mirrors BeginTransaction): lose the engine-lock race for the first N TryBounded
-    // attempts, then succeed. The first loss bails HandlePrepare into State::PendingPrepare; the rest make
-    // FinishPendingPrepare_ return Reschedule. Blocking (the fairness-cap fallback) is never gated, so the
-    // reschedule loop is guaranteed to terminate.
+      std::chrono::microseconds /*try_budget*/ = std::chrono::microseconds{2},
+      std::chrono::steady_clock::time_point admission_deadline = std::chrono::steady_clock::time_point::max()) {
+    // Pool bounded-try: lose the engine-lock race for the first N TryBounded attempts, then succeed.
+    // The first loss bails HandlePrepare into State::PendingPrepare; the rest make FinishPendingPrepare_
+    // return Reschedule. Deadline expiry is enforced here (as SessionHL does on the real path).
+    if (std::chrono::steady_clock::now() >= admission_deadline) throw memgraph::storage::SharedAccessTimeout{};
     if (try_mode == memgraph::storage::EngineLockMode::TryBounded && try_bounded_fail_count_ > 0) {
       --try_bounded_fail_count_;
       throw memgraph::query::WouldBlockInlineException{};
@@ -126,13 +128,13 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) { return {}; }
 
-  void BeginTransaction(const bolt_map_t &extra,
-                        memgraph::storage::EngineLockMode mode = memgraph::storage::EngineLockMode::Blocking,
-                        std::chrono::microseconds /*try_budget*/ = std::chrono::microseconds{2}) {
-    // Pool bounded-try: simulate losing the engine-lock race for the first N attempts, then succeed. The
-    // first loss happens inside HandleBegin (the BEGIN goes State::PendingBegin); the rest happen inside
-    // FinishPendingBegin_ (each returns Reschedule). Blocking (the fairness-cap fallback) never throws
-    // WouldBlock, so it is intentionally NOT gated here -- that is what guarantees the loop terminates.
+  void BeginTransaction(
+      const bolt_map_t &extra, memgraph::storage::EngineLockMode mode = memgraph::storage::EngineLockMode::Blocking,
+      std::chrono::microseconds /*try_budget*/ = std::chrono::microseconds{2},
+      std::chrono::steady_clock::time_point admission_deadline = std::chrono::steady_clock::time_point::max()) {
+    // Pool bounded-try: simulate losing the engine-lock race for the first N TryBounded attempts, then succeed.
+    // Deadline expiry is enforced here (as SessionHL does on the real path).
+    if (std::chrono::steady_clock::now() >= admission_deadline) throw memgraph::storage::SharedAccessTimeout{};
     if (mode == memgraph::storage::EngineLockMode::TryBounded && try_bounded_fail_count_ > 0) {
       --try_bounded_fail_count_;
       throw memgraph::query::WouldBlockInlineException{};
@@ -196,15 +198,26 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   // HandlePrepare bail + FinishPendingBegin_ / FinishPendingPrepare_ reschedule paths deterministically.
   void TestHook_FailBoundedTries(int n) { try_bounded_fail_count_ = n; }
 
-  // Simulate an idle pool (no queued work): AdmissionEngineLockMode returns Blocking, bypassing the
-  // TryBounded + reschedule path entirely.
+  // Simulate an idle pool (no queued work): affects AdmissionTryBudget (budget is longer when quiet);
+  // AdmissionEngineLockMode is always TryBounded — the mode no longer switches on pool idleness.
   void TestHook_SetPoolIdle() { pool_has_pending_work_ = false; }
+
+  // Make AdmissionDeadline() return an already-elapsed time_point so the mock's admission-deadline
+  // check (mirroring SessionHL) throws SharedAccessTimeout on the next retry. Simulates the
+  // scenario where the never-block reschedule loop exhausts its wall-clock budget.
+  void TestHook_SetExpiredDeadline() { admission_deadline_expired_ = true; }
 
   bool PoolHasPendingWork() const noexcept { return pool_has_pending_work_; }
 
+  // Never-block: always TryBounded regardless of pool idleness (matches SessionHL::AdmissionEngineLockMode).
   memgraph::storage::EngineLockMode AdmissionEngineLockMode() const noexcept {
-    return pool_has_pending_work_ ? memgraph::storage::EngineLockMode::TryBounded
-                                  : memgraph::storage::EngineLockMode::Blocking;
+    return memgraph::storage::EngineLockMode::TryBounded;
+  }
+
+  // Returns max (never expires) by default; SetExpiredDeadline makes it return min (already elapsed).
+  std::chrono::steady_clock::time_point AdmissionDeadline() const noexcept {
+    return admission_deadline_expired_ ? std::chrono::steady_clock::time_point::min()
+                                       : std::chrono::steady_clock::time_point::max();
   }
 
   std::chrono::microseconds AdmissionTryBudget() const noexcept { return std::chrono::microseconds{2}; }
@@ -230,8 +243,11 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   bolt_map_t md_;
   bool should_abort_ = false;
   int try_bounded_fail_count_{0};
-  // Default true: existing reschedule tests exercise the TryBounded path unchanged.
+  // Default true: affects AdmissionTryBudget (2µs busy / 64µs quiet); mode is always TryBounded.
   bool pool_has_pending_work_{true};
+  // When true, AdmissionDeadline() returns time_point::min() (already elapsed) so the mock's
+  // admission-deadline check throws SharedAccessTimeout on the first retry.
+  bool admission_deadline_expired_{false};
 };
 
 // TODO: This could be done in fixture.
@@ -1378,11 +1394,25 @@ TEST(BoltSession, PartialStream) {
   }
 }
 
+using memgraph::communication::bolt::PendingPrepareOutcome;
+
+// Count whole bolt frames in `output`, consuming it. A frame is a 2-byte length header, `len` payload bytes,
+// then the 2-byte end marker; used to prove "exactly one header / exactly one failure" without pinning bytes.
+static int DrainFrameCount(std::vector<uint8_t> &output) {
+  int frames = 0;
+  while (output.size() > 0) {
+    const int len = (output[0] << 8) + output[1];
+    output.erase(output.begin(), output.begin() + len + 4);
+    ++frames;
+  }
+  return frames;
+}
+
 // ---------------------------------------------------------------------------
 // Pending-BEGIN reschedule (pool-native, no strand inline). A BEGIN whose bounded-try engine-lock
-// acquire loses the race bails out of HandleBegin into State::PendingBegin (stashing its decoded
-// extras); the completion is retried out-of-band via FinishPendingBegin(), which reschedules on each
-// further loss and, past the fairness cap, does one blocking acquire so the BEGIN cannot starve.
+// acquire loses the race bails into State::PendingBegin (stashing extras + the admission deadline);
+// the completion is retried out-of-band via FinishPendingBegin(), rescheduling on each further loss
+// until the deadline elapses (SharedAccessTimeout → ClientError) or the acquire succeeds (Done).
 // ---------------------------------------------------------------------------
 
 // A minimal single-chunk BEGIN with an empty extras map, pre-framed (chunk header + end marker) so it
@@ -1447,37 +1477,28 @@ TEST(BoltSession, PendingBeginFairnessCapForcesBlockingTerminal) {
   ExecuteInit(input_stream, session, output, true);
   ASSERT_EQ(session.state_, State::Idle);
 
-  // EVERY bounded-try loses the race: only the fairness cap can end the loop.
+  // EVERY bounded-try loses the race; the admission deadline (not a blocking fallback) is the only
+  // non-success terminator. Arm an already-elapsed deadline so FinishPendingBegin_ fires it on the
+  // first retry, producing ClientError without emitting a SUCCESS.
   session.TestHook_FailBoundedTries(1000);
+  session.TestHook_SetExpiredDeadline();
   input_stream.Write(begin_bytes.data(), begin_bytes.size());
   output.clear();
 
+  // HandleBegin bails with WouldBlock (first loss) and stashes the expired deadline.
   ASSERT_TRUE(session.ExecuteStep());
   EXPECT_EQ(session.state_, State::PendingBegin);
   EXPECT_TRUE(session.HasPendingBegin());
   EXPECT_TRUE(output.empty());
 
-  // Under unbounded contention the pool-side completion must still terminate: after kBeginRescheduleCap
-  // reschedules FinishPendingBegin_ does one Blocking acquire (which is never gated by the fail hook and
-  // never throws WouldBlock), completing the BEGIN. Count the reschedules to prove it is the cap -- not a
-  // lucky bounded-try -- that breaks the loop.
-  int reschedules = 0;
-  constexpr int kSafetyBound = 100;
-  for (int i = 0; i < kSafetyBound; ++i) {
-    const auto outcome = session.FinishPendingBegin();
-    if (outcome == PendingBeginOutcome::Done) break;
-    ASSERT_EQ(outcome, PendingBeginOutcome::Reschedule);
-    EXPECT_TRUE(session.HasPendingBegin());
-    EXPECT_TRUE(output.empty());
-    EXPECT_EQ(session.state_, State::PendingBegin);
-    ++reschedules;
-  }
-  // Loop count tied to the cap: the terminal Blocking acquire fires on the next call.
-  EXPECT_EQ(reschedules, TestSession::kBeginRescheduleCap);
+  // Deadline expiry throws SharedAccessTimeout (from the mock, as SessionHL would); caught by the std::exception
+  // handler, HandleFailure sends a TransientError (one failure frame), stash is reset.
+  const auto outcome = session.FinishPendingBegin();
+  EXPECT_EQ(outcome, PendingBeginOutcome::ClientError);
   EXPECT_FALSE(session.HasPendingBegin());
-  EXPECT_EQ(session.state_, State::Idle);
-  ASSERT_EQ(output.size(), sizeof(success_resp));  // exactly one SUCCESS, from the Blocking fallback
-  CheckSuccessMessage(output, /*clear=*/false);
+  EXPECT_EQ(session.state_, State::Error);
+  // Exactly one FAILURE frame emitted (the error response); no SUCCESS was emitted.
+  EXPECT_EQ(DrainFrameCount(output), 1);
 }
 
 TEST(BoltSession, PendingBeginHoldsBackPipelinedMessageUntilItCompletes) {
@@ -1523,20 +1544,23 @@ TEST(BoltSession, PendingBeginGatedToBlockWhenPoolIdle) {
   ExecuteInit(input_stream, session, output, true);
   ASSERT_EQ(session.state_, State::Idle);
 
-  // Pool is quiet: AdmissionEngineLockMode returns Blocking. Even though the bounded-try fail hook is armed,
-  // BeginTransaction is called with Blocking (not TryBounded) and never throws WouldBlock.
+  // Pool is quiet but AdmissionEngineLockMode is always TryBounded (never-block). SetPoolIdle changes the
+  // budget (2µs→64µs) but not the mode. With TryBounded, contention still causes a PendingBegin reschedule.
   session.TestHook_SetPoolIdle();
-  session.TestHook_FailBoundedTries(10);  // would produce 10 reschedules on a busy pool, but mode is Blocking
+  session.TestHook_FailBoundedTries(1);  // one loss → PendingBegin, then the next attempt wins
   input_stream.Write(begin_bytes.data(), begin_bytes.size());
   output.clear();
 
-  // One dechunk pass: HandleBegin acquires Blocking and completes the BEGIN inline, so the loop drains and
-  // Execute_ returns false. A PendingBegin bail (the busy-pool reschedule path) would instead return true --
-  // asserting false is what proves the gate took the Blocking path, not the reschedule path.
-  ASSERT_FALSE(session.ExecuteStep());
+  // TryBounded + loss → bail into PendingBegin; Execute_ returns true (not false as in the old Blocking path).
+  ASSERT_TRUE(session.ExecuteStep());
+  EXPECT_EQ(session.state_, State::PendingBegin);
+  EXPECT_TRUE(session.HasPendingBegin());
+  EXPECT_TRUE(output.empty());
+
+  // Second attempt wins the engine lock; one SUCCESS emitted by FinishPendingBegin_.
+  ASSERT_EQ(session.FinishPendingBegin(), PendingBeginOutcome::Done);
   EXPECT_EQ(session.state_, State::Idle);
   EXPECT_FALSE(session.HasPendingBegin());
-  // Exactly one SUCCESS, emitted inline by HandleBegin (not the pending path).
   ASSERT_EQ(output.size(), sizeof(success_resp));
   CheckSuccessMessage(output, /*clear=*/false);
 }
@@ -1545,23 +1569,9 @@ TEST(BoltSession, PendingBeginGatedToBlockWhenPoolIdle) {
 // Pending-PREPARE reschedule (pool-native, no strand inline). A RUN is first parsed (State::Parsed); the
 // follow-up PREPARE, whose bounded-try engine-lock acquire loses the race, bails out of HandlePrepare into
 // State::PendingPrepare (parse retained in SessionHL::parsed_res_). The completion is retried out-of-band via
-// FinishPendingPrepare(), which reschedules on each further loss and, past the fairness cap, does one blocking
-// acquire so the PREPARE cannot starve. Its single header SUCCESS is emitted only on the terminal Done.
+// FinishPendingPrepare(), which reschedules on each further loss until the admission deadline elapses
+// (SharedAccessTimeout → ClientError). Its single header SUCCESS is emitted only on the terminal Done.
 // ---------------------------------------------------------------------------
-
-using memgraph::communication::bolt::PendingPrepareOutcome;
-
-// Count whole bolt frames in `output`, consuming it. A frame is a 2-byte length header, `len` payload bytes,
-// then the 2-byte end marker; used to prove "exactly one header" without pinning exact payload bytes.
-static int DrainFrameCount(std::vector<uint8_t> &output) {
-  int frames = 0;
-  while (output.size() > 0) {
-    const int len = (output[0] << 8) + output[1];
-    output.erase(output.begin(), output.begin() + len + 4);
-    ++frames;
-  }
-  return frames;
-}
 
 TEST(BoltSession, PendingPrepareReschedulesThenCompletesWithOneHeader) {
   INIT_VARS;
@@ -1617,11 +1627,14 @@ TEST(BoltSession, PendingPrepareFairnessCapForcesBlockingTerminal) {
   ExecuteInit(input_stream, session, output, true);
   ASSERT_EQ(session.state_, State::Idle);
 
-  // EVERY bounded-try loses the race: only the fairness cap can end the loop.
+  // EVERY bounded-try loses the race; the admission deadline is the only non-success terminator.
+  // Arm an already-elapsed deadline so FinishPendingPrepare_ fires it on the first retry.
   session.TestHook_FailBoundedTries(1000);
+  session.TestHook_SetExpiredDeadline();
   WriteRunRequest(input_stream, kQueryReturn42, /*is_v4=*/true);
   output.clear();
 
+  // Parse (Parsed) then HandlePrepare bails with WouldBlock (first loss), stashing the expired deadline.
   ASSERT_TRUE(session.ExecuteStep());
   ASSERT_EQ(session.state_, State::Parsed);
   ASSERT_TRUE(session.ExecuteStep());
@@ -1629,26 +1642,12 @@ TEST(BoltSession, PendingPrepareFairnessCapForcesBlockingTerminal) {
   EXPECT_TRUE(session.HasPendingPrepare());
   EXPECT_TRUE(output.empty());
 
-  // Under unbounded contention the pool-side completion must still terminate: after kPrepareRescheduleCap
-  // reschedules FinishPendingPrepare_ does one Blocking acquire (never gated by the fail hook, never throws
-  // WouldBlock), completing the PREPARE. Count the reschedules to prove it is the cap -- not a lucky
-  // bounded-try -- that breaks the loop.
-  int reschedules = 0;
-  constexpr int kSafetyBound = 100;
-  for (int i = 0; i < kSafetyBound; ++i) {
-    const auto outcome = session.FinishPendingPrepare();
-    if (outcome == PendingPrepareOutcome::Done) break;
-    ASSERT_EQ(outcome, PendingPrepareOutcome::Reschedule);
-    EXPECT_TRUE(session.HasPendingPrepare());
-    EXPECT_TRUE(output.empty());
-    EXPECT_EQ(session.state_, State::PendingPrepare);
-    ++reschedules;
-  }
-  // Loop count tied to the cap: the terminal Blocking acquire fires on the next call.
-  EXPECT_EQ(reschedules, TestSession::kPrepareRescheduleCap);
+  // Deadline expiry throws SharedAccessTimeout (from the mock, as SessionHL would); caught by the std::exception
+  // handler, HandleFailure sends a TransientError (one failure frame), pending flag is cleared.
+  const auto outcome = session.FinishPendingPrepare();
+  EXPECT_EQ(outcome, PendingPrepareOutcome::ClientError);
   EXPECT_FALSE(session.HasPendingPrepare());
-  EXPECT_EQ(session.state_, State::Result);
-  CheckSuccessMessage(output, /*clear=*/false);  // exactly one header, from the Blocking fallback
+  // Exactly one FAILURE frame emitted (the error response); no header SUCCESS was emitted.
   EXPECT_EQ(DrainFrameCount(output), 1);
 }
 
