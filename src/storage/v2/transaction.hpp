@@ -239,6 +239,19 @@ struct Transaction {
     return lockfree_snapshot ? snapshot_ts + 1 : start_timestamp;
   }
 
+  // Inclusive upper-bound timestamp for schema-object visibility: an index or constraint whose
+  // population committed at `ts` belongs to this transaction's view iff `ts <= bound`. Distinct from
+  // SchemaReconstructionBound, whose test is exclusive; reusing that one here would admit a schema
+  // object committed exactly one timestamp above the data boundary.
+  //
+  // This is what pairs with last_durable_ts_: both are captured from the same publish hold, so a
+  // schema object at or below this bound is one the recorded durable timestamp covers. Filtering on
+  // start_timestamp instead admits a commit that is still between its mint and its publish, which a
+  // durability snapshot then records above its own durable timestamp.
+  [[nodiscard]] uint64_t SchemaVisibilityBound() const noexcept {
+    return lockfree_snapshot ? snapshot_ts : start_timestamp;
+  }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
   // EXPERIMENTAL (lock-free-read-snapshot): frozen last-committed-MVCC-ts captured at BEGIN.
