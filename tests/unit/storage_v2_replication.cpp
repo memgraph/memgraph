@@ -883,12 +883,9 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     created_vertices.push_back(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
 
-    if (i == 0) {
-      ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
-    } else {
-      auto const state = main.db.storage()->GetReplicaState("REPLICA_ASYNC");
-      ASSERT_TRUE(state == ReplicaState::RECOVERY || state == ReplicaState::MAYBE_BEHIND);
-    }
+    // ASYNC transactions are not streamed or finalized on the client's thread pool. Every commit marks the replica
+    // behind so the periodic check catches it up from snapshot/WAL/current-WAL durability files.
+    ASSERT_NE(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
   }
 
   while (main.db.storage()->GetReplicaState("REPLICA_ASYNC") != ReplicaState::READY) {

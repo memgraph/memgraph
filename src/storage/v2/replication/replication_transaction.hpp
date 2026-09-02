@@ -31,8 +31,8 @@ using ReplicationStorageClientList =
 
 class TransactionReplication {
  public:
-  // This will block until we retrieve RPC streams for all STRICT_SYNC and SYNC replicas. It is OK to not be able to
-  // obtain the RPC lock for the ASYNC replica.
+  // This blocks until it retrieves RPC streams for all STRICT_SYNC and SYNC replicas. ASYNC replicas don't open a
+  // transaction stream; commits mark them for durability-file recovery.
   TransactionReplication(uint64_t durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args,
                          ReplicationStorageClientList &clients);
 
@@ -74,8 +74,8 @@ class TransactionReplication {
   // Failures are cached internally in ship_failures_ for CollectAllFailures.
   auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool;
 
-  auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
-                           uint64_t durability_commit_timestamp) -> bool;
+  auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, uint64_t durability_commit_timestamp)
+      -> bool;
 
   auto ShouldRunTwoPC() const -> bool { return run_two_phase_commit; }
 
@@ -87,7 +87,7 @@ class TransactionReplication {
 
   // Advance-only merges each successfully-committed (non-ASYNC) replica's cached progress to this transaction's
   // absolute (last_durable_ts, num_committed_txns) via CommitTsInfo::Max, skipping replicas in failed_replicas_.
-  // ASYNC replicas instead update their own cache in the async finalize task. Must be called after CollectAllFailures.
+  // ASYNC replicas instead update their cache during durability-file recovery. Must be called after CollectAllFailures.
   void UpdateCommitTsInfo();
 
  private:

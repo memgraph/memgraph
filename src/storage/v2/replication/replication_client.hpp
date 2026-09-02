@@ -113,8 +113,8 @@ class ReplicationStorageClient {
   auto Mode() const -> replication_coordination_glue::ReplicationMode { return client_.mode_; }
 
   bool TwoPhaseCommit() const {
-    // SYNC and ASYNC replicas should commit immediately when receiving deltas
-    // STRICT_SYNC we are doing two phase commit
+    // SYNC replicas commit immediately when receiving deltas. ASYNC replicas don't receive transaction deltas and
+    // recover from durability files instead. STRICT_SYNC uses two-phase commit.
     return client_.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC;
   }
 
@@ -126,6 +126,14 @@ class ReplicationStorageClient {
 
   void SetMaybeBehind() {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
+  }
+
+  void MarkForRecovery() {
+    replica_state_.WithLock([](auto &state) {
+      if (state != replication::ReplicaState::RECOVERY && state != replication::ReplicaState::DIVERGED_FROM_MAIN) {
+        state = replication::ReplicaState::MAYBE_BEHIND;
+      }
+    });
   }
 
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
@@ -158,6 +166,7 @@ class ReplicationStorageClient {
   // StartTransactionReplication, stream is created.
   template <InvocableWithStream F>
   void IfStreamingTransaction(F &&callback, std::optional<ReplicaStream> &replica_stream) {
+    if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) return;
     // We can only check the state because it guarantees to be only
     // valid during a single transaction replication (if the assumption
     // that this and other transaction replication functions can only be
@@ -190,8 +199,7 @@ class ReplicationStorageClient {
                                                 uint64_t durability_commit_timestamp) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
-  auto FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
-                                      uint64_t durability_commit_timestamp, uint64_t commit_num_committed_txns) const
+  auto FinalizeTransactionReplication(std::optional<ReplicaStream> &&replica_stream) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,

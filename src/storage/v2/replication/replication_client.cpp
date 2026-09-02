@@ -36,7 +36,6 @@
 
 namespace {
 constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
-constexpr auto kCommitRpcTimeout = std::chrono::milliseconds(50);
 
 using memgraph::storage::replication::ReplicaState;
 using namespace std::string_view_literals;
@@ -358,9 +357,9 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
   }
 }
 
-// The method which updates replication state machine. Used for all replication modes.
+// The method which updates the transaction replication state machine for SYNC and STRICT_SYNC replicas.
 // If replica is in state RECOVERY -> skip
-// If replica is REPLICATING old txn (ASYNC), set the state to MAYBE_BEHIND
+// If replica is REPLICATING an old txn, set the state to MAYBE_BEHIND
 // If replica is MAYBE_BEHIND, skip and asynchronously check the state of the replica
 // If replica is DIVERGED_FROM_MAIN, skip
 // If replica is READY, set it to replicating and create optional stream
@@ -372,6 +371,10 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
       "Starting transaction replication for replica {} in state {}", client_.name_, StateToString(*locked_state));
+
+  MG_ASSERT(client_.mode_ != replication_coordination_glue::ReplicationMode::ASYNC,
+            "ASYNC replicas must not start transaction replication");
+
   switch (*locked_state) {
     using enum ReplicaState;
     case RECOVERY: {
@@ -401,34 +404,16 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     case READY: {
       try {
         metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.replica_stream_seconds};
-        std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
-
-        // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
-        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
-              std::optional{kCommitRpcTimeout},
-              main_uuid_,
-              storage->uuid(),
-              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              TwoPhaseCommit(),
-              durability_commit_timestamp);
-        } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
-          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
-              main_uuid_,
-              storage->uuid(),
-              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              TwoPhaseCommit(),
-              durability_commit_timestamp));
-        }
-
-        if (!maybe_stream_handler) {
-          spdlog::warn("Couldn't obtain RPC lock for committing to ASYNC replica.");
-          *locked_state = MAYBE_BEHIND;
-          return std::unexpected{StartTxnReplicationError{FailedToGetAsyncRpcLock{}}};
-        }
+        // Block for SYNC and STRICT_SYNC replicas until we obtain the RPC lock.
+        auto stream_handler = client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
+            main_uuid_,
+            storage->uuid(),
+            storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+            TwoPhaseCommit(),
+            durability_commit_timestamp);
 
         *locked_state = REPLICATING;
-        return ReplicaStream(storage, std::move(*maybe_stream_handler));
+        return ReplicaStream(storage, std::move(stream_handler));
       } catch (rpc::RpcFailedToConnectException const &) {
         *locked_state = MAYBE_BEHIND;
         spdlog::error("Failed to connect to replica {} while starting txn replication", client_.name_);
@@ -545,10 +530,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   }
 }
 
-auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
-                                                              std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp,
-                                                              uint64_t commit_num_committed_txns) const
+auto ReplicationStorageClient::FinalizeTransactionReplication(std::optional<ReplicaStream> &&replica_stream) const
     -> std::expected<void, io::network::ClientCommunicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -583,14 +565,12 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
     return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
   }
 
-  bool const is_async = client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC;
+  MG_ASSERT(client_.mode_ != replication_coordination_glue::ReplicationMode::ASYNC,
+            "ASYNC replicas must recover from durability files instead of finalizing transaction streams");
+
   auto *arena_pool = replica_stream->DbArenaPool();
   auto task = [this,
-               protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
-               durability_commit_timestamp,
-               commit_num_committed_txns,
-               is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
     const memory::DbArenaScope db_arena_scope{arena_pool};
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
@@ -598,8 +578,8 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
-          [this, response, &replica_stream_obj, durability_commit_timestamp, commit_num_committed_txns, is_async](
-              auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
+          [response,
+           &replica_stream_obj](auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
             replica_stream_obj.reset();
 
             // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
@@ -612,18 +592,6 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
             if (!response.success) {
               state = ReplicaState::MAYBE_BEHIND;
               return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-            }
-
-            // ASYNC replicas update their own commit_ts_info_ here upon confirmed
-            // success rather than optimistically in the main commit path.
-            // Advance-only merge to this txn's absolute (ldt, num_committed_txns) rather than a blind +1: the
-            // heartbeat may have already folded in the replica's self-reported count for this txn, and a +1 on top
-            // would double-count it (and, being monotonic, never self-correct), showing up as a negative lag.
-            if (is_async) {
-              CommitTsInfo const observed{.ldt_ = durability_commit_timestamp,
-                                          .num_committed_txns_ = commit_num_committed_txns};
-              atomic_struct_update<CommitTsInfo>(commit_ts_info_,
-                                                 [observed](CommitTsInfo const &info) { return Max(info, observed); });
             }
 
             state = ReplicaState::READY;
@@ -646,13 +614,6 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
     }
   };
 
-  if (is_async) {
-    // When in ASYNC mode, we ignore the return value from task() and always return true
-    client_.thread_pool_.AddTask(std::move(task));
-    return {};
-  }
-
-  // If we are in SYNC mode, we return the result of task().
   return task();
 }
 
