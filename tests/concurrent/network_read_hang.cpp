@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,7 +68,11 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
 
   // initialize server
   TestData data;
-  int N = (std::thread::hardware_concurrency() + 1) / 2;
+  // Server workers, with three client threads each, so the connections
+  // genuinely outnumber the workers. Fixed rather than taken from the machine so
+  // the test presents the same load wherever it runs; ctest is told the total
+  // through the PROCESSORS property and the two have to be changed together.
+  int N = 4;
   int Nc = N * 3;
   memgraph::communication::ServerContext context;
   memgraph::communication::Server<TestSession, TestData> server(endpoint, &data, &context, -1, "Test", N);

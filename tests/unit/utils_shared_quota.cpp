@@ -655,7 +655,10 @@ TEST(SharedQuotaTest, StressTestHighChurn) {
    * while a thread is between checking quota and incrementing its handle.
    */
   const int64_t limit = 200000;
-  const int thread_count = std::max(4u, std::thread::hardware_concurrency());
+  // Fixed rather than taken from the machine: the race this targets is
+  // exercised by having several threads contend, not by matching the CPU
+  // count, and a fixed number costs the same slots on every runner.
+  const int thread_count = 8;
   const int64_t batch_size = 50;
 
   QuotaCoordinator coord(limit);
@@ -694,7 +697,10 @@ TEST(SharedQuotaTest, StressTestHighChurn) {
 
 TEST(SharedQuotaTest, StressTestLowQuota) {
   const int64_t limit = 1;
-  const int thread_count = std::max(4u, std::thread::hardware_concurrency());
+  // Fixed rather than taken from the machine: the race this targets is
+  // exercised by having several threads contend, not by matching the CPU
+  // count, and a fixed number costs the same slots on every runner.
+  const int thread_count = 8;
   const int64_t batch_size = 1;
 
   QuotaCoordinator coord(limit);

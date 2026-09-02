@@ -194,9 +194,10 @@ TEST(EpochTracker, TeardownAllReleased) {
 
 namespace {
 
-// Returns a thread count clamped to [4, 8] based on hardware parallelism.
-// Using a global helper avoids repeating the expression in every test.
-unsigned StressThreadCount() { return std::max(4u, std::min(8u, std::thread::hardware_concurrency())); }
+// The thread count every stress test here uses. Fixed rather than taken from the
+// machine so the load, and the slots ctest is told to reserve for it through the
+// PROCESSORS property, are the same on every runner.
+unsigned StressThreadCount() { return 8; }
 
 }  // namespace
 
