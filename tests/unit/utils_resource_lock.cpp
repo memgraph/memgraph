@@ -814,30 +814,34 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresUnderContinuousWriteH
     std::atomic<bool> stop{false};
     auto hammers = SpawnHammers<ResourceLock::LockReq::WRITE>(lock, stop, kNumHammers);
 
-    auto scoped_future = std::async(std::launch::async, [&] {
+    auto scoped_future = std::async(std::launch::async, [&]() -> std::optional<std::chrono::milliseconds> {
       auto start = std::chrono::steady_clock::now();
       UniquePendingScope scope(lock);
       std::optional<ResourceLockGuard> acquired;
-      while (!acquired) {
+      while (!acquired && !stop.load(std::memory_order_relaxed)) {
         acquired = scope.try_acquire();
         if (!acquired) std::this_thread::sleep_for(20us);
       }
-      auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-      return latency;  // `acquired` unlocks on scope exit here
-    });
+      if (!acquired) return std::nullopt;
+      return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+    });  // `acquired` unlocks on scope exit here
 
     const bool acquired_in_time = scoped_future.wait_for(kPendingScopeBound) == std::future_status::ready;
+    // Reap the campaign before joining the hammers, so its pending registration is gone by the time
+    // they have to make progress. A hammer blocks inside lock_shared(), which that registration
+    // gates out, and stops reading `stop` while parked there, so joining one first would hold the
+    // registration that is keeping it parked.
     stop.store(true, std::memory_order_relaxed);
+    const auto latency = scoped_future.get();
     hammers.clear();
 
     if (acquired_in_time) {
-      const auto latency = scoped_future.get();
-      RecordProperty("unique_pending_scope_latency_ms", std::to_string(latency.count()));
+      ASSERT_TRUE(latency.has_value());
+      RecordProperty("unique_pending_scope_latency_ms", std::to_string(latency->count()));
     } else {
       ADD_FAILURE() << "UniquePendingScope::try_acquire() campaign did not acquire within "
                     << kPendingScopeBound.count() << "s under continuous WRITE churn from " << kNumHammers
                     << " hammer threads: pending-scope writer-preference regression";
-      scoped_future.get();  // reap the async thread now that hammers have stopped
     }
   }
 
@@ -880,32 +884,34 @@ TEST_F(ResourceLockTest, ReadOnlyPendingScopeCampaignAcquiresUnderContinuousWrit
   std::atomic<bool> stop{false};
   auto hammers = SpawnHammers<ResourceLock::LockReq::WRITE>(lock, stop, kNumHammers);
 
-  auto scoped_future = std::async(std::launch::async, [&] {
+  using Outcome = std::pair<std::chrono::milliseconds, ResourceLockGuard::Type>;
+  auto scoped_future = std::async(std::launch::async, [&]() -> std::optional<Outcome> {
     auto start = std::chrono::steady_clock::now();
     ReadOnlyPendingScope scope(lock);
     std::optional<ResourceLockGuard> acquired;
-    while (!acquired) {
+    while (!acquired && !stop.load(std::memory_order_relaxed)) {
       acquired = scope.try_acquire();
       if (!acquired) std::this_thread::sleep_for(20us);
     }
+    if (!acquired) return std::nullopt;
     auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-    const auto acquired_type = acquired->type();
-    return std::pair{latency, acquired_type};  // guard unlocks on scope exit here
-  });
+    return Outcome{latency, acquired->type()};
+  });  // guard unlocks on scope exit here
 
   const bool acquired_in_time = scoped_future.wait_for(kBound) == std::future_status::ready;
+  // Reap the campaign before joining the hammers: see the note in the UniquePendingScope campaign.
   stop.store(true, std::memory_order_relaxed);
+  const auto outcome = scoped_future.get();
   hammers.clear();
 
   if (acquired_in_time) {
-    const auto [latency, acquired_type] = scoped_future.get();
-    EXPECT_EQ(acquired_type, ResourceLockGuard::READ_ONLY);
-    RecordProperty("ro_pending_scope_latency_ms", std::to_string(latency.count()));
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->second, ResourceLockGuard::READ_ONLY);
+    RecordProperty("ro_pending_scope_latency_ms", std::to_string(outcome->first.count()));
   } else {
     ADD_FAILURE() << "ReadOnlyPendingScope::try_acquire() campaign did not acquire within " << kBound.count()
                   << "s under continuous WRITE churn from " << kNumHammers
                   << " hammer threads: pending-scope priority regression";
-    scoped_future.get();  // reap the async thread now that hammers have stopped
   }
 }
 
