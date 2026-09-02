@@ -470,14 +470,15 @@ cleanup_compose_override() {
 }
 
 # Point git at the forwarded GITHUB_TOKEN via a credential helper that reads it
-# from the environment at fetch time. Written once to /home/mg/.gitconfig, so
-# every later `docker exec -u mg` (and any nested clone, e.g. mgconsole's
-# ExternalProjects) is covered without touching individual commands.
+# from the environment at fetch time. Written once to the system-wide
+# /etc/gitconfig so every later `docker exec`, whether -u mg or -u root (e.g.
+# package.sh runs as root), and any nested clone (mgconsole's ExternalProjects)
+# is covered without touching individual commands.
 github_auth_in_container() {
   local container=$1
   if github_token_enabled; then
     echo "Configuring authenticated github.com access in $container..."
-    docker exec -u mg "$container" git config --global credential.https://github.com.helper \
+    docker exec -u root "$container" git config --system credential.https://github.com.helper \
       '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
   fi
 }
