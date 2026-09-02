@@ -59,6 +59,7 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   ha-test:

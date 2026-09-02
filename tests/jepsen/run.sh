@@ -113,16 +113,24 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker compose > /dev/nu
   exit 1
 fi
 
+# Authenticate github.com access when GITHUB_TOKEN is set (CI): anonymous clones
+# from the shared runner IP get rate-limited with a 401. Per-command `-c` keeps
+# the runner's global git config untouched.
+GIT_GH=(git)
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  GIT_GH+=(-c 'credential.https://github.com.helper=!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f')
+fi
+
 if [ ! -d "$script_dir/jepsen" ]; then
   echo "Cloning Jepsen $JEPSEN_COMMIT ..."
   # TODO: (andi) Uncomment once mg-deps cache is upgraded
 #   git clone http://mgdeps-cache:8000/git/jepsen.git "$script_dir/jepsen" &> /dev/null \
 #   || git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
-  git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
+  "${GIT_GH[@]}" clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
 fi
 
 cd "$script_dir/jepsen"
-git fetch
+"${GIT_GH[@]}" fetch
 git checkout "$JEPSEN_COMMIT"
 cd "$script_dir"
 
