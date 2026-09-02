@@ -89,8 +89,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   explicit InMemoryLabelPropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
-  void SetGauge(metrics::GaugeHandle gauge) { gauge_ = gauge; }
-
   template <typename EntryT = Entry<>>
   struct IndividualIndex {
     using EntryType = EntryT;

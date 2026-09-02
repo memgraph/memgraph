@@ -35,8 +35,6 @@ class TypeConstraints {
  public:
   explicit TypeConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
-  void SetGauge(metrics::GaugeHandle gauge) { gauge_ = gauge; }
-
   struct IndividualConstraint {
     explicit IndividualConstraint(TypeConstraintKind t) : type(t) {}
 

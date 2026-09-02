@@ -233,12 +233,8 @@ class DbmsHandler {
         throw;
       }
       if (storage->config_.register_metrics) {
-        storage->RebindMetricHandles({});
-        auto new_handles = metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
-        if (new_handles.vertex_count.gauge) {
-          storage->RebindMetricHandles(new_handles);
-          db->RebindMetrics(new_handles);
-        }
+        // Only the presented uuid changes; the metric objects and every handle into them stay put.
+        metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
       }
       if (on_uuid_retired_) on_uuid_retired_(old_uuid);
 
