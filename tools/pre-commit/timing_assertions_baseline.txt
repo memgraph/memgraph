@@ -14,5 +14,4 @@ tests/unit/utils_resource_lock.cpp	ASSERT_LT(w2_duration.load(), 100ms);
 tests/unit/utils_resource_lock.cpp	EXPECT_LT(latency_large_burst, latency_small_burst + 50ms)
 tests/unit/utils_rwlock.cpp	EXPECT_LE(elapsed, 150ms);
 tests/unit/utils_rwlock.cpp	EXPECT_LE(total_time, 350ms);
-tests/unit/utils_safe_string.cpp	EXPECT_LT(duration.count(), 1000);
 tests/unit/utils_temporal.cpp	ASSERT_LT(local_date_time.MicrosecondsSinceEpoch(), 0);

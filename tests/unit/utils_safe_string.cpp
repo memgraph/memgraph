@@ -552,23 +552,15 @@ TEST_F(SafeStringTest, ExceptionSafety) {
   EXPECT_NO_THROW(str.str_view());
 }
 
-TEST_F(SafeStringTest, PerformanceStressTest) {
+TEST_F(SafeStringTest, RepeatedAssignmentReadsBackWhatWasWritten) {
   SafeString str("initial");
   const int num_operations = 10'000;
-
-  auto start = std::chrono::high_resolution_clock::now();
 
   for (int i = 0; i < num_operations; ++i) {
     str = std::string("value_") + std::to_string(i);
     std::string result = str.str();
     EXPECT_EQ(result, "value_" + std::to_string(i));
   }
-
-  auto end = std::chrono::high_resolution_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-  // This should complete reasonably quickly (less than 1 second)
-  EXPECT_LT(duration.count(), 1000);
 }
 
 TEST_F(SafeStringTest, MemoryConsistency) {
