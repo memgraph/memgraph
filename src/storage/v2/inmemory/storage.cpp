@@ -1030,6 +1030,30 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // while still holding engine lock and after durability + replication,
   // check if we can fast discard deltas (i.e. do not hand over to GC)
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // Invariant note (experimental_lockfree_read_snapshot path):
+  //
+  // Under the lockfree flag, engine_lock_ is released after the mint so that WAL + replication
+  // run without blocking concurrent BEGINs.  A transaction that calls BEGIN inside this
+  // mint->publish gap receives a start_timestamp that is ABOVE this commit's commit_timestamp_.
+  // Such a "gap-BEGIN" transaction therefore does NOT lower commit_log_->OldestActive(), so
+  // no_older_transactions can be true even while a gap-BEGIN reader is still live and can still
+  // observe this transaction's deltas.
+  //
+  // The safety invariant therefore falls entirely on no_newer_transactions: that read is protected
+  // by engine_lock_ (this function is called from FinalizeCommitPhase while the publish hold is
+  // still active, and on the OFF path from PrepareForCommitPhase's engine_lock_ hold).
+  // engine_lock_ serialises the transaction_id_ read against a concurrent GetCommitTimestamp()
+  // (which increments transaction_id_).  If no_newer_transactions is true, no gap-BEGIN can exist
+  // because the gap was closed before a new transaction_id_ was issued.
+  //
+  // Consequence: moving fast-discard outside of the engine_lock_ hold would make the
+  // transaction_id_ read unsynchronised and could discard deltas that a concurrent gap-BEGIN
+  // reader still needs -- use-after-free.
+  //
+  // Note: utils::SpinLock wraps pthread_spinlock_t and exposes no is_locked() / owner-tracking
+  // API, so "caller holds engine_lock_" cannot be expressed as a DMG_ASSERT here; it is an
+  // enforced caller contract, not a machine-checkable precondition.
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
   if (no_older_transactions && no_newer_transactions) [[unlikely]] {
@@ -1099,8 +1123,19 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return std::unexpected{validation_result.error()};
   }
 
-  // Serialize committers across mint->durability->publish so mint-order == publish-order
-  // (keeps the watermark contiguous). Acquired BEFORE the mint. Held for the whole function.
+  // Serialize committers across mint->durability->publish for two reasons:
+  //
+  // 1. Watermark contiguity: mint-order must equal publish-order so the read-snapshot watermark
+  //    advances without gaps.  Acquired BEFORE the mint.  Held for the whole function.
+  //
+  // 2. Unique-constraint correctness: UniqueConstraintsViolation() runs during the brief phase-1
+  //    engine_lock_ hold (~line below) and must see every already-committed value.  That requires
+  //    that no other committer can sit between its own mint and publish while the validation runs
+  //    -- an unpublished committer's values are not yet visible through the normal MVCC read path,
+  //    so they would be invisible to the validator and a duplicate could slip through.
+  //    commit_mutex_ provides exactly this guarantee.  Releasing commit_mutex_ earlier (e.g. after
+  //    the WAL append) would break unique-constraint validation even if watermark ordering were
+  //    re-established through another mechanism.
   std::optional<std::unique_lock<std::mutex>> commit_serializer;
   if (lockfree) commit_serializer.emplace(mem_storage->commit_mutex_);
 
