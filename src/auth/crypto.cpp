@@ -498,10 +498,11 @@ auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view {
 auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
   switch (hash_algo) {
     case PasswordHashAlgorithm::BCRYPT:
-      return {60, 60};  // NOTE: BCRYPT_HASHSIZE is 64, but the result is actually 60B
+      // NOTE: BCRYPT_HASHSIZE is 64, but the result is actually 60B
+      return {.unsalted = 60, .salted = 60};
     case PasswordHashAlgorithm::SHA256:
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
-      return {SHA::SHA_LENGTH, SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
+      return {.unsalted = SHA::SHA_LENGTH, .salted = SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
     case PasswordHashAlgorithm::PBKDF2_SHA256:
       return {.unsalted = PBKDF2::HASH_LENGTH, .salted = PBKDF2::HASH_LENGTH + PBKDF2::SALT_SIZE_DURABLE};
   }

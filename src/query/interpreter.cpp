@@ -8172,7 +8172,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
     case SystemInfoQuery::InfoType::BUILD: {
       header = {"build info", "value"};
       handler = [] {
-        std::vector<std::vector<TypedValue>> results{
+        const std::vector<std::vector<TypedValue>> results{
             {TypedValue("build_type"), TypedValue(utils::GetBuildInfo().build_name)}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
