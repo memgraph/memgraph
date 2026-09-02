@@ -25,6 +25,13 @@ import mgclient
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
+
+# How long to let a SIGTERMed instance finish shutting down. A clean shutdown
+# flushes, and can be asked to write a snapshot, so how long it takes depends on
+# what the instance is holding and how loaded the machine is. This only has to
+# catch a shutdown that never completes; a slow one is not what these suites are
+# checking, and every one of them tears instances down through here.
+SHUTDOWN_DEADLINE_SECONDS = 60
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 SIGNAL_SIGTERM = 15
 
@@ -324,18 +331,18 @@ class MemgraphInstanceRunner:
         signal_time = datetime.now()
         self.proc_mg.terminate()
 
-        for _ in range(150):
-            if not self.is_running():
-                break
+        deadline = time.monotonic() + SHUTDOWN_DEADLINE_SECONDS
+        while self.is_running() and time.monotonic() < deadline:
             time.sleep(0.1)
 
         is_running = self.is_running()
         if is_running:
             self._print_diagnostics()
 
-        assert (
-            is_running is False
-        ), f"Stopped instance at {self.host}:{self.bolt_port} still running. Signal sent at: {signal_time}. Now is: {datetime.now()}"
+        assert is_running is False, (
+            f"Stopped instance at {self.host}:{self.bolt_port} did not exit within "
+            f"{SHUTDOWN_DEADLINE_SECONDS}s. Signal sent at: {signal_time}. Now is: {datetime.now()}"
+        )
 
         if not keep_directories:
             self.safe_delete_data_directory()
