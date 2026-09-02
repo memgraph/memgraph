@@ -540,7 +540,7 @@ TYPED_TEST(QueryPlanTest, AggregateNoGroupKeyStartsOverAfterReset) {
   auto const result_symbol = context.symbol_table.at(*produce->named_expressions_[0]);
 
   Frame frame(context.symbol_table.max_position());
-  auto cursor = produce->MakeCursor(memgraph::utils::NewDeleteResource(), *TestMetricHandles());
+  auto cursor = produce->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
 
   auto count_once = [&]() -> int64_t {
     EXPECT_TRUE(cursor->Pull(frame, context));
