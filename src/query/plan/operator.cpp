@@ -4410,8 +4410,13 @@ class KShortestPathsCursor : public Cursor {
 
     const auto &last_path = shortest_paths_.back();
 
-    // Generate candidate paths by deviating at each vertex of the last shortest path
-    for (size_t i = 0UZ; i < last_path.edges.size(); ++i) {
+    // Lawler: start where this path left its parent, not at 0. Its first `deviation_vertex_index`
+    // edges are the deviation root it was generated from, and that root was already a prefix of a
+    // found path, so accepting this path can only widen the blocked set at
+    // `deviation_vertex_index` or deeper - exactly the range below. It has to be the root rather
+    // than the parent's prefix, because one path can be generated at two depths and only the copy
+    // popped first sets the index.
+    for (size_t i = last_path.deviation_vertex_index; i < last_path.edges.size(); ++i) {
       GenerateCandidatesFromDeviation(source, target, last_path, i, frame, evaluator, context);
     }
 
