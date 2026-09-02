@@ -12,7 +12,6 @@
 #pragma once
 
 #include <filesystem>
-#include <format>
 #include <vector>
 
 #include "gflags/gflags.h"
