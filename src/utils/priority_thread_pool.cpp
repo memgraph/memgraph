@@ -305,6 +305,20 @@ void PriorityThreadPool::WakeOneParked() {
   ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
 }
 
+void PriorityThreadPool::WakeAllParked() {
+  std::deque<ParkedAdmission> drained;
+  {
+    std::unique_lock lk{parked_mtx_};
+    drained.swap(parked_admissions_);
+  }  // release parked_mtx_ BEFORE re-injecting (ScheduledReAddTask takes Worker::mtx_)
+  // Full drain: a commit just freed engine_lock_, so give every parked admission a fresh try. The ones
+  // still contended re-park; place-kept ids keep FIFO order. Empty and expired entries re-inject too --
+  // expired ones self-throw the storage timeout when they run.
+  for (auto &entry : drained) {
+    ScheduledReAddTask(std::move(entry.task), entry.id, utils::Priority::LOW, /*productive=*/false);
+  }
+}
+
 void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool productive) {
   {
     auto l = std::unique_lock{mtx_};

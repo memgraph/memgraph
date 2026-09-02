@@ -11713,10 +11713,20 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
+  // Only a commit with (meta)deltas takes engine_lock_ (PrepareForCommitPhase short-circuits an empty one);
+  // that hold is what a stalled writer keeps across replication, blocking admissions. Capture it before the
+  // commit so we can wake parked admissions once it releases.
+  bool const took_engine_lock = !curr_txn->deltas.empty() || !curr_txn->md_deltas.empty();
   auto maybe_commit_error =
       current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
   // Proactively unlock repl_state
   locked_repl_state.reset();
+
+  // The commit released engine_lock_ (whatever its outcome): wake all parked admissions so blocked
+  // BEGIN/PREPARE retry immediately instead of waiting for the pool monitor tick (S2e B3, full drain).
+  if (took_engine_lock && interpreter_context_->worker_pool != nullptr) {
+    interpreter_context_->worker_pool->WakeAllParked();
+  }
 
   std::optional<std::string> replication_error_msg;
   bool replication_error_committed = false;

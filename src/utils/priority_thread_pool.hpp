@@ -181,6 +181,10 @@ class PriorityThreadPool {
   // Re-inject the single oldest parked admission (place-keeping id).
   void WakeOneParked();
 
+  // Re-inject every parked admission (full drain). Called after a write commit frees engine_lock_ so
+  // all blocked admissions get a fresh try at once; the still-contended ones re-park.
+  void WakeAllParked();
+
   // True while ShutDown is draining parked admissions. The session driver reads this to terminate
   // a woken admission with a shutdown error instead of re-parking it (wired in a later unit).
   bool IsDrainingAdmissions() const noexcept { return draining_admissions_.load(std::memory_order_acquire); }
