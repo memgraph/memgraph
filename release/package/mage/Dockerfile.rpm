@@ -42,9 +42,26 @@ RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
   else \
     py_pkgs="python3 python3-pip python3-devel"; \
   fi && \
-  dnf install -y --setopt=tsflags='' \
+  # CentOS Stream metalinks often hand dnf a mirror that is mid-sync (repomd
+  # checksum mismatch); pin the same mirror list package_smoke_image uses
+  # (mgbuild.sh — keep in sync), upstream master last. Rocky etc. untouched.
+  mirror_opts="" && \
+  if [ "$(. /etc/os-release; echo "$ID")" = "centos" ]; then \
+    stream="$(. /etc/os-release; echo "$VERSION_ID")-stream"; \
+    basearch="$(uname -m)"; \
+    baseos_urls=""; appstream_urls=""; \
+    for m in https://ftp.plusline.net/centos-stream \
+             https://ftp.gwdg.de/pub/linux/centos-stream \
+             https://centos.anexia.at/centos-stream \
+             https://mirror.stream.centos.org; do \
+      baseos_urls="${baseos_urls:+$baseos_urls,}$m/$stream/BaseOS/$basearch/os/"; \
+      appstream_urls="${appstream_urls:+$appstream_urls,}$m/$stream/AppStream/$basearch/os/"; \
+    done; \
+    mirror_opts="--setopt=baseos.metalink= --setopt=baseos.baseurl=$baseos_urls --setopt=appstream.metalink= --setopt=appstream.baseurl=$appstream_urls"; \
+  fi && \
+  dnf install -y --setopt=tsflags='' $mirror_opts \
     $py_pkgs gcc gcc-c++ krb5-devel unixODBC && \
-  dnf install -y --setopt=tsflags='' \
+  dnf install -y --setopt=tsflags='' $mirror_opts \
     /packages/memgraph.rpm /packages/memgraph-mage.rpm && \
   auth_py="$(sed -n '1s|^#!||p' /usr/lib/memgraph/auth_module/kerberos.py)" && \
   echo "auth modules run on $auth_py ($($auth_py --version 2>&1))" && \
