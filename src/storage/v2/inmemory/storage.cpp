@@ -3328,7 +3328,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
           // Track highest commit timestamp among all contributors. We can only
           // unlink when ALL contributors are inactive, so we must wait until
-          // highest_commit_ts < oldest_active_start_timestamp.
+          // highest_commit_ts < visibility_horizon (the reclaim gate this feeds at the
+          // `unlinkable_timestamp >= visibility_horizon` check below). Under the lock-free-read-snapshot
+          // flag visibility_horizon is min(snapshot-based horizon, oldest_active_start_timestamp), so it
+          // is at or below the old oldest_active_start_timestamp bound; OFF the two coincide.
           if (ts > highest_commit_ts) {
             highest_commit_ts = ts;
           }
