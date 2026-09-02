@@ -274,7 +274,7 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerStopsWhenProtectorReturnsNull) {
 
   // A shutdown that has to wait for a thread which never stops does not take
   // longer, it never finishes, so this only has to sit above any real shutdown
-  // for the message to be the one a stuck indexer produces. liveness-bound
+  // for the message to be the one a stuck indexer produces.
   EXPECT_LT(shutdown_time, 30'000) << "Storage shutdown did not finish, async indexer may not have stopped";
 
   // Test passes if we reach here without hanging - async indexer thread stopped correctly
@@ -327,7 +327,7 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerCompletesBeforeShutdown) {
   auto end_time = std::chrono::steady_clock::now();
 
   auto shutdown_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-  // liveness-bound: only a shutdown that never finishes reaches this.
+  // Only a shutdown that never finishes reaches this.
   EXPECT_LT(shutdown_time, 30'000) << "Storage shutdown did not finish after the async indexer completed";
 }
 
