@@ -940,14 +940,15 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresUnderContinuousWriteH
 
     auto control_result = control_future.get();
     stop.store(true, std::memory_order_relaxed);
+    // A hammer parked in lock_shared<WRITE>() cannot take the lock while it is held UNIQUE, and it
+    // only reads `stop` between acquisitions. The probe therefore has to release its own
+    // acquisition before the hammers are joined. Releasing it afterwards leaves the join waiting
+    // on threads that only this release can free.
+    if (control_result) lock.unlock();
     hammers.clear();
 
-    if (control_result) {
-      lock.unlock();  // it did acquire; release so later tests in the suite start from UNLOCKED
-      RecordProperty("bare_try_lock_acquired_ms", std::to_string(control_result->count()));
-    } else {
-      RecordProperty("bare_try_lock_acquired_ms", "starved");
-    }
+    RecordProperty("bare_try_lock_acquired_ms",
+                   control_result ? std::to_string(control_result->count()) : std::string{"starved"});
   }
 }
 
