@@ -298,7 +298,7 @@ TrackingInfo<utils::ConcurrentUnorderedMap> &SharedSchemaTracking::edge_lookup(c
 template <template <class...> class TContainer>
 template <template <class...> class TOtherContainer>
 void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherContainer> &diff,
-                                                    SchemaInfoPostProcess &post_process, uint64_t start_ts,
+                                                    SchemaInfoPostProcess &post_process, uint64_t snapshot_bound,
                                                     uint64_t commit_ts, bool property_on_edges) {
   // Update shared schema based on the diff
   for (const auto &[vertex_key, info] : diff.vertex_state_) {
@@ -316,14 +316,14 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     // An edge can be added to post process by modifying the edge directly or one of the vertices
     // We need to check all 3 objects
-    const auto from_state = GetState(from->delta(), start_ts, commit_ts, true);
-    const auto to_state = GetState(to->delta(), start_ts, commit_ts, true);
+    const auto from_state = GetState(from->delta(), snapshot_bound, commit_ts, true);
+    const auto to_state = GetState(to->delta(), snapshot_bound, commit_ts, true);
 
     State edge_state{NO_CHANGE};
     std::shared_lock<decltype(edge_ref.ptr->lock)> edge_lock;
     if (property_on_edges) {
       edge_lock = std::shared_lock{edge_ref.ptr->lock};
-      edge_state = GetState(edge_ref.ptr->delta(), start_ts, commit_ts, true);
+      edge_state = GetState(edge_ref.ptr->delta(), snapshot_bound, commit_ts, true);
     }
 
     // Check if we need to process this edge
@@ -331,12 +331,12 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
       continue;  // All is as it should be
     }
 
-    auto from_l_diff = GetLabelsDiff(from, from_state, start_ts, post_process.vertex_cache, post_vertex_cache);
-    auto to_l_diff = GetLabelsDiff(to, to_state, start_ts, post_process.vertex_cache, post_vertex_cache);
+    auto from_l_diff = GetLabelsDiff(from, from_state, snapshot_bound, post_process.vertex_cache, post_vertex_cache);
+    auto to_l_diff = GetLabelsDiff(to, to_state, snapshot_bound, post_process.vertex_cache, post_vertex_cache);
 
     PropertiesDiff edge_prop_diff;
     if (property_on_edges) {
-      edge_prop_diff = GetPropertiesDiff(edge_ref.ptr, edge_state, start_ts);
+      edge_prop_diff = GetPropertiesDiff(edge_ref.ptr, edge_state, snapshot_bound);
     }
 
     // TODO Possible optimization: check if labels or props changed and skip some lookups/updates
@@ -777,9 +777,9 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     auto edge_lock =
         properties_on_edges_ ? std::shared_lock{edge_ref.ptr->lock} : std::shared_lock<decltype(edge_ref.ptr->lock)>{};
 
-    auto other_labels = GetLabels(other_vertex, start_ts_, commit_ts_, post_process_->vertex_cache);
+    auto other_labels = GetLabels(other_vertex, snapshot_bound_, commit_ts_, post_process_->vertex_cache);
     Properties edge_props{};
-    if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, start_ts_, commit_ts_);
+    if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, snapshot_bound_, commit_ts_);
 
     tracking_->UpdateEdgeStats(edge_ref,
                                edge_type,
@@ -906,8 +906,8 @@ void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, E
   tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
 
   if (post_process_) {
-    if (GetState(from->delta(), start_ts_, commit_ts_) == ANOTHER_TX ||
-        GetState(to->delta(), start_ts_, commit_ts_) == ANOTHER_TX) {
+    if (GetState(from->delta(), snapshot_bound_, commit_ts_) == ANOTHER_TX ||
+        GetState(to->delta(), snapshot_bound_, commit_ts_) == ANOTHER_TX) {
       post_process_->edges.insert({edge_ref, edge_type, from, to});
     } else {
       post_process_->edges.erase({edge_ref, edge_type, from, to});
@@ -941,7 +941,7 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId t
     // In case the from/to vertices are touched by this tx, we are safe, no need to post process (remove edge)
     // If one of the vertices has not been changes, we need to append this edge to the post-process list
     // We also need to get labels as they are seen by this tx
-    auto labels = GetLabels(from, to, start_ts_, commit_ts_, post_process_->vertex_cache);
+    auto labels = GetLabels(from, to, snapshot_bound_, commit_ts_, post_process_->vertex_cache);
     tracking_->SetProperty(type, *labels.from, *labels.to, property, now, before, properties_on_edges_);
     if (labels.needs_pp) {
       post_process_->edges.emplace(edge, type, from, to);
@@ -958,4 +958,4 @@ template struct memgraph::storage::SchemaTracking<std::unordered_map>;
 template struct memgraph::storage::SchemaTracking<memgraph::utils::ConcurrentUnorderedMap>;
 template void memgraph::storage::SchemaTracking<memgraph::utils::ConcurrentUnorderedMap>::ProcessTransaction(
     const memgraph::storage::SchemaTracking<std::unordered_map> &diff, SchemaInfoPostProcess &post_process,
-    uint64_t start_ts, uint64_t commit_ts, bool property_on_edges);
+    uint64_t snapshot_bound, uint64_t commit_ts, bool property_on_edges);
