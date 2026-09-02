@@ -15,7 +15,12 @@ find_package(gflags REQUIRED)
 target_link_libraries(mg-auth
     PUBLIC mg-kvstore mg-license
     PRIVATE nlohmann_json::nlohmann_json libbcrypt::libbcrypt gflags fmt::fmt
-    mg-utils mg::system mg-slk libseccomp::libseccomp openssl::openssl)
+    mg-utils mg-slk libseccomp::libseccomp openssl::openssl
+    # Declarations only. Everything auth uses from system::Transaction is inline
+    # or a template, so this resolves no symbols here, and linking it would put
+    # auth in a cycle: system reaches back to auth through replication, rpc and
+    # communication. COMPILE_ONLY takes the include paths without the link.
+    $<COMPILE_ONLY:mg::system>)
 
 # Install reference auth modules and their configuration files.
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/common.py
