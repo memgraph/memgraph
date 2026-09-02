@@ -137,7 +137,12 @@ class PriorityThreadPool {
 
   void ShutDown();
 
-  void ScheduledAddTask(TaskSignature new_task, Priority priority, bool productive = true);
+  TaskID ScheduledAddTask(TaskSignature new_task, Priority priority, bool productive = true);
+
+  // Place-keeping re-post: reuses the original id so a rescheduled admission keeps its FIFO
+  // position instead of going behind newer arrivals. productive=false so it doesn't feed the
+  // reschedule-gate.
+  TaskID ScheduledReAddTask(TaskSignature task, TaskID id, Priority priority, bool productive = false);
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {

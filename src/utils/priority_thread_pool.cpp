@@ -186,9 +186,10 @@ void PriorityThreadPool::ShutDown() {
   }
 }
 
-void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, Priority priority, bool productive) {
+PriorityThreadPool::TaskID PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, Priority priority,
+                                                                bool productive) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    return;
+    return 0;
   }
   const auto id = (TaskID(priority == Priority::HIGH) * kMinHighPriorityId) +
                   --task_id_;  // Way to priorities hp tasks and older tasks
@@ -204,6 +205,23 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, Priority prior
   workers_[*tid]->push(std::move(new_task), id, productive);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
   // HP threads are going to steal this work if not executed in time
+  return id;
+}
+
+PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id, Priority priority,
+                                                                  bool productive) {
+  (void)priority;  // Not used for id computation here; kept for API symmetry with ScheduledAddTask
+  if (pool_stop_source_.stop_requested()) [[unlikely]] {
+    return 0;
+  }
+  auto tid = hot_threads_.GetHotElement();
+  if (!tid) {
+    static const auto max_wakeup_thread =
+        std::max(1UL, std::min(static_cast<TaskID>(GetSafeHardwareConcurrency()), workers_.size()));
+    tid = last_wid_++ % max_wakeup_thread;
+  }
+  workers_[*tid]->push(std::move(task), id, productive);
+  return id;
 }
 
 bool PriorityThreadPool::HasPendingWork() const noexcept {
