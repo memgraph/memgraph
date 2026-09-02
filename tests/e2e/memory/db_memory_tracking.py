@@ -1088,7 +1088,13 @@ def test_drop_database_releases_global_memory():
     execute(db_cursor, "FREE MEMORY")
     global_info = get_global_storage_info(memgraph_cursor)
     db_after_alloc_global = parse_size_bytes(global_info.get("memory_tracked", "0B"))
-    debug_log(f"drop-db after alloc db={db_name} global_memory_tracked={db_after_alloc_global}")
+    # What this database accounts for, read from the database itself while it
+    # still exists. This is the amount the drop owes back.
+    db_own_memory = metric_triplet(db_cursor)["db_memory_tracked"]
+    debug_log(
+        f"drop-db after alloc db={db_name} global_memory_tracked={db_after_alloc_global} "
+        f"db_memory_tracked={db_own_memory}"
+    )
     assert db_after_alloc_global > baseline_global
 
     db_conn.close()
@@ -1096,13 +1102,12 @@ def test_drop_database_releases_global_memory():
     execute(memgraph_cursor, "FREE MEMORY")
     execute(memgraph_cursor, "FREE MEMORY")
 
-    # Assert against what this database took, not against where the global total
-    # started. Every test in this file shares the process, so the global figure
-    # carries whatever the others are still holding or releasing, and requiring it
-    # back within a fixed megabyte makes this test depend on them. What the drop
-    # owes is the memory its own database accounted for.
-    added_by_db = db_after_alloc_global - baseline_global
-    required_release = int(0.8 * added_by_db)
+    # Measure the release against what the database reported for itself, not
+    # against the difference between two readings of the process-wide total.
+    # Every test in this file shares that total, so a difference taken across a
+    # large allocation carries their movement as well; the database's own figure
+    # does not, and varies by a fraction of a percent run to run.
+    required_release = int(0.8 * db_own_memory)
 
     def released_enough():
         current = parse_size_bytes(get_global_storage_info(memgraph_cursor).get("memory_tracked", "0B"))
@@ -1112,7 +1117,8 @@ def test_drop_database_releases_global_memory():
         released_enough,
         timeout=20.0,
         message=(
-            f"dropping the database released less than {required_release} of the " f"{added_by_db} bytes it had added"
+            f"dropping the database released less than {required_release} of the "
+            f"{db_own_memory} bytes it accounted for"
         ),
     )
 
@@ -1120,7 +1126,7 @@ def test_drop_database_releases_global_memory():
     after_drop_global = parse_size_bytes(global_info.get("memory_tracked", "0B"))
     debug_log(
         f"drop-db after drop db={db_name} global_memory_tracked={after_drop_global} "
-        f"released={db_after_alloc_global - after_drop_global} of added={added_by_db}"
+        f"released={db_after_alloc_global - after_drop_global} of db_own={db_own_memory}"
     )
 
     memgraph_conn.close()
