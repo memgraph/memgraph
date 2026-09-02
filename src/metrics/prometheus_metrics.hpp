@@ -261,6 +261,11 @@ class PrometheusMetrics {
 
   prometheus::Registry &registry() { return registry_; }
 
+  /// Collects every family for a scrape, substituting each per-database entry's current uuid for the
+  /// internal entry-id label. Always use this rather than `registry().Collect()` for anything that
+  /// leaves the process: the entry-id label is an implementation detail and must never be exposed.
+  std::vector<prometheus::MetricFamily> CollectForScrape();
+
   GlobalMetricHandles global;
 
  private:
@@ -268,7 +273,12 @@ class PrometheusMetrics {
     // Identifies the entry for its whole life, unlike the uuid and the name, either of which can
     // change while registrations are outstanding.
     uint64_t id;
+    // Identity, used for every lookup. Never presented.
     utils::UUID uuid;
+    // The uuid presented in the scrape output. Tracks `uuid` except on the default database, whose
+    // uuid changes when the instance joins a cluster; the metric objects must outlive that change,
+    // so the label is substituted at collection time rather than baked into the family key.
+    utils::UUID label_uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
     // Registrations of one database share every handle, because a family returns the metric it
@@ -280,7 +290,7 @@ class PrometheusMetrics {
   void ReleaseRegistration(uint64_t entry_id);
 
   // Caller must hold databases_.mutex.
-  DatabaseMetricHandles CreateHandles(std::string_view name, utils::UUID const &uuid);
+  DatabaseMetricHandles CreateHandles(std::string_view name, uint64_t entry_id);
   void RemoveHandlesFromFamilies(DatabaseMetricHandles const &h);
   void RemoveEntryAt(std::list<DatabaseEntry>::iterator it);
   DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);

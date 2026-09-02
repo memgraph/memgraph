@@ -39,6 +39,10 @@ namespace memgraph::metrics {
 
 namespace {
 
+// Label that keys a per-database family entry. Internal: CollectForScrape replaces it with the
+// entry's current uuid, so it must never reach a scrape.
+constexpr auto kEntryLabel = "mgentry";
+
 bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
   static constexpr std::array<std::string_view, 26> kLegacyCoordinatorDeltaMetrics{
       "SuccessfulFailovers",
@@ -952,8 +956,11 @@ PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const
 }
 
 // Unsafe variants assume the caller already holds databases_.mutex.
-DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, utils::UUID const &uuid) {
-  prometheus::Labels const labels{{"database", std::string(name)}, {"uuid", std::string(uuid)}};
+DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, uint64_t entry_id) {
+  // Keyed on the entry id, not the uuid: a family entry's label set is its map key and so is fixed for
+  // the entry's life, whereas the default database's uuid changes on cluster join. CollectForScrape
+  // substitutes the current uuid, so the scrape output is unchanged.
+  prometheus::Labels const labels{{"database", std::string(name)}, {kEntryLabel, std::to_string(entry_id)}};
   return DatabaseMetricHandles{
       .vertex_count = {&vertex_count_family_.Add(labels)},
       .edge_count = {&edge_count_family_.Add(labels)},
@@ -1065,10 +1072,11 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, ut
 
 DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name) {
   auto const entry_id = databases_.next_entry_id++;
-  auto handles = CreateHandles(name, uuid);
+  auto handles = CreateHandles(name, entry_id);
   databases_.entries.push_back({
       .id = entry_id,
       .uuid = uuid,
+      .label_uuid = uuid,
       .db_name = std::string(name),
       .handles = handles,
   });
@@ -1228,14 +1236,36 @@ DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID c
   auto const old_uuid = *default_db_uuid_;
   auto it = r::find_if(databases_.entries, [&old_uuid](auto const &e) { return e.uuid == old_uuid; });
   if (it == databases_.entries.end()) return {};
-  // Remove old metric series from families, then create new ones with the
-  // new UUID label. The entry itself stays alive (same id) so outstanding
-  // Registrations remain valid; only the handles are swapped.
-  RemoveHandlesFromFamilies(it->handles);
+  // Relabel, don't rebind: the metric objects stay put and only the presented uuid changes, so every
+  // outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
   it->uuid = new_uuid;
-  it->handles = CreateHandles(dbms::kDefaultDB, new_uuid);
+  it->label_uuid = new_uuid;
   default_db_uuid_ = new_uuid;
   return it->handles;
+}
+
+std::vector<prometheus::MetricFamily> PrometheusMetrics::CollectForScrape() {
+  auto families = registry_.Collect();
+  std::unordered_map<std::string, std::string> uuid_by_entry;
+  {
+    std::lock_guard const lock{databases_.mutex};
+    for (auto const &entry : databases_.entries) {
+      uuid_by_entry.emplace(std::to_string(entry.id), std::string(entry.label_uuid));
+    }
+  }
+  for (auto &family : families) {
+    for (auto &metric : family.metric) {
+      for (auto &label : metric.label) {
+        if (label.name != kEntryLabel) continue;
+        auto const it = uuid_by_entry.find(label.value);
+        // An entry released between Collect and here has no uuid left to present, so it reports an
+        // empty one; renaming unconditionally is what matters, so the internal name cannot leak.
+        label.name = "uuid";
+        label.value = it != uuid_by_entry.end() ? it->second : std::string{};
+      }
+    }
+  }
+  return families;
 }
 
 void PrometheusMetrics::UpdateGauges() {
