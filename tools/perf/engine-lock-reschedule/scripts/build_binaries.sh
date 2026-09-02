@@ -18,12 +18,16 @@ REPO="${REPO:-$(git -C "$HERE" rev-parse --show-toplevel)}"
 WT_ROOT="${WT_ROOT:-/tmp/mg-perf-wt}"; mkdir -p "$WT_ROOT"
 
 # label:branch  (branches must be fetched; master baseline uses origin/master)
+# S2e validation set: master baseline, s2b = #4706 (shipped block-vs-try reschedule), s2e = never-block
+# + park (supersedes the old #4669/#4684 reschedule stack, which is folded into #4706 + park).
 BUILDS="${BUILDS:-master:origin/master \
-p4662:perf/query-timeout-deadline \
-p4663:perf/adaptive-worker-spin \
-p4668:perf/read-commit-high-priority \
-p4669:perf/begin-engine-lock-tryresched \
-p4684:perf/prepare-reschedule}"
+s2b:origin/feat/adaptive-engine-lock-reschedule \
+s2e:origin/feat/adaptive-engine-lock-neverblock}"
+
+# Old per-PR stack (superseded by #4706 + S2e); override BUILDS with this to re-measure the originals:
+#   BUILDS="master:origin/master p4662:perf/query-timeout-deadline p4663:perf/adaptive-worker-spin \
+#           p4668:perf/read-commit-high-priority p4669:perf/begin-engine-lock-tryresched \
+#           p4684:perf/prepare-reschedule" ./build_binaries.sh
 
 git -C "$REPO" fetch origin --quiet 2>/dev/null || true
 

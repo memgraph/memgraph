@@ -48,6 +48,48 @@ Baseline: **master** (`origin/master`).
 > The two reschedule PRs (#4669, #4684) are the ones that move the customer number. #4662/#4663/#4668
 > are supporting/safety changes; validate them mainly for *no regression* plus their small local wins.
 
+## 3b. S2e — the current fix under test (supersedes §3's #4669/#4684)
+
+The #4669/#4684 reschedule stack was consolidated into **#4706** (`feat/adaptive-engine-lock-reschedule`,
+"S2b": bounded-try admission that reschedules onto the pool, using a *block-vs-try* gate — TryBounded
+when the pool has other work to yield to, Blocking fallback otherwise). **S2e**
+(`feat/adaptive-engine-lock-neverblock`) then evolves S2b into **never-block + park**:
+
+- admission **never** takes the Blocking fallback on the in-memory READ/WRITE path — it bounded-tries
+  with an adaptive budget and, after a few tries (`kAdmissionTriesBeforePark`=4) **when the pool is
+  under pressure (other productive work queued, no idle worker)**, **parks** the admission at ~0 CPU;
+- a **write COMMIT full-drains** the parked set the instant it releases `engine_lock_`
+  (`WakeAllParked` from `Interpreter::Commit`), a 100 ms monitor tick is the correctness backstop, and
+  a parked admission that is never admitted **times out at `storage_access_timeout_sec` (default now
+  10 s)** and fails fast instead of hanging.
+
+**A/B set:** `master` (baseline) · `s2b` = #4706 · `s2e`. `build_binaries.sh` builds all three
+(default). S2b is the intermediate so we can attribute deltas: master→s2b = the reschedule win,
+s2b→s2e = the never-block+park delta.
+
+**Win shape:** same as §3 — read throughput under concurrent slow writers, **explicit *and*
+autocommit** (S2e never-blocks both paths, so unlike #4669-alone the autocommit rows also win),
+larger under STRICT_SYNC (longer lock hold). `W=0` (no stall) must stay ≈ master for all three.
+
+**What distinguishes s2e from s2b (measure these, not just throughput):**
+1. **Server CPU during the stall.** S2b's Blocking fallback still parks a worker on the OS lock;
+   master busy-spins the `SpinLock`. S2e **parks at ~0 CPU**. Throughput alone may show s2e ≈ s2b —
+   the CPU axis is where S2e wins. Sample the main's CPU during a STALL cell (e.g. `pidstat -p <main>
+   1`, or `thermal_watch.sh`, or add CPU sampling to `phase3.py` — a recommended follow-up).
+2. **Long-stall behaviour.** Raise `REPL_MS` high (e.g. 500–2000 ms, or pause the replica) so the
+   commit stalls > a few seconds: master/s2b keep a worker pinned per blocked admission; s2e keeps CPU
+   low and, past 10 s, returns a storage-access-timeout to the client (fail-fast) rather than hanging.
+3. **Post-stall drain.** After the slow commit finishes, s2e's `WakeAllParked` drains the backlog in a
+   burst; watch read p99 recover faster.
+
+> **Honest framing.** Because `engine_lock_` is held for the whole replication wait (§2, and narrowing
+> it is ruled out), a *new* read admission still cannot mint a timestamp *during* a held-lock stall —
+> S2e does not make new reads "flow during" the stall. Its wins are: near-zero CPU while stalled,
+> freed workers so already-open read txns' PULLs and other pool work keep flowing, a burst drain when
+> the stall clears, and fail-fast at the deadline. "Reads flow *during* the stall" would require
+> releasing `engine_lock_` before replicating (commit-lock narrowing) — a separate, deeper change,
+> complementary to S2e, not part of it.
+
 ## 4. What you need on the box
 
 - Linux, **passwordless `sudo`** for `ip netns` / `tc` (the harness builds isolated network namespaces).
@@ -101,7 +143,23 @@ txn/s, read latency p50/p99, and write op/s**. It is parameterized by env (see t
 ### Run the full spectrum (8 scenarios × {SYNC, STRICT_SYNC} × reader/writer combos):
 
 ```bash
-# master vs #4669 (default). Combos: 16,0 (no-stall baseline) 16,2 16,4 (readers + slow writers).
+# ---- S2e validation (current) ----
+# 0. build the three binaries (default BUILDS = master + s2b(#4706) + s2e):
+REPO=/path/to/memgraph ./scripts/build_binaries.sh    # -> bins/{master,s2b,s2e}/memgraph
+
+# 1. INTERLEAVED, counterbalanced A/B (kills the second-slot bias) — the preferred runner.
+#    Attribute deltas in two hops: master->s2b (reschedule win), s2b->s2e (never-block+park delta).
+MODE=SYNC REPL_MS=20 DUR=20 REPS=6 COMBOS="16,0 16,2 16,4" \
+  ./scripts/phase3_run_ab.sh master:$PWD/bins/master/memgraph s2e:$PWD/bins/s2e/memgraph
+MODE=SYNC        ./scripts/phase3_run_ab.sh s2b:$PWD/bins/s2b/memgraph s2e:$PWD/bins/s2e/memgraph
+MODE=STRICT_SYNC ./scripts/phase3_run_ab.sh master:$PWD/bins/master/memgraph s2e:$PWD/bins/s2e/memgraph
+# sanity: master-vs-master must report ~0%
+  ./scripts/phase3_run_ab.sh a:$PWD/bins/master/memgraph b:$PWD/bins/master/memgraph
+# long-stall (park CPU + 10s fail-fast): raise REPL_MS well past the 10s deadline's reach
+MODE=SYNC REPL_MS=2000 DUR=30 ./scripts/phase3_run_ab.sh master:$PWD/bins/master/memgraph s2e:$PWD/bins/s2e/memgraph
+#   (sample the main's CPU during this — pidstat/thermal_watch.sh — to see park≈0 vs master spinning)
+
+# ---- old per-PR grid (superseded; kept for reference) ----
 GRID_OUT=grid_master_vs_4669.txt \
   BINS="master:$PWD/bins/master/memgraph p4669:$PWD/bins/p4669/memgraph" \
   REPL_MS=20 DUR=15 REPS=3 \
