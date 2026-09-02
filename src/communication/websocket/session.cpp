@@ -164,7 +164,7 @@ std::expected<void, std::string> Session::Authorize(const nlohmann::json &creds)
     return std::unexpected{"Authentication failed!"};
   }
 #ifdef MG_ENTERPRISE
-  if (!auth_.HasPermission(auth::Permission::WEBSOCKET)) {
+  if (!auth_.HasWebsocketPermission()) {
     return std::unexpected{"Authorization failed!"};
   }
 #endif
