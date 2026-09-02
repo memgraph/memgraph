@@ -334,8 +334,10 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
-  // NOLINTNEXTLINE(modernize-avoid-c-arrays) — make_unique<T[]> is the idiomatic heap array (cf. ring_buffer.hpp).
-  snapshot_slots_ = std::make_unique<SnapshotSlot[]>(kSnapshotSlots);
+  if (config_.experimental_lockfree_read_snapshot) {
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays) — make_unique<T[]> is the idiomatic heap array (cf. ring_buffer.hpp).
+    snapshot_slots_ = std::make_unique<SnapshotSlot[]>(kSnapshotSlots);
+  }
   MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
             "Light edges require properties on edges (--storage-light-edge implies "
             "--storage-properties-on-edges=true).");
@@ -1147,7 +1149,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
-  InvokeProbe(mem_storage->commit_probe_, &CommitProbe::during_durability);
+  if (lockfree) {
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::during_durability);
+  }
   auto const repl_prepare_phase_ok =
       HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
 
@@ -2936,7 +2940,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
                                                               : start_timestamp;
     // Publish this active txn's snapshot_ts into the GC visibility ring (snap first, tag last, release-ordered)
     // so GC can recover min(active snapshot_ts). Only meaningful under the flag; harmless (and warm) when OFF.
-    {
+    if (config_.experimental_lockfree_read_snapshot) {
       // Invalidate-first message passing (writers serialized under engine_lock_; the GC reader is lock-free):
       // publish the empty sentinel into tag BEFORE overwriting snap, so a concurrent GC read can never pair
       // this slot's NEW snap with the PREVIOUS owner's tag. If the reader's acquire-load of snap observes the
@@ -5470,6 +5474,14 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
   edge_count_.store(0, std::memory_order_release);
 
   timestamp_ = kTimestampInitialId;
+  if (config_.experimental_lockfree_read_snapshot) {
+    // Recovery via Clear() rewinds timestamp_; the read-snapshot watermark and GC visibility floor
+    // must rewind with it, or a post-recovery commit at a low ts appears committed-before a reader's
+    // stale-high snapshot_ts (SI phantom read) and the floor stalls. Recovery paths reseed the
+    // watermark to the recovered durable ts afterward.
+    last_committed_mvcc_ts_.store(kTimestampInitialId, std::memory_order_release);
+    gc_visibility_floor_.store(kTimestampInitialId, std::memory_order_release);
+  }
   transaction_id_ = kTransactionInitialId;
 
   // Reset WALs
