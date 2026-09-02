@@ -4160,6 +4160,7 @@ class KShortestPathsCursor : public Cursor {
         blocked_vertices_(mem),
         in_edges_(mem),
         out_edges_(mem),
+        path_gids_scratch_(mem),
         bfs_source_frontier_(mem),
         bfs_target_frontier_(mem),
         bfs_source_next_(mem),
@@ -4343,7 +4344,8 @@ class KShortestPathsCursor : public Cursor {
 
   // State for K-shortest paths algorithm
   utils::pmr::vector<PathInfo> shortest_paths_;
-  std::priority_queue<PathInfo, utils::pmr::vector<PathInfo>, PathComparator> candidate_paths_;
+  // A heap by hand, not a `priority_queue`: its `top()` is const, so serving a candidate copies it.
+  utils::pmr::vector<PathInfo> candidate_paths_;
   utils::pmr::unordered_set<utils::pmr::vector<storage::Gid>, PathGidsHash> found_paths_set_;
   size_t current_path_index_ = 0;
 
@@ -4353,8 +4355,8 @@ class KShortestPathsCursor : public Cursor {
   std::optional<VertexAccessor> current_target_;
 
   // Per-deviation state for the inner search. Unweighted: `PathComparator` orders by hop count.
-  utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
-  utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
+  utils::pmr::unordered_set<storage::Gid> blocked_edges_;
+  utils::pmr::unordered_set<storage::Gid> blocked_vertices_;
   // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
   // searches don't re-fetch. Must stay unfiltered: a lambda reading an outer-row value would make
   // post-filter results wrong. Copied into an arena vector because `EdgeVertexAccessorResult` is not
@@ -4363,6 +4365,9 @@ class KShortestPathsCursor : public Cursor {
   using CachedEdges = utils::pmr::vector<EdgeAccessor>;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
+
+  // Probe buffer for `found_paths_set_`.
+  utils::pmr::vector<storage::Gid> path_gids_scratch_;
 
   // The inner search's scratch, reused across the searches Yen's runs for one input row instead
   // of being rebuilt per call. This saves the allocation and the regrowth; it does not fix a leak,
@@ -4412,8 +4417,9 @@ class KShortestPathsCursor : public Cursor {
 
     // Find the best candidate path
     while (!candidate_paths_.empty()) {
-      PathInfo candidate = candidate_paths_.top();
-      candidate_paths_.pop();
+      std::ranges::pop_heap(candidate_paths_, PathComparator{});
+      PathInfo candidate = std::move(candidate_paths_.back());
+      candidate_paths_.pop_back();
       // Handle upper bound
       if (candidate.edges.size() > upper_bound_) {
         // Next path is too long, stop generating candidates
@@ -4441,24 +4447,18 @@ class KShortestPathsCursor : public Cursor {
     auto spur_path = ComputeShortestPath(
         deviation_vertex, target, upper_bound_ - static_cast<int64_t>(deviation_index), frame, evaluator, context);
 
-    if (!spur_path.edges.empty()) {
-      // Combine the root path (up to deviation) with the spur path
-      PathInfo candidate_path(evaluator.GetMemoryResource());
+    if (spur_path.edges.empty()) return;
 
-      // Add edges from source to deviation vertex
-      for (size_t i = 0UZ; i < deviation_index; ++i) {
-        candidate_path.edges.push_back(base_path.edges[i]);
-      }
+    // Reserved: the arena does not reclaim the blocks a growing vector abandons.
+    PathInfo candidate_path(evaluator.GetMemoryResource());
+    candidate_path.edges.reserve(deviation_index + spur_path.edges.size());
+    candidate_path.edges.assign(base_path.edges.begin(),
+                                base_path.edges.begin() + static_cast<std::ptrdiff_t>(deviation_index));
+    candidate_path.edges.insert(candidate_path.edges.end(), spur_path.edges.begin(), spur_path.edges.end());
+    candidate_path.deviation_vertex_index = deviation_index;
 
-      // Add spur path edges
-      for (const auto &edge : spur_path.edges) {
-        candidate_path.edges.push_back(edge);
-      }
-
-      candidate_path.deviation_vertex_index = deviation_index;
-
-      candidate_paths_.push(std::move(candidate_path));
-    }
+    candidate_paths_.push_back(std::move(candidate_path));
+    std::ranges::push_heap(candidate_paths_, PathComparator{});
   }
 
   void SetupBlockedElementsForDeviation(const VertexAccessor &source, const PathInfo &base_path,
@@ -4479,7 +4479,7 @@ class KShortestPathsCursor : public Cursor {
         }
 
         if (prefix_matches) {
-          blocked_edges_.insert(path.edges[deviation_index]);
+          blocked_edges_.insert(path.edges[deviation_index].Gid());
         }
       }
     }
@@ -4487,7 +4487,7 @@ class KShortestPathsCursor : public Cursor {
     // Block vertices in the root path (except the deviation vertex)
     VertexAccessor current_vertex = source;
     for (size_t i = 0UZ; i < deviation_index; ++i) {
-      blocked_vertices_.insert(current_vertex);
+      blocked_vertices_.insert(current_vertex.Gid());
       const auto &edge = base_path.edges[i];
       current_vertex = (edge.From() == current_vertex) ? edge.To() : edge.From();
     }
@@ -4590,7 +4590,8 @@ class KShortestPathsCursor : public Cursor {
   bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &expand_from, const VertexEdgeMapT &reached,
                     Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     const VertexAccessor next = To == kTo ? edge.To() : edge.From();
-    if (blocked_edges_.contains(edge) || blocked_vertices_.contains(next) || reached.contains(next)) return false;
+    if (blocked_edges_.contains(edge.Gid()) || blocked_vertices_.contains(next.Gid()) || reached.contains(next))
+      return false;
 
     const VertexAccessor &inner_node = Backward ? expand_from : next;
     // Access check first: an edge the user cannot read must never make the lambda run on it.
@@ -4758,11 +4759,11 @@ class KShortestPathsCursor : public Cursor {
   }
 
   bool IsPathInFoundSet(const PathInfo &path) {
-    utils::pmr::vector<storage::Gid> path_gids(found_paths_set_.get_allocator());
+    path_gids_scratch_.clear();
     for (const auto &edge : path.edges) {
-      path_gids.push_back(edge.Gid());
+      path_gids_scratch_.push_back(edge.Gid());
     }
-    return found_paths_set_.contains(path_gids);
+    return found_paths_set_.contains(path_gids_scratch_);
   }
 
   void AddPathToFoundSet(const PathInfo &path) {
@@ -4776,7 +4777,7 @@ class KShortestPathsCursor : public Cursor {
 
   void ResetState() {
     shortest_paths_.clear();
-    while (!candidate_paths_.empty()) candidate_paths_.pop();
+    candidate_paths_.clear();
     found_paths_set_.clear();
     current_path_index_ = 0;
     blocked_edges_.clear();
