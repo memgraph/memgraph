@@ -1302,9 +1302,10 @@ const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() co
 namespace {
 
 #ifdef MG_ENTERPRISE
-constexpr std::array<const char *, 5> kEnterpriseModuleList = {
+constexpr std::array<const char *, 6> kEnterpriseModuleList = {
     "betweenness_centrality_online",
     "community_detection_online",
+    "cross_database",
     "katz_centrality_online",
     "node2vec_online",
     "pagerank_online",
