@@ -909,10 +909,12 @@ TEST_F(LockFreeReadSnapshotRecovery, WriteOff_RecoverOff_DataIntact) {
 // EMPIRICAL NOTE (verified by A/B, both storage.cpp restore sites neutralized + rebuilt): in-memory
 // recovery reconstructs FLAT vertices -- both snapshot load (snapshot.cpp: Vertex{gid, nullptr} +
 // InitProperties) and WAL replay (wal.cpp: Vertex{gid, nullptr} + in-place SetProperty) leave
-// delta()==nullptr, so the read returns the in-place latest value regardless of snapshot_ts. This
-// test therefore still reads 4 with Fix B removed; it locks in correct recovered-read behavior but
-// does NOT on its own fail if Fix B regresses (no in-memory recovery path produces a committed delta
-// chain to expose the watermark). Do not weaken the value/count assertions.
+// delta()==nullptr, so the read returns the in-place latest value regardless of snapshot_ts. The
+// value/count assertions therefore still pass with Fix B removed (no committed delta chain to
+// expose the watermark). To close that gap the test NOW also asserts the watermark scalar directly:
+// LastCommittedMvccTimestamp() must be > 0 after recovery. A zero here is the exact Fix B
+// regression signature -- the reseed (last_committed_mvcc_ts_ <- last-durable-timestamp) was never
+// reached. Do not weaken either the value/count assertions or the watermark assertion.
 TEST_F(LockFreeReadSnapshotRecovery, RecoveredUpdateChain_ReadsLatestUnderFlagOn) {
   Gid gid{};
   {
@@ -959,6 +961,16 @@ TEST_F(LockFreeReadSnapshotRecovery, RecoveredUpdateChain_ReadsLatestUnderFlagOn
 
     auto store = std::make_unique<InMemoryStorage>(config);
     const auto p = store->NameToProperty("p");
+
+    // Non-vacuous: assert the recovery watermark was reseeded. A zero means Fix B
+    // (the last_committed_mvcc_ts_ <- last-durable-timestamp reseed in storage.cpp)
+    // regressed. The value/count assertions below still pass even without Fix B because
+    // in-memory recovery leaves delta()==nullptr (FLAT vertices), so this is the only
+    // assertion that directly catches the regression.
+    const uint64_t watermark = store->LastCommittedMvccTimestamp();
+    EXPECT_GT(watermark, 0u) << "Recovery watermark not reseeded: last_committed_mvcc_ts_ is 0 after restart. "
+                                "The reseed (last_committed_mvcc_ts_ <- last-durable-timestamp) in storage.cpp "
+                                "is missing or not reached -- Fix B regressed.";
 
     auto reader = store->Access(memgraph::storage::READ);
 
