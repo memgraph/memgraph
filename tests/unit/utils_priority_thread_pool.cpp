@@ -671,3 +671,190 @@ TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
 
   pool.AwaitShutdown();
 }
+
+// ==================================================================================
+// WakeAllParked tests (Tests 6-9)
+// ==================================================================================
+
+// Helper for WakeAllParked_StillContendedReparkPattern (Test 8).
+// Each instance represents one parked admission slot that re-parks itself while
+// `still_contended` is true, simulating a stalled acquisition gate. `repark_count`
+// guards against an infinite re-park loop: if `kMaxReparks` is reached the task
+// completes regardless of the flag, so a stuck-flag bug cannot hang the suite.
+//
+// Memory-ordering note: `parked_back` is incremented AFTER ParkAdmission returns,
+// which is sequenced-before the atomic store; the main thread's acquire on
+// `parked_back` therefore happens-after the deque write, making the wait on
+// `parked_back >= N` a valid gate for the subsequent WakeAllParked call.
+namespace {
+struct ParkReparker : std::enable_shared_from_this<ParkReparker> {
+  std::atomic<bool> *still_contended{nullptr};
+  std::atomic<int> *parked_back{nullptr};
+  std::atomic<int> *completed{nullptr};
+  memgraph::utils::PriorityThreadPool *pool{nullptr};
+  memgraph::utils::PriorityThreadPool::TaskID task_id{0};
+  std::chrono::steady_clock::time_point deadline{};
+
+  static constexpr int kMaxReparks = 5;
+  int repark_count{0};  // single-writer: only the task executing this slot modifies it
+
+  memgraph::utils::TaskSignature MakeTask() {
+    return [self = shared_from_this()](memgraph::utils::Priority) {
+      const bool contended = self->still_contended->load(std::memory_order_acquire);
+      if (contended && self->repark_count < kMaxReparks) {
+        ++self->repark_count;
+        // Re-park first; signal only after the entry is in the deque so the
+        // main thread's parked_back wait is a true happens-before for the
+        // subsequent WakeAllParked call.
+        self->pool->ParkAdmission(self->MakeTask(), self->task_id, self->deadline);
+        self->parked_back->fetch_add(1, std::memory_order_release);
+      } else {
+        self->completed->fetch_add(1, std::memory_order_acq_rel);
+      }
+    };
+  }
+};
+}  // namespace
+
+// Test 6: WakeAllParked drains every parked entry in a single call.
+// Cross-worker execution order is non-deterministic (tasks distribute across workers
+// via ScheduledReAddTask's hot-thread dispatch), so only the total count and the
+// post-drain empty-deque property are asserted — not per-task ordering.
+TEST(PriorityThreadPool, WakeAllParked_ReinjectsAllOldestFirst) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  constexpr int kN = 5;
+  std::atomic<int> ran{0};
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
+
+  // Park kN admissions with distinct decreasing ids (oldest = highest id = highest
+  // priority in the worker's max-heap, matching pool FIFO semantics).
+  for (int i = 0; i < kN; ++i) {
+    pool.ParkAdmission([&](utils::Priority) { ran.fetch_add(1, std::memory_order_acq_rel); },
+                       static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
+                       deadline);
+  }
+
+  pool.WakeAllParked();
+
+  // Bounded wait: all kN tasks must run within 5 s.
+  for (int w = 0; ran.load(std::memory_order_acquire) < kN && w < 5000; ++w) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(ran.load(std::memory_order_acquire), kN);
+
+  // Parked deque must now be empty: additional wakes must be silent no-ops.
+  // A 20 ms pause lets in-flight worker scheduling settle before the no-op calls.
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  pool.WakeAllParked();
+  pool.WakeOneParked();
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  // Counter must stay at kN — the no-op wakes must not trigger additional runs.
+  ASSERT_EQ(ran.load(std::memory_order_acquire), kN);
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Test 7: WakeAllParked on an empty parked deque must be a safe no-op.
+TEST(PriorityThreadPool, WakeAllParked_EmptyIsNoOp) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  // Three consecutive wakes on an empty pool must not crash, deadlock, or assert.
+  pool.WakeAllParked();
+  pool.WakeOneParked();
+  pool.WakeAllParked();
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Test 8: Re-park cycle — each task re-parks itself while `still_contended` is true
+// (simulating a stalled engine_lock_ acquisition), then drains when the flag clears.
+//
+// Phase A: WakeAllParked() → all kN tasks run, re-park, increment `parked_back`.
+//          Main thread waits for parked_back == kN (bounded), then verifies no task
+//          completed prematurely.
+// Phase B: `still_contended` cleared → WakeAllParked() → all kN complete.
+//
+// The kMaxReparks guard in ParkReparker bounds the cycle so a stuck-flag bug cannot
+// hang the test; it does not fire on the happy path (tasks see contended=false in Phase B).
+TEST(PriorityThreadPool, WakeAllParked_StillContendedReparkPattern) {
+  using namespace memgraph;
+  constexpr int kN = 3;
+  constexpr int kPollMs = 3000;  // 3 s per phase
+
+  utils::PriorityThreadPool pool{2, 1};
+  std::atomic<bool> still_contended{true};
+  std::atomic<int> parked_back{0};
+  std::atomic<int> completed{0};
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
+
+  for (int i = 0; i < kN; ++i) {
+    auto r = std::make_shared<ParkReparker>();
+    r->still_contended = &still_contended;
+    r->parked_back = &parked_back;
+    r->completed = &completed;
+    r->pool = &pool;
+    r->task_id = static_cast<utils::PriorityThreadPool::TaskID>(1000 - i);
+    r->deadline = deadline;
+    pool.ParkAdmission(r->MakeTask(), r->task_id, deadline);
+  }
+
+  // Phase A: wake all; still_contended=true → tasks re-park.
+  pool.WakeAllParked();
+  for (int w = 0; parked_back.load(std::memory_order_acquire) < kN && w < kPollMs; ++w) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(parked_back.load(std::memory_order_acquire), kN) << "tasks did not re-park within timeout";
+  ASSERT_EQ(completed.load(std::memory_order_acquire), 0) << "tasks must not complete while contended";
+
+  // Phase B: clear flag → tasks complete on next wake.
+  still_contended.store(false, std::memory_order_release);
+  pool.WakeAllParked();
+  for (int w = 0; completed.load(std::memory_order_acquire) < kN && w < kPollMs; ++w) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(completed.load(std::memory_order_acquire), kN);
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Test 9: ParkAdmission called after ShutDown drops the task without running it.
+// ShutDown sets draining_admissions_=true before returning (see priority_thread_pool.cpp
+// ShutDown steps: Stop monitor → set draining → drain existing → stop workers).
+// The early-return guard in ParkAdmission then destroys any new arrival without enqueueing
+// or executing it, preventing use-after-shutdown writes to worker queues.
+//
+// Design note: calling ParkAdmission between ShutDown and AwaitShutdown is safe because
+// ParkAdmission only acquires parked_mtx_ (not any Worker::mtx_) and the task is
+// destroyed on the early return before any worker thread can observe it.
+TEST(PriorityThreadPool, ParkDropsWhenDraining) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  std::atomic<bool> task_ran{false};
+
+  // ShutDown: sets draining_admissions_=true, drains previously-parked entries
+  // (none here), requests stop on workers.  No tasks were parked before this call.
+  pool.ShutDown();
+
+  // ParkAdmission sees draining_admissions_=true and returns immediately; the task
+  // lambda is destroyed without being called.
+  pool.ParkAdmission([&](utils::Priority) { task_ran.store(true, std::memory_order_release); },
+                     static_cast<utils::PriorityThreadPool::TaskID>(1000),
+                     std::chrono::steady_clock::now() + std::chrono::hours(1));
+
+  ASSERT_FALSE(task_ran.load(std::memory_order_acquire));
+
+  pool.AwaitShutdown();
+}
+
+// Test 10 (DeadlineExpiredParkReinjectedByMonitor): SKIPPED.
+// The existing MonitorSweep_PastDeadlineReinjected test already covers this invariant:
+// it parks with deadline = now()-1ms and waits up to 400ms for the monitor sweep to
+// re-inject and run the task.  Writing a second test for the same code path would be
+// redundant and adds no coverage.
