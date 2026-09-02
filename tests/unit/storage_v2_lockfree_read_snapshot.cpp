@@ -29,9 +29,14 @@
 #include "storage/v2/commit_probe.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/indices/index_order.hpp"
+#include "storage/v2/indices/label_property_index_entry.hpp"
+#include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -974,5 +979,259 @@ TEST_F(LockFreeReadSnapshotRecovery, RecoveredUpdateChain_ReadsLatestUnderFlagOn
            "vertex instead of the latest. If recovery ever begins reconstructing a committed delta "
            "chain, this means the reader's snapshot_ts is below the head commit ts -- i.e. the "
            "recovery watermark restore (last_committed_mvcc_ts_ <- last-durable-timestamp) is missing.";
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Concern-F: a durability snapshot's schema list must be covered by the durable timestamp it
+// records alongside it. The two are read at different times from different boundaries: the durable
+// timestamp is captured eagerly when the transaction begins, while the index list is filtered by
+// PopulationStatus::IsVisible(start_timestamp) when the snapshot writer runs, which is later. A
+// commit publishes its population status, its durable timestamp and the visibility watermark in one
+// engine_lock hold, so a transaction that begins outside that hold sees all three or none. A
+// transaction that begins between a commit's mint and its publish sees none of them at BEGIN, then
+// its lazily evaluated index filter admits the DDL anyway, because start_timestamp was minted above
+// the DDL's commit timestamp. The snapshot then claims an index that its own durable timestamp does
+// not cover, and recovery replays the creation from the WAL on top of it.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+// The index list a snapshot writer would record for this transaction, filtered exactly as
+// durability/snapshot.cpp filters it.
+std::vector<memgraph::storage::LabelPropertyIndexEntry> ListedLabelPropertyIndices(
+    memgraph::storage::Transaction const &txn) {
+  auto *active = static_cast<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices *>(
+      txn.active_indices_->label_properties_.get());
+  return active->ListIndices(txn.SchemaVisibilityBound(), memgraph::storage::IndexOrder::ASC);
+}
+
+// The durable timestamp of the most recent commit, read the way a freshly begun transaction reads it.
+uint64_t CurrentDurableTs(InMemoryStorage &store) {
+  auto acc = store.Access(memgraph::storage::READ);
+  auto const *txn = acc->GetTransaction();
+  EXPECT_TRUE(txn->last_durable_ts_.has_value());
+  return txn->last_durable_ts_.value_or(0);
+}
+
+}  // namespace
+
+TEST(LockFreeReadSnapshot, SnapshotIndexListWithinDurableTimestamp_ON) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  const auto label = store->NameToLabel("L");
+  const auto prop = store->NameToProperty("p");
+  (void)CreateVertexWithProp(*store, 1);
+
+  const auto durable_before_ddl = CurrentDurableTs(*store);
+
+  std::binary_semaphore reached{0};
+  std::binary_semaphore resume{0};
+  std::optional<bool> ddl_ok;
+
+  memgraph::storage::CommitProbe probe;
+  probe.before_publish = [&] {
+    reached.release();
+    resume.acquire();
+  };
+  store->SetCommitProbe(&probe);
+
+  std::thread ddl([&] {
+    auto acc = store->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(label, {memgraph::storage::PropertyPath{prop}}).has_value());
+    ddl_ok = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+  });
+
+  // The DDL commit is parked: it has minted its timestamp and written its WAL delta, but has not
+  // yet taken the publish hold, so nothing it did is visible.
+  reached.acquire();
+  auto snapshot_txn_acc = store->Access(memgraph::storage::READ);
+  auto const *snapshot_txn = snapshot_txn_acc->GetTransaction();
+  ASSERT_TRUE(snapshot_txn->last_durable_ts_.has_value());
+  const auto recorded_durable_ts = *snapshot_txn->last_durable_ts_;
+
+  resume.release();
+  ddl.join();
+  store->SetCommitProbe(nullptr);
+  ASSERT_TRUE(ddl_ok.has_value());
+  ASSERT_TRUE(*ddl_ok);
+
+  const auto ddl_durable_ts = CurrentDurableTs(*store);
+  ASSERT_GT(ddl_durable_ts, durable_before_ddl) << "the DDL commit did not advance the durable timestamp, so this "
+                                                   "test never reached the interleaving it exists to check";
+  // The interleaving: this transaction began while the DDL was between its mint and its publish, so
+  // the durable timestamp it would record does not cover the index creation. Without this the
+  // invariant below holds trivially and proves nothing.
+  ASSERT_LT(recorded_durable_ts, ddl_durable_ts)
+      << "this transaction's durable timestamp already covers the DDL, so it did not begin inside the gap";
+
+  // The invariant: a snapshot may only claim schema objects that its recorded durable timestamp
+  // covers. Otherwise recovery loads the index from the snapshot and then replays its creation from
+  // the WAL, which throws RecoveryFailure and leaves the database unable to start.
+  const auto listed = ListedLabelPropertyIndices(*snapshot_txn);
+  EXPECT_TRUE(listed.empty()) << "a snapshot taken by this transaction would record " << listed.size()
+                              << " label-property index(es) while recording durable timestamp " << recorded_durable_ts
+                              << ", below the index creation's durable timestamp " << ddl_durable_ts
+                              << ". Recovery would apply the index "
+                              << "twice and refuse to start.";
+
+  // Which boundary is used is the whole question, so the test also pins that the two disagree here.
+  // If they ever stop disagreeing then this transaction is no longer inside the gap and the check
+  // above has stopped exercising the distinction it exists for.
+  auto *active = static_cast<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices *>(
+      snapshot_txn->active_indices_->label_properties_.get());
+  EXPECT_EQ(active->ListIndices(snapshot_txn->start_timestamp, memgraph::storage::IndexOrder::ASC).size(), 1U)
+      << "filtering on start_timestamp no longer admits the gap-committed index, so this test is not distinguishing "
+         "the two boundaries";
+}
+
+// The same pairing, measured without any probe: transactions begin in a tight loop while one DDL
+// commits, and every observation is checked. The loop is only meaningful if it straddled the
+// publish, so it requires having seen the index both absent and present; otherwise it reports that
+// it examined nothing rather than passing.
+//
+// Off the flag this cannot fail: the commit holds engine_lock_ from mint through publish, so a
+// BEGIN either precedes the mint, and filters the index out by start_timestamp, or follows the
+// publish, and its durable timestamp covers it. There is no instant at which one is true and the
+// other is not. Note what this does and does not establish: it shows the measurement produces no
+// false positives on the boundary it is aimed at, not that the window is closed by construction.
+TEST(LockFreeReadSnapshot, SnapshotIndexListWithinDurableTimestamp_OFF_AB) {
+  auto store = MakeStorage(/*flag_on=*/false);
+  const auto label = store->NameToLabel("L");
+  const auto prop = store->NameToProperty("p");
+  (void)CreateVertexWithProp(*store, 1);
+  const auto durable_before_ddl = CurrentDurableTs(*store);
+
+  std::atomic<bool> ddl_done{false};
+  std::optional<bool> ddl_ok;
+  std::thread ddl([&] {
+    auto acc = store->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(label, {memgraph::storage::PropertyPath{prop}}).has_value());
+    ddl_ok = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+    ddl_done.store(true, std::memory_order_release);
+  });
+
+  int64_t saw_absent = 0;
+  int64_t saw_present = 0;
+  int64_t violations = 0;
+  // Keep sampling for a little after the commit lands so the present side is always reached.
+  for (int64_t spare = 64; spare > 0;) {
+    if (ddl_done.load(std::memory_order_acquire)) --spare;
+    auto acc = store->Access(memgraph::storage::READ);
+    auto const *txn = acc->GetTransaction();
+    if (!txn->last_durable_ts_.has_value()) continue;
+    const auto recorded = *txn->last_durable_ts_;
+    if (ListedLabelPropertyIndices(*txn).empty()) {
+      ++saw_absent;
+    } else {
+      ++saw_present;
+      if (recorded <= durable_before_ddl) ++violations;
+    }
+  }
+
+  ddl.join();
+  ASSERT_TRUE(ddl_ok.has_value());
+  ASSERT_TRUE(*ddl_ok);
+
+  ASSERT_GT(saw_absent, 0) << "every observation already had the index, so the loop never straddled the publish";
+  ASSERT_GT(saw_present, 0) << "no observation ever had the index, so the loop never straddled the publish";
+  EXPECT_EQ(violations, 0) << violations << " of " << saw_present
+                           << " observations listed the index while recording a durable timestamp that does not "
+                              "cover its creation";
+}
+
+// The consequence of the pairing above, end to end: a snapshot written by a transaction that began
+// in the gap records the index while recording a durable timestamp below the index creation's, so
+// recovery loads the index from the snapshot and then replays its creation from the WAL. The
+// duplicate makes AddRecoveredIndexConstraint throw and the database does not come up.
+//
+// Landing the interleaving needs the DDL to publish after the snapshot's transaction has begun but
+// before that transaction reaches its index list, so the dataset is large enough that the vertex
+// section is still being written when the DDL is released. The attempt is repeated, and if the
+// interleaving never lands the test says so rather than passing.
+TEST_F(LockFreeReadSnapshotRecovery, GapSnapshotRecordsIndexAboveItsDurableTimestamp_ON) {
+  constexpr int kVertices = 20000;
+  constexpr int kAttempts = 5;
+
+  bool landed = false;
+  std::string recovery_error;
+
+  for (int attempt = 0; attempt < kAttempts && !landed; ++attempt) {
+    std::filesystem::remove_all(storage_directory);
+
+    Config config{};
+    config.durability.storage_directory = storage_directory;
+    config.durability.recover_on_startup = false;
+    config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    config.experimental_lockfree_read_snapshot = true;
+    config.gc.type = Config::Gc::Type::NONE;
+
+    {
+      auto store = std::make_unique<InMemoryStorage>(config);
+      const auto label = store->NameToLabel("L");
+      const auto prop = store->NameToProperty("p");
+      {
+        auto acc = store->Access(memgraph::storage::WRITE);
+        for (int i = 0; i < kVertices; ++i) {
+          auto vertex = acc->CreateVertex();
+          ASSERT_TRUE(vertex.AddLabel(label).has_value());
+          ASSERT_TRUE(vertex.SetProperty(prop, PropertyValue(i)).has_value());
+        }
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+
+      std::binary_semaphore parked{0};
+      std::binary_semaphore release{0};
+      std::optional<bool> ddl_ok;
+
+      memgraph::storage::CommitProbe probe;
+      probe.before_publish = [&] {
+        parked.release();
+        release.acquire();
+      };
+      store->SetCommitProbe(&probe);
+
+      std::thread ddl([&] {
+        auto acc = store->ReadOnlyAccess();
+        ASSERT_TRUE(acc->CreateIndex(label, {memgraph::storage::PropertyPath{prop}}).has_value());
+        ddl_ok = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+      });
+
+      parked.acquire();
+
+      // Begins its own transaction inside the gap, then spends time writing vertices.
+      std::thread snapshotter([&] { (void)store->CreateSnapshot(/*force=*/true); });
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      release.release();
+      ddl.join();
+      snapshotter.join();
+      store->SetCommitProbe(nullptr);
+      ASSERT_TRUE(ddl_ok.has_value());
+      ASSERT_TRUE(*ddl_ok);
+      store.reset();
+    }
+
+    // Recovery is the observation: either it comes up, in which case the interleaving did not land
+    // on this attempt, or it refuses the duplicate that the snapshot and the WAL both supply.
+    Config recover_config = config;
+    recover_config.durability.recover_on_startup = true;
+    try {
+      auto recovered = std::make_unique<InMemoryStorage>(recover_config);
+      if (recovered->IsBroken()) {
+        landed = true;
+        recovery_error = "storage recovered into the broken state";
+      }
+    } catch (std::exception const &e) {
+      landed = true;
+      recovery_error = e.what();
+    }
+  }
+
+  EXPECT_FALSE(landed) << "a snapshot taken across the mint-to-publish gap produced a database that cannot be "
+                          "recovered: "
+                       << recovery_error;
+  if (!landed) {
+    GTEST_SKIP() << "the interleaving did not land in " << kAttempts
+                 << " attempts, so this run neither confirms nor clears the end-to-end consequence";
   }
 }
