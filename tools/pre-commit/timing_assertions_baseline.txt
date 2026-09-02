@@ -1,8 +1,6 @@
 # Wall-clock upper bounds that predate check_timing_assertions.py.
 # Each asserts how fast the machine is, so each is a latent flaky failure.
 # Entries may be deleted as they are converted; none may be added.
-tests/unit/database_protector_test.cpp	EXPECT_LT(shutdown_time, 1000) << "Storage shutdown took too long, async indexer may not have stopped";
-tests/unit/database_protector_test.cpp	EXPECT_LT(shutdown_time, 500) << "Storage shutdown should be fast when async indexer completed";
 tests/unit/hot_cold_gatekeeper.cpp	EXPECT_LT(elapsed, std::chrono::seconds(1));
 tests/unit/integrations_kafka_consumer.cpp	EXPECT_LE(elapsed, timeout * kTimingTolerance);
 tests/unit/query_streams.cpp	EXPECT_LE(elapsed, timeout * 1.2);

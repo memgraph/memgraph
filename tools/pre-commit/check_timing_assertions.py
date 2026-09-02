@@ -44,6 +44,12 @@ def first_argument(line: str, open_paren: int) -> str:
     return line[open_paren + 1 :]
 
 
+# A bound set so far above any real duration that only a wait which never ends
+# reaches it is a liveness bound, not a claim about speed. It looks identical, so
+# it has to say so: put this marker on the assertion or the line above it.
+LIVENESS_MARKER = "liveness-bound"
+
+
 def offenders(path: pathlib.Path) -> list[tuple[int, str]]:
     try:
         lines = path.read_text(errors="ignore").splitlines()
@@ -53,6 +59,9 @@ def offenders(path: pathlib.Path) -> list[tuple[int, str]]:
     for i, line in enumerate(lines, 1):
         m = UPPER_BOUND.search(line)
         if not m:
+            continue
+        context = line + (lines[i - 2] if i >= 2 else "")
+        if LIVENESS_MARKER in context:
             continue
         # Only the duration being the smaller side is a claim about speed.
         # EXPECT_LE(elapsed, budget) says the machine was fast enough;
