@@ -727,9 +727,9 @@ jobs:
           fi
           mage_rpm="$(ls -t output/memgraph-mage-[0-9]*.rpm | head -n 1)"
           cp -v "$mage_rpm" release/package/mage/memgraph-mage.rpm
+          # TODO(matt): add centos-10 when the image is fixed
           distros=(
             centos-9
-            centos-10
           )
           for distro in "${distros[@]}"; do
             case "$distro" in
@@ -1070,9 +1070,9 @@ jobs:
       - name: "Run Docker smoke tests (rpm)"
         if: ${{ inputs.run_smoke_tests && !inputs.cugraph && !inputs.cuda  && !inputs.malloc }}
         run: |
+          # TODO(matt): add centos-10 when the image is fixed
           distros=(
             centos-9
-            centos-10
           )
           for distro in "${distros[@]}"; do
             ./release/package/mgbuild.sh \
