@@ -12,8 +12,10 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -50,6 +52,11 @@ class HotMask {
 
   // Returns the position of the first set bit and resets it
   std::optional<uint16_t> GetHotElement();
+
+  // Non-destructive: true iff any group mask is set (at least one idle worker).
+  // Used by ShouldParkAdmission to avoid the DESTRUCTIVE GetHotElement when only a
+  // park-vs-continue decision is needed.
+  bool AnySet() const noexcept;
 
  private:
   static constexpr auto kGroupSize = sizeof(uint64_t) * 8;  // bits
@@ -161,6 +168,23 @@ class PriorityThreadPool {
   // do not increment the counter, so a pure-admission storm cannot hold the gate open.
   bool HasPendingWork() const noexcept;
 
+  // Park a blocked admission continuation aside (0 CPU) until a wake re-injects it.
+  // PRECONDITION (not asserted): must NOT be called while holding any Worker::mtx_ —
+  // the session continuation that calls this runs outside any worker lock.
+  void ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline);
+
+  // True iff parking the calling admission would let real work run. Yields the core only when
+  // there is productive work queued AND no idle worker to take it — i.e. this core is the only
+  // one that could be doing useful work; otherwise the caller keeps bounded-spinning.
+  bool ShouldParkAdmission() const noexcept;
+
+  // Re-inject the single oldest parked admission (place-keeping id).
+  void WakeOneParked();
+
+  // True while ShutDown is draining parked admissions. The session driver reads this to terminate
+  // a woken admission with a shutdown error instead of re-parking it (wired in a later unit).
+  bool IsDrainingAdmissions() const noexcept { return draining_admissions_.load(std::memory_order_acquire); }
+
   // Single worker implementation
   class Worker {
    public:
@@ -206,6 +230,16 @@ class PriorityThreadPool {
   };
 
  private:
+  struct ParkedAdmission {
+    TaskID id;
+    mutable TaskSignature task;  // mutable: moved out of the deque even via const ref
+    std::chrono::steady_clock::time_point deadline;
+  };
+
+  std::mutex parked_mtx_;
+  std::deque<ParkedAdmission> parked_admissions_;  // FIFO: push_back to park, front = oldest
+  std::atomic_bool draining_admissions_{false};    // true while ShutDown drains → drop new parks
+
   std::stop_source pool_stop_source_;
 
   std::vector<std::unique_ptr<Worker>> workers_;  // Mixed work threads

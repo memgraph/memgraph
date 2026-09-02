@@ -548,3 +548,126 @@ TEST(PriorityThreadPool, HasPendingWorkCountsProductiveNotAdmissionReposts) {
   pool.ShutDown();
   pool.AwaitShutdown();
 }
+
+// ---- Park subsystem tests ----
+
+// Test 1: ParkAdmission then WakeOneParked re-injects the task and it runs on a worker.
+TEST(PriorityThreadPool, ParkAdmission_WakeOneParked_Single) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  std::atomic<bool> ran{false};
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
+
+  pool.ParkAdmission([&](utils::Priority) { ran.store(true, std::memory_order_release); }, 1000, deadline);
+
+  pool.WakeOneParked();
+
+  for (int w = 0; !ran.load(std::memory_order_acquire) && w < 5000; ++w) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_TRUE(ran.load(std::memory_order_acquire));
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Test 2: Monitor sweep re-injects a parked entry whose deadline is already in the past
+// within approximately one monitor tick (~100 ms).
+TEST(PriorityThreadPool, MonitorSweep_PastDeadlineReinjected) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  std::atomic<bool> ran{false};
+  // Deadline already expired — the next monitor tick must pick this up.
+  auto past_deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
+
+  pool.ParkAdmission([&](utils::Priority) { ran.store(true, std::memory_order_release); }, 1000, past_deadline);
+
+  // Monitor fires every 100 ms; wait up to 400 ms (4 ticks).
+  for (int w = 0; !ran.load(std::memory_order_acquire) && w < 40; ++w) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  ASSERT_TRUE(ran.load(std::memory_order_acquire));
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Test 3: Multiple parked admissions — WakeOneParked drains one per call, oldest first (FIFO).
+// We wake one task, wait for it to complete, then wake the next, verifying ordering via an
+// atomic sequence counter checked inside each task body.
+TEST(PriorityThreadPool, WakeOneParked_FIFO) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  std::atomic<int> run_seq{0};
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
+
+  // Park 3 tasks in order; the deque front is the oldest (index 0).
+  for (int i = 0; i < 3; ++i) {
+    pool.ParkAdmission(
+        [&, expected = i](utils::Priority) {
+          EXPECT_EQ(run_seq.load(std::memory_order_acquire), expected);
+          run_seq.fetch_add(1, std::memory_order_release);
+        },
+        static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
+        deadline);
+  }
+
+  // Wake one at a time, waiting for each to complete before waking the next.
+  for (int i = 0; i < 3; ++i) {
+    pool.WakeOneParked();
+    for (int w = 0; run_seq.load(std::memory_order_acquire) < i + 1 && w < 5000; ++w) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(run_seq.load(std::memory_order_acquire), i + 1);
+  }
+
+  // An extra WakeOneParked on an empty deque must be a silent no-op.
+  pool.WakeOneParked();
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Test 4: ShouldParkAdmission returns false when productive_pending_ == 0 (nothing to yield to).
+TEST(PriorityThreadPool, ShouldParkAdmission_FalseWithNoProductiveWork) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  // No productive tasks submitted yet.
+  ASSERT_FALSE(pool.ShouldParkAdmission());
+
+  // Non-productive task does not increment productive_pending_ — gate must stay closed.
+  pool.ScheduledAddTask([](utils::Priority) {}, utils::Priority::LOW, /*productive=*/false);
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_FALSE(pool.ShouldParkAdmission());
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Test 5: ShutDown drain — every parked continuation runs exactly once.
+TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  constexpr int kN = 5;
+  std::atomic<int> ran{0};
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
+
+  for (int i = 0; i < kN; ++i) {
+    pool.ParkAdmission([&](utils::Priority) { ran.fetch_add(1, std::memory_order_acq_rel); },
+                       static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
+                       deadline);
+  }
+
+  // ShutDown runs the drain synchronously in the caller thread before stopping workers;
+  // every parked continuation must have run by the time ShutDown returns.
+  pool.ShutDown();
+
+  ASSERT_EQ(ran.load(std::memory_order_acquire), kN);
+
+  pool.AwaitShutdown();
+}
