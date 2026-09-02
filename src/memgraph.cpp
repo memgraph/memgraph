@@ -413,7 +413,7 @@ int main(int argc, char **argv) {
   memgraph::communication::SSLInit sslInit;
 
   // Initialize the requests library.
-  memgraph::requests::Init();
+  memgraph::requests::Init(FLAGS_ca_bundle_file);
 
   // Start memory warning logger.
   memgraph::utils::Scheduler mem_log_scheduler;
