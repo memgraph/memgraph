@@ -401,7 +401,9 @@ auto InternalParseHashAlgorithm(std::string_view algo) -> PasswordHashAlgorithm 
 std::atomic<PasswordHashAlgorithm> &InternalCurrentHashAlgorithm() {
   static std::atomic current = PasswordHashAlgorithm::BCRYPT;
   static std::once_flag flag;
-  std::call_once(flag, [] { current = InternalParseHashAlgorithm(FLAGS_password_encryption_algorithm); });
+  std::call_once(flag, [] {
+    current.store(InternalParseHashAlgorithm(FLAGS_password_encryption_algorithm), std::memory_order_release);
+  });
   return current;
 }
 
@@ -435,7 +437,9 @@ std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
   return {};
 }
 
-auto CurrentHashAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentHashAlgorithm().load(); }
+auto CurrentHashAlgorithm() -> PasswordHashAlgorithm {
+  return InternalCurrentHashAlgorithm().load(std::memory_order_acquire);
+}
 
 auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
   switch (hash_algo) {
@@ -455,13 +459,9 @@ void EnableFipsMode(bool algorithm_flag_is_default) {
 
   auto const approved = AsString(PasswordHashAlgorithm::PBKDF2_SHA256);
 
-  // Force the flag read to happen before we override it
   auto configured = CurrentHashAlgorithm();
 
   if (algorithm_flag_is_default) {
-    // Set the flag itself, not just the cached value, so that SHOW CONFIG and
-    // SHOW FIPS INFO agree about what is hashing passwords.
-    gflags::SetCommandLineOption(kPasswordEncryptionAlgorithmFlag, std::string{approved}.c_str());
     SetHashAlgorithm(approved);
     configured = CurrentHashAlgorithm();
     spdlog::info("--fips-mode=true and no --password-encryption-algorithm given; selecting '{}'.", approved);
@@ -487,7 +487,9 @@ void EnableFipsMode() {
   EnableFipsMode(gflags::GetCommandLineFlagInfoOrDie(kPasswordEncryptionAlgorithmFlag).is_default);
 }
 
-void SetHashAlgorithm(std::string_view algo) { InternalCurrentHashAlgorithm().store(InternalParseHashAlgorithm(algo)); }
+void SetHashAlgorithm(std::string_view algo) {
+  InternalCurrentHashAlgorithm().store(InternalParseHashAlgorithm(algo), std::memory_order_release);
+}
 
 auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view {
   return *utils::EnumToString<PasswordHashAlgorithm>(hash_algo, password_hash_mappings);
