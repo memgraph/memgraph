@@ -17,8 +17,11 @@
 
 #include "utils/shared_quota.hpp"
 
-namespace memgraph::query {
+namespace memgraph::storage {
 
+// A budget for how many graph hops a traversal may take, spent as expansions
+// happen and checked by the expansion itself. A caller that sets no limit gets
+// one that reports every increment as available.
 struct HopsLimit {
   std::optional<uint64_t> limit{std::nullopt};
   uint64_t batch{0};
@@ -69,4 +72,4 @@ struct HopsLimit {
   }
 };
 
-}  // namespace memgraph::query
+}  // namespace memgraph::storage

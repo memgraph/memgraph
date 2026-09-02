@@ -12,13 +12,13 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include <range/v3/all.hpp>
 #include "query/exceptions.hpp"
-#include "query/hops_limit.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/mvcc.hpp"
@@ -907,7 +907,7 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination,
-                                                          query::HopsLimit *hops_limit) const {
+                                                          HopsLimit *hops_limit) const {
   DMG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
@@ -996,7 +996,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                            const VertexAccessor *destination,
-                                                           query::HopsLimit *hops_limit) const {
+                                                           HopsLimit *hops_limit) const {
   DMG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
@@ -1196,7 +1196,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
-int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, query::HopsLimit *hops_limit,
+int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, HopsLimit *hops_limit,
                                                          EdgeDirection direction) const {
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;
@@ -1216,7 +1216,7 @@ int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edge
 
 int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
                                                       const std::vector<EdgeTypeId> &edge_types,
-                                                      const VertexAccessor *destination, query::HopsLimit *hops_limit,
+                                                      const VertexAccessor *destination, HopsLimit *hops_limit,
                                                       EdgeDirection direction) const {
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;

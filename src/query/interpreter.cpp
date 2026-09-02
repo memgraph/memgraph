@@ -81,7 +81,6 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/graph_free.hpp"
-#include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/interpreter_context.hpp"
@@ -111,6 +110,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/fmt.hpp"
+#include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
@@ -3693,12 +3693,12 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
     if (parallel_execution) {
-      ctx_.hops_limit = HopsLimit(*hops_limit, utils::SharedQuota::WorkersToBatch(*parallel_execution));
+      ctx_.hops_limit = storage::HopsLimit(*hops_limit, utils::SharedQuota::WorkersToBatch(*parallel_execution));
     } else {
-      ctx_.hops_limit = HopsLimit(*hops_limit);
+      ctx_.hops_limit = storage::HopsLimit(*hops_limit);
     }
 #else
-    ctx_.hops_limit = HopsLimit(*hops_limit);
+    ctx_.hops_limit = storage::HopsLimit(*hops_limit);
 #endif
   }
 #ifdef MG_ENTERPRISE

@@ -25,7 +25,7 @@
 #include "utils/priority_thread_pool.hpp"
 
 #include "query/frame_change.hpp"
-#include "query/hops_limit.hpp"
+#include "storage/v2/hops_limit.hpp"
 
 namespace memgraph::memory {
 class ArenaPool;
@@ -129,7 +129,7 @@ struct ExecutionContext {
   std::shared_ptr<QueryUserOrRole> user_or_role;
   std::shared_ptr<QueryUserOrRole> triggering_user{nullptr};
   int64_t number_of_hops{0};
-  HopsLimit hops_limit;
+  storage::HopsLimit hops_limit;
   std::optional<uint64_t> periodic_commit_frequency;
   FineGrainedAuthChecker const *auth_checker{nullptr};
   std::shared_ptr<storage::DatabaseProtector> protector;
