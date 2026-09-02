@@ -8177,7 +8177,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       handler = [] {
         auto const fips = utils::GetFipsStatus();
         const std::vector<std::vector<TypedValue>> results{
-            {TypedValue("approved_mode"), TypedValue(fips->enabled)},
+            {TypedValue("enabled"), TypedValue(fips->enabled)},
             {TypedValue("module_name"), TypedValue(fips->provider_name)},
             {TypedValue("module_version"), TypedValue(fips->provider_version)},
             {TypedValue("password_algorithm"), TypedValue(std::string{auth::AsString(auth::CurrentHashAlgorithm())})},

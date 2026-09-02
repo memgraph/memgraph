@@ -179,7 +179,7 @@ jobs:
             dir="${dir}-relwithdebinfo"
           fi
           if [[ "${{ matrix.fips }}" == "true" ]]; then
-            if [[ "{{ matrix.target }}" == "docker" ]]; then
+            if [[ "${{ matrix.target }}" == "docker" ]]; then
               dir="${dir}-fips"
             else
               dir="${dir}-no-python"

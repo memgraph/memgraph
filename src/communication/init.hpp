@@ -15,19 +15,21 @@ namespace memgraph::communication {
 
 /**
  * Puts the process into FIPS 140-3 approved mode: verifies that the validated
- * OpenSSL FIPS provider is available and operational, then routes every
- * implicit and explicit EVP fetch to it. Exits with
- * `ExitCode::FipsModeUnavailable` if either step fails — a half-configured
- * FIPS deployment is worse than none, because it invites a compliance claim
- * that isn't true.
+ * OpenSSL FIPS provider is available and operational, then makes it the
+ * implementation OpenSSL hands out whenever code asks for an algorithm through
+ * its generic fetch API (the `EVP_*` functions — hashes, ciphers, KDFs). Exits
+ * with `ExitCode::FipsModeUnavailable` if either step fails — a
+ * half-configured FIPS deployment is worse than none, because it invites a
+ * compliance claim that isn't true.
  *
  * Call this only when `--fips-mode=true`, after the logger is initialized (so
  * a failure is actually reported) and before anything creates an SSL context
  * or hashes a password.
  *
- * NOTE: This routes everything that goes *through EVP* to the validated
- * module. It has no effect on crypto that bypasses EVP entirely, which is why
- * the non-approved password hash algorithms need their own separate check.
+ * NOTE: only crypto that goes through that API is redirected. Code calling an
+ * implementation directly is unaffected — bcrypt is a separate library that
+ * never touches OpenSSL — which is why the non-approved password hash
+ * algorithms need a check of their own.
  */
 void EnableFipsMode();
 

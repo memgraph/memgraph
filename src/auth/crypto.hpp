@@ -51,6 +51,17 @@ auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
 void EnableFipsMode();
 
 /**
+ * @brief As above, but told whether `--password-encryption-algorithm` was left
+ * at its default rather than looking it up.
+ *
+ * `true` selects the approved algorithm; `false` means the operator chose one,
+ * so a non-approved choice is an error instead of being overridden. gflags only
+ * exposes that bit through a flag-name lookup, so taking it as an argument lets
+ * tests drive both branches without depending on process-wide flag state.
+ */
+void EnableFipsMode(bool algorithm_flag_is_default);
+
+/**
  * @brief Return algorithm name. Needs to be stable; auth queries depend on it.
  *
  * @param hash_algo

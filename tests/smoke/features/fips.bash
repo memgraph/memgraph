@@ -40,8 +40,8 @@ test_fips_show_info() {
   out="$(run_query_csv "SHOW FIPS INFO;")"
   echo "$out"
 
-  fips_info_field_is "$out" approved_mode true \
-    || { echo "FAIL: approved_mode is not true"; return 1; }
+  fips_info_field_is "$out" enabled true \
+    || { echo "FAIL: SHOW FIPS INFO does not report approved mode as enabled"; return 1; }
   # The module identifies itself; an empty name would mean we reported approved
   # mode without ever having read the provider's parameters.
   fips_info_field_matches "$out" module_name '[A-Za-z]' \
@@ -62,10 +62,10 @@ test_fips_info_disabled() {
   out="$(run_query_csv "SHOW FIPS INFO;")"
   echo "$out"
 
-  fips_info_field_is "$out" approved_mode false \
-    || { echo "FAIL: a non-FIPS image must report approved_mode false"; return 1; }
-  # Stale or invented module identity would be as misleading as a wrong
-  # approved_mode, so these must be blank rather than "unknown".
+  fips_info_field_is "$out" enabled false \
+    || { echo "FAIL: a non-FIPS image must report approved mode as not enabled"; return 1; }
+  # Stale or invented module identity would be as misleading as a wrongly
+  # enabled flag, so these must be blank rather than "unknown".
   fips_info_field_is_empty "$out" module_name \
     || { echo "FAIL: module_name should be empty when FIPS is off"; return 1; }
   fips_info_field_is_empty "$out" module_version \

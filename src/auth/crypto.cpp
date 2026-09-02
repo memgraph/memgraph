@@ -10,17 +10,15 @@
 #include <bcrypt.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <openssl/core_names.h>
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
-#include <openssl/kdf.h>
 #include <openssl/opensslv.h>
-#include <openssl/params.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/types.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <expected>
@@ -28,7 +26,6 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
@@ -50,6 +47,7 @@ using namespace std::literals;
 
 constexpr auto kHashAlgo = "hash_algo";
 constexpr auto kPasswordHash = "password_hash";
+constexpr auto kPasswordEncryptionAlgorithmFlag = "password_encryption_algorithm";
 
 // Needs to be stable user queries depend on this
 inline constexpr std::array password_hash_mappings{
@@ -90,26 +88,27 @@ DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
 namespace memgraph::auth {
 
 namespace {
+constexpr auto kSha256DigestName = "SHA2-256";
+
 /// Salt from OpenSSL's DRBG, which SP 800-132 requires for an approved KDF.
 /// The legacy SHA algorithms still salt from `std::mt19937`; they are not
 /// FIPS-approvable regardless, so that path is deliberately left alone.
 template <std::size_t N>
 auto GenerateSalt() -> std::array<char, N> {
   auto salt = std::array<char, N>{};
-  static_assert(N <= std::numeric_limits<int>::max());
-  if (RAND_bytes(reinterpret_cast<unsigned char *>(salt.data()), static_cast<int>(N)) != 1) {
+  if (RAND_bytes_ex(nullptr, reinterpret_cast<unsigned char *>(salt.data()), N, 0) != 1) {
     throw AuthException("Couldn't generate a password salt!");
   }
   return salt;
 }
 
 auto ToHex(std::span<const unsigned char> bytes) -> std::string {
-  auto out = std::string{};
-  out.reserve(bytes.size() * 2);
+  auto stream = std::ostringstream{};
+  stream << std::hex << std::setfill('0');
   for (auto const byte : bytes) {
-    fmt::format_to(std::back_inserter(out), "{:02x}", byte);
+    stream << std::setw(2) << static_cast<unsigned int>(byte);
   }
-  return out;
+  return stream.str();
 }
 
 auto AsBytes(std::string_view sv) -> std::span<const unsigned char> {
@@ -167,7 +166,7 @@ std::string HashPasswordOpenSSL3(std::string_view password, const uint64_t numbe
   unsigned char hash[SHA256_DIGEST_LENGTH];
 
   EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-  EVP_MD *md = EVP_MD_fetch(nullptr, "SHA2-256", nullptr);
+  EVP_MD *md = EVP_MD_fetch(nullptr, kSha256DigestName, nullptr);
 
   EVP_DigestInit_ex(ctx, md, nullptr);
 
@@ -308,45 +307,34 @@ static_assert(DERIVED_KEY_SIZE * 8 >= 112);
 static_assert(SALT_SIZE == SHA::SALT_SIZE);
 static_assert(SALT_SIZE_DURABLE == SHA::SALT_SIZE_DURABLE);
 
-struct KdfDeleter {
-  void operator()(EVP_KDF *kdf) const noexcept { EVP_KDF_free(kdf); }
-};
-
-struct KdfCtxDeleter {
-  void operator()(EVP_KDF_CTX *ctx) const noexcept { EVP_KDF_CTX_free(ctx); }
-};
-
 auto Derive(std::string_view password, std::string_view salt) -> std::array<unsigned char, DERIVED_KEY_SIZE> {
-  auto const kdf = std::unique_ptr<EVP_KDF, KdfDeleter>{EVP_KDF_fetch(nullptr, "PBKDF2", nullptr)};
-  if (!kdf) {
-    throw AuthException("Couldn't fetch the PBKDF2 implementation!");
-  }
-  auto const ctx = std::unique_ptr<EVP_KDF_CTX, KdfCtxDeleter>{EVP_KDF_CTX_new(kdf.get())};
-  if (!ctx) {
-    throw AuthException("Couldn't create a PBKDF2 context!");
-  }
+  // `PKCS5_PBKDF2_HMAC` sets pkcs5=1, which turns off the provider's SP 800-132
+  // salt-length check. The static_asserts cover the other two bounds, but this
+  // one is a runtime length, so it has to be checked here.
+  MG_ASSERT(salt.size() == SALT_SIZE);
 
   // Copied so that `.data()` is never null, which an empty string_view allows
   // but OpenSSL does not accept.
-  auto password_buffer = std::string{password};
-  auto salt_buffer = std::string{salt};
-  auto digest = std::string{"SHA2-256"};
-  auto iterations = ITERATIONS;
-  // 0 keeps the SP 800-132 lower-bound checks on. Stated explicitly so the
-  // intent is visible rather than inherited from an OpenSSL default.
-  auto legacy_pkcs5_mode = 0;
+  auto const password_buffer = std::string{password};
+  auto const salt_buffer = std::string{salt};
 
-  auto params = std::array{
-      OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, password_buffer.data(), password_buffer.size()),
-      OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt_buffer.data(), salt_buffer.size()),
-      OSSL_PARAM_construct_uint(OSSL_KDF_PARAM_ITER, &iterations),
-      OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, digest.data(), 0),
-      OSSL_PARAM_construct_int(OSSL_KDF_PARAM_PKCS5, &legacy_pkcs5_mode),
-      OSSL_PARAM_construct_end(),
-  };
+  // Lengths are `int` here, and a negative one means "measure it with strlen",
+  // so an overflowing password must be refused rather than silently truncated.
+  if (password_buffer.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    throw AuthException("Password is too long to hash!");
+  }
+  static_assert(ITERATIONS <= std::numeric_limits<int>::max());
+  static_assert(DERIVED_KEY_SIZE <= std::numeric_limits<int>::max());
 
   auto derived = std::array<unsigned char, DERIVED_KEY_SIZE>{};
-  if (EVP_KDF_derive(ctx.get(), derived.data(), derived.size(), params.data()) != 1) {
+  if (PKCS5_PBKDF2_HMAC(password_buffer.data(),
+                        static_cast<int>(password_buffer.size()),
+                        reinterpret_cast<const unsigned char *>(salt_buffer.data()),
+                        static_cast<int>(salt_buffer.size()),
+                        static_cast<int>(ITERATIONS),
+                        EVP_sha256(),
+                        static_cast<int>(DERIVED_KEY_SIZE),
+                        derived.data()) != 1) {
     throw AuthException("Couldn't hash the password!");
   }
   return derived;
@@ -356,7 +344,7 @@ auto Derive(std::string_view password, std::string_view salt) -> std::array<unsi
 /// SHA hashes so the durable form stays fixed-width.
 std::string HashPassword(std::string_view password, std::string_view salt) {
   MG_ASSERT(salt.size() == SALT_SIZE);
-  return ToHex(AsBytes(salt)) + ToHex(Derive(password, salt));
+  return fmt::format("{}{}", ToHex(AsBytes(salt)), ToHex(Derive(password, salt)));
 }
 
 bool VerifyPassword(std::string_view password, std::string_view hash) {
@@ -408,8 +396,10 @@ auto InternalParseHashAlgorithm(std::string_view algo) -> PasswordHashAlgorithm 
   return *maybe_parsed;
 }
 
-PasswordHashAlgorithm &InternalCurrentHashAlgorithm() {
-  static auto current = PasswordHashAlgorithm::BCRYPT;
+// Atomic because every hash and verify reads it from a session thread, while
+// `SetHashAlgorithm` writes it - only at startup.
+std::atomic<PasswordHashAlgorithm> &InternalCurrentHashAlgorithm() {
+  static std::atomic current = PasswordHashAlgorithm::BCRYPT;
   static std::once_flag flag;
   std::call_once(flag, [] { current = InternalParseHashAlgorithm(FLAGS_password_encryption_algorithm); });
   return current;
@@ -445,7 +435,7 @@ std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
   return {};
 }
 
-auto CurrentHashAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentHashAlgorithm(); }
+auto CurrentHashAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentHashAlgorithm().load(); }
 
 auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
   switch (hash_algo) {
@@ -456,23 +446,27 @@ auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
     case PasswordHashAlgorithm::PBKDF2_SHA256:
       return true;
   }
-  return false;
+  MG_ASSERT(false, "Unknown password hash algorithm: {}", std::to_underlying(hash_algo));
+  std::unreachable();
 }
 
-void EnableFipsMode() {
+void EnableFipsMode(bool algorithm_flag_is_default) {
   utils::SetFipsStatus({.enabled = true});
 
   auto const approved = AsString(PasswordHashAlgorithm::PBKDF2_SHA256);
 
-  if (gflags::GetCommandLineFlagInfoOrDie("password_encryption_algorithm").is_default) {
+  // Force the flag read to happen before we override it
+  auto configured = CurrentHashAlgorithm();
+
+  if (algorithm_flag_is_default) {
     // Set the flag itself, not just the cached value, so that SHOW CONFIG and
     // SHOW FIPS INFO agree about what is hashing passwords.
-    gflags::SetCommandLineOption("password_encryption_algorithm", std::string{approved}.c_str());
+    gflags::SetCommandLineOption(kPasswordEncryptionAlgorithmFlag, std::string{approved}.c_str());
     SetHashAlgorithm(approved);
+    configured = CurrentHashAlgorithm();
     spdlog::info("--fips-mode=true and no --password-encryption-algorithm given; selecting '{}'.", approved);
   }
 
-  auto const configured = CurrentHashAlgorithm();
   if (!IsFipsApproved(configured)) {
     utils::FailStartup(
         utils::ExitCode::FipsModeUnsupportedPasswordAlgorithm,
@@ -489,10 +483,11 @@ void EnableFipsMode() {
       AsString(PasswordHashAlgorithm::PBKDF2_SHA256));
 }
 
-void SetHashAlgorithm(std::string_view algo) {
-  auto &current = InternalCurrentHashAlgorithm();
-  current = InternalParseHashAlgorithm(algo);
+void EnableFipsMode() {
+  EnableFipsMode(gflags::GetCommandLineFlagInfoOrDie(kPasswordEncryptionAlgorithmFlag).is_default);
 }
+
+void SetHashAlgorithm(std::string_view algo) { InternalCurrentHashAlgorithm().store(InternalParseHashAlgorithm(algo)); }
 
 auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view {
   return *utils::EnumToString<PasswordHashAlgorithm>(hash_algo, password_hash_mappings);
@@ -535,6 +530,11 @@ void from_json(const nlohmann::json &j, HashedPassword &p) {
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   PasswordHashAlgorithm hash_algo;
   j.at(kHashAlgo).get_to(hash_algo);
+  if (!utils::EnumToString<PasswordHashAlgorithm>(hash_algo, password_hash_mappings)) {
+    throw AuthException("Unknown password hash algorithm '{}' in stored user data. Allowed values: {}",
+                        std::to_underlying(hash_algo),
+                        utils::GetAllowedEnumValuesString(password_hash_mappings));
+  }
   std::string password_hash = j.at(kPasswordHash);
   p = HashedPassword{hash_algo, std::move(password_hash)};
 }
