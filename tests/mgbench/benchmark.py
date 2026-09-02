@@ -56,20 +56,6 @@ SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE = [
 ]
 
 
-def get_warmup_to_hot_queries(client):
-    match client.vendor:
-        case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
-            return [
-                ("CREATE ();", {}),
-                ("CREATE ()-[:TempEdge]->();", {}),
-                ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
-            ]
-        case GraphVendors.POSTGRESQL:
-            return []
-        case _:
-            raise Exception(f"Unknown vendor name {client.vendor} for warmup queries!")
-
-
 def parse_args():
     benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
 
@@ -381,6 +367,12 @@ def sanitize_args(args):
     assert (
         args.workload_realistic is None or args.workload_mixed is None
     ), "Cannot run both realistic and mixed workload, only one mode run at the time"
+    assert args.workload_realistic is None or (
+        args.workload_realistic and args.workload_realistic[0] > 0
+    ), "Realistic workload needs a query count above zero"
+    assert args.workload_mixed is None or (
+        args.workload_mixed and args.workload_mixed[0] > 0
+    ), "Mixed workload needs a query count above zero"
 
     # Auto-detect vendor binary if not specified and the installation type starts a local binary
     if (
@@ -543,7 +535,7 @@ def realistic_workload(
 
     rss_db = dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution
     vendor.start_db(rss_db)
-    warmup(benchmark_context.warm_up, client=client)
+    warmup(benchmark_context.warm_up, client=client, queries=prepared_queries)
 
     ret = client.execute(
         queries=prepared_queries,
@@ -621,7 +613,7 @@ def mixed_workload(
 
         rss_db = dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
         vendor.start_db(rss_db)
-        warmup(benchmark_context.warm_up, client=client)
+        warmup(benchmark_context.warm_up, client=client, queries=prepared_queries)
 
         ret = client.execute(
             queries=prepared_queries,
@@ -644,11 +636,11 @@ def mixed_workload(
         results.set_value(*results_key, value=ret)
 
 
-def warmup(condition: str, client, queries: list = None):
+def warmup(condition: str, client, queries: list):
     if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
-        warmup_to_hot_queries = get_warmup_to_hot_queries(client)
-        if len(queries) > 0:
+        warmup_to_hot_queries = client.get_warmup_to_hot_queries()
+        if warmup_to_hot_queries:
             client.execute(
                 queries=warmup_to_hot_queries,
                 num_workers=1,

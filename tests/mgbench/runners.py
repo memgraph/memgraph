@@ -154,6 +154,19 @@ class BaseClient(ABC):
     def execute(self):
         pass
 
+    def get_warmup_to_hot_queries(self) -> list:
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                return [
+                    ("CREATE ();", {}),
+                    ("CREATE ()-[:TempEdge]->();", {}),
+                    ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
+                ]
+            case GraphVendors.POSTGRESQL:
+                return []
+            case _:
+                raise Exception(f"Unknown vendor name {self._vendor} for warmup queries!")
+
     def get_check_db_query(self) -> str:
         match self._vendor:
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
