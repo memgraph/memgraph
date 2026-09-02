@@ -4158,10 +4158,8 @@ class KShortestPathsCursor : public Cursor {
         current_target_(std::nullopt),
         blocked_edges_(mem),
         blocked_vertices_(mem),
-        distances_(mem),
         in_edges_(mem),
         out_edges_(mem),
-        predecessors_(mem),
         expansion_memo_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -4351,10 +4349,9 @@ class KShortestPathsCursor : public Cursor {
   std::optional<VertexAccessor> current_source_;
   std::optional<VertexAccessor> current_target_;
 
-  // Dijkstra's algorithm state (reused for efficiency)
+  // Per-deviation state for the inner search. Unweighted: `PathComparator` orders by hop count.
   utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
   utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
-  utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
   // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
   // searches don't re-fetch. Must stay unfiltered: a lambda reading an outer-row value would make
   // post-filter results wrong. Copied into an arena vector because `EdgeVertexAccessorResult` is not
@@ -4363,7 +4360,6 @@ class KShortestPathsCursor : public Cursor {
   using CachedEdges = utils::pmr::vector<EdgeAccessor>;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
-  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
 
   // Memoised `access check && filter lambda` verdicts. Sound across Yen's inner searches because the
   // blocked sets - the only per-deviation inputs - are checked outside the memo.
@@ -4778,8 +4774,6 @@ class KShortestPathsCursor : public Cursor {
     current_path_index_ = 0;
     blocked_edges_.clear();
     blocked_vertices_.clear();
-    distances_.clear();
-    predecessors_.clear();
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
     // Makes `|K` per input row; `Pull` guards each serving site instead of returning early.
