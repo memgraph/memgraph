@@ -183,7 +183,7 @@ jobs:
           fi
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
-            NEMESIS_SLEEP_SEC=$((90 * ${{ inputs.num-tenants }}))
+            NEMESIS_SLEEP_SEC=$((180 * ${{ inputs.num-tenants }}))
             ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --shutdown-signal ${{ inputs.shutdown-signal }} --intra-cluster-tls ${{ inputs.intra-cluster-tls }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
           else
             ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --shutdown-signal ${{ inputs.shutdown-signal }} --intra-cluster-tls ${{ inputs.intra-cluster-tls }} --recovery-time 600 --nemesis-start-sleep 25"
