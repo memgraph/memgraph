@@ -27,9 +27,13 @@ namespace memgraph::requests {
  * Call this function in each `main` file that uses the Requests stack. It is
  * used to initialize all libraries (primarily cURL).
  *
+ * `ca_bundle_file` names the CA bundle to verify https certificates against.
+ * Leave it empty to probe the standard locations. It is passed in rather than
+ * read from a flag here so that this component depends on nothing above it.
+ *
  * NOTE: This function must be called **exactly** once.
  */
-void Init();
+void Init(std::string_view ca_bundle_file = {});
 
 /**
  *
