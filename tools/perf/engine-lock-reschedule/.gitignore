@@ -1,0 +1,9 @@
+# Build outputs and runtime artifacts — never commit
+bins/
+results/
+scripts/ddm.*/
+scripts/ddr.*/
+scripts/grid_*.txt
+scripts/*.out
+scripts/*.log
+scripts/*.bak

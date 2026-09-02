@@ -2,7 +2,7 @@
 # Phase-3 topology: fast client link + a SEPARATE, slow replication link so a SYNC-replica COMMIT
 # blocks on the (netem-delayed) replica ack while reads over the fast link stay quick.
 #
-#   client netns (10.0.0.1) --veth,netem CLIENT_MS-- main netns (10.0.0.2) --veth,netem REPL_MS-- replica netns (10.0.0.3)
+#   client netns (10.0.0.1) --veth,netem CLIENT_MS-- main netns (10.0.0.2) --veth,netem REPL_MS-- replica netns (10.0.1.3)
 #
 # All isolated netns; does NOT touch host lo. Usage: setup_repl.sh <client_one_way_ms> <repl_one_way_ms>
 set -euo pipefail

@@ -39,7 +39,7 @@ for spec in $BUILDS; do
     export CC="$TOOLCHAIN/bin/clang" CXX="$TOOLCHAIN/bin/clang++" MG_TOOLCHAIN_ROOT="$TOOLCHAIN"
     bash build.sh --build-type RelWithDebInfo --skip-os-deps --target memgraph
   ) > "$WT_ROOT/$label.build.log" 2>&1
-  if [ ! -x "$wt/build/memgraph" ] || grep -qE "FAILED:|ninja: build stopped|features.h" "$WT_ROOT/$label.build.log"; then
+  if [ ! -x "$wt/build/memgraph" ] || grep -qE "FAILED:|ninja: build stopped|fatal error: .*features\.h" "$WT_ROOT/$label.build.log"; then
     echo "[$label] BUILD_FAIL -- see $WT_ROOT/$label.build.log"; continue
   fi
   # stash relocatable bundle: binary + the query .so's it RUNPATHs to ($ORIGIN/src/query)

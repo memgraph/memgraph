@@ -6,6 +6,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/${GRID_OUT:-phase3_grid.txt}"; : > "$OUT"
 export COMBOS="${COMBOS:-16,0 16,2 16,4}" DUR="${DUR:-7}" REPS="${REPS:-2}" REPL_MS="${REPL_MS:-20}"
+RUNNER="${RUNNER:-phase3_run.sh}"   # set RUNNER=phase3_run_ab.sh for interleaved/counterbalanced A/B
 BINS="${BINS:-master:$HERE/bins/master/memgraph p4669:$HERE/bins/p4669/memgraph}"
 
 SCENARIOS=(
@@ -25,7 +26,7 @@ for spec in "${SCENARIOS[@]}"; do
   for MODE in SYNC STRICT_SYNC; do
     export MODE
     echo "===== scenario=$NAME mode=$MODE (RQROWS=$RQROWS NQ=$NQ WQROWS=$WQROWS) $(date -u +%H:%M:%S) =====" | tee -a "$OUT"
-    "$HERE/phase3_run.sh" $BINS 2>&1 | grep -viE "unable to resolve host|Killed" | tee -a "$OUT"
+    "$HERE/$RUNNER" $BINS 2>&1 | grep -viE "unable to resolve host|Killed" | tee -a "$OUT"
   done
 done
 echo "=== GRID DONE ===" | tee -a "$OUT"
