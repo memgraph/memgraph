@@ -10381,6 +10381,7 @@ void Interpreter::ResetInterpreter() {
   system_transaction_.reset();
   transaction_queries_->clear();
   commit_notification_.reset();
+  tx_mode_.reset();
   // A session whose current database was FORCE-dropped releases it here. Only one whose database was named in the Bolt
   // connection metadata is closed (as the drain hook closes idle ones): it cannot switch away and would keep failing.
   // A USE DATABASE session keeps its connection and may switch databases. RequestTermination only posts to the
@@ -10569,6 +10570,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   if (in_explicit_transaction_) {
     if (parse_info.parsed_query.using_schema_assert) {
       throw SchemaAssertInMulticommandTxException();
+    }
+
+    // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
+    // releases the accessor BEGIN opened (see PrepareAuthQuery), so a later data query would have none to run
+    // against.
+    auto const mode = utils::Downcast<AuthQuery>(parsed_query.query) ? TxMode::Auth : TxMode::Data;
+    if (!tx_mode_) {
+      tx_mode_ = mode;
+    } else if (*tx_mode_ != mode) {
+      throw MixedAuthAndDataTxException();
     }
 
     transaction_queries_->push_back(parsed_query.query_string);
