@@ -287,15 +287,6 @@ class ConcurrentSystemQueriesException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(ConcurrentSystemQueriesException)
 };
 
-class WriteVertexOperationInEdgeImportModeException : public QueryException {
- public:
-  WriteVertexOperationInEdgeImportModeException()
-      : QueryException(
-            "Write operations on nodes are forbidden while the edge import mode is active. To disable the edge import "
-            "mode, run the EDGE IMPORT MODE INACTIVE; query.") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(WriteVertexOperationInEdgeImportModeException)
-};
-
 // This one is inherited from BasicException and will be treated as
 // TransientError, i. e. client will be encouraged to retry execution because it
 // could succeed if executed again.
@@ -574,16 +565,6 @@ class DropGraphInMulticommandTxException : public MulticommandTxException {
  public:
   DropGraphInMulticommandTxException() : MulticommandTxException("Dropping the graph") {}
   SPECIALIZE_GET_EXCEPTION_NAME(DropGraphInMulticommandTxException)
-};
-
-class TextSearchException : public QueryException {
-  using QueryException::QueryException;
-  SPECIALIZE_GET_EXCEPTION_NAME(TextSearchException)
-};
-
-class VectorSearchException : public QueryException {
-  using QueryException::QueryException;
-  SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchException)
 };
 
 class EnumModificationInMulticommandTxException : public MulticommandTxException {

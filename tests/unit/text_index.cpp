@@ -23,6 +23,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
 
+#include "storage/v2/exceptions.hpp"
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 
@@ -396,6 +397,6 @@ TEST_F(TextIndexTest, FuzzyDistanceAboveTwoThrows) {
     constexpr TextSearchConfig bad_config{.limit = 10, .fuzzy_distance = 3};
     EXPECT_THROW(acc->TextIndexSearch(
                      test_index.data(), "data.title:memgraph", text_search_mode::SPECIFIED_PROPERTIES, bad_config),
-                 memgraph::query::TextSearchException);
+                 memgraph::storage::TextSearchException);
   }
 }

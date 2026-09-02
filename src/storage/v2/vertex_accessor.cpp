@@ -18,6 +18,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
@@ -174,7 +175,7 @@ bool VertexAccessor::IsVisible(View view) const {
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
@@ -249,7 +250,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 // TODO: move to after update and change naming to vertex after update
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
   // 1. do an optimistic shared lock
@@ -406,7 +407,7 @@ Result<VertexKey> VertexAccessor::Labels(View view) const {
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) const {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -491,7 +492,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
 Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -559,7 +560,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -630,7 +631,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);

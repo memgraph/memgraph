@@ -36,6 +36,8 @@
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "storage/v2/exceptions.hpp"
+
 namespace memgraph::storage {
 class InMemoryStorage;
 
@@ -687,7 +689,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   try {
     storage_->indices_.text_index_.CreateIndex(
         text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get(), on_progress);
-  } catch (const query::TextSearchException &e) {
+  } catch (const TextSearchException &e) {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
@@ -724,7 +726,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   try {
     storage_->indices_.text_edge_index_.CreateIndex(
         text_edge_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get(), on_progress);
-  } catch (const query::TextSearchException &e) {
+  } catch (const TextSearchException &e) {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 

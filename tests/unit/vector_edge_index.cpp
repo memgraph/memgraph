@@ -40,6 +40,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 
+#include "storage/v2/exceptions.hpp"
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 
@@ -202,7 +203,7 @@ TEST_F(VectorEdgeIndexTest, InvalidDimensionTest) {
   std::vector<PropertyValue> properties(3, PropertyValue(1.0));
   PropertyValue property_value(properties);
   EXPECT_THROW(this->CreateEdge(acc.get(), test_property, property_value, test_edge_type),
-               memgraph::query::VectorSearchException);
+               memgraph::storage::VectorSearchException);
 }
 
 TEST_F(VectorEdgeIndexTest, SearchWithMultipleEdges) {
@@ -529,7 +530,7 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWithWrongDimensionRollsBack) {
     [[maybe_unused]] auto [fv2, tv2, e2] = this->CreateEdge(acc.get(), test_property, bad_vec, test_edge_type);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_THROW(this->CreateEdgeIndex(2, 10), memgraph::query::VectorSearchException);
+  EXPECT_THROW(this->CreateEdgeIndex(2, 10), memgraph::storage::VectorSearchException);
   {
     auto acc = this->storage->Access(memgraph::storage::READ);
     EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);

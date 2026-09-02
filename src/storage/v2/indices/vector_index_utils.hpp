@@ -16,8 +16,8 @@
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "memory/db_arena_fwd.hpp"
-#include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/indices/tracked_vector_allocator.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
@@ -91,7 +91,7 @@ struct VectorIndexConfigMap {
 /// @brief Converts a metric kind to its string representation.
 /// @param metric The metric kind to convert.
 /// @return A string representation of the metric kind.
-/// @throws query::VectorSearchException if the metric kind is unsupported.
+/// @throws VectorSearchException if the metric kind is unsupported.
 inline const char *NameFromMetric(unum::usearch::metric_kind_t metric) {
   switch (metric) {
     case unum::usearch::metric_kind_t::l2sq_k:
@@ -113,7 +113,7 @@ inline const char *NameFromMetric(unum::usearch::metric_kind_t metric) {
     case unum::usearch::metric_kind_t::sorensen_k:
       return "sorensen";
     default:
-      throw query::VectorSearchException(
+      throw VectorSearchException(
           "Unsupported metric kind. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, hamming, "
           "tanimoto, and sorensen.");
   }
@@ -122,7 +122,7 @@ inline const char *NameFromMetric(unum::usearch::metric_kind_t metric) {
 /// @brief Converts a metric name to its corresponding metric kind.
 /// @param name The name of the metric.
 /// @return The corresponding metric kind.
-/// @throws query::VectorSearchException if the metric name is unsupported.
+/// @throws VectorSearchException if the metric name is unsupported.
 inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
   if (name == "l2sq" || name == "euclidean_sq") {
     return unum::usearch::metric_kind_t::l2sq_k;
@@ -151,7 +151,7 @@ inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
   if (name == "sorensen") {
     return unum::usearch::metric_kind_t::sorensen_k;
   }
-  throw query::VectorSearchException(
+  throw VectorSearchException(
       "Unsupported metric name: {}. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, "
       "hamming, tanimoto, and sorensen.",
       name);
@@ -160,7 +160,7 @@ inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
 /// @brief Converts a scalar kind to its string representation.
 /// @param scalar The scalar kind to convert.
 /// @return A string representation of the scalar kind.
-/// @throws query::VectorSearchException if the scalar kind is unsupported.
+/// @throws VectorSearchException if the scalar kind is unsupported.
 inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
   switch (scalar) {
     case unum::usearch::scalar_kind_t::b1x8_k:
@@ -196,7 +196,7 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
     case unum::usearch::scalar_kind_t::i8_k:
       return "i8";
     default:
-      throw query::VectorSearchException(
+      throw VectorSearchException(
           "Unsupported scalar kind. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
           "u64, u32, u16, u8, i64, i32, i16, and i8.");
   }
@@ -205,7 +205,7 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
 /// @brief Converts a scalar name to its corresponding scalar kind.
 /// @param name The name of the scalar.
 /// @return The corresponding scalar kind.
-/// @throws query::VectorSearchException if the scalar name is unsupported.
+/// @throws VectorSearchException if the scalar name is unsupported.
 inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
   if (name == "b1x8" || name == "binary") {
     return unum::usearch::scalar_kind_t::b1x8_k;
@@ -256,7 +256,7 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
     return unum::usearch::scalar_kind_t::i8_k;
   }
 
-  throw query::VectorSearchException(
+  throw VectorSearchException(
       "Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
       "u64, u32, u16, u8, i64, i32, i16, and i8.",
       name);
@@ -266,7 +266,7 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
 /// @param metric The metric kind used for the distance.
 /// @param distance The distance value to convert.
 /// @return The similarity score corresponding to the distance.
-/// @throws query::VectorSearchException if the metric kind is unsupported.
+/// @throws VectorSearchException if the metric kind is unsupported.
 inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double distance) {
   switch (metric) {
     case unum::usearch::metric_kind_t::ip_k:
@@ -284,8 +284,7 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
       return 1.0 / (1.0 + distance);
 
     default:
-      throw query::VectorSearchException("Unsupported metric kind for similarity calculation: {}",
-                                         NameFromMetric(metric));
+      throw VectorSearchException("Unsupported metric kind for similarity calculation: {}", NameFromMetric(metric));
   }
 }
 
@@ -307,11 +306,11 @@ inline std::optional<utils::small_vector<float>> TryListToVector(const PropertyV
 }
 
 /// @brief Converts a PropertyValue list to a vector of floats.
-/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
+/// @throws VectorSearchException if the value is not a list or contains non-numeric values.
 inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
   auto result = TryListToVector(value);
   if (!result) {
-    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+    throw VectorSearchException("Vector index property must be a list of floats or integers.");
   }
   return *std::move(result);
 }
@@ -404,7 +403,7 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param key The key to add/update in the index.
 /// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
-/// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
+/// @throws VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
 template <typename SyncIndex, typename Key, typename Spec>
 void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const utils::small_vector<float> &vector,
                        std::optional<std::size_t> thread_id = std::nullopt) {
@@ -418,7 +417,7 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
   }
 
   if (vector.size() != spec.dimension) {
-    throw query::VectorSearchException(
+    throw VectorSearchException(
         "Vector index property must have the same number of dimensions as specified in the index.");
   }
 
@@ -456,7 +455,7 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
   const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * mg_index.index.capacity());
   const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
   if (!mg_index.index.try_reserve(new_limits)) {
-    throw query::VectorSearchException("Failed to resize vector index.");
+    throw VectorSearchException("Failed to resize vector index.");
   }
   spec.capacity = mg_index.index.capacity();
 
@@ -465,7 +464,7 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
     return;
   }
   result.error.release();
-  throw query::VectorSearchException("Failed to add entry to vector index.");
+  throw VectorSearchException("Failed to add entry to vector index.");
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.
