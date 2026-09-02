@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -65,8 +66,11 @@ class Builder {
  public:
   explicit Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
 
-  Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func)
-      : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{other.segment_} {
+  // noexcept because the RPC stream moves that call this run in noexcept contexts (vector reserve,
+  // task captures): nothing here may allocate. The moved-from builder keeps no segment; its write
+  // entry points treat the missing buffer as "discard", matching the defunct write_func below.
+  Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func) noexcept
+      : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{std::move(other.segment_)} {
     other.write_func_ = [](const uint8_t *, size_t, bool) { /* Moved builder is defunct, no write possible */ };
   }
 
@@ -102,7 +106,9 @@ class Builder {
 
   std::function<void(const uint8_t *, size_t, bool)> write_func_;
   size_t pos_{0};
-  std::array<uint8_t, kSegmentMaxTotalSize> segment_;
+  // Heap-allocated so moving a builder (and everything holding one, e.g. an RPC stream into a worker
+  // task) swaps a pointer instead of copying the whole segment.
+  std::unique_ptr<uint8_t[]> segment_{new uint8_t[kSegmentMaxTotalSize]};
 };
 
 /// Exception that will be thrown if segments can't be decoded from the byte

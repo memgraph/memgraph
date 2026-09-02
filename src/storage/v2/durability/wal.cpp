@@ -2341,7 +2341,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
 }
 
 void WalFile::WriteSummary() {
-  // Remember where appending should resume; GetPosition also flushes the buffer.
+  // Remember where appending should resume; the SetPosition below flushes pending buffered bytes
+  // before it seeks.
   auto const end_pos = wal_.GetPosition();
 
   // Overwrite the placeholders reserved by the constructor. Nothing between the seek and the CRC flushes, so the
@@ -2399,7 +2400,8 @@ uint64_t WalFile::AppendTransactionStart(uint64_t const timestamp, bool const co
 }
 
 void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions) {
-  // Remember where appending should resume. GetPosition() also flushes the buffer to disk.
+  // Remember where appending should resume. Pending buffered bytes are flushed by the SetPosition
+  // below before it seeks, so the patch lands at the right offset.
   auto const end_pos = wal_.GetPosition();
 
   // Flip the commit flag inside the already-written transaction-start frame.

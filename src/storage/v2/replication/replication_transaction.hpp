@@ -11,10 +11,14 @@
 
 #pragma once
 
+#include <expected>
+#include <future>
 #include <optional>
 #include <unordered_set>
 #include <vector>
 
+#include "memory/db_arena_fwd.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -38,40 +42,59 @@ class TransactionReplication {
 
   ~TransactionReplication() = default;
 
-  template <typename... Args>
-  void AppendDelta(Args &&...args) {
+  using ShipResult = std::expected<void, io::network::ClientCommunicationError>;
+
+  // Schedules one fused task per streaming replica: encode the transaction into the stream, wait on
+  // the WAL result — durability gates the transaction end, so a replica can never commit what main
+  // did not make durable — and ship the transaction end. Any failure is contained per replica (the
+  // stream is dropped and the replica falls back to recovery via MAYBE_BEHIND) and surfaces as that
+  // replica's ShipResult; it never aborts main by itself. `db_acc` may be null only when no client
+  // has a stream (a replica applying a transaction). The caller must keep everything `encode` and
+  // `db_acc` reference alive until ShipDeltas returns.
+  template <InvocableWithStream F>
+  void ScheduleEncodeAndShip(F encode, std::shared_future<void> wal_result, uint64_t durability_commit_timestamp,
+                             DatabaseProtector const *db_acc) {
+    // Reserve first: an emplace_back that throws after its task was enqueued would orphan a running
+    // task with no future to collect.
+    ship_futures_.reserve(locked_clients->size());
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction(
-          [&...args = std::forward<Args>(args)](auto &stream) { stream.AppendDelta(std::forward<Args>(args)...); },
-          replica_stream);
+      // A streamless replica already failed to start this transaction; ShipDeltas runs its quick,
+      // RPC-free bookkeeping inline. Queueing a no-op would make the commit thread await this
+      // replica's worker, whose queue may hold a task that blocks on the engine_lock_ this thread
+      // holds.
+      if (!replica_stream) {
+        continue;
+      }
+      auto *raw_client = client.get();
+      auto *stream_ptr = &replica_stream;
+      ship_futures_.emplace_back(
+          raw_client,
+          raw_client->ScheduleTask(
+              [this, raw_client, stream_ptr, encode, wal_result, durability_commit_timestamp, db_acc]() -> ShipResult {
+                try {
+                  const memory::DbArenaScope db_arena_scope{arena_pool_};
+                  raw_client->IfStreamingTransaction(encode, *stream_ptr);
+                  // The durability gate: rethrows on a WAL failure, so the transaction end never ships.
+                  wal_result.get();
+                  return ShipOne(raw_client, *stream_ptr, durability_commit_timestamp, *db_acc);
+                } catch (...) {
+                  spdlog::error("Failed to replicate transaction to replica {}.", raw_client->Name());
+                  stream_ptr->reset();
+                  raw_client->SetMaybeBehind();
+                  return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+                }
+              }));
     }
   }
 
-  void AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type) {
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction(
-          [timestamp, commit, access_type](auto &stream) {
-            stream.AppendTransactionStart(timestamp, commit, access_type);
-          },
-          replica_stream);
-    }
-  }
+  // Waits for every scheduled fused task without consuming results; for the unwind paths, so no
+  // worker is left referencing the caller's frame.
+  void DrainShipFutures() noexcept;
 
-  template <typename Func>
-  void EncodeToReplicas(Func &&func) {
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction(
-          [&](auto &stream) {
-            auto encoder = stream.encoder();
-            func(encoder);
-          },
-          replica_stream);
-    }
-  }
-
-  // RPC stream won't be destroyed at the end of this function.
+  // Collects every fused task scheduled by ScheduleEncodeAndShip and runs the inline bookkeeping for
+  // streamless replicas. RPC streams won't be destroyed at the end of this function.
   // Returns true if all SYNC/STRICT_SYNC replicas succeeded, false otherwise.
-  // Failures are cached internally in ship_failures_ for CollectAllFailures.
+  // Failures are cached internally in replication_failures_ for CollectAllFailures.
   auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool;
 
   auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
@@ -91,9 +114,17 @@ class TransactionReplication {
   void UpdateCommitTsInfo();
 
  private:
+  // Ships the transaction end for one replica: the 1st 2PC phase for STRICT_SYNC, the full finalize
+  // when no 2PC runs. Quick and RPC-free for a null stream.
+  auto ShipOne(ReplicationStorageClient *raw_client, std::optional<ReplicaStream> &replica_stream,
+               uint64_t durability_commit_timestamp, DatabaseProtector const &db_acc) const -> ShipResult;
+
   std::vector<std::optional<ReplicaStream>> streams;
+  std::vector<std::pair<ReplicationStorageClient *, std::future<ShipResult>>> ship_futures_;
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr
       locked_clients;
+  // The database's arena pool, installed on replica workers for the tasks scheduled by this transaction.
+  memory::ArenaPool *arena_pool_{nullptr};
   bool run_two_phase_commit{false};
   // Replicas that failed start-txn or ship/finalize (excludes ASYNC — fire-and-forget).
   // Populated by the constructor and ShipDeltas. Returned by CollectAllFailures.

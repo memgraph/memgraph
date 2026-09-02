@@ -15,8 +15,10 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <exception>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <mutex>
 #include <optional>
 #include <system_error>
@@ -27,6 +29,7 @@
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "memory/global_memory_control.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -38,7 +41,6 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -3825,6 +3827,235 @@ bool InMemoryStorage::ArchiveSupersededDurabilityFiles(std::filesystem::path con
   return !utils::DirExists(recovery_.wal_directory_) || utils::GetFilesFromDir(recovery_.wal_directory_).empty();
 }
 
+namespace {
+
+// One MVCC delta resolved by the commit thread's traversal: the delta, the object it belongs to
+// (exactly one of vertex/edge set), and the edge lookup data workers cannot pull from the transaction.
+struct TxnDataCommand {
+  Delta const *delta;
+  Vertex *vertex;
+  Edge *edge;
+  Gid in_vertex_gid;
+  EdgeTypeId edge_type_id;
+};
+
+// Everything a transaction writes, in encode order. Built once on the commit thread; the WAL worker
+// and every replica worker encode from it concurrently, so it must outlive all of their tasks.
+struct TxnCommands {
+  std::vector<MetadataDelta const *> metadata;
+  std::vector<TxnDataCommand> data;
+};
+
+void EncodeMetadataDelta(durability::BaseEncoder &encoder, MetadataDelta const &md_delta, Storage *mem_storage,
+                         uint64_t durability_commit_timestamp) {
+  auto const apply_encode = [&](durability::StorageMetadataOperation const op, auto &&encode_operation) {
+    EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
+    encode_operation(encoder);
+  };
+
+  auto const op = ActionToStorageOperation(md_delta.action);
+  switch (md_delta.action) {
+    case MetadataDelta::Action::LABEL_INDEX_CREATE:
+    case MetadataDelta::Action::LABEL_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label);
+      });
+      break;
+    }
+    case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
+    case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label);
+      });
+      break;
+    }
+    case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelPropertyStats(encoder,
+                                 *mem_storage->name_id_mapper_,
+                                 md_delta.label_property_stats.label,
+                                 md_delta.label_property_stats.properties,
+                                 md_delta.label_property_stats.stats);
+      });
+      break;
+    }
+    case MetadataDelta::Action::EDGE_INDEX_CREATE:
+    case MetadataDelta::Action::EDGE_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEdgeTypeIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type);
+      });
+      break;
+    }
+    case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
+    case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEdgeTypePropertyIndex(encoder,
+                                    *mem_storage->name_id_mapper_,
+                                    md_delta.edge_type_property.edge_type,
+                                    md_delta.edge_type_property.property);
+      });
+      break;
+    }
+    case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+    case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
+      });
+      break;
+    }
+    case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+    case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.vertex_property.property);
+      });
+      break;
+    }
+    case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
+    case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelProperties(encoder,
+                              *mem_storage->name_id_mapper_,
+                              md_delta.label_ordered_properties.label,
+                              md_delta.label_ordered_properties.properties);
+        encoder.WriteUint(static_cast<uint64_t>(md_delta.label_ordered_properties.order));
+      });
+      break;
+    }
+    case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
+    case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
+    case MetadataDelta::Action::POINT_INDEX_CREATE:
+    case MetadataDelta::Action::POINT_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelProperty(
+            encoder, *mem_storage->name_id_mapper_, md_delta.label_property.label, md_delta.label_property.property);
+      });
+      break;
+    }
+    case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelStats(
+            encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TEXT_INDEX_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeTextIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeTextEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_edge_index);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TEXT_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
+      break;
+    }
+    case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeVectorIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_index_spec);
+      });
+      break;
+    }
+    case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeVectorEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_edge_index_spec);
+      });
+      break;
+    }
+    case MetadataDelta::Action::VECTOR_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
+      break;
+    }
+    case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
+    case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelProperties(encoder,
+                              *mem_storage->name_id_mapper_,
+                              md_delta.label_unordered_properties.label,
+                              md_delta.label_unordered_properties.properties);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
+    case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeTypeConstraint(encoder,
+                             *mem_storage->name_id_mapper_,
+                             md_delta.label_property_type.label,
+                             md_delta.label_property_type.property,
+                             md_delta.label_property_type.type);
+      });
+      break;
+    }
+    case MetadataDelta::Action::ENUM_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEnumCreate(encoder, mem_storage->enum_store_, md_delta.enum_create_info.etype);
+      });
+      break;
+    }
+    case MetadataDelta::Action::ENUM_ALTER_ADD: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEnumAlterAdd(encoder, mem_storage->enum_store_, md_delta.enum_alter_add_info.value);
+      });
+      break;
+    }
+    case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEnumAlterUpdate(encoder,
+                              mem_storage->enum_store_,
+                              md_delta.enum_alter_update_info.value,
+                              md_delta.enum_alter_update_info.old_value);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TTL_OPERATION: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        durability::EncodeTtlOperation(encoder,
+                                       md_delta.ttl_operation_info.operation_type,
+                                       md_delta.ttl_operation_info.period,
+                                       md_delta.ttl_operation_info.start_time,
+                                       md_delta.ttl_operation_info.should_run_edge_ttl);
+      });
+      break;
+    }
+    case MetadataDelta::Action::DESCRIPTION_SET: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        durability::EncodeDescriptionSet(encoder,
+                                         *mem_storage->name_id_mapper_,
+                                         md_delta.description_op.kind,
+                                         md_delta.description_op.labels,
+                                         md_delta.description_op.edge_type,
+                                         md_delta.description_op.property,
+                                         md_delta.description_op.description,
+                                         md_delta.description_op.from_labels,
+                                         md_delta.description_op.to_labels,
+                                         md_delta.description_op.value);
+      });
+      break;
+    }
+    case MetadataDelta::Action::DESCRIPTION_DELETE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        durability::EncodeDescriptionDelete(encoder,
+                                            *mem_storage->name_id_mapper_,
+                                            md_delta.description_op.kind,
+                                            md_delta.description_op.labels,
+                                            md_delta.description_op.edge_type,
+                                            md_delta.description_op.property,
+                                            md_delta.description_op.from_labels,
+                                            md_delta.description_op.to_labels,
+                                            md_delta.description_op.value);
+      });
+      break;
+    }
+  }
+}
+
+}  // namespace
+
 auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
                                                                      CommitArgs const &commit_args) -> bool {
@@ -3838,243 +4069,19 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // else:
   //   All SYNC/ASYNC replicas -> commit immediately
   bool const two_phase_commit = commit_args.two_phase_commit(replicating_txn);
-
-  // Both main and replica append txn start delta and remember the position in the WAL file in which this delta is
-  // saved.
-  wal_txn_positions_.commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
-      durability_commit_timestamp, !two_phase_commit, original_access_type_);
-  // Send transaction start to replicas with the correct access type
-  // It does not matter what we send in the `commit` argument as it always gets ignored
-  // EXCEPT when loading from a WAL file which will use whatever the line above wrote
-  replicating_txn.AppendTransactionStart(durability_commit_timestamp, !two_phase_commit, original_access_type_);
   // The WAL file needs to be updated only if we don't commit immediately.
   needs_wal_update_ = two_phase_commit;
-
-  auto timer = utils::Timer{};
-  constexpr auto delta_cb_timeout = std::chrono::seconds{10};
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
   //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
   //            unique transaction to apply the index creation safely.
-  auto const apply_encode = [&](durability::StorageMetadataOperation const op, auto &&encode_operation) {
-    auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
-      EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
-      encode_operation(encoder);
-    };
-
-    full_encode_operation(mem_storage->wal_file_->encoder());
-    mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
-    replicating_txn.EncodeToReplicas(full_encode_operation);
-    // We send in progress msg every 10s. RPC timeout on main is configured with 30s
-    if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
-      timer.ResetStartTime();
-      commit_args.apply_cb_if_replica_write();
-    }
-  };
-
-  // Handle metadata deltas
-  for (const auto &md_delta : transaction_.md_deltas) {
-    auto const op = ActionToStorageOperation(md_delta.action);
-    switch (md_delta.action) {
-      case MetadataDelta::Action::LABEL_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
-      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelPropertyStats(encoder,
-                                   *mem_storage->name_id_mapper_,
-                                   md_delta.label_property_stats.label,
-                                   md_delta.label_property_stats.properties,
-                                   md_delta.label_property_stats.stats);
-        });
-        break;
-      }
-      case MetadataDelta::Action::EDGE_INDEX_CREATE:
-      case MetadataDelta::Action::EDGE_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypeIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type);
-        });
-        break;
-      }
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypePropertyIndex(encoder,
-                                      *mem_storage->name_id_mapper_,
-                                      md_delta.edge_type_property.edge_type,
-                                      md_delta.edge_type_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.vertex_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder,
-                                *mem_storage->name_id_mapper_,
-                                md_delta.label_ordered_properties.label,
-                                md_delta.label_ordered_properties.properties);
-          encoder.WriteUint(static_cast<uint64_t>(md_delta.label_ordered_properties.order));
-        });
-        break;
-      }
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
-      case MetadataDelta::Action::POINT_INDEX_CREATE:
-      case MetadataDelta::Action::POINT_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(
-              encoder, *mem_storage->name_id_mapper_, md_delta.label_property.label, md_delta.label_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelStats(
-              encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_edge_index);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
-        break;
-      }
-      case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeVectorIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_index_spec);
-        });
-        break;
-      }
-      case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeVectorEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_edge_index_spec);
-        });
-        break;
-      }
-      case MetadataDelta::Action::VECTOR_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
-        break;
-      }
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder,
-                                *mem_storage->name_id_mapper_,
-                                md_delta.label_unordered_properties.label,
-                                md_delta.label_unordered_properties.properties);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTypeConstraint(encoder,
-                               *mem_storage->name_id_mapper_,
-                               md_delta.label_property_type.label,
-                               md_delta.label_property_type.property,
-                               md_delta.label_property_type.type);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumCreate(encoder, mem_storage->enum_store_, md_delta.enum_create_info.etype);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_ALTER_ADD: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterAdd(encoder, mem_storage->enum_store_, md_delta.enum_alter_add_info.value);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterUpdate(encoder,
-                                mem_storage->enum_store_,
-                                md_delta.enum_alter_update_info.value,
-                                md_delta.enum_alter_update_info.old_value);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TTL_OPERATION: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeTtlOperation(encoder,
-                                         md_delta.ttl_operation_info.operation_type,
-                                         md_delta.ttl_operation_info.period,
-                                         md_delta.ttl_operation_info.start_time,
-                                         md_delta.ttl_operation_info.should_run_edge_ttl);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionSet(encoder,
-                                           *mem_storage->name_id_mapper_,
-                                           md_delta.description_op.kind,
-                                           md_delta.description_op.labels,
-                                           md_delta.description_op.edge_type,
-                                           md_delta.description_op.property,
-                                           md_delta.description_op.description,
-                                           md_delta.description_op.from_labels,
-                                           md_delta.description_op.to_labels,
-                                           md_delta.description_op.value);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_DELETE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionDelete(encoder,
-                                              *mem_storage->name_id_mapper_,
-                                              md_delta.description_op.kind,
-                                              md_delta.description_op.labels,
-                                              md_delta.description_op.edge_type,
-                                              md_delta.description_op.property,
-                                              md_delta.description_op.from_labels,
-                                              md_delta.description_op.to_labels,
-                                              md_delta.description_op.value);
-        });
-        break;
-      }
-    }
+  TxnCommands commands;
+  commands.metadata.reserve(transaction_.md_deltas.size());
+  for (auto const &md_delta : transaction_.md_deltas) {
+    commands.metadata.push_back(&md_delta);
   }
+
   // A single transaction will always be fully-contained in a single WAL file.
   auto current_commit_timestamp = transaction_.commit_info->timestamp.load(std::memory_order_acquire);
   DeltaVertexCache vertex_cache(current_commit_timestamp);
@@ -4327,50 +4334,109 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Handle MVCC deltas
   if (!transaction_.deltas.empty()) {
-    append_deltas([&](const Delta &delta, auto *parent, uint64_t durability_commit_timestamp_arg) {
+    // Upper bound: append_deltas skips deltas whose action carries no durability record.
+    commands.data.reserve(transaction_.deltas.size());
+    append_deltas([&](const Delta &delta, auto *parent, uint64_t /*durability_commit_timestamp_arg*/) {
       if constexpr (std::is_same_v<decltype(parent), Edge *>) {
         // Connect the edge to the in-vertex and edge type for faster lookup.
         // NOTE: Invalid values will be sent in case the edge was created in this transaction.
         // In that case, we will cache the edge accessor in WalEdgeCreate, so no need for the overhead.
         auto edge_set_property_info = transaction_.GetEdgeSetPropertyInfo(static_cast<Edge *>(parent)->gid);
-        mem_storage->wal_file_->AppendDelta(delta,
-                                            parent,
-                                            durability_commit_timestamp_arg,
-                                            mem_storage,
-                                            edge_set_property_info.in_vertex_gid,
-                                            edge_set_property_info.edge_type_id);
-        replicating_txn.AppendDelta(delta,
-                                    parent,
-                                    durability_commit_timestamp_arg,
-                                    mem_storage,
-                                    edge_set_property_info.in_vertex_gid,
-                                    edge_set_property_info.edge_type_id);
+        commands.data.push_back({.delta = &delta,
+                                 .vertex = nullptr,
+                                 .edge = parent,
+                                 .in_vertex_gid = edge_set_property_info.in_vertex_gid,
+                                 .edge_type_id = edge_set_property_info.edge_type_id});
       } else {
-        mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
-        replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+        commands.data.push_back({.delta = &delta, .vertex = parent, .edge = nullptr});
       }
-      // We send in progress msg every 10s. RPC timeout on main is configured with 30s
-      if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
-        timer.ResetStartTime();
-        commit_args.apply_cb_if_replica_write();
-      }
+      commit_args.apply_cb_if_replica_write();
     });
   }
 
-  // Add a delta that indicates that the transaction is fully written to the WAL
-  auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
-  wal_txn_positions_.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
-  wal_txn_positions_.stored_crc_ = txn_end_positions.stored_crc_;
+  // Every fused task borrows this frame (commands, streams), so if anything below throws before
+  // ShipDeltas collected them, collect them here; on the normal path this is a no-op. Declared before
+  // wal_promise on purpose: during unwind the promise must be destroyed first, so tasks blocked on
+  // the gate observe the broken promise and finish before this guard joins them.
+  auto const collect_workers = utils::OnScopeExit{[&]() noexcept { replicating_txn.DrainShipFutures(); }};
 
-  // If main executes this and committing immediately we need to finalize wal file before sending deltas to replicas
-  // If replica executes this and committing immediately, it is OK to finalize wal here
-  if (!two_phase_commit) {
-    mem_storage->FinalizeWalFile();
+  // Durability gates the replicas' transaction ends: every fused task waits on this future between
+  // encoding and shipping. If the WAL write below throws, the abandoned promise surfaces as a broken
+  // promise in each fused task, whose containment drops the stream instead of shipping — no replica
+  // can commit a transaction main did not make durable.
+  std::promise<void> wal_promise;
+  std::shared_future<void> const wal_result = wal_promise.get_future().share();
+
+  // One fused task per streaming replica encodes concurrently with the WAL write below and the other
+  // replicas, waits on the durability gate, and ships the transaction end. It does not matter what
+  // gets sent in the `commit` argument of the transaction start as it always gets ignored EXCEPT when
+  // loading from a WAL file, which uses what the WAL write below produces.
+  replicating_txn.ScheduleEncodeAndShip(
+      [mem_storage, &commands, durability_commit_timestamp, two_phase_commit, access_type = original_access_type_](
+          ReplicaStream &stream) {
+        const memory::DbArenaScope db_arena_scope{mem_storage->DbArenaPool()};
+        stream.AppendTransactionStart(durability_commit_timestamp, !two_phase_commit, access_type);
+        for (auto const *md_delta : commands.metadata) {
+          auto encoder = stream.encoder();
+          EncodeMetadataDelta(encoder, *md_delta, mem_storage, durability_commit_timestamp);
+        }
+        for (auto const &cmd : commands.data) {
+          if (cmd.edge != nullptr) {
+            stream.AppendDelta(
+                *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);
+          } else {
+            stream.AppendDelta(*cmd.delta, cmd.vertex, durability_commit_timestamp, mem_storage);
+          }
+        }
+      },
+      wal_result,
+      durability_commit_timestamp,
+      commit_args.replication_allowed() ? &commit_args.database_protector() : nullptr);
+
+  // The WAL write runs inline: the commit thread would otherwise only sleep on the fused futures, and
+  // it still has the just-traversed deltas hot in cache. WAL commit order follows from engine_lock_.
+  {
+    durability::WalTxnDataPos positions;
+    // Append txn start delta and remember the position in the WAL file in which this delta is saved.
+    positions.commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
+        durability_commit_timestamp, !two_phase_commit, original_access_type_);
+    for (auto const *md_delta : commands.metadata) {
+      EncodeMetadataDelta(mem_storage->wal_file_->encoder(), *md_delta, mem_storage, durability_commit_timestamp);
+      mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
+      commit_args.apply_cb_if_replica_write();
+    }
+    for (auto const &cmd : commands.data) {
+      if (cmd.edge != nullptr) {
+        mem_storage->wal_file_->AppendDelta(
+            *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);
+      } else {
+        mem_storage->wal_file_->AppendDelta(*cmd.delta, cmd.vertex, durability_commit_timestamp, mem_storage);
+      }
+      commit_args.apply_cb_if_replica_write();
+    }
+    // Add a delta that indicates that the transaction is fully written to the WAL
+    auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
+    positions.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
+    positions.stored_crc_ = txn_end_positions.stored_crc_;
+    // When committing immediately the WAL file must be finalized before transaction ends ship to replicas.
+    if (!two_phase_commit) {
+      mem_storage->FinalizeWalFile();
+    }
+    wal_txn_positions_ = positions;
   }
+  // Durability achieved: open the gate so the fused tasks may ship their transaction ends.
+  wal_promise.set_value();
 
-  // Ships deltas to instances and waits for the reply
+  // Collects every fused task, so no worker is left borrowing this frame, and folds their results
+  // into the replication failures (the collect_workers guard backstops the unwind paths). Encoding
+  // must finish before the commit timestamp is published: EncodeDelta reads live vertex and edge
+  // state, which other transactions may overwrite in place the moment this transaction becomes
+  // visible. A replica-side failure is contained inside its task (the replica drops to recovery):
+  // main and the healthy replicas still commit, consistent with the WAL.
+  bool const replicas_ok = replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
+
   // Returns only the status of SYNC and STRICT_SYNC replicas.
-  return replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
+  return replicas_ok;
 }
 
 std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
