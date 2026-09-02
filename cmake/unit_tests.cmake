@@ -68,6 +68,16 @@ function(add_unit_test exec_name)
         list(APPEND test_properties TIMEOUT 1800)
     endif()
 
+    # Kill a timed-out test with SIGQUIT, whose default disposition dumps core, so the
+    # hang leaves a stack behind for tools/ci/core-dumps to symbolise. SIGKILL, which
+    # ctest sends once the grace period is up, leaves nothing to look at. The grace
+    # period covers writing the core, which is far longer than the one second ctest
+    # would otherwise allow for a process this size.
+    list(FIND test_properties "TIMEOUT_SIGNAL_NAME" signal_index)
+    if(signal_index EQUAL -1)
+        list(APPEND test_properties TIMEOUT_SIGNAL_NAME SIGQUIT TIMEOUT_SIGNAL_GRACE_PERIOD 30)
+    endif()
+
     # Use gtest_discover_tests if DISCOVER_TESTS is set, otherwise use add_test
     if(ARG_DISCOVER_TESTS)
         # Prepare test properties for gtest_discover_tests
