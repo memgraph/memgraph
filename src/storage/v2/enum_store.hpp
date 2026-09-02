@@ -25,6 +25,8 @@
 #include <ranges>
 #include <string>
 
+#include <expected>
+
 namespace memgraph::storage {
 
 enum struct EnumStorageError : uint8_t { EnumExists, InvalidValue, UnknownEnumType, UnknownEnumValue, ParseError };

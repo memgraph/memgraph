@@ -17,6 +17,7 @@
 #include <iosfwd>
 #include <limits>
 
+#include <variant>
 #include "utils/exceptions.hpp"
 import memgraph.utils.fnv;
 #include "utils/logging.hpp"

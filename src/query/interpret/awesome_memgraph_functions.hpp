@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <variant>
 #include "query/procedure/module_fwd.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
