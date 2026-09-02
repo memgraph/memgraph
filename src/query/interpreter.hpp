@@ -420,6 +420,10 @@ class Interpreter final {
   // Leaf lock for session_info_; only the foreign GetActiveUsersInfo reader locks (owning-thread reads serialized).
   mutable std::mutex session_info_mutex_;
   bool in_explicit_transaction_{false};
+  // Fixed by the first statement of an explicit transaction. An auth transaction releases the storage accessor that
+  // BEGIN opened, so the two modes cannot be mixed: a data query afterwards would have no accessor to run against.
+  enum class TxMode : uint8_t { Data, Auth };
+  std::optional<TxMode> tx_mode_{};
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
@@ -662,6 +666,7 @@ class Interpreter final {
     system_transaction_.reset();
     transaction_queries_->clear();
     commit_notification_.reset();
+    tx_mode_.reset();
     current_db_.ReleaseDbIfMarked();
   }
 
