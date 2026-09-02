@@ -1818,7 +1818,10 @@ test_memgraph() {
     ;;
     leftover-CTest)
       local status=0
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure --output-junit test-results/leftover-ctest.xml' || status=$?
+      # Each of these tests declares the threads it runs through its PROCESSORS
+      # property, and the ones that build large graphs share a RESOURCE_LOCK, so
+      # ctest overlaps them only where the machine can carry it.
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure -j$(nproc) --output-junit test-results/leftover-ctest.xml' || status=$?
       collect_ctest_results "$status"
     ;;
     drivers)
