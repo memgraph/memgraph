@@ -44,7 +44,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   TestSession(TestSessionContext *data, TestInputStream *input_stream, TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
 
-  std::shared_ptr<memgraph::metrics::DatabaseMetricHandles> GetMetricHandles() { return nullptr; }
+  memgraph::metrics::DatabaseMetricHandles *GetMetricHandles() { return nullptr; }
 
   // No trace stream needed; nullptr opts out of the per-message guard.
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return nullptr; }

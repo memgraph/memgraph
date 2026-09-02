@@ -840,7 +840,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     memgraph::logging::EmitSessionTraceEvent(e.what());
     MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
     metrics::FirstFailedQuery();
-    if (auto mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
+    if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->failed_query.Increment();
       mh->failed_pull.Increment();
     } else {
@@ -859,7 +859,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   if (maybe_summary) {
     // Toggle first successfully completed query
     metrics::FirstSuccessfulQuery();
-    if (auto mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
+    if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->successful_query.Increment();
     } else {
       metrics::Metrics().global.successful_query->Increment();

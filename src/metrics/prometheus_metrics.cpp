@@ -1083,14 +1083,14 @@ PrometheusMetrics::Registration::~Registration() { Release(); }
 PrometheusMetrics::Registration::Registration(Registration &&other) noexcept
     : registry_(std::exchange(other.registry_, nullptr)),
       entry_id_(std::exchange(other.entry_id_, 0)),
-      handles_(other.handles_.exchange(nullptr)) {}
+      handles_(std::exchange(other.handles_, DatabaseMetricHandles{})) {}
 
 auto PrometheusMetrics::Registration::operator=(Registration &&other) noexcept -> Registration & {
   if (this == &other) return *this;
   Release();
   registry_ = std::exchange(other.registry_, nullptr);
   entry_id_ = std::exchange(other.entry_id_, 0);
-  handles_.store(other.handles_.exchange(nullptr));
+  handles_ = std::exchange(other.handles_, DatabaseMetricHandles{});
   return *this;
 }
 

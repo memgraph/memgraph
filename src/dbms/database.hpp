@@ -232,7 +232,9 @@ class Database {
     ~GatekeeperGuard() noexcept { memory::tls_db_arena_state = prev_; }
   };
 
-  std::shared_ptr<metrics::DatabaseMetricHandles> metric_handles() const { return metrics_.handles(); }
+  metrics::DatabaseMetricHandles const *metric_handles() const { return &metrics_.handles(); }
+
+  metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
   void RebindMetrics(metrics::DatabaseMetricHandles const &handles) { metrics_.Rebind(handles); }
 

@@ -15,7 +15,6 @@
 #include <expected>
 #include <functional>
 #include <list>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -200,25 +199,23 @@ class PrometheusMetrics {
     Registration(Registration const &) = delete;
     Registration &operator=(Registration const &) = delete;
 
-    std::shared_ptr<DatabaseMetricHandles> handles() const { return handles_.load(); }
+    DatabaseMetricHandles const &handles() const { return handles_; }
 
-    void Rebind(DatabaseMetricHandles const &handles) {
-      handles_.store(std::make_shared<DatabaseMetricHandles>(handles));
-    }
+    DatabaseMetricHandles &handles() { return handles_; }
+
+    void Rebind(DatabaseMetricHandles const &handles) { handles_ = handles; }
 
    private:
     friend class PrometheusMetrics;
 
     Registration(PrometheusMetrics *registry, uint64_t entry_id, DatabaseMetricHandles handles)
-        : registry_(registry),
-          entry_id_(entry_id),
-          handles_(std::make_shared<DatabaseMetricHandles>(std::move(handles))) {}
+        : registry_(registry), entry_id_(entry_id), handles_(std::move(handles)) {}
 
     void Release() noexcept;
 
     PrometheusMetrics *registry_{nullptr};
     uint64_t entry_id_{0};
-    std::atomic<std::shared_ptr<DatabaseMetricHandles>> handles_{};
+    DatabaseMetricHandles handles_{};
   };
 
   [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);

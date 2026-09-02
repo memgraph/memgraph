@@ -83,8 +83,8 @@ namespace {
 namespace ms = memgraph::storage;
 namespace mq = memgraph::query;
 
-std::shared_ptr<memgraph::metrics::DatabaseMetricHandles> BenchmarkMetricHandles() {
-  static auto handles = std::make_shared<memgraph::metrics::DatabaseMetricHandles>();
+memgraph::metrics::DatabaseMetricHandles &BenchmarkMetricHandles() {
+  static memgraph::metrics::DatabaseMetricHandles handles;
   return handles;
 }
 
@@ -278,10 +278,10 @@ void RunQuery(benchmark::State &state, std::string const &query) {
     mq::ExecutionContext execution_context{.db_accessor = &dba,
                                            .symbol_table = symbol_table,
                                            .evaluation_context = evaluation_context,
-                                           .metric_handles = BenchmarkMetricHandles()};
+                                           .metric_handles = &BenchmarkMetricHandles()};
     memgraph::utils::MonotonicBufferResource memory{mq::kExecutionMemoryBlockSize};
     mq::Frame frame(symbol_table.max_position(), &memory);
-    auto cursor = plan_and_cost.plan->MakeCursor(&memory, *BenchmarkMetricHandles());
+    auto cursor = plan_and_cost.plan->MakeCursor(&memory, BenchmarkMetricHandles());
     while (cursor->Pull(frame, execution_context)) {
       ++rows;
       per_pull_memory.Release();
