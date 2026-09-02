@@ -17,9 +17,9 @@
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/vertex.hpp"
 
-#include "query/hops_limit.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/hops_limit.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/small_vector.hpp"
 
@@ -37,11 +37,11 @@ class VertexAccessor final {
  private:
   friend class Storage;
 
-  int64_t HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, query::HopsLimit *hops_limit,
+  int64_t HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, HopsLimit *hops_limit,
                                            EdgeDirection direction) const;
 
   int64_t HandleExpansionsWithEdgeTypes(edge_store &result_edges, const std::vector<EdgeTypeId> &edge_types,
-                                        const VertexAccessor *destination, query::HopsLimit *hops_limit,
+                                        const VertexAccessor *destination, HopsLimit *hops_limit,
                                         EdgeDirection direction) const;
 
  public:
@@ -116,14 +116,14 @@ class VertexAccessor final {
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
                                             const VertexAccessor *destination = nullptr,
-                                            query::HopsLimit *hops_limit = nullptr) const;
+                                            HopsLimit *hops_limit = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
                                              const VertexAccessor *destination = nullptr,
-                                             query::HopsLimit *hops_limit = nullptr) const;
+                                             HopsLimit *hops_limit = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 

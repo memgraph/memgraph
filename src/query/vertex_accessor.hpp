@@ -77,25 +77,25 @@ class VertexAccessor final {
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
                                                     const std::vector<storage::EdgeTypeId> &edge_types,
-                                                    query::HopsLimit *hops_limit = nullptr) const;
+                                                    storage::HopsLimit *hops_limit = nullptr) const;
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view) const;
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
                                                     const std::vector<storage::EdgeTypeId> &edge_types,
                                                     const VertexAccessor &dest,
-                                                    query::HopsLimit *hops_limit = nullptr) const;
+                                                    storage::HopsLimit *hops_limit = nullptr) const;
 
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
                                                      const std::vector<storage::EdgeTypeId> &edge_types,
-                                                     query::HopsLimit *hops_limit = nullptr) const;
+                                                     storage::HopsLimit *hops_limit = nullptr) const;
 
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view) const;
 
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
                                                      const std::vector<storage::EdgeTypeId> &edge_types,
                                                      const VertexAccessor &dest,
-                                                     query::HopsLimit *hops_limit = nullptr) const;
+                                                     storage::HopsLimit *hops_limit = nullptr) const;
 
   storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
 
