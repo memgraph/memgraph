@@ -188,6 +188,18 @@ class Session {
     }
   }
 
+  // A blocked admission reschedules this many times before it parks (yields the core).
+  static constexpr uint32_t kAdmissionTriesBeforePark = 4;
+
+  // True once the admission has rescheduled kAdmissionTriesBeforePark times — signals the driver to park.
+  bool PendingBeginParkEligible() const { return pending_begin_attempts_ >= kAdmissionTriesBeforePark; }
+
+  std::chrono::steady_clock::time_point PendingBeginDeadline() const { return pending_begin_deadline_; }
+
+  bool PendingPrepareParkEligible() const { return pending_prepare_attempts_ >= kAdmissionTriesBeforePark; }
+
+  std::chrono::steady_clock::time_point PendingPrepareDeadline() const { return pending_prepare_deadline_; }
+
   // Used by DoWork to hand a stashed would-block BEGIN off to the pool instead of continuing the dechunk loop.
   bool HasPendingBegin() const { return pending_begin_extra_.has_value(); }
 
@@ -199,6 +211,7 @@ class Session {
   void StashPendingBegin(Value extra, std::chrono::steady_clock::time_point deadline) {
     pending_begin_extra_ = std::move(extra);
     pending_begin_deadline_ = deadline;
+    pending_begin_attempts_ = 0;
   }
 
   // Pool-side completion of a BEGIN that HandleBegin bailed on with WouldBlock. Always retries with
@@ -228,6 +241,7 @@ class Session {
       pending_begin_extra_.reset();
       return PendingBeginOutcome::Done;
     } catch (const memgraph::query::WouldBlockInlineException &) {
+      ++pending_begin_attempts_;               // count reschedules for park-timing
       return PendingBeginOutcome::Reschedule;  // pending_begin_extra_ intentionally NOT reset
     } catch (const std::exception &e) {
       // Catches SharedAccessTimeout (deadline) and all other failures; produces the same TransientError
@@ -246,6 +260,7 @@ class Session {
   void StashPendingPrepare(std::chrono::steady_clock::time_point deadline) {
     pending_prepare_ = true;
     pending_prepare_deadline_ = deadline;
+    pending_prepare_attempts_ = 0;
   }
 
   // Emits the RUN header (field names + optional qid) as the PREPARE's single SUCCESS. Shared by HandlePrepare's
@@ -286,6 +301,7 @@ class Session {
       pending_prepare_ = false;
       return PendingPrepareOutcome::Done;
     } catch (const memgraph::query::WouldBlockInlineException &) {
+      ++pending_prepare_attempts_;  // count reschedules for park-timing
       // parsed_res_ stays intact in SessionHL and pending_prepare_ stays true.
       return PendingPrepareOutcome::Reschedule;
     } catch (const std::exception &e) {
@@ -345,12 +361,18 @@ class Session {
   // Admission deadline for the stashed BEGIN: set once at first bail, never extended on reschedule.
   std::chrono::steady_clock::time_point pending_begin_deadline_{std::chrono::steady_clock::time_point::max()};
 
+  // Reschedule count for the stashed BEGIN; reset to 0 on each new bail; drives park-timing in the driver.
+  uint32_t pending_begin_attempts_{0};
+
   // Cleared once the PREPARE completes (header sent) or fails. Mutually exclusive with pending_begin_extra_
   // (state_ is single-valued, so a BEGIN and a PREPARE step cannot both be mid-flight on the same session).
   bool pending_prepare_{false};
 
   // Admission deadline for the stashed PREPARE: set once at first bail, never extended on reschedule.
   std::chrono::steady_clock::time_point pending_prepare_deadline_{std::chrono::steady_clock::time_point::max()};
+
+  // Reschedule count for the stashed PREPARE; reset to 0 on each new bail; drives park-timing in the driver.
+  uint32_t pending_prepare_attempts_{0};
 
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)

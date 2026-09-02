@@ -446,6 +446,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
             return;
           case memgraph::communication::bolt::PendingBeginOutcome::Done:
           case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
+            // Wake the next parked admission before resuming so another blocked BEGIN gets a turn.
+            shared_this->session_context_->WakeOneParked();
             shared_this->pending_begin_task_id_.store(0, std::memory_order_relaxed);
             if (shared_this->session_.HasBufferedData()) {
               shared_this->DoWork();
@@ -460,6 +462,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       }
     };
 
+    // Pool is shutting down — drop the continuation; connection teardown errors the client.
+    if (session_context_->IsDrainingAdmissions()) return;
+
     auto const id = pending_begin_task_id_.load(std::memory_order_relaxed);
     if (id == 0) {
       // First post: mint a fresh id and remember it for place-keeping on subsequent reschedules.
@@ -468,6 +473,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       pending_begin_task_id_.store(
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
+    } else if (session_.PendingBeginParkEligible() && session_context_->ShouldParkAdmission()) {
+      // Rescheduled >= kAdmissionTriesBeforePark times with productive work queued; yield the core.
+      // id is non-zero here (first post already happened on the path that set pending_begin_attempts_).
+      session_context_->ParkAdmission(std::move(lambda), id, session_.PendingBeginDeadline());
     } else {
       session_context_->AddReTask(std::move(lambda), id, utils::Priority::LOW, /*productive=*/false);
     }
@@ -484,6 +493,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
             return;
           case memgraph::communication::bolt::PendingPrepareOutcome::Done:
           case memgraph::communication::bolt::PendingPrepareOutcome::ClientError:
+            // Wake the next parked admission before resuming so another blocked PREPARE gets a turn.
+            shared_this->session_context_->WakeOneParked();
             shared_this->pending_prepare_task_id_.store(0, std::memory_order_relaxed);
             if (shared_this->session_.HasBufferedData()) {
               shared_this->DoWork();
@@ -498,6 +509,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       }
     };
 
+    // Pool is shutting down — drop the continuation; connection teardown errors the client.
+    if (session_context_->IsDrainingAdmissions()) return;
+
     auto const id = pending_prepare_task_id_.load(std::memory_order_relaxed);
     if (id == 0) {
       // First post: mint a fresh id and remember it for place-keeping on subsequent reschedules.
@@ -506,6 +520,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       pending_prepare_task_id_.store(
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
+    } else if (session_.PendingPrepareParkEligible() && session_context_->ShouldParkAdmission()) {
+      // Rescheduled >= kAdmissionTriesBeforePark times with productive work queued; yield the core.
+      // id is non-zero here (first post already happened on the path that set pending_prepare_attempts_).
+      session_context_->ParkAdmission(std::move(lambda), id, session_.PendingPrepareDeadline());
     } else {
       session_context_->AddReTask(std::move(lambda), id, utils::Priority::LOW, /*productive=*/false);
     }

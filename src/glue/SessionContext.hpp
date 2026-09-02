@@ -56,5 +56,25 @@ struct Context {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
     return worker_pool_->ScheduledReAddTask(std::forward<decltype(task)>(task), id, priority, productive);
   }
+
+  void ParkAdmission(auto &&task, TaskID id, std::chrono::steady_clock::time_point deadline) {
+    MG_ASSERT(worker_pool_, "Trying to park admission on a non-existent worker pool");
+    worker_pool_->ParkAdmission(std::forward<decltype(task)>(task), id, deadline);
+  }
+
+  bool ShouldParkAdmission() const {
+    MG_ASSERT(worker_pool_, "Checking park eligibility on a non-existent worker pool");
+    return worker_pool_->ShouldParkAdmission();
+  }
+
+  void WakeOneParked() {
+    MG_ASSERT(worker_pool_, "Waking parked admission on a non-existent worker pool");
+    worker_pool_->WakeOneParked();
+  }
+
+  bool IsDrainingAdmissions() const {
+    MG_ASSERT(worker_pool_, "Checking drain state on a non-existent worker pool");
+    return worker_pool_->IsDrainingAdmissions();
+  }
 };
 }  // namespace memgraph::glue

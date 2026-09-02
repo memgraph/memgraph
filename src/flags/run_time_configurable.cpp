@@ -122,7 +122,7 @@ DEFINE_uint64(file_download_conn_timeout_sec, 10,
               "Define a timeout for establishing a connection with a remote server during a file download.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_access_timeout_sec, 1, "Query's storage level access timeout in seconds.",
+DEFINE_VALIDATED_uint64(storage_access_timeout_sec, 10, "Query's storage level access timeout in seconds.",
                         FLAG_IN_RANGE(1, 1'000'000));
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -206,7 +206,7 @@ std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<bool> omit_vector_index_properties_on_return_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
-std::atomic<uint64_t> storage_access_timeout_sec_{1};
+std::atomic<uint64_t> storage_access_timeout_sec_{10};
 std::atomic<int64_t> log_min_duration_ms_{-1};
 std::atomic<bool> log_failed_queries_{false};
 std::atomic<bool> log_query_plan_{true};
