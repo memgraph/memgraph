@@ -4160,6 +4160,8 @@ class KShortestPathsCursor : public Cursor {
         blocked_vertices_(mem),
         in_edges_(mem),
         out_edges_(mem),
+        trie_first_child_(mem),
+        trie_children_(mem),
         path_gids_scratch_(mem),
         bfs_source_frontier_(mem),
         bfs_target_frontier_(mem),
@@ -4297,12 +4299,8 @@ class KShortestPathsCursor : public Cursor {
 
   struct PathComparator {
     bool operator()(const PathInfo &a, const PathInfo &b) const {
-      return a.edges.size() > b.edges.size();  // Min-heap: smaller costs have higher priority
+      return a.edges.size() > b.edges.size();  // Reversed: the heap serves the shortest path first
     }
-  };
-
-  struct EdgeAccessorHash {
-    size_t operator()(const EdgeAccessor &edge) const { return std::hash<storage::Gid>{}(edge.Gid()); }
   };
 
   struct VertexAccessorHash {
@@ -4354,7 +4352,9 @@ class KShortestPathsCursor : public Cursor {
   std::optional<VertexAccessor> current_source_;
   std::optional<VertexAccessor> current_target_;
 
-  // Per-deviation state for the inner search. Unweighted: `PathComparator` orders by hop count.
+  // The inner search skips these. Blocked edges are rebuilt for every deviation; blocked vertices
+  // are the root walked so far, so they only accumulate down the base path. There are no weights:
+  // `PathComparator` orders by hop count.
   utils::pmr::unordered_set<storage::Gid> blocked_edges_;
   utils::pmr::unordered_set<storage::Gid> blocked_vertices_;
   // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
@@ -4365,6 +4365,19 @@ class KShortestPathsCursor : public Cursor {
   using CachedEdges = utils::pmr::vector<EdgeAccessor>;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
+
+  // Trie of the found paths' edges: a root prefix's children are exactly the edges a deviation
+  // there must block. Children form an intrusive sibling list, so a node holds no container.
+  static constexpr uint32_t kNoChild = std::numeric_limits<uint32_t>::max();
+
+  struct TrieChild {
+    storage::Gid edge;
+    uint32_t node;
+    uint32_t next_sibling;
+  };
+
+  utils::pmr::vector<uint32_t> trie_first_child_;
+  utils::pmr::vector<TrieChild> trie_children_;
 
   // Probe buffer for `found_paths_set_`.
   utils::pmr::vector<storage::Gid> path_gids_scratch_;
@@ -4394,7 +4407,7 @@ class KShortestPathsCursor : public Cursor {
                                 ExpressionEvaluator &evaluator, ExecutionContext &context) {
     ResetState();
 
-    // Find the shortest path using Dijkstra's algorithm
+    // Seeds Yen's with the shortest path; the rest are deviations from it.
     auto shortest_path = ComputeShortestPath(source, target, upper_bound_, frame, evaluator, context);
     if (!shortest_path.edges.empty()) {
       shortest_paths_.emplace_back(std::move(shortest_path));
@@ -4408,16 +4421,41 @@ class KShortestPathsCursor : public Cursor {
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (shortest_paths_.empty()) return false;
 
-    const auto &last_path = shortest_paths_.back();
+    // Scoped so the reference cannot outlive the loop. Nothing in it appends to
+    // `shortest_paths_`; the scope means that does not have to be re-checked.
+    {
+      const auto &base_path = shortest_paths_.back();
 
-    // Lawler: start where this path left its parent, not at 0. Its first `deviation_vertex_index`
-    // edges are the deviation root it was generated from, and that root was already a prefix of a
-    // found path, so accepting this path can only widen the blocked set at
-    // `deviation_vertex_index` or deeper - exactly the range below. It has to be the root rather
-    // than the parent's prefix, because one path can be generated at two depths and only the copy
-    // popped first sets the index.
-    for (size_t i = last_path.deviation_vertex_index; i < last_path.edges.size(); ++i) {
-      GenerateCandidatesFromDeviation(source, target, last_path, i, frame, evaluator, context);
+      // Lawler: start where this path left its parent, not at 0. Its first `first_deviation` edges
+      // are the deviation root it was generated from, and every edge of that root was already a
+      // trie child, so accepting this path can only have added children at `first_deviation` or
+      // deeper - exactly the range below. It has to be the root rather than the parent's prefix,
+      // because one path can be generated at two depths and only the copy popped first sets the
+      // index.
+      const size_t first_deviation = base_path.deviation_vertex_index;
+
+      blocked_vertices_.clear();
+      VertexAccessor deviation_vertex = source;
+      // The base path is itself a found path, so this walk never falls off the trie.
+      uint32_t trie_node = 0;
+
+      for (size_t i = 0UZ; i < base_path.edges.size(); ++i) {
+        if (i >= first_deviation) {
+          blocked_edges_.clear();
+          for (uint32_t c = trie_first_child_[trie_node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+            blocked_edges_.insert(trie_children_[c].edge);
+          }
+          GenerateCandidatesFromDeviation(target, base_path, i, deviation_vertex, frame, evaluator, context);
+        }
+
+        blocked_vertices_.insert(deviation_vertex.Gid());
+        const auto &edge = base_path.edges[i];
+        deviation_vertex = (edge.From() == deviation_vertex) ? edge.To() : edge.From();
+        trie_node = TrieDescend(trie_node, edge.Gid());
+        // Checked in release too: a miss is `kNoChild`, and the next iteration would index the
+        // child array with it.
+        MG_ASSERT(trie_node != kNoChild, "the base path must be in the trie of found paths");
+      }
     }
 
     // Find the best candidate path
@@ -4439,22 +4477,16 @@ class KShortestPathsCursor : public Cursor {
     return false;
   }
 
-  void GenerateCandidatesFromDeviation(const VertexAccessor &source, const VertexAccessor &target,
-                                       const PathInfo &base_path, size_t deviation_index, Frame &frame,
+  void GenerateCandidatesFromDeviation(const VertexAccessor &target, const PathInfo &base_path, size_t deviation_index,
+                                       const VertexAccessor &deviation_vertex, Frame &frame,
                                        ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    // Set up blocked edges and vertices for this deviation
-    SetupBlockedElementsForDeviation(source, base_path, deviation_index);
-
-    // Get the deviation vertex
-    VertexAccessor deviation_vertex = GetVertexAtIndex(source, base_path, deviation_index);
-
     // The candidate's total is `deviation_index + spur_len`, so the spur gets what's left of it.
     auto spur_path = ComputeShortestPath(
         deviation_vertex, target, upper_bound_ - static_cast<int64_t>(deviation_index), frame, evaluator, context);
 
     if (spur_path.edges.empty()) return;
 
-    // Reserved: the arena does not reclaim the blocks a growing vector abandons.
+    // Reserved because the final size is known: one allocation instead of a realloc chain.
     PathInfo candidate_path(evaluator.GetMemoryResource());
     candidate_path.edges.reserve(deviation_index + spur_path.edges.size());
     candidate_path.edges.assign(base_path.edges.begin(),
@@ -4464,49 +4496,6 @@ class KShortestPathsCursor : public Cursor {
 
     candidate_paths_.push_back(std::move(candidate_path));
     std::ranges::push_heap(candidate_paths_, PathComparator{});
-  }
-
-  void SetupBlockedElementsForDeviation(const VertexAccessor &source, const PathInfo &base_path,
-                                        size_t deviation_index) {
-    blocked_edges_.clear();
-    blocked_vertices_.clear();
-
-    // Block the edge at deviation index from all previously found paths that share the same prefix
-    for (const auto &path : shortest_paths_) {
-      if (deviation_index < path.edges.size()) {
-        // Check if the path prefix matches up to deviation index
-        bool prefix_matches = true;
-        for (size_t i = 0UZ; i < deviation_index; ++i) {
-          if (i >= base_path.edges.size() || path.edges[i].Gid() != base_path.edges[i].Gid()) {
-            prefix_matches = false;
-            break;
-          }
-        }
-
-        if (prefix_matches) {
-          blocked_edges_.insert(path.edges[deviation_index].Gid());
-        }
-      }
-    }
-
-    // Block vertices in the root path (except the deviation vertex)
-    VertexAccessor current_vertex = source;
-    for (size_t i = 0UZ; i < deviation_index; ++i) {
-      blocked_vertices_.insert(current_vertex.Gid());
-      const auto &edge = base_path.edges[i];
-      current_vertex = (edge.From() == current_vertex) ? edge.To() : edge.From();
-    }
-  }
-
-  static VertexAccessor GetVertexAtIndex(const VertexAccessor &source, const PathInfo &path, size_t index) {
-    if (index == 0) return source;
-
-    VertexAccessor current = source;
-    for (size_t i = 0UZ; i < index && i < path.edges.size(); ++i) {
-      const auto &edge = path.edges[i];
-      current = (edge.From() == current) ? edge.To() : edge.From();
-    }
-    return current;
   }
 
   PathInfo ReconstructPath(const VertexAccessor &midpoint, utils::MemoryResource *memory) const {
@@ -4778,6 +4767,34 @@ class KShortestPathsCursor : public Cursor {
       path_gids.push_back(edge.Gid());
     }
     found_paths_set_.insert(std::move(path_gids));
+
+    uint32_t node = 0;
+    for (const auto &edge : path.edges) {
+      node = TrieDescendOrCreate(node, edge.Gid());
+    }
+  }
+
+  /// The child of `node` reached by `edge`, created if this is the first path to take it.
+  uint32_t TrieDescendOrCreate(uint32_t node, storage::Gid edge) {
+    for (uint32_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+      if (trie_children_[c].edge == edge) return trie_children_[c].node;
+    }
+    // `kNoChild` is the sentinel, so it is also the ceiling on the node count. Reaching it needs
+    // tens of GB of trie, but the narrowing below would alias node 0 rather than fail.
+    DMG_ASSERT(trie_first_child_.size() < kNoChild, "KSHORTEST trie outgrew its 32-bit node ids");
+    const auto fresh = static_cast<uint32_t>(trie_first_child_.size());
+    trie_first_child_.push_back(kNoChild);
+    trie_children_.push_back(TrieChild{.edge = edge, .node = fresh, .next_sibling = trie_first_child_[node]});
+    trie_first_child_[node] = static_cast<uint32_t>(trie_children_.size() - 1);
+    return fresh;
+  }
+
+  /// The child of `node` reached by `edge`; `kNoChild` when no found path took it.
+  uint32_t TrieDescend(uint32_t node, storage::Gid edge) const {
+    for (uint32_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+      if (trie_children_[c].edge == edge) return trie_children_[c].node;
+    }
+    return kNoChild;
   }
 
   void ResetState() {
@@ -4787,6 +4804,8 @@ class KShortestPathsCursor : public Cursor {
     current_path_index_ = 0;
     blocked_edges_.clear();
     blocked_vertices_.clear();
+    trie_children_.clear();
+    trie_first_child_.assign(1, kNoChild);  // node 0 is the empty root
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
     ReleaseInnerSearchState();
