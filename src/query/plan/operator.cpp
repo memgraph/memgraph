@@ -4160,7 +4160,13 @@ class KShortestPathsCursor : public Cursor {
         blocked_vertices_(mem),
         in_edges_(mem),
         out_edges_(mem),
-        expansion_memo_(mem) {}
+        bfs_source_frontier_(mem),
+        bfs_target_frontier_(mem),
+        bfs_source_next_(mem),
+        bfs_target_next_(mem),
+        expansion_memo_(mem),
+        bfs_in_edge_(mem),
+        bfs_out_edge_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -4286,9 +4292,6 @@ class KShortestPathsCursor : public Cursor {
     size_t deviation_vertex_index;  // Index where this path deviates from parent
 
     explicit PathInfo(utils::MemoryResource *mem) : edges(mem), deviation_vertex_index(0) {}
-
-    PathInfo(const utils::pmr::vector<EdgeAccessor> &path_edges, size_t deviation_idx, utils::MemoryResource *mem)
-        : edges(path_edges.begin(), path_edges.end(), mem), deviation_vertex_index(deviation_idx) {}
   };
 
   struct PathComparator {
@@ -4361,6 +4364,16 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
 
+  // The inner search's scratch, reused across the searches Yen's runs for one input row instead
+  // of being rebuilt per call. This saves the allocation and the regrowth; it does not fix a leak,
+  // because the arena recycles a pooled block and frees an unpooled one, so a per-call container
+  // was never retained. The reuse only pays within a row, so `ReleaseInnerSearchState` gives the
+  // capacity back at the row boundary.
+  utils::pmr::vector<VertexAccessor> bfs_source_frontier_;
+  utils::pmr::vector<VertexAccessor> bfs_target_frontier_;
+  utils::pmr::vector<VertexAccessor> bfs_source_next_;
+  utils::pmr::vector<VertexAccessor> bfs_target_next_;
+
   // Memoised `access check && filter lambda` verdicts. Sound across Yen's inner searches because the
   // blocked sets - the only per-deviation inputs - are checked outside the memo.
   utils::pmr::unordered_map<ExpansionKey, bool, ExpansionKeyHash> expansion_memo_;
@@ -4369,6 +4382,8 @@ class KShortestPathsCursor : public Cursor {
 
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
+  VertexEdgeMapT bfs_in_edge_;
+  VertexEdgeMapT bfs_out_edge_;
 
   bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target, Frame &frame,
                                 ExpressionEvaluator &evaluator, ExecutionContext &context) {
@@ -4489,14 +4504,14 @@ class KShortestPathsCursor : public Cursor {
     return current;
   }
 
-  static PathInfo ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge,
-                                  const VertexEdgeMapT &out_edge, utils::MemoryResource *memory) {
-    utils::pmr::vector<EdgeAccessor> result(memory);
+  PathInfo ReconstructPath(const VertexAccessor &midpoint, utils::MemoryResource *memory) const {
+    PathInfo out(memory);
+    auto &result = out.edges;
     VertexAccessor current = midpoint;
 
     // Reconstruct the path from midpoint to source
-    while (in_edge.contains(current)) {
-      const auto &edge_opt = in_edge.at(current);
+    while (bfs_in_edge_.contains(current)) {
+      const auto &edge_opt = bfs_in_edge_.at(current);
       if (edge_opt) {
         const auto &edge = edge_opt.value();
         result.push_back(edge);
@@ -4511,8 +4526,8 @@ class KShortestPathsCursor : public Cursor {
 
     // Reconstruct the path from midpoint to target
     current = midpoint;
-    while (out_edge.contains(current)) {
-      const auto &edge_opt = out_edge.at(current);
+    while (bfs_out_edge_.contains(current)) {
+      const auto &edge_opt = bfs_out_edge_.at(current);
       if (edge_opt) {
         const auto &edge = edge_opt.value();
         result.push_back(edge);
@@ -4522,7 +4537,7 @@ class KShortestPathsCursor : public Cursor {
       }
     }
 
-    return PathInfo(result, 0, memory);
+    return out;
   }
 
   static constexpr bool kTo = true;
@@ -4604,28 +4619,19 @@ class KShortestPathsCursor : public Cursor {
     // perform better for real-world like graphs where the expansion front
     // grows exponentially, effectively reducing the exponent by half.
 
-    auto *pull_memory = evaluator.GetMemoryResource();
-    // Holds vertices at the current level of expansion from the source
-    // (target).
-    utils::pmr::vector<VertexAccessor> source_frontier(pull_memory);
-    utils::pmr::vector<VertexAccessor> target_frontier(pull_memory);
-
-    // Holds vertices we can expand to from `source_frontier`
-    // (`target_frontier`).
-    utils::pmr::vector<VertexAccessor> source_next(pull_memory);
-    utils::pmr::vector<VertexAccessor> target_next(pull_memory);
-
-    // Maps each vertex we visited expanding from the source (target) to the
-    // edge used. Necessary for path reconstruction.
-    VertexEdgeMapT in_edge(pull_memory);
-    VertexEdgeMapT out_edge(pull_memory);
+    bfs_source_frontier_.clear();
+    bfs_target_frontier_.clear();
+    bfs_source_next_.clear();
+    bfs_target_next_.clear();
+    bfs_in_edge_.clear();
+    bfs_out_edge_.clear();
 
     size_t current_length = 0;
 
-    source_frontier.emplace_back(source);
-    in_edge[source] = std::nullopt;
-    target_frontier.emplace_back(target);
-    out_edge[target] = std::nullopt;
+    bfs_source_frontier_.emplace_back(source);
+    bfs_in_edge_[source] = std::nullopt;
+    bfs_target_frontier_.emplace_back(target);
+    bfs_out_edge_[target] = std::nullopt;
 
     while (true) {
       AbortCheck(context);
@@ -4633,7 +4639,7 @@ class KShortestPathsCursor : public Cursor {
       ++current_length;
       if (std::cmp_greater(current_length, upper_bound)) return PathInfo(evaluator.GetMemoryResource());
 
-      for (const auto &vertex : source_frontier) {
+      for (const auto &vertex : bfs_source_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           if (!out_edges_.contains(vertex)) {
@@ -4646,14 +4652,14 @@ class KShortestPathsCursor : public Cursor {
                                            out_edges_.get_allocator().resource()));
           }
           for (const auto &edge : out_edges_.at(vertex)) {
-            if (!ShouldExpand<kTo, kForward>(edge, vertex, in_edge, frame, evaluator, context)) {
+            if (!ShouldExpand<kTo, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
-            in_edge.emplace(edge.To(), edge);
-            if (out_edge.contains(edge.To())) {
-              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+            bfs_in_edge_.emplace(edge.To(), edge);
+            if (bfs_out_edge_.contains(edge.To())) {
+              return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
             }
-            source_next.push_back(edge.To());
+            bfs_source_next_.push_back(edge.To());
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
@@ -4667,21 +4673,21 @@ class KShortestPathsCursor : public Cursor {
                     in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
           }
           for (const auto &edge : in_edges_.at(vertex)) {
-            if (!ShouldExpand<kFrom, kForward>(edge, vertex, in_edge, frame, evaluator, context)) {
+            if (!ShouldExpand<kFrom, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
-            in_edge.emplace(edge.From(), edge);
-            if (out_edge.contains(edge.From())) {
-              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+            bfs_in_edge_.emplace(edge.From(), edge);
+            if (bfs_out_edge_.contains(edge.From())) {
+              return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
             }
-            source_next.push_back(edge.From());
+            bfs_source_next_.push_back(edge.From());
           }
         }
       }
 
-      if (source_next.empty()) return PathInfo(evaluator.GetMemoryResource());
-      source_frontier.clear();
-      std::swap(source_frontier, source_next);
+      if (bfs_source_next_.empty()) return PathInfo(evaluator.GetMemoryResource());
+      bfs_source_frontier_.clear();
+      std::swap(bfs_source_frontier_, bfs_source_next_);
 
       // Bottom-up step (expansion from the target).
       ++current_length;
@@ -4690,7 +4696,7 @@ class KShortestPathsCursor : public Cursor {
       // When expanding from the target we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
-      for (const auto &vertex : target_frontier) {
+      for (const auto &vertex : bfs_target_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           if (!out_edges_.contains(vertex)) {
@@ -4703,14 +4709,14 @@ class KShortestPathsCursor : public Cursor {
                                            out_edges_.get_allocator().resource()));
           }
           for (const auto &edge : out_edges_.at(vertex)) {
-            if (!ShouldExpand<kTo, kBackward>(edge, vertex, out_edge, frame, evaluator, context)) {
+            if (!ShouldExpand<kTo, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
-            out_edge.emplace(edge.To(), edge);
-            if (in_edge.contains(edge.To())) {
-              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+            bfs_out_edge_.emplace(edge.To(), edge);
+            if (bfs_in_edge_.contains(edge.To())) {
+              return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
             }
-            target_next.push_back(edge.To());
+            bfs_target_next_.push_back(edge.To());
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
@@ -4724,21 +4730,21 @@ class KShortestPathsCursor : public Cursor {
                     in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
           }
           for (const auto &edge : in_edges_.at(vertex)) {
-            if (!ShouldExpand<kFrom, kBackward>(edge, vertex, out_edge, frame, evaluator, context)) {
+            if (!ShouldExpand<kFrom, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
-            out_edge.emplace(edge.From(), edge);
-            if (in_edge.contains(edge.From())) {
-              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+            bfs_out_edge_.emplace(edge.From(), edge);
+            if (bfs_in_edge_.contains(edge.From())) {
+              return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
             }
-            target_next.push_back(edge.From());
+            bfs_target_next_.push_back(edge.From());
           }
         }
       }
 
-      if (target_next.empty()) return PathInfo(evaluator.GetMemoryResource());
-      target_frontier.clear();
-      std::swap(target_frontier, target_next);
+      if (bfs_target_next_.empty()) return PathInfo(evaluator.GetMemoryResource());
+      bfs_target_frontier_.clear();
+      std::swap(bfs_target_frontier_, bfs_target_next_);
     }
   }
 
@@ -4761,6 +4767,7 @@ class KShortestPathsCursor : public Cursor {
 
   void AddPathToFoundSet(const PathInfo &path) {
     utils::pmr::vector<storage::Gid> path_gids(found_paths_set_.get_allocator());
+    path_gids.reserve(path.edges.size());
     for (const auto &edge : path.edges) {
       path_gids.push_back(edge.Gid());
     }
@@ -4776,8 +4783,24 @@ class KShortestPathsCursor : public Cursor {
     blocked_vertices_.clear();
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
+    ReleaseInnerSearchState();
     // Makes `|K` per input row; `Pull` guards each serving site instead of returning early.
     n_returned_paths_ = 0;
+  }
+
+  // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
+  // table's bucket array and a vector's capacity, so without this one expensive row would leave
+  // every later search sweeping buckets sized for a search it never runs, and hold that memory for
+  // the life of the cursor. Called per row, so the reuse within a row still stands.
+  void ReleaseInnerSearchState() {
+    for (auto *frontier : {&bfs_source_frontier_, &bfs_target_frontier_, &bfs_source_next_, &bfs_target_next_}) {
+      frontier->clear();
+      frontier->shrink_to_fit();
+    }
+    for (auto *reached : {&bfs_in_edge_, &bfs_out_edge_}) {
+      reached->clear();
+      reached->rehash(0);
+    }
   }
 };
 
