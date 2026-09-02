@@ -148,6 +148,7 @@ print_help () {
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
   echo -e "  --cmake-only                  Only run cmake configure command"
+  echo -e "  --target string               Build only this target (default: the whole tree)"
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
   echo -e "  --init-only                   Only run init script"
@@ -654,6 +655,7 @@ build_memgraph () {
   local disable_testing_flag=""
   local init_only=false
   local cmake_only=false
+  local build_target_name=""
   local copy_from_host=true
   local conan_remote=""
   local conan_username=""
@@ -680,6 +682,10 @@ build_memgraph () {
       --cmake-only)
         cmake_only=true
         shift 1
+      ;;
+      --target)
+        build_target_name="$2"
+        shift 2
       ;;
       --coverage)
         coverage_flag="-DTEST_COVERAGE=ON"
@@ -1024,13 +1030,20 @@ build_memgraph () {
 
   prefetch_cargo_deps "$mage_mode"
 
-  # Build using Conan preset
+  # Build using Conan preset. With no --target the whole tree is built, which is
+  # what a packaging build wants; a job that only runs one suite passes the
+  # target for it and skips compiling the others.
+  local target_arg=""
+  if [[ -n "$build_target_name" ]]; then
+    target_arg="--target $build_target_name"
+    echo "Building only: $build_target_name"
+  fi
   echo "Building with Conan preset: $PRESET"
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET -- -j"'$(nproc)'
+    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET $target_arg -- -j"'$(nproc)'
   else
     local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET -- -j\$THREADS"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET $target_arg -- -j\$THREADS"
   fi
 
   # upload conan cache if remote is set

@@ -142,6 +142,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph --coverage --asan --ubsan \
+          --target memgraph__unit \
           --link-threads $LINK_THREADS \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
