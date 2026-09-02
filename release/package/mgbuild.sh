@@ -1862,23 +1862,39 @@ test_memgraph() {
     fi
   fi
 
+  # ctest's per-test results are what say which test failed and how often across
+  # repeated runs, and they matter most on the runs that failed. Copy them out of
+  # the container whatever the exit status was, then hand that status back.
+  collect_ctest_results() {
+    local status=$1
+    mkdir -p "$PROJECT_ROOT/build/test-results"
+    docker cp "$build_container:$BUILD_DIR/test-results/." "$PROJECT_ROOT/build/test-results/" 2>/dev/null || true
+    return "$status"
+  }
+
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
   echo "Running $test_name test on $build_container..."
   case "$test_name" in
     unit)
+      local status=0
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$(nproc) --output-junit test-results/unit.xml' || status=$?
       else
         local EXPORT_THREADS="export THREADS=$threads"
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$THREADS'
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$THREADS --output-junit test-results/unit.xml' || status=$?
       fi
+      collect_ctest_results "$status"
     ;;
     unit-coverage)
       local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=halt_on_error=1"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& ctest -R memgraph__unit --output-on-failure -j2'
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j2 --output-junit test-results/unit-coverage.xml' || status=$?
+      collect_ctest_results "$status"
     ;;
     leftover-CTest)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure'
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure --output-junit test-results/leftover-ctest.xml' || status=$?
+      collect_ctest_results "$status"
     ;;
     drivers)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run.sh'
