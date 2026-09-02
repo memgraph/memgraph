@@ -2273,7 +2273,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintValidationFailsThenT2Creates) {
 
 // Tests for constraint metrics
 TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
-  auto handles = this->db_acc_->get()->metric_handles();
+  auto *handles = this->db_acc_->get()->metric_handles();
   auto initial_count = handles->active_existence_constraints.Value();
 
   // Create first existence constraint
@@ -2314,7 +2314,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
 }
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
-  auto handles = this->db_acc_->get()->metric_handles();
+  auto *handles = this->db_acc_->get()->metric_handles();
   auto initial_count = handles->active_unique_constraints.Value();
 
   // Create first unique constraint
@@ -2361,7 +2361,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
     GTEST_SKIP() << "Type constraints not implemented for DiskStorage";
   }
 
-  auto handles = this->db_acc_->get()->metric_handles();
+  auto *handles = this->db_acc_->get()->metric_handles();
   auto initial_count = handles->active_type_constraints.Value();
 
   // Create first type constraint

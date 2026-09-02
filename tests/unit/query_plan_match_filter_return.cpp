@@ -845,7 +845,7 @@ class QueryPlanExpandVariable : public testing::Test {
    */
   auto GetListResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol, memgraph::auth::User *user = nullptr) {
     Frame frame(symbol_table.max_position());
-    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), *TestMetricHandles());
+    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     ExecutionContext context;
 #ifdef MG_ENTERPRISE
     std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
@@ -868,7 +868,7 @@ class QueryPlanExpandVariable : public testing::Test {
    */
   auto GetPathResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol, memgraph::auth::User *user = nullptr) {
     Frame frame(symbol_table.max_position());
-    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), *TestMetricHandles());
+    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     ExecutionContext context;
 #ifdef MG_ENTERPRISE
     std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
@@ -2058,7 +2058,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
                                          nullptr);
 
     Frame frame(symbol_table.max_position());
-    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), *TestMetricHandles());
+    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     std::vector<ResultType> results;
     memgraph::query::ExecutionContext context;
 #ifdef MG_ENTERPRISE
@@ -2531,7 +2531,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
                                          nullptr);
 
     Frame frame(symbol_table.max_position());
-    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), *TestMetricHandles());
+    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     std::vector<ResultType> results;
 #ifdef MG_ENTERPRISE
     std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;

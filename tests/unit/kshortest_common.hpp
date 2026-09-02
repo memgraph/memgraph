@@ -447,7 +447,7 @@ class Database {
 
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = TestMetricHandles()};
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol blocked_sym = context.symbol_table.CreateSymbol("blocked", true);
     memgraph::query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
@@ -670,7 +670,7 @@ class Database {
                                              std::optional<int> blocked_vertex_id = std::nullopt) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = TestMetricHandles()};
+    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
     memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
@@ -904,7 +904,7 @@ class Database {
   void KShortestTestAccessCheckBeforeFilterLambda(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = TestMetricHandles()};
+    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
     memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
@@ -970,7 +970,7 @@ class Database {
   void KShortestTestMemoDistinguishesSearchDirections(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = TestMetricHandles()};
+    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
     memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
@@ -1026,7 +1026,7 @@ class Database {
   void KShortestTestInvertedRangeDoesNotSearch(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = TestMetricHandles()};
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
     memgraph::query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);

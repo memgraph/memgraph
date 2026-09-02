@@ -55,7 +55,7 @@ class StorageV2GcMetricsTest : public testing::Test {
     uuid_ = memgraph::utils::UUID{};
     registration_ = memgraph::metrics::Metrics().AddDatabase(uuid_, db_name_);
     storage = std::make_unique<memgraph::storage::InMemoryStorage>(
-        config, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(), *registration_.handles());
+        config, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(), registration_.handles());
     memgraph::metrics::Metrics().SetStorageSnapshotResolver(
         [this](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
           if (uuid != uuid_ || !storage) return std::nullopt;
@@ -70,7 +70,7 @@ class StorageV2GcMetricsTest : public testing::Test {
 
   std::unique_ptr<memgraph::storage::Storage> storage;
 
-  auto handles() { return registration_.handles(); }
+  auto handles() -> memgraph::metrics::DatabaseMetricHandles & { return registration_.handles(); }
 
   memgraph::metrics::PrometheusMetrics::Registration registration_{};
   memgraph::utils::UUID uuid_{};

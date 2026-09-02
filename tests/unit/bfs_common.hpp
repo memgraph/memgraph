@@ -311,7 +311,7 @@ class Database {
                std::vector<std::string> edge_types, bool known_sink, FilterLambdaType filter_lambda_type) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = TestMetricHandles()};
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol blocked_sym = context.symbol_table.CreateSymbol("blocked", true);
     memgraph::query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
@@ -488,7 +488,7 @@ class Database {
                                        FineGrainedTestType fine_grained_test_type) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = TestMetricHandles()};
+    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol blocked_symbol = context.symbol_table.CreateSymbol("blocked", true);
     memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
