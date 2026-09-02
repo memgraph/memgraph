@@ -894,6 +894,222 @@ TEST_F(LockFreeReadSnapshotRecovery, WriteOff_RecoverOff_DataIntact) {
   RecoverAndCheck(storage_directory, /*flag_on=*/false, 5);
 }
 
+// Phase 2, batch 6: concern-F (non-sequential edge path). Two of the four flag-converted MVCC
+// predicate sites live on the non-sequential edge path: PrepareForNonSequentialWrite's head check
+// at mvcc.hpp:160 and its chain-walk at :202. These are exercised by edge-creation interleavings
+// that do not arise on the property-write path (SetProperty routes through PrepareForWrite, not
+// PrepareForNonSequentialWrite).
+//
+// The scenario: vertex A is clean. Committer C creates edge A->B, yielding a REMOVE_OUT_EDGE undo
+// delta on A (DeltaChainState::SEQUENTIAL) with commit_info->timestamp = C_ts after C publishes.
+// Writer W opens AFTER C's before_publish probe fires but BEFORE C publishes (so W.snapshot_ts is
+// captured from last_committed_mvcc_ts_, which has not yet advanced to C_ts).
+//
+// When W then attempts to create another edge on A:
+//
+//   PrepareForNonSequentialWrite (mvcc.hpp:152):
+//     ts = A.head.commit_info->timestamp = C_ts          (C has finished publishing)
+//     ts != W.transaction_id                             (C_ts < kTransactionInitialId)
+//     CommittedBeforeSnapshot(C_ts):
+//       flag ON:  C_ts <= W.snapshot_ts  → FALSE         ← gap: C_ts published above W's snapshot
+//       flag OFF: C_ts <  W.start_ts     → TRUE (C fully committed before W opened; no gap)
+//
+// Under flag ON the FALSE branch at :160 enters the chain-walk at :202. C's REMOVE_OUT_EDGE undo
+// delta (action == REMOVE_OUT_EDGE) is explicitly allowed by the walk (only non-REMOVE_EDGE
+// actions are blocking). The loop exits with NON_SEQUENTIAL: W's edge creation SUCCEEDS but in
+// non-sequential mode. The observable difference from flag OFF is the snapshot boundary:
+//
+//   ON:  CommittedBeforeSnapshot(C_ts) = FALSE → C's undo is applied for View::OLD → A shows 0
+//        out-edges from W's perspective (C's gap-committed edge is invisible to W's snapshot).
+//   OFF: CommittedBeforeSnapshot(C_ts) = TRUE  → C's undo is NOT applied → A shows 1 out-edge
+//        (C's edge is visible; W.start_ts > C_ts, so it is in W's snapshot).
+//
+// Final graph state is consistent: after both C and W commit, a fresh reader sees 2 out-edges on
+// A under both flag settings.
+//
+// NOTE: the before_publish probe (used here) fires inside FinalizeCommitPhase, BEFORE engine_lock
+// is reacquired and BEFORE commit_info->timestamp is set to C_ts. At the probe's park point the
+// engine_lock is released, so W can open freely. After C publishes, A's head delta carries C_ts
+// (permanently above W.snapshot_ts for flag ON). The probe is flag-gated (acquire_engine_lock =
+// lockfree): it does not fire for flag OFF, which is why the OFF test runs C to completion first.
+
+// Flag ON: C creates edge A->B and parks at before_publish. W opens in the gap. After C
+// publishes, A's head delta (REMOVE_OUT_EDGE, ts=C_ts) is above W.snapshot_ts. The FALSE branch
+// at mvcc.hpp:160 is taken; the chain-walk at :202 traverses the REMOVE_OUT_EDGE (allowed) and
+// returns NON_SEQUENTIAL. W's CreateEdge succeeds. The observable signature of the non-sequential
+// path is the snapshot boundary: W's View::OLD sees 0 out-edges on A (C's edge invisible), while
+// View::NEW shows W's own uncommitted edge. After W commits, a fresh reader sees 2 out-edges.
+TEST(LockFreeReadSnapshot, NonSequentialEdgeWriteInGap_ON) {
+  auto store = MakeStorage(/*flag_on=*/true);
+
+  // Commit vertices A and B into clean state (no edge deltas on either).
+  Gid gid_a{};
+  Gid gid_b{};
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto a = acc->CreateVertex();
+    gid_a = a.Gid();
+    auto b = acc->CreateVertex();
+    gid_b = b.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  std::binary_semaphore reached{0};
+  std::binary_semaphore resume{0};
+  std::optional<bool> c_ok;
+
+  // before_publish fires inside FinalizeCommitPhase (flag ON: acquire_engine_lock=true), BEFORE
+  // engine_lock is reacquired and BEFORE commit_info->timestamp is promoted to C_ts. At this park
+  // point, last_committed_mvcc_ts_ has not yet advanced to C_ts, so a concurrent Access(WRITE)
+  // sees the pre-publish watermark and captures W.snapshot_ts < C_ts.
+  memgraph::storage::CommitProbe probe;
+  probe.before_publish = [&] {
+    reached.release();
+    resume.acquire();
+  };
+  store->SetCommitProbe(&probe);
+
+  std::thread committer([&] {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto a = acc->FindVertex(gid_a, View::OLD);
+    auto b = acc->FindVertex(gid_b, View::OLD);
+    ASSERT_TRUE(a.has_value() && b.has_value());
+    // C creates edge A->B. CreateEdgeInternal prepends a REMOVE_OUT_EDGE undo delta (state=
+    // SEQUENTIAL) to vertex A. The undo delta's commit_info->timestamp = TRANSACTION_ID at the
+    // park point; it is promoted to C_ts inside FinalizeCommitPhase after we resume C.
+    ASSERT_TRUE(acc->CreateEdge(&*a, &*b, acc->NameToEdgeType("e")).has_value());
+    c_ok = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+  });
+
+  // C is parked at before_publish: C_ts is minted, engine_lock released, watermark not advanced.
+  reached.acquire();
+
+  // W opens: snapshot_ts = last_committed_mvcc_ts_.load() at Access time (flag ON).
+  // Because the watermark has not advanced, W.snapshot_ts < C_ts.
+  auto w = store->Access(memgraph::storage::WRITE);
+
+  // Let C finish. FinalizeCommitPhase sets:
+  //   A.head_delta.commit_info->timestamp = C_ts   (line 1293 in storage.cpp)
+  //   last_committed_mvcc_ts_            = C_ts   (line 1382)
+  // W.snapshot_ts is already frozen below C_ts and does not change.
+  resume.release();
+  committer.join();
+  ASSERT_TRUE(c_ok.has_value());
+  ASSERT_TRUE(*c_ok);
+  store->SetCommitProbe(nullptr);
+
+  // With A.head_delta.ts = C_ts and W.snapshot_ts < C_ts:
+  // CommittedBeforeSnapshot(C_ts) = (C_ts <= W.snapshot_ts) = FALSE   [flag ON]
+  // The undo delta (REMOVE_OUT_EDGE) is visible to W's read and is applied: to reconstruct
+  // View::OLD, ApplyDeltasForRead undoes C's REMOVE_OUT_EDGE entry, yielding 0 out-edges.
+  auto w_a = w->FindVertex(gid_a, View::OLD);
+  ASSERT_TRUE(w_a.has_value());
+  {
+    auto w_old_edges = w_a->OutEdges(View::OLD);
+    ASSERT_TRUE(w_old_edges.has_value());
+    EXPECT_EQ(w_old_edges->edges.size(), 0u)
+        << "SNAPSHOT LEAK: W's View::OLD shows C's gap-committed edge on A. "
+           "CommittedBeforeSnapshot(C_ts) = FALSE under flag ON means the REMOVE_OUT_EDGE undo "
+           "must be applied, rolling A back to its state before C_ts (0 out-edges).";
+  }
+
+  // W creates a second edge on A. PrepareForNonSequentialWrite (mvcc.hpp:152):
+  //   ts = C_ts, CommittedBeforeSnapshot = FALSE → FALSE branch at :160
+  //   chain-walk at :202: REMOVE_OUT_EDGE delta → action == REMOVE_OUT_EDGE → allowed (continue)
+  //   loop exits → NON_SEQUENTIAL (not SERIALIZATION_ERROR)
+  // CreateEdge succeeds; the new delta on A gets DeltaChainState::NON_SEQUENTIAL.
+  auto w_b = w->FindVertex(gid_b, View::OLD);
+  ASSERT_TRUE(w_b.has_value());
+
+  auto edge_res = w->CreateEdge(&*w_a, &*w_b, w->NameToEdgeType("e2"));
+  ASSERT_TRUE(edge_res.has_value())
+      << "NON-SEQUENTIAL PATH BROKEN: W could not create an edge on vertex A whose head delta "
+         "(REMOVE_OUT_EDGE, C_ts > W.snapshot_ts) was a gap-committed edge-creation undo. "
+         "PrepareForNonSequentialWrite at mvcc.hpp:202 must traverse REMOVE_OUT_EDGE (allowed) "
+         "and return NON_SEQUENTIAL. A SERIALIZATION_ERROR here is a real predicate bug.";
+
+  // W commits. Both C's and W's edges are now durable.
+  ASSERT_TRUE(w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  w.reset();
+
+  // Fresh reader (snapshot_ts = last_committed_mvcc_ts_, above both C_ts and W_ts) sees both
+  // out-edges on A.
+  auto reader = store->Access(memgraph::storage::READ);
+  auto ra = reader->FindVertex(gid_a, View::OLD);
+  ASSERT_TRUE(ra.has_value());
+  auto out_edges = ra->OutEdges(View::OLD);
+  ASSERT_TRUE(out_edges.has_value());
+  EXPECT_EQ(out_edges->edges.size(), 2u) << "EDGE COUNT WRONG after both C and W committed: expected 2 out-edges on A.";
+}
+
+// A/B contrast: flag OFF. Under OFF, engine_lock spans GetCommitTimestamp→FinalizeCommitPhase
+// (acquire_engine_lock=false so before_publish is never invoked). No gap window exists: W cannot
+// open until C has fully committed. W.start_timestamp > C_ts, so CommittedBeforeSnapshot(C_ts) =
+// (C_ts < W.start_ts) = TRUE (flag OFF path at mvcc.hpp:160). PrepareForNonSequentialWrite exits
+// early with SUCCESS (not NON_SEQUENTIAL). The observable difference from the ON scenario is the
+// snapshot boundary for W's View::OLD: W opened after C committed, so C's edge IS in W's snapshot
+// (1 out-edge), unlike the ON scenario where the gap made it invisible (0 out-edges). Final graph
+// state is consistent with the ON scenario: both C's and W's edges committed (2 out-edges total).
+TEST(LockFreeReadSnapshot, NonSequentialEdgeWriteInGap_OFF_AB) {
+  auto store = MakeStorage(/*flag_on=*/false);
+
+  Gid gid_a{};
+  Gid gid_b{};
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto a = acc->CreateVertex();
+    gid_a = a.Gid();
+    auto b = acc->CreateVertex();
+    gid_b = b.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // C commits edge A->B fully. No probe: under flag OFF, before_publish is not invoked
+  // (acquire_engine_lock = lockfree = false). Engine_lock is held through the full commit.
+  {
+    auto c = store->Access(memgraph::storage::WRITE);
+    auto a = c->FindVertex(gid_a, View::OLD);
+    auto b = c->FindVertex(gid_b, View::OLD);
+    ASSERT_TRUE(a.has_value() && b.has_value());
+    ASSERT_TRUE(c->CreateEdge(&*a, &*b, c->NameToEdgeType("e")).has_value());
+    ASSERT_TRUE(c->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // W opens after C's full publish. W.start_timestamp > C_ts (flag OFF uses start_timestamp as
+  // the snapshot boundary; no snapshot_ts ring is involved). CommittedBeforeSnapshot(C_ts) =
+  // (C_ts < W.start_ts) = TRUE. PrepareForNonSequentialWrite takes the TRUE early exit at :160
+  // → SUCCESS (not NON_SEQUENTIAL). C's edge is committed before W's snapshot.
+  auto w = store->Access(memgraph::storage::WRITE);
+  auto w_a = w->FindVertex(gid_a, View::OLD);
+  ASSERT_TRUE(w_a.has_value());
+  {
+    // C's committed edge is visible to W's snapshot (W.start_ts > C_ts → undo NOT applied).
+    auto w_old_edges = w_a->OutEdges(View::OLD);
+    ASSERT_TRUE(w_old_edges.has_value());
+    EXPECT_EQ(w_old_edges->edges.size(), 1u)
+        << "FLAG OFF SNAPSHOT: W should see C's committed edge (1 out-edge). "
+           "CommittedBeforeSnapshot(C_ts) = TRUE (flag OFF: ts < start_ts) means the "
+           "REMOVE_OUT_EDGE undo is NOT applied; the current in-memory state (1 edge) is used.";
+  }
+
+  auto w_b = w->FindVertex(gid_b, View::OLD);
+  ASSERT_TRUE(w_b.has_value());
+  auto edge_res = w->CreateEdge(&*w_a, &*w_b, w->NameToEdgeType("e2"));
+  ASSERT_TRUE(edge_res.has_value())
+      << "FLAG OFF: PrepareForNonSequentialWrite should return SUCCESS for a head delta committed "
+         "before W's start_timestamp. CommittedBeforeSnapshot = TRUE → early exit, no chain-walk.";
+  ASSERT_TRUE(w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  w.reset();
+
+  // Final state consistent with ON: both edges committed, fresh reader sees 2 out-edges.
+  auto reader = store->Access(memgraph::storage::READ);
+  auto ra = reader->FindVertex(gid_a, View::OLD);
+  ASSERT_TRUE(ra.has_value());
+  auto out_edges = ra->OutEdges(View::OLD);
+  ASSERT_TRUE(out_edges.has_value());
+  EXPECT_EQ(out_edges->edges.size(), 2u) << "EDGE COUNT WRONG: expected 2 out-edges on A (C's + W's) under flag OFF.";
+}
+
 // Post-restart read of a multiply-updated vertex, flag ON. Under the flag a live reader's SI snapshot
 // boundary is last_committed_mvcc_ts_ (mvcc.hpp: CommittedBeforeSnapshot -> ts <= snapshot_ts), which
 // starts at 0 on a fresh restart; Fix B (storage.cpp recovery) lifts it back to the recovered
