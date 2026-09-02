@@ -477,7 +477,7 @@ github_auth_in_container() {
   local container=$1
   if github_token_enabled; then
     echo "Configuring authenticated github.com access in $container..."
-    docker exec -u mg "$container" git config --global credential.helper \
+    docker exec -u mg "$container" git config --global credential.https://github.com.helper \
       '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
   fi
 }

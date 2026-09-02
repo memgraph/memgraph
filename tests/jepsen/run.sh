@@ -118,7 +118,7 @@ fi
 # the runner's global git config untouched.
 GIT_GH=(git)
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  GIT_GH+=(-c 'credential.helper=!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f')
+  GIT_GH+=(-c 'credential.https://github.com.helper=!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f')
 fi
 
 if [ ! -d "$script_dir/jepsen" ]; then
