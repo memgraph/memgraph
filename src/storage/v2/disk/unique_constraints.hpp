@@ -77,8 +77,6 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   void Clear() override;
 
-  void SetGauge(metrics::GaugeHandle gauge) override { gauge_ = gauge; }
-
   RocksDBStorage *GetRocksDBStorage() const;
 
   void LoadUniqueConstraints(const std::vector<std::string> &keys);

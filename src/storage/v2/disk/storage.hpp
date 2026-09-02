@@ -52,8 +52,6 @@ class DiskStorage final : public Storage {
 
   ~DiskStorage() override;
 
-  void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) override;
-
   class DiskAccessor final : public Storage::Accessor {
    private:
     friend class DiskStorage;

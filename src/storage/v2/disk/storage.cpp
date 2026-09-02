@@ -306,18 +306,6 @@ DiskStorage::~DiskStorage() {
   kvstore_->options_.comparator = nullptr;
 }
 
-void DiskStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
-  auto const ttl_was_paused = ttl_.Paused();
-  ttl_.PauseAndWait();
-  auto resume = utils::OnScopeExit{[&] {
-    if (!ttl_was_paused) ttl_.Resume();
-  }};
-  metric_handles_ = new_handles;
-  // Disk indices don't store gauge handles, so nothing to rebind there.
-  constraints_.RebindMetricHandles(new_handles);
-  ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
-}
-
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, std::optional<IsolationLevel> override_isolation_level,
                                         utils::ResourceLockGuard guard)
     : Accessor(storage, override_isolation_level, std::move(guard)) {

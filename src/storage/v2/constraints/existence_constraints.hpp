@@ -36,8 +36,6 @@ class ExistenceConstraints {
  public:
   explicit ExistenceConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
-  void SetGauge(metrics::GaugeHandle gauge) { gauge_ = gauge; }
-
   /// Both validators call `cancel_check` once per vertex and throw PopulateCancel when it returns true. The parallel
   /// one catches it per worker and re-throws after joining, so an escaping exception can never terminate the process.
   struct MultipleThreadsConstraintValidation {

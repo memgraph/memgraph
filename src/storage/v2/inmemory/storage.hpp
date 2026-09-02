@@ -152,8 +152,6 @@ class InMemoryStorage final : public Storage {
 
   ~InMemoryStorage() override;
 
-  void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) override;
-
   /// Identifies one edge to delete without holding an EdgeAccessor for it. These are exactly the fields a WAL
   /// edge-delete record carries, so a replica can ask for a deletion straight from what it decoded.
   struct EdgeDeleteSpec {

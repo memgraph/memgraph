@@ -218,7 +218,7 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
   auto reg = pm.AddDatabase(uuid_a, "memgraph");
   pm.RebindDefaultDatabaseUUID(uuid_b);
 
-  auto const families = pm.registry().Collect();
+  auto const families = pm.CollectForScrape();
   auto const find_uuid_label = [&](std::string_view name, std::string_view db_name) -> std::optional<std::string> {
     for (auto const &family : families) {
       if (family.name != name) continue;
@@ -242,6 +242,38 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
     });
   });
   EXPECT_FALSE(has_old_uuid) << "old UUID series should be fully removed after rebind";
+
+  auto const leaks_entry_label = r::any_of(families, [](auto const &family) {
+    return r::any_of(family.metric, [](auto const &metric) {
+      return r::any_of(metric.label, [](auto const &l) { return l.name == "mgentry"; });
+    });
+  });
+  EXPECT_FALSE(leaks_entry_label) << "the entry-id label keys the family internally and must never be scraped";
+}
+
+TEST(PrometheusMetrics, RebindKeepsMetricObjectsAlive) {
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+
+  memgraph::utils::UUID const uuid_a{};
+  memgraph::utils::UUID const uuid_b{};
+
+  auto reg = pm.AddDatabase(uuid_a, "memgraph");
+  auto const before = reg.handles();
+  reg.handles().vertex_count.Set(7.0);
+
+  auto const after = pm.RebindDefaultDatabaseUUID(uuid_b);
+
+  // Every handle must still name the same object: holders all over the codebase (ScopedGauge,
+  // delta_container, per-index gauges, in-flight query snapshots) copied these pointers out and
+  // are not reachable from here, so a rebind that replaced them would leave them dangling.
+  EXPECT_EQ(after.vertex_count.gauge, before.vertex_count.gauge);
+  EXPECT_EQ(after.active_transactions.gauge, before.active_transactions.gauge);
+  EXPECT_EQ(after.unreleased_delta_objects.gauge, before.unreleased_delta_objects.gauge);
+  EXPECT_EQ(after.query_execution_latency_seconds.histogram, before.query_execution_latency_seconds.histogram);
+
+  // The accumulated value survives, because the series was relabelled rather than recreated.
+  EXPECT_EQ(FindSample(pm.CollectForScrape(), "memgraph_vertex_count", "memgraph"), 7.0);
 }
 
 TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
@@ -251,14 +283,17 @@ TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
   memgraph::utils::UUID const uuid_a{};
   memgraph::utils::UUID const uuid_b{};
 
-  // Register default db with uuid_a, install handles into storage
+  // Register default db with uuid_a and build a storage over those handles.
   auto handles_a = pm.AddDatabase(uuid_a, "memgraph");
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>();
-  storage->RebindMetricHandles(handles_a.handles());
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(
+      memgraph::storage::Config{},
+      std::nullopt,
+      std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      handles_a.handles());
 
-  // Rebind to uuid_b, which destroys uuid_a gauge objects and creates uuid_b gauges
-  auto new_handles = pm.RebindDefaultDatabaseUUID(uuid_b);
-  storage->RebindMetricHandles(new_handles);
+  // Rebind to uuid_b. The storage keeps the handles it was built with: they still point at the
+  // same live objects, so nothing needs re-installing.
+  pm.RebindDefaultDatabaseUUID(uuid_b);
 
   // Create index + constraint: these increment gauges via handles stored inside indices_/constraints_
   memgraph::storage::LabelId label;
@@ -280,7 +315,7 @@ TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
   }
 
   // Scrape and verify gauges appear under uuid_b
-  auto const families = pm.registry().Collect();
+  auto const families = pm.CollectForScrape();
   auto const idx_val = FindSample(families, "memgraph_active_label_indices", "memgraph");
   ASSERT_TRUE(idx_val.has_value());
   EXPECT_EQ(*idx_val, 1.0);
@@ -367,13 +402,13 @@ TEST(DatabaseMetrics, MetricsOutliveADatabaseWhileAnotherSharesItsIdentity) {
     memgraph::dbms::Database second{MakeConfig(root / "second", "shared_identity", uuid)};
     {
       memgraph::dbms::Database first{MakeConfig(root / "first", "shared_identity", uuid)};
-      ASSERT_NE(FindSampleByUuid(memgraph::metrics::Metrics().registry().Collect(), "memgraph_vertex_count", uuid),
+      ASSERT_NE(FindSampleByUuid(memgraph::metrics::Metrics().CollectForScrape(), "memgraph_vertex_count", uuid),
                 std::nullopt);
     }
 
     // `first` is gone; `second` is still running, and its garbage collector writes to these metrics
     // every pass, so they must still be registered.
-    EXPECT_NE(FindSampleByUuid(memgraph::metrics::Metrics().registry().Collect(), "memgraph_vertex_count", uuid),
+    EXPECT_NE(FindSampleByUuid(memgraph::metrics::Metrics().CollectForScrape(), "memgraph_vertex_count", uuid),
               std::nullopt)
         << "the surviving database's metrics were freed with the other's";
   }
@@ -394,14 +429,13 @@ TEST(DatabaseMetrics, ARealignedDatabaseStillTakesItsMetricsWithIt) {
   {
     memgraph::dbms::Database db{MakeConfig(root, memgraph::dbms::kDefaultDB, registered_uuid)};
     ASSERT_NE(
-        FindSampleByUuid(memgraph::metrics::Metrics().registry().Collect(), "memgraph_vertex_count", registered_uuid),
+        FindSampleByUuid(memgraph::metrics::Metrics().CollectForScrape(), "memgraph_vertex_count", registered_uuid),
         std::nullopt);
     memgraph::metrics::Metrics().RebindDefaultDatabaseUUID(realigned_uuid);
   }
 
-  EXPECT_EQ(
-      FindSampleByUuid(memgraph::metrics::Metrics().registry().Collect(), "memgraph_vertex_count", registered_uuid),
-      std::nullopt)
+  EXPECT_EQ(FindSampleByUuid(memgraph::metrics::Metrics().CollectForScrape(), "memgraph_vertex_count", registered_uuid),
+            std::nullopt)
       << "the realigned database left its metrics behind";
 
   std::filesystem::remove_all(root);

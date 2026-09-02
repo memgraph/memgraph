@@ -89,8 +89,6 @@ class UniqueConstraints {
 
   virtual void Clear() = 0;
 
-  virtual void SetGauge(metrics::GaugeHandle gauge) = 0;
-
  protected:
   static DeletionStatus CheckPropertiesBeforeDeletion(const std::set<PropertyId> &properties) {
     if (properties.empty()) {
