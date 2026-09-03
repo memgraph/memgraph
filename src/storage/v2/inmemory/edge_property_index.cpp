@@ -18,13 +18,11 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/all_indices_cleanup.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
 #include "utils/counter.hpp"
-
-namespace r = ranges;
-namespace rv = r::views;
 
 namespace {
 
@@ -288,7 +286,7 @@ auto InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpda
         updater(std::make_shared<ActiveIndices>(indices_container));
         return evicted_entry;
       });
-  CleanupAllIndicies();
+  CleanupAllIndices();
   return evicted;
 }
 
@@ -327,7 +325,7 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
                                                           std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
-  CleanupAllIndicies();
+  CleanupAllIndices();
 
   auto cpy = all_indices_.ReadCopy();
   if (cpy->empty()) return 0;
@@ -483,7 +481,7 @@ void InMemoryEdgePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 
 void InMemoryEdgePropertyIndex::RunGC() {
   // Remove indicies that are not used by any txn
-  CleanupAllIndicies();
+  CleanupAllIndices();
 
   // For each skip_list remaining, run GC
   auto cpy = all_indices_.ReadCopy();
@@ -571,13 +569,8 @@ auto InMemoryEdgePropertyIndex::GetIndividualIndex(PropertyId property) const ->
       });
 }
 
-void InMemoryEdgePropertyIndex::CleanupAllIndicies() {
-  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
-    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.second.use_count() != 1; };
-    if (!r::all_of(*indices, keep_condition)) {
-      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
-    }
-  });
+void InMemoryEdgePropertyIndex::CleanupAllIndices() {
+  storage::CleanupAllIndices(all_indices_, [](AllIndicesEntry const &e) { return e.second.use_count(); });
 }
 
 InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(

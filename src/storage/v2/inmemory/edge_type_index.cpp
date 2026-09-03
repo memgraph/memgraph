@@ -17,6 +17,7 @@
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/all_indices_cleanup.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
@@ -456,12 +457,7 @@ auto InMemoryEdgeTypeIndex::GetIndividualIndex(EdgeTypeId edge_type) const -> st
 }
 
 void InMemoryEdgeTypeIndex::CleanupAllIndices() {
-  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
-    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.use_count() != 1; };
-    if (!r::all_of(*indices, keep_condition)) {
-      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
-    }
-  });
+  storage::CleanupAllIndices(all_indices_, [](AllIndicesEntry const &e) { return e.use_count(); });
 }
 
 InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
