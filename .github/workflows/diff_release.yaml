@@ -255,16 +255,13 @@ jobs:
         run: |
           PR_NUMBER=$(sed -n 's/.*pr-\([0-9]\+\).*/\1/p' <<<"$MERGE_GROUP_HEAD_REF")
           if [[ -z "$PR_NUMBER" ]]; then
-            echo "Unable to resolve PR number from '$MERGE_GROUP_HEAD_REF'" >&2
-            exit 1
+            echo "::warning::Unable to resolve PR number from '$MERGE_GROUP_HEAD_REF'; skipping memgraph package upload to S3."
           fi
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "PR Number: $PR_NUMBER"
 
       - name: Upload enterprise DEB packages to S3
-        # The post-merge MAGE build (build_packages.yml) downloads these instead
-        # of rebuilding memgraph; the merge group head commit is what lands on master.
-        if: ${{ github.event_name == 'merge_group' }}
+        if: ${{ github.event_name == 'merge_group' && steps.get_pr.outputs.pr_number != '' }}
         continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
