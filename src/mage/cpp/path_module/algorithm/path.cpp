@@ -1157,8 +1157,12 @@ void Path::PathExpand::RunNodeGlobalBfs() {
       continue;
     }
 
-    ExpandTreeEntry(index, depth, node.GetPtr(), false, frontier);
-    ExpandTreeEntry(index, depth, node.GetPtr(), true, frontier);
+    if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
+      ExpandTreeEntry(index, depth, node.GetPtr(), false, frontier);
+    }
+    if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
+      ExpandTreeEntry(index, depth, node.GetPtr(), true, frontier);
+    }
   }
 }
 
