@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -16,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-#include "auth/atomic_auth_overlay.hpp"
+#include "auth/auth_storage.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
@@ -505,26 +504,6 @@ class Auth final {
   bool HasUser(std::string_view name) const;
   bool HasRole(std::string_view name) const;
 
-  void SetOverlay(AtomicAuthOverlay *overlay) { overlay_ = overlay; }
-
-  AtomicAuthOverlay *GetOverlay() const { return overlay_; }
-
-  /// Flush the active overlay and detach it. Returns false on conflict, leaving storage untouched.
-  /// Clears the overlay either way, so a conflicted transaction cannot keep writing into it.
-  [[nodiscard]] bool CommitOverlay() {
-    auto *overlay = std::exchange(overlay_, nullptr);
-    if (!overlay || !overlay->Flush()) return false;
-    UpdateEpoch();
-    return true;
-  }
-
-  using PendingActions = std::list<std::unique_ptr<system::ISystemAction>>;
-
-  /// Collect replication actions here instead of adding them to a system transaction. An auth transaction has no
-  /// system transaction while its statements run: one is created at COMMIT and these are moved into it, so the
-  /// system mutex is held only for the flush rather than the transaction's lifetime.
-  void SetPendingActions(PendingActions *actions) { pending_actions_ = actions; }
-
  private:
   /**
    * @brief
@@ -535,100 +514,50 @@ class Auth final {
    */
   bool NameRegexMatch(const std::string &user_or_role) const;
 
-  // An active overlay means nothing is durable yet, so the epoch must not move: bumping it would invalidate every
-  // session's permission cache against state that is still uncommitted, and spend the invalidation that CommitOverlay
-  // owes them once the flush lands.
-  void UpdateEpoch() {
-    if (!overlay_) ++epoch_;
-  }
+  // Durability updated -> new epoch, invalidating every session's cached permissions.
+  void UpdateEpoch() { ++epoch_; }
 
-  // Routes a replication action to the pending list when an auth transaction is collecting them, otherwise to the
-  // system transaction as before. `make` runs only when something will consume the action, so no caller pays to
-  // build one that would be dropped.
+  // `make` runs only when there is a transaction to consume the action, so no caller pays to build one that would
+  // be dropped.
   template <typename Make>
   void AddAuthAction(system::Transaction *system_tx, Make &&make) {
-    if (pending_actions_) {
-      pending_actions_->emplace_back(std::forward<Make>(make)());
-    } else if (system_tx) {
-      AddSystemAction(*system_tx, std::forward<Make>(make)());
-    }
+    if (system_tx) AddSystemAction(*system_tx, std::forward<Make>(make)());
   }
 
   // system::Transaction is only forward-declared here, so the push itself lives in the .cpp.
   static void AddSystemAction(system::Transaction &system_tx, std::unique_ptr<system::ISystemAction> action);
 
-  // Storage dispatch helpers: route through overlay when active, otherwise direct to storage_
-  std::optional<std::string> StorageGet(std::string_view key) const {
-    return overlay_ ? overlay_->Get(key) : storage_.Get(key);
-  }
+  // Storage access. `storage_` routes to the durable KVStore or to a transaction's overlay; Auth cannot tell which.
+  std::optional<std::string> StorageGet(std::string_view key) const { return storage_.Get(key); }
 
-  bool StoragePut(std::string_view key, std::string_view value) {
-    if (overlay_) {
-      overlay_->Put(key, value);
-      return true;
-    }
-    return storage_.Put(key, value);
-  }
+  bool StoragePut(std::string_view key, std::string_view value) { return storage_.Put(key, value); }
 
-  bool StoragePutMultiple(std::map<std::string, std::string> const &items) {
-    if (overlay_) return overlay_->PutMultiple(items);
-    return storage_.PutMultiple(items);
-  }
+  bool StoragePutMultiple(std::map<std::string, std::string> const &items) { return storage_.PutMultiple(items); }
 
   bool StoragePutAndDeleteMultiple(std::map<std::string, std::string> const &puts,
                                    std::vector<std::string> const &deletes) {
-    if (overlay_) {
-      overlay_->PutAndDeleteMultiple(puts, deletes);
-      return true;
-    }
     return storage_.PutAndDeleteMultiple(puts, deletes);
   }
 
-  bool StorageDelete(std::string_view key) {
-    if (overlay_) {
-      overlay_->Delete(key);
-      return true;
-    }
-    return storage_.Delete(key);
-  }
+  bool StorageDelete(std::string_view key) { return storage_.Delete(key); }
 
-  bool StorageDeleteMultiple(std::vector<std::string> const &keys) {
-    if (overlay_) return overlay_->DeleteMultiple(keys);
-    return storage_.DeleteMultiple(keys);
-  }
+  bool StorageDeleteMultiple(std::vector<std::string> const &keys) { return storage_.DeleteMultiple(keys); }
 
-  size_t StorageSize(std::string const &prefix = "") const {
-    return overlay_ ? overlay_->Size(prefix) : storage_.Size(prefix);
-  }
+  size_t StorageSize(std::string const &prefix = "") const { return storage_.Size(prefix); }
 
   // Fn receives std::pair<std::string, std::string> const &
   template <typename Fn>
   void StorageForEach(std::string const &prefix, Fn &&fn) const {
-    if (overlay_) {
-      for (auto it = overlay_->begin(prefix); it != overlay_->end(prefix); ++it) fn(*it);
-    } else {
-      for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) fn(*it);
-    }
+    storage_.ForEach(prefix, std::forward<Fn>(fn));
   }
 
   // Returns true on first match; short-circuits.
   template <typename Pred>
   bool StorageAnyOf(std::string const &prefix, Pred &&pred) const {
-    if (overlay_) {
-      for (auto it = overlay_->begin(prefix); it != overlay_->end(prefix); ++it) {
-        if (pred(*it)) return true;
-      }
-    } else {
-      for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
-        if (pred(*it)) return true;
-      }
-    }
-    return false;
+    return storage_.AnyOf(prefix, std::forward<Pred>(pred));
   }
 
-  bool StorageHasAny(std::string const &prefix) const {
-    return StorageAnyOf(prefix, [](auto const &) { return true; });
-  }
+  bool StorageHasAny(std::string const &prefix) const { return storage_.HasAny(prefix); }
 
   /**
    * Returns whether the prerequisites for authentication aided by external module are met:
@@ -663,9 +592,11 @@ class Auth final {
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
-  kvstore::KVStore storage_;
-  mutable AtomicAuthOverlay *overlay_{nullptr};
-  PendingActions *pending_actions_{nullptr};
+  kvstore::KVStore durability_;
+
+  // Everything below reaches storage through this handle, never `durability_` directly, so an auth transaction can
+  // point it at an overlay instead. Auth itself has no idea which it holds.
+  AuthStorage storage_{durability_};
 #ifdef MG_ENTERPRISE
   UserProfiles user_profiles_{storage_};
   utils::ResourceMonitoring *user_resources_;
