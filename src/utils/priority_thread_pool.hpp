@@ -12,8 +12,10 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -25,6 +27,7 @@
 #include "utils/scheduler.hpp"
 
 namespace memgraph::utils {
+
 // Thread-safe mask that returns the position of first set bit
 class HotMask {
  public:
@@ -51,6 +54,11 @@ class HotMask {
   // Returns the position of the first set bit and resets it
   std::optional<uint16_t> GetHotElement();
 
+  // Non-destructive: true iff any group mask is set (at least one idle worker).
+  // Used by ShouldParkAdmission to avoid the destructive GetHotElement when only a
+  // park-vs-continue decision is needed.
+  bool AnySet() const noexcept;
+
  private:
   static constexpr auto kGroupSize = sizeof(uint64_t) * 8;  // bits
   static constexpr auto kGroupMask = kGroupSize - 1;
@@ -69,6 +77,24 @@ class HotMask {
   const uint16_t n_elements_;
 #endif
   const uint16_t n_groups_;
+};
+
+// Resource discriminant for parked admission wait tags.
+enum class WaitResource : uint8_t { MainLock, CommitLock };
+
+// Access mode carried with a park tag for future per-mode narrowing; not consulted by wake yet.
+enum class AccessMode : uint8_t { READ, WRITE, READ_ONLY, UNIQUE };
+
+// Tag attached to a parked admission identifying which resource it is blocked on.
+struct WaitTag {
+  WaitResource resource;
+  AccessMode mode;
+};
+
+// Passed to WakeMatching to identify which resource was just freed.
+struct FreedTag {
+  WaitResource resource;
+  AccessMode freed;
 };
 
 using TaskSignature = std::move_only_function<void(utils::Priority)>;
@@ -137,7 +163,12 @@ class PriorityThreadPool {
 
   void ShutDown();
 
-  void ScheduledAddTask(TaskSignature new_task, Priority priority);
+  TaskID ScheduledAddTask(TaskSignature new_task, Priority priority, bool productive = true);
+
+  // Place-keeping re-post: reuses the original id so a rescheduled admission keeps its FIFO
+  // position instead of going behind newer arrivals. productive=false so it does not feed the
+  // reschedule gate.
+  TaskID ScheduledReAddTask(TaskSignature task, TaskID id, Priority priority, bool productive = false);
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
@@ -150,6 +181,30 @@ class PriorityThreadPool {
   uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
+
+  // True iff the pool has queued productive (non-admission) tasks. Reads productive_pending_ via
+  // relaxed atomic; used to gate admission reschedule — admission re-posts are non-productive and
+  // do not increment the counter, so a pure-admission storm cannot hold the gate open.
+  bool HasPendingWork() const noexcept;
+
+  // Park a blocked admission continuation aside (0 CPU) until a wake re-injects it.
+  // PRECONDITION (not asserted): must NOT be called while holding any Worker::mtx_ —
+  // the session continuation that calls this runs outside any worker lock.
+  void ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline, WaitTag tag);
+
+  // True iff parking the calling admission would let real work run. Yields the core only when
+  // there is productive work queued AND no idle worker to take it.
+  bool ShouldParkAdmission() const noexcept;
+
+  // Re-inject every parked admission whose tag.resource matches freed.resource. Conservative
+  // per-resource wake: mode is not consulted yet. A woken-but-still-blocked task re-parks —
+  // bounded by kMaxReparks in test harness; place-kept ids maintain FIFO order.
+  // Lock order: parked_mtx_ released BEFORE calling ScheduledReAddTask (which takes Worker::mtx_).
+  void WakeMatching(FreedTag freed);
+
+  // True while ShutDown is draining parked admissions. The session driver reads this to terminate
+  // a woken admission with a shutdown error instead of re-parking it (wired in a later unit).
+  bool IsDrainingAdmissions() const noexcept { return draining_admissions_.load(std::memory_order_acquire); }
 
   // Single worker implementation
   class Worker {
@@ -165,11 +220,12 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+      bool productive{true};       // false for admission retries; excluded from productive_pending_
 
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, TaskID id);
+    void push(TaskSignature new_task, TaskID id, bool productive = true);
 
     void stop();
 
@@ -188,10 +244,27 @@ class PriorityThreadPool {
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
 
+    // Pool-owned counter; set once after construction, never null at task time.
+    std::atomic<int64_t> *productive_pending_{nullptr};
+
     friend class PriorityThreadPool;
   };
 
  private:
+  struct ParkedAdmission {
+    TaskID id;
+    mutable TaskSignature task;  // mutable: moved out of the deque even via const ref
+    std::chrono::steady_clock::time_point deadline;
+    WaitTag tag;
+  };
+
+  std::mutex parked_mtx_;
+  std::deque<ParkedAdmission> parked_admissions_;  // FIFO: push_back to park, front = oldest
+  std::atomic_bool draining_admissions_{false};    // true while ShutDown drains → drop new parks
+  // Maintained under parked_mtx_: true while deque is non-empty.
+  // WakeMatching fast-path reads relaxed; a false-negative is fine (monitor sweep backstop covers it).
+  std::atomic<bool> has_parked_{false};
+
   std::stop_source pool_stop_source_;
 
   std::vector<std::unique_ptr<Worker>> workers_;  // Mixed work threads
@@ -204,6 +277,10 @@ class PriorityThreadPool {
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+
+  // Counts queued productive tasks (excludes admission retries). Increment in push, decrement at
+  // every pop that does not re-push. May be positive at shutdown for unrun tasks — irrelevant to the gate.
+  alignas(64) std::atomic<int64_t> productive_pending_{0};
 };
 
 class CollectionScheduler {
