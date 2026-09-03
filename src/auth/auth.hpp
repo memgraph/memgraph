@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <regex>
@@ -29,6 +31,7 @@
 
 namespace memgraph::system {
 struct Transaction;
+struct ISystemAction;
 }  // namespace memgraph::system
 
 namespace memgraph::auth {
@@ -515,6 +518,13 @@ class Auth final {
     return true;
   }
 
+  using PendingActions = std::list<std::unique_ptr<system::ISystemAction>>;
+
+  /// Collect replication actions here instead of adding them to a system transaction. An auth transaction has no
+  /// system transaction while its statements run: one is created at COMMIT and these are moved into it, so the
+  /// system mutex is held only for the flush rather than the transaction's lifetime.
+  void SetPendingActions(PendingActions *actions) { pending_actions_ = actions; }
+
  private:
   /**
    * @brief
@@ -531,6 +541,21 @@ class Auth final {
   void UpdateEpoch() {
     if (!overlay_) ++epoch_;
   }
+
+  // Routes a replication action to the pending list when an auth transaction is collecting them, otherwise to the
+  // system transaction as before. `make` runs only when something will consume the action, so no caller pays to
+  // build one that would be dropped.
+  template <typename Make>
+  void AddAuthAction(system::Transaction *system_tx, Make &&make) {
+    if (pending_actions_) {
+      pending_actions_->emplace_back(std::forward<Make>(make)());
+    } else if (system_tx) {
+      AddSystemAction(*system_tx, std::forward<Make>(make)());
+    }
+  }
+
+  // system::Transaction is only forward-declared here, so the push itself lives in the .cpp.
+  static void AddSystemAction(system::Transaction &system_tx, std::unique_ptr<system::ISystemAction> action);
 
   // Storage dispatch helpers: route through overlay when active, otherwise direct to storage_
   std::optional<std::string> StorageGet(std::string_view key) const {
@@ -640,6 +665,7 @@ class Auth final {
   // more than one operation on the storage.
   kvstore::KVStore storage_;
   mutable AtomicAuthOverlay *overlay_{nullptr};
+  PendingActions *pending_actions_{nullptr};
 #ifdef MG_ENTERPRISE
   UserProfiles user_profiles_{storage_};
   utils::ResourceMonitoring *user_resources_;
