@@ -21,6 +21,16 @@
 
 #include "storage/v2/access_type.hpp"
 
+#include "gflags/gflags.h"
+// S2e admission tuning knobs (startup flags; defined in SessionHL.cpp). K1/K2 = bounded-try budgets,
+// B1 = fall back to a blocking admission when the pool has no other productive work to yield to.
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(admission_try_budget_busy_us);
+DECLARE_uint64(admission_try_budget_idle_us);
+DECLARE_bool(admission_block_when_no_work);
+
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+
 namespace memgraph::glue {
 using bolt_value_t = memgraph::communication::bolt::Value;
 using bolt_map_t = memgraph::communication::bolt::map_t;
@@ -166,10 +176,15 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // True iff the pool has other queued work a freed worker could run. Gates reschedule-vs-block.
   bool PoolHasPendingWork() const noexcept { return worker_pool_ != nullptr && worker_pool_->HasPendingWork(); }
 
-  // Never-block: READ/WRITE admission always uses TryBounded so this worker never sleeps behind a commit's
+  // Never-block: READ/WRITE admission uses TryBounded so this worker never sleeps behind a commit's
   // durability hold. The F1 guard in InterpretPrepare/BeginTransaction still forces Blocking for disk /
   // UNIQUE / READ_ONLY paths. The finite deadline (AdmissionDeadline) is the only non-success terminator.
-  storage::EngineLockMode AdmissionEngineLockMode() const noexcept { return storage::EngineLockMode::TryBounded; }
+  // B1: when admission_block_when_no_work is set, fall back to Blocking if there is nothing productive to
+  // yield to -- a bounded-try+reschedule then only churns (see RW-fast/UNIQ_RO), so a plain block is better.
+  storage::EngineLockMode AdmissionEngineLockMode() const noexcept {
+    if (FLAGS_admission_block_when_no_work && !PoolHasPendingWork()) return storage::EngineLockMode::Blocking;
+    return storage::EngineLockMode::TryBounded;
+  }
 
   // Wall-clock terminal for a never-block admission — reuses storage_access_timeout_sec (finite; grounded
   // in MySQL innodb_lock_wait_timeout / CockroachDB lock_timeout — never infinite).
@@ -178,7 +193,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // Short budget when the pool has work to yield to (reschedule fast); longer when quiet (wait in-place,
   // fewer wasted re-dispatches).
   std::chrono::microseconds AdmissionTryBudget() const noexcept {
-    return PoolHasPendingWork() ? std::chrono::microseconds{2} : std::chrono::microseconds{64};
+    return std::chrono::microseconds{PoolHasPendingWork() ? FLAGS_admission_try_budget_busy_us
+                                                          : FLAGS_admission_try_budget_idle_us};
   }
 
  private:

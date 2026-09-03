@@ -11713,18 +11713,24 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
-  // Only a commit with (meta)deltas takes engine_lock_ (PrepareForCommitPhase short-circuits an empty one);
-  // that hold is what a stalled writer keeps across replication, blocking admissions. Capture it before the
-  // commit so we can wake parked admissions once it releases.
+  // Requested mode BEFORE the commit releases main_lock_. original_access_type() (not type()) survives a
+  // READ_ONLY->READ downgrade and the post-commit release, so it reliably says what this txn held.
+  auto const acc_type = current_db_.db_transactional_accessor_->original_access_type();
   bool const took_engine_lock = !curr_txn->deltas.empty() || !curr_txn->md_deltas.empty();
   auto maybe_commit_error =
       current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
-  // The commit released engine_lock_ (whatever its outcome): wake all parked admissions so blocked
-  // BEGIN/PREPARE retry immediately instead of waiting for the pool monitor tick (S2e B3, full drain).
-  if (took_engine_lock && interpreter_context_->worker_pool != nullptr) {
+  // Wake parked admissions only when this commit could actually free one: it released engine_lock_
+  // (took_engine_lock -- blocks EVERY BEGIN admission), or it released a UNIQUE / READ_ONLY hold on
+  // main_lock_ (UNIQUE excludes all; READ_ONLY excludes WRITE). A plain READ/WRITE commit that took no
+  // engine_lock_ excludes nobody on main_lock_, so skip it -- that keeps read-heavy workloads off the
+  // global parked_mtx_. Coarse on purpose: wake ALL parked (still-blocked ones re-park) rather than race
+  // on ro_count==0. TODO: once each park records what it waits on, wake only the matching subset.
+  if ((took_engine_lock || acc_type == storage::StorageAccessType::UNIQUE ||
+       acc_type == storage::StorageAccessType::READ_ONLY) &&
+      interpreter_context_->worker_pool != nullptr) {
     interpreter_context_->worker_pool->WakeAllParked();
   }
 

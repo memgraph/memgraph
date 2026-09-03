@@ -51,6 +51,19 @@
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
+// S2e admission tuning knobs (startup flags). Declared in SessionHL.hpp; read in AdmissionTryBudget /
+// AdmissionEngineLockMode. Defaults reproduce the shipped S2e behaviour (2µs busy / 64µs idle / never block).
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(admission_try_budget_busy_us, 2,
+              "S2e admission: bounded-try lock budget (microseconds) when the pool has other work to yield to.");
+DEFINE_uint64(admission_try_budget_idle_us, 64,
+              "S2e admission: bounded-try lock budget (microseconds) when the pool is otherwise idle.");
+DEFINE_bool(admission_block_when_no_work, false,
+            "S2e admission: if true, take a blocking admission (pre-S2e behaviour) instead of never-blocking "
+            "when the pool has no other productive work to yield to.");
+
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+
 namespace {
 
 #ifdef MG_ENTERPRISE
