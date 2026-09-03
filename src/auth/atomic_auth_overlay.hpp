@@ -35,7 +35,7 @@ class AtomicAuthOverlay {
  public:
   explicit AtomicAuthOverlay(kvstore::KVStore &base);
 
-  std::optional<std::string> Get(std::string_view key);
+  std::optional<std::string> Get(std::string_view key) const;
 
   void Put(std::string_view key, std::string_view value);
 
@@ -64,11 +64,11 @@ class AtomicAuthOverlay {
 
    private:
     friend class AtomicAuthOverlay;
-    iterator(AtomicAuthOverlay *overlay, std::string prefix, bool at_end);
+    iterator(AtomicAuthOverlay const *overlay, std::string prefix, bool at_end);
 
     void Advance();
 
-    AtomicAuthOverlay *overlay_;
+    AtomicAuthOverlay const *overlay_;
     std::string prefix_;
 
     kvstore::KVStore::iterator base_it_;
@@ -80,8 +80,8 @@ class AtomicAuthOverlay {
     bool at_end_{false};
   };
 
-  iterator begin(std::string const &prefix);
-  iterator end(std::string const &prefix);
+  iterator begin(std::string const &prefix) const;
+  iterator end(std::string const &prefix) const;
 
   /// Validate read-set against base and flush write-set.
   /// Returns true on success, false on conflict (base untouched).
@@ -90,8 +90,9 @@ class AtomicAuthOverlay {
  private:
   kvstore::KVStore &base_;
 
-  /// key -> value at snapshot time (nullopt = did not exist)
-  std::map<std::string, std::optional<std::string>, std::less<>> read_set_;
+  /// key -> value at snapshot time (nullopt = did not exist). Mutable because recording a read is bookkeeping for
+  /// conflict detection, not observable state: reads stay logically const so Auth's query methods can too.
+  mutable std::map<std::string, std::optional<std::string>, std::less<>> read_set_;
 
   /// key -> new value (nullopt = tombstone)
   std::map<std::string, std::optional<std::string>, std::less<>> write_set_;
