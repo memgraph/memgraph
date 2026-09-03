@@ -21,6 +21,7 @@ target_sources(mg-utils
     async_timer.cpp
     base64.cpp
     crc_accumulator.cpp
+    download_temp_file.cpp
     file.cpp
     file_locker.cpp
     file_owner.cpp

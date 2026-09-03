@@ -9,10 +9,106 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import multiprocessing
 import sys
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 from common import connect, execute_and_fetch_all, get_file_path
+
+# Long enough that a slow machine still gets the transfer under way before the abort is due, since
+# an abort landing first would prove nothing about a download.
+QUERY_TIMEOUT_SECONDS = 5
+TRICKLE_STEP_BYTES = 8
+TRICKLE_STEP_SECONDS = 0.25
+
+
+def _serve_until_released(body: bytes, ports, sent, release):
+    """Announces the length of `body`, hands over a fraction of it, then stops sending."""
+    # Far short of the announced length, so no amount of waiting completes the transfer.
+    limit = len(body) // 2
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                while sent.value < limit and not release.is_set():
+                    chunk = body[sent.value : sent.value + TRICKLE_STEP_BYTES]
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                    sent.value += len(chunk)
+                    time.sleep(TRICKLE_STEP_SECONDS)
+                release.wait()
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the client gave up, which is what this test is about
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    ports.put(server.server_port)
+    server.serve_forever()
+
+
+def serve_a_transfer_that_never_finishes(body: bytes):
+    """Starts the server of `_serve_until_released` in a process of its own.
+
+    Returns the process, its port, an event that releases the held connection, and a count of the
+    bytes handed over.
+    """
+    ports = multiprocessing.Queue()
+    sent = multiprocessing.Value("i", 0)
+    release = multiprocessing.Event()
+    server = multiprocessing.Process(target=_serve_until_released, args=(body, ports, sent, release), daemon=True)
+    server.start()
+    return server, ports.get(timeout=30), release, sent
+
+
+def _load_and_report(url: str, outcome):
+    try:
+        cursor = connect(host="localhost", port=7687).cursor()
+        execute_and_fetch_all(cursor, f"LOAD PARQUET FROM '{url}' AS row CREATE (n:N {{id: row.id}})")
+        outcome.put(("completed", ""))
+    except Exception as e:
+        outcome.put(("error", str(e)))
+
+
+def test_a_download_that_cannot_finish_is_stopped_by_an_abort():
+    with open(get_file_path("nodes_100.parquet"), "rb") as fixture:
+        body = fixture.read()
+    server, port, release, sent = serve_a_transfer_that_never_finishes(body)
+    url = f"http://127.0.0.1:{port}/nodes_100.parquet"
+
+    cursor = connect(host="localhost", port=7687).cursor()
+    previous_timeout = dict(execute_and_fetch_all(cursor, "SHOW DATABASE SETTINGS"))["query.timeout"]
+    execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'query.timeout' TO '{QUERY_TIMEOUT_SECONDS}'")
+
+    # The client blocks in a driver call that holds the interpreter lock for as long as the load
+    # runs, so this waits on a process rather than a thread. A thread would leave nothing here able
+    # to run, including the wait meant to bound it.
+    outcome = multiprocessing.Queue()
+    loader = multiprocessing.Process(target=_load_and_report, args=(url, outcome), daemon=True)
+    loader.start()
+    try:
+        # The transfer is checked for an abort as it runs, so the load ends on the query timeout
+        # rather than on the bytes it is waiting for, which never arrive.
+        loader.join(timeout=60.0)
+        assert not loader.is_alive(), "the load kept waiting on a transfer that can never finish"
+        assert sent.value > 0, "the download never reached the server"
+        result, message = outcome.get(timeout=10.0)
+        assert result == "error", f"expected the load to fail, got {result}"
+        assert "abort" in message.lower(), message
+    finally:
+        release.set()
+        loader.terminate()
+        loader.join(timeout=10.0)
+        server.terminate()
+        server.join(timeout=10.0)
+        execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'query.timeout' TO '{previous_timeout}'")
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
 
 def test_non_existing_file_err_ms():

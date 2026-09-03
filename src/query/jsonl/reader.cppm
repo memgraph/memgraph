@@ -11,7 +11,9 @@
 
 module;
 
+#include <cstddef>
 #include <functional>
+#include <optional>
 #include <string>
 
 #include "query/typed_value.hpp"
@@ -23,10 +25,14 @@ export module memgraph.query.jsonl.reader;
 export namespace memgraph::query {
 using Row = TypedValue::TMap;
 
+/// How much of the source is held in memory while parsing. A document larger than this grows the
+/// buffer for as long as that document is being read.
+inline constexpr std::size_t kDefaultJsonlChunkSize = 1U << 20U;
+
 class JsonlReader {
  public:
   explicit JsonlReader(std::string file, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
-                       std::function<void()> abort_check);
+                       std::function<void()> abort_check, std::size_t chunk_size = kDefaultJsonlChunkSize);
   ~JsonlReader();
 
   JsonlReader(JsonlReader const &other) = delete;

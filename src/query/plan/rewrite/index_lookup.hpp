@@ -204,8 +204,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         db_(db),
         index_hints_(std::move(index_hints)),
         parameters_(parameters),
-        inherited_bound_symbols_(std::move(inherited_bound_symbols)),
-        order_by_eliminator_(db, prev_ops_, parallel_execution) {}
+        order_by_eliminator_(db, prev_ops_, parallel_execution),
+        inherited_bound_symbols_(std::move(inherited_bound_symbols)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
