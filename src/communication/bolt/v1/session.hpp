@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <concepts>
 #include <optional>
 
@@ -167,6 +168,13 @@ class Session {
         return true;  // more data to process
       }
 
+      if (state_ == State::PendingBegin) {
+        // BEGIN (or RUN-as-first-query) would block on main_lock_; the pool driver
+        // (PostFinishPendingBegin) parks this worker under MainLock and retries on wake.
+        // Stop the dechunk loop so a pipelined message can't run before the accessor is acquired.
+        return true;  // more data to process
+      }
+
       if (state_ == State::Close) [[unlikely]] {
         // State::Close is handled here because we always want to check for
         // it after the above select. If any of the states above return a
@@ -275,6 +283,96 @@ class Session {
     }
   }
 
+  // True while a BEGIN / RUN-as-first-query is parked waiting for main_lock_.
+  bool HasPendingBegin() const { return pending_begin_; }
+
+  // Record that HandlePrepare (RUN-first-query) threw BeginWouldBlockException; the pool driver
+  // retries via HandlePrepare on wake (which re-runs InterpretPrepare and sends the header).
+  void StashPendingBeginPrepare(std::chrono::steady_clock::time_point deadline) {
+    pending_begin_ = true;
+    pending_begin_from_message_ = false;
+    pending_begin_deadline_ = deadline;
+  }
+
+  // Record that HandleBegin (explicit BEGIN message) threw BeginWouldBlockException; the pool
+  // driver retries by calling BeginTransaction(pending_begin_extra_) + MessageSuccess({}) on wake.
+  // Configure() has already run so only the BeginTransaction call is repeated.
+  void StashPendingBeginMessage(map_t extra, std::chrono::steady_clock::time_point deadline) {
+    pending_begin_ = true;
+    pending_begin_from_message_ = true;
+    pending_begin_extra_ = std::move(extra);
+    pending_begin_deadline_ = deadline;
+  }
+
+  // Finite deadline carried from BeginWouldBlockException; used by PostFinishPendingBegin to
+  // pass to ParkAdmission (MUST NOT be time_point::max — that would bypass the BEGIN timeout).
+  std::chrono::steady_clock::time_point PendingBeginDeadline() const { return pending_begin_deadline_; }
+
+  // Pool-side retry of a BEGIN / RUN-as-first-query that threw BeginWouldBlockException.
+  //
+  // RUN origin: re-runs HandlePrepare (InterpretPrepare + header send). On another
+  // BeginWouldBlockException, HandlePrepare's catch re-stashes and returns PendingBegin →
+  // Reschedule returned here. On success → Result state → Done.
+  //
+  // BEGIN-message origin: re-runs BeginTransaction(pending_begin_extra_) + MessageSuccess({}).
+  // On another BeginWouldBlockException, returns Reschedule without re-stashing (pending_begin_
+  // stays true and pending_begin_extra_ is retained — re-stashing would self-move the map).
+  // On success → Idle state → Done.
+  //
+  // FLAG (re-Prepare safety): InterpretPrepare enters SetupDatabaseTransaction BEFORE any
+  // storage-mutating work; the BeginWouldBlockException is thrown there so nothing non-idempotent
+  // has occurred. Re-running HandlePrepare is therefore safe.
+  template <typename TImpl>
+    requires requires(TImpl &impl) {
+      { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
+    }
+  PendingBeginOutcome FinishPendingBegin_(TImpl &impl) {
+    MG_ASSERT(pending_begin_, "FinishPendingBegin_ called without a stashed pending begin");
+    memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
+
+    if (pending_begin_from_message_) {
+      // Explicit-transaction BEGIN message retry: Configure already ran, only BeginTransaction is
+      // repeated. On success send MessageSuccess({}) and transition to Idle (no cursor needed).
+      try {
+        impl.BeginTransaction(pending_begin_extra_);
+        if (!encoder_.MessageSuccess({})) {
+          state_ = State::Close;
+          pending_begin_ = false;
+          return PendingBeginOutcome::ClientError;
+        }
+        state_ = State::Idle;
+        pending_begin_ = false;
+        return PendingBeginOutcome::Done;
+      } catch (const memgraph::query::BeginWouldBlockException &) {
+        // main_lock_ still contended; deadline is retained in pending_begin_deadline_.
+        // Do NOT re-stash: pending_begin_ is already true and pending_begin_extra_ must be kept.
+        return PendingBeginOutcome::Reschedule;
+      } catch (const std::exception &e) {
+        // Deadline expired (access-timeout) or other unrecoverable error; send bolt FAILURE.
+        state_ = HandleFailure(impl, e);
+        pending_begin_ = false;
+        return PendingBeginOutcome::ClientError;
+      }
+    }
+
+    // RUN origin: re-run HandlePrepare. On BeginWouldBlockException, HandlePrepare's catch
+    // calls StashPendingBeginPrepare and returns State::PendingBegin → Reschedule here.
+    state_ = HandlePrepare(impl);
+    switch (state_) {
+      case State::PendingBegin:
+        // BeginWouldBlockException thrown again; HandlePrepare re-stashed pending_begin_.
+        return PendingBeginOutcome::Reschedule;
+      case State::Result:
+        // InterpretPrepare succeeded; header sent by HandlePrepare.
+        pending_begin_ = false;
+        return PendingBeginOutcome::Done;
+      default:
+        // State::Error or State::Close: HandleFailure sent the bolt error response.
+        pending_begin_ = false;
+        return PendingBeginOutcome::ClientError;
+    }
+  }
+
   // TODO: Rethink if there is a way to hide some members. At the momement all of them are public.
   TInputStream &input_stream_;
   TOutputStream &output_stream_;
@@ -326,6 +424,19 @@ class Session {
   // Arguments from the original PULL stashed so FinishPendingCommit_ can retry without re-decoding.
   std::optional<int> pending_commit_n_{};
   std::optional<int> pending_commit_qid_{};
+
+  // Set when HandlePrepare or HandleBegin catches BeginWouldBlockException; cleared when the
+  // pool-side retry completes (Done) or fails unrecoverably (ClientError / deadline expired).
+  bool pending_begin_{false};
+  bool pending_begin_from_message_{false};  // true = retry via BeginTransaction(); false = via HandlePrepare
+
+  // Extra map from the original BEGIN message (needed to re-run BeginTransaction on wake).
+  // Only meaningful when pending_begin_from_message_ == true.
+  map_t pending_begin_extra_{};
+
+  // Finite deadline carried from BeginWouldBlockException; passed to ParkAdmission so the park
+  // respects the user-configured storage-access timeout.
+  std::chrono::steady_clock::time_point pending_begin_deadline_{};
 
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)

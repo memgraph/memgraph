@@ -69,6 +69,17 @@ enum class State : uint8_t {
    * completes or fails permanently.
    */
   PendingCommit,
+
+  /**
+   * A BEGIN message (or RUN-as-first-query) whose SetupDatabaseTransaction()
+   * returned BeginWouldBlockException — main_lock_ is held by a DDL/UNIQUE/
+   * READ_ONLY holder. The bolt driver parks this pool worker under
+   * WaitResource::MainLock until the finite storage-access deadline and retries
+   * on wake. Nothing is sent to the client until the accessor is acquired or
+   * the deadline expires (whereupon the ordinary access-timeout exception is
+   * thrown by the query layer).
+   */
+  PendingBegin,
 };
 
 // Outcome of a single FinishPendingCommit_ attempt: the commit acquired commit_mutex_ and the SUCCESS
@@ -76,4 +87,10 @@ enum class State : uint8_t {
 // (ClientError — encoder write failure or unrecoverable exception). Lives here (not session.hpp) so the
 // v2 session driver can name it without pulling in the whole bolt Session header.
 enum class PendingCommitOutcome : uint8_t { Reschedule, Done, ClientError };
+
+// Outcome of a single FinishPendingBegin_ attempt: main_lock_ was acquired and the query resumed
+// (Done), must be re-tried (Reschedule), or the connection should be torn down (ClientError —
+// deadline expired / encoder write failure / unrecoverable exception). Lives here so the v2 session
+// driver can name it without pulling in the whole bolt Session header.
+enum class PendingBeginOutcome : uint8_t { Reschedule, Done, ClientError };
 }  // namespace memgraph::communication::bolt
