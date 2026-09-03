@@ -39,7 +39,6 @@
 namespace memgraph::storage {
 class InMemoryStorage;
 
-namespace {
 [[noreturn]] void ThrowAccessTimeout(StorageAccessType rw_type) {
   switch (rw_type) {
     using enum StorageAccessType;
@@ -56,8 +55,6 @@ namespace {
       LOG_FATAL("NO_ACCESS names the absence of a hold; there is nothing to time out acquiring");
   }
 }
-
-}  // namespace
 
 utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
                                              std::optional<std::chrono::milliseconds> timeout) {

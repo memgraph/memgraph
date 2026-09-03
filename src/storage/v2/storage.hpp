@@ -377,6 +377,28 @@ class Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level);
   std::unique_ptr<Accessor> ReadOnlyAccess();
 
+  /// Handle for a single in-flight non-blocking BEGIN attempt.  Encapsulates the pending-scope
+  /// registration (for UNIQUE / READ_ONLY) so the query layer never touches main_lock_ directly.
+  struct PendingAccess {
+    virtual ~PendingAccess() = default;
+    /// One non-blocking probe.  Returns the built accessor if main_lock_ now admits the requested
+    /// mode, else nullptr (still registered pending — call again on the next wake).
+    /// Never blocks, never throws.
+    virtual std::unique_ptr<Accessor> TryAcquire(std::optional<IsolationLevel> override_isolation_level) = 0;
+  };
+
+  /// Returns a PendingAccess for non-blocking BEGIN retry, or nullptr when the storage backend does
+  /// not support non-blocking acquisition (DiskStorage keeps this default → caller must block).
+  virtual std::unique_ptr<PendingAccess> MakePendingAccess(StorageAccessType /*rw_type*/) { return nullptr; }
+
+  /// Non-blocking single-probe accessor acquisition: returns the accessor if main_lock_ admits the
+  /// mode right now, else nullptr. Grants no priority (one probe). DiskStorage keeps this default
+  /// (no probe → a poller learns to block instead of spinning); InMemoryStorage overrides it.
+  virtual std::unique_ptr<Accessor> TryAccess(StorageAccessType /*rw_type*/,
+                                              std::optional<IsolationLevel> /*override_isolation_level*/ = {}) {
+    return nullptr;
+  }
+
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
@@ -559,6 +581,10 @@ inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
   }
   return os;
 }
+
+/// Throws the timeout exception for the given access mode (UniqueAccessTimeout, ReadOnlyAccessTimeout,
+/// or SharedAccessTimeout). Used by AcquireGuardOrThrow and the non-blocking BEGIN park driver.
+[[noreturn]] void ThrowAccessTimeout(StorageAccessType rw_type);
 
 /// Acquires `main_lock_` in the mode `rw_type` names. Blocks indefinitely without a timeout; with
 /// one, throws the timeout exception belonging to that mode.
