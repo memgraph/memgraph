@@ -143,8 +143,8 @@ startup_config_dict = {
         "IP address on which the Memgraph server for exposing metrics should listen.",
     ),
     "metrics_format": (
-        "JSON",
-        "JSON",
+        "OpenMetrics",
+        "OpenMetrics",
         "Format for the metrics endpoint. Supported values: OpenMetrics, JSON. JSON is deprecated.",
     ),
     "metrics_port": ("9091", "9091", "Port on which the Memgraph server for exposing metrics should listen."),

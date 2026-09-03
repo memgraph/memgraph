@@ -4,8 +4,8 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_monitoring() {
   echo "FEATURE: Monitoring"
-  response=$(curl -X GET "http://localhost:$MEMGRAPH_MONITORING_PORT/metrics")
-  if ! echo "$response" | jq -e '.General | has("vertex_count")'; then
+  response=$(curl -s -X GET "http://localhost:$MEMGRAPH_MONITORING_PORT/metrics")
+  if ! grep -qE '^memgraph_vertex_count(\{[^}]*\})? ' <<< "$response"; then
     echo "Monitoring data is missing vertex count."
     exit 1
   fi

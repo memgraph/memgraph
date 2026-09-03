@@ -255,11 +255,6 @@ class MemgraphInstanceRunner:
             "--storage-properties-on-edges",
             f"--storage-snapshot-on-exit={storage_snapshot_on_exit}",
         ]
-        # Default the metrics endpoint to OpenMetrics unless the workload opts out
-        # (e.g. tests that exercise the deprecated JSON format set --metrics-format
-        # explicitly, in which case their value wins).
-        if not any(arg.startswith("--metrics-format") for arg in self.args):
-            default_args.append("--metrics-format=OpenMetrics")
         args_mg = default_args + self.args
 
         if bolt_port:

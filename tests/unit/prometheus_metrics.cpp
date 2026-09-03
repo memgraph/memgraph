@@ -21,7 +21,6 @@
 #include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
-#include "flags/general.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/config.hpp"
@@ -47,7 +46,6 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
 }  // namespace
 
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
-  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
   auto reg = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
 
@@ -60,7 +58,6 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
 }
 
 TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
-  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
   auto db1 = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
   auto db2 = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
@@ -74,7 +71,6 @@ TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
 }
 
 TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
-  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
   memgraph::metrics::StorageSnapshot snapshot{.vertex_count = 7,
                                               .edge_count = 3,
@@ -176,7 +172,6 @@ TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {
 }
 
 TEST(PrometheusMetrics, UpdateGaugesReturnsZeroAfterDefaultDbUuidChange) {
-  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
 
   memgraph::utils::UUID const uuid_a{};
