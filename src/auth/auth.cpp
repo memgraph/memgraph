@@ -489,17 +489,17 @@ Auth::Auth(std::string storage_directory, Config config
            utils::ResourceMonitoring *user_resources
 #endif
            )
-    : storage_(std::move(storage_directory)),
+    : durability_(std::move(storage_directory)),
 #ifdef MG_ENTERPRISE
       user_resources_{user_resources},
 #endif
       config_{std::move(config)} {
   modules_ = PopulateModules(FLAGS_auth_module_mappings);
-  if (storage_.Size() > 0) {
-    MigrateVersions(storage_);
+  if (durability_.Size() > 0) {
+    MigrateVersions(durability_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kStoreVersionKey, kCurrentStoreVersion);
+    durability_.Put(kStoreVersionKey, kCurrentStoreVersion);
   }
 
 #ifdef MG_ENTERPRISE
@@ -1106,7 +1106,7 @@ void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx
     UpdateProfileLimits(name, std::nullopt, *user_resources_);
   }
 
-  if (pending_actions_ || system_tx) {
+  if (system_tx) {
     if (auto const profile = user_profiles_.Get(*profile_name)) {
       AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(*profile); });
     }
