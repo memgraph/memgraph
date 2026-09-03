@@ -190,12 +190,20 @@ class Session {
   // decide DoWork vs DoRead after the commit completes.
   bool HasBufferedData() const { return input_stream_.size() > 0; }
 
-  // Record the PULL arguments so FinishPendingCommit_ can retry without re-decoding.
-  // Called from HandlePullDiscard on a CommitWouldBlockException catch.
+  // Record the PULL arguments so FinishPendingCommit_ can retry via the PULL path without re-decoding.
+  // Called from HandlePullDiscard on a CommitWouldBlockException catch (autocommit / COMMIT-as-query).
   void StashPendingCommit(std::optional<int> n, std::optional<int> qid) {
     pending_commit_ = true;
+    pending_commit_from_message_ = false;
     pending_commit_n_ = n;
     pending_commit_qid_ = qid;
+  }
+
+  // Record that an explicit-transaction COMMIT *message* would-blocked, so FinishPendingCommit_ retries
+  // via CommitTransaction() (not the PULL path). Called from HandleCommit on a CommitWouldBlockException.
+  void StashPendingCommitMessage() {
+    pending_commit_ = true;
+    pending_commit_from_message_ = true;
   }
 
   // Pool-side retry of a Commit() that threw CommitWouldBlockException.
@@ -219,6 +227,28 @@ class Session {
   PendingCommitOutcome FinishPendingCommit_(TImpl &impl) {
     MG_ASSERT(pending_commit_, "FinishPendingCommit_ called without a stashed pending commit");
     memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
+
+    if (pending_commit_from_message_) {
+      // Explicit-transaction COMMIT message retry — mirrors HandleCommit's body. The staged txn is
+      // intact (Commit throws before mutating), so re-running CommitTransaction() is safe.
+      try {
+        if (!encoder_.MessageSuccess(impl.CommitTransaction())) {
+          state_ = State::Close;
+          pending_commit_ = false;
+          return PendingCommitOutcome::ClientError;
+        }
+        state_ = State::Idle;
+        pending_commit_ = false;
+        return PendingCommitOutcome::Done;
+      } catch (const memgraph::query::CommitWouldBlockException &) {
+        StashPendingCommitMessage();  // still contended → park again
+        return PendingCommitOutcome::Reschedule;
+      } catch (const std::exception &e) {
+        state_ = HandleFailure(impl, e);
+        pending_commit_ = false;
+        return PendingCommitOutcome::ClientError;
+      }
+    }
 
     const auto n = pending_commit_n_;
     const auto qid = pending_commit_qid_;
@@ -291,6 +321,7 @@ class Session {
   // Set when HandlePullDiscard catches CommitWouldBlockException; cleared when the pool-side
   // retry completes (Done) or fails unrecoverably (ClientError).
   bool pending_commit_{false};
+  bool pending_commit_from_message_{false};  // true = retry via CommitTransaction(); false = via PULL path
 
   // Arguments from the original PULL stashed so FinishPendingCommit_ can retry without re-decoding.
   std::optional<int> pending_commit_n_{};
