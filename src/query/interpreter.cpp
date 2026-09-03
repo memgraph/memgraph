@@ -11268,6 +11268,19 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
 }
 
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
+  // U3c: lazy install of the main_lock notify hook. Fires once per DB (exchange-guarded inside
+  // TrySetMainLockNotifyHook). Inert when the flag is OFF (IsCommitSerialised() false) or on Disk
+  // storage (no parked MainLock tasks). The load-guard avoids constructing the lambda every BEGIN;
+  // TrySetMainLockNotifyHook's exchange closes the residual load→install TOCTOU race.
+  if (current_db_.db_acc_) {
+    auto *storage = (*current_db_.db_acc_)->storage();
+    if (storage->IsCommitSerialised() && interpreter_context_->worker_pool && !storage->MainLockHookInstalled()) {
+      storage->TrySetMainLockNotifyHook([pool = interpreter_context_->worker_pool] {
+        pool->WakeMatching(
+            utils::FreedTag{.resource = utils::WaitResource::MainLock, .freed = utils::AccessMode::WRITE});
+      });
+    }
+  }
   current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
 }
 

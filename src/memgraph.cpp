@@ -1149,6 +1149,10 @@ int main(int argc, char **argv) {
         spdlog::trace("Closing background tasks and deleting repl clients for db: {}", acc->name());
         // Stop all triggers, streams and ttl
         acc->StopAllBackgroundTasks();
+        // U3c: disarm the main_lock notify hook before the pool is destroyed. worker_pool_->ShutDown()
+        // has already run, so WakeMatching on a still-alive but draining pool is a safe no-op; after
+        // this clear no further hook call can reach the pool.
+        acc->storage()->ClearMainLockNotifyHook();
         acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock(
             [](auto &clients) { clients.clear(); });
       });

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -475,6 +476,27 @@ class Storage {
   // operations on storage that affect the global state, for example index
   // creation.
   mutable utils::ResourceLock main_lock_;
+
+  // U3c: install-once hook that fires WakeMatching({MainLock}) from ResourceLock::maybe_notify.
+  // The boolean exchange makes concurrent first-BEGIN callers on this DB safe. The hook is
+  // cleared before pool destruction (memgraph.cpp shutdown ForEach) so no notify can call
+  // into a dead pool.
+  std::atomic<bool> main_lock_hook_installed_{false};
+
+  bool MainLockHookInstalled() const noexcept { return main_lock_hook_installed_.load(std::memory_order_acquire); }
+
+  // Install once; a second call is a no-op (returns false). The exchange closes the
+  // load→install race between concurrent first-BEGINs on the same DB.
+  bool TrySetMainLockNotifyHook(std::move_only_function<void()> hook) {
+    if (main_lock_hook_installed_.exchange(true, std::memory_order_acq_rel)) return false;
+    main_lock_.SetNotifyHook(std::move(hook));
+    return true;
+  }
+
+  void ClearMainLockNotifyHook() {
+    main_lock_.ClearNotifyHook();
+    main_lock_hook_installed_.store(false, std::memory_order_release);
+  }
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
