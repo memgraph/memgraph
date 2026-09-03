@@ -43,7 +43,7 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
-#include "communication/bolt/v1/state.hpp"  // PendingCommitOutcome (commit-park driver)
+#include "communication/bolt/v1/state.hpp"  // PendingCommitOutcome, PendingBeginOutcome
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
@@ -380,14 +380,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     try {
       // Execute until all data has been read
       while (session_.Execute()) {
-        // Websocket runs the bolt state machine inline on the strand; drive any pending commit to
-        // completion here — the pool resume path (DoWork/DoRead) would remove this connection from
-        // the websocket read loop.  This is a busy-wait for the rare case where commit_mutex_ is
-        // contended; websocket is not the performance-critical transport.
+        // WebSocket runs Bolt inline on the strand; the pool-path (DoWork/DoRead) would exit the
+        // WS read loop, so busy-wait here instead — acceptable: WebSocket is not the hot transport.
         while (session_.HasPendingCommit()) {
           session_.FinishPendingCommit();
         }
-        // Websocket busy-wait for the rare main_lock_ contention case (mirrors PendingCommit above).
         while (session_.HasPendingBegin()) {
           session_.FinishPendingBegin();
         }
@@ -437,18 +434,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         session_.ApproximateQueryPriority());
   }
 
-  // Completes a would-block PULL/DISCARD commit on the pool.
-  //
-  // First attempt (pending_commit_task_id_ == 0): adds to the pool queue and records the id; the
-  // task runs immediately and tries FinishPendingCommit_.  If commit_mutex_ is now free, Done is
-  // returned and we resume DoWork/DoRead.
-  //
-  // On Reschedule (TryLockCommit missed again): re-park under CommitLock so this worker sleeps
-  // until WakeMatching({CommitLock}) fires from inside Interpreter::Commit().  No deadline: a
-  // commit must never be abandoned by timeout — the monitor-sweep backstop in the pool provides
-  // liveness.
-  //
-  // On terminal (Done / ClientError): reset the task id and resume the session.
+  // Parks a would-block PULL/DISCARD commit on the pool under CommitLock, no deadline:
+  // a commit must not be abandoned by timeout; the pool's monitor-sweep provides liveness.
   void PostFinishPendingCommit() {
     auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
       try {
@@ -478,9 +465,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     const auto id = pending_commit_task_id_.load(std::memory_order_relaxed);
     if (id == 0) {
-      // First post: add to queue to get a place-keeping id; one spin-try before parking.
-      // A pool thread that races to Reschedule before the store lands will re-mint its own id —
-      // at most one reschedule misses place-keeping; no correctness impact.
+      // First post: add to queue for a place-keeping id; one spin-try before parking.
+      // A racing Reschedule before the store lands re-mints its own id — no correctness impact.
       pending_commit_task_id_.store(
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
@@ -494,16 +480,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
   }
 
-  // Completes a would-block BEGIN / RUN-as-first-query on the pool.
-  //
-  // Mirrors PostFinishPendingCommit but uses a FINITE deadline (session_.PendingBeginDeadline())
-  // rather than time_point::max, and parks under WaitResource::MainLock (not CommitLock).  The
-  // finite deadline is mandatory: main_lock_ is the BEGIN/DDL-contention path and a max-deadline
-  // park could outlast the monitor backstop, violating the storage-access timeout contract.
-  //
-  // On Reschedule (main_lock_ still contended): re-park under MainLock until woken by the
-  // ResourceLock notify hook (U3a) or the monitor sweep.
-  // On Done / ClientError: reset task id and resume the session (DoWork or DoRead).
+  // Parks a would-block BEGIN on the pool under MainLock with the FINITE storage-access deadline:
+  // unlike commit, main_lock_ contention must time out to honour the storage-access timeout contract.
   void PostFinishPendingBegin() {
     auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
       try {
@@ -666,13 +644,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::atomic_bool execution_active_{false};
 
   // TaskID of the in-flight commit-park continuation; 0 = not yet issued.
-  // Relaxed accesses are safe: a single session has at most one pending commit at a time
-  // and the pool sees it via the task-queue / parked-admissions mechanisms.
+  // Relaxed is safe: one pending commit per session; enqueue/dequeue order provides visibility.
   std::atomic<utils::PriorityThreadPool::TaskID> pending_commit_task_id_{0};
 
-  // TaskID of the in-flight begin-park continuation; 0 = not yet issued.
-  // Same relaxed-access reasoning as pending_commit_task_id_ above: one pending-begin per
-  // session at a time, visible to the pool via the task-queue / parked-admissions mechanisms.
+  // TaskID of the in-flight begin-park continuation; 0 = not yet issued; same relaxed reasoning as above.
   std::atomic<utils::PriorityThreadPool::TaskID> pending_begin_task_id_{0};
 };
 }  // namespace memgraph::communication::v2

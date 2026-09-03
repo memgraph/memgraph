@@ -215,19 +215,8 @@ class Session {
   }
 
   // Pool-side retry of a Commit() that threw CommitWouldBlockException.
-  // Re-runs the exhausted HandlePullDiscard<PULL> path: the cursor is already drained so
-  // Pull() streams 0 rows and only retries Commit().  On another TryLock miss, the specific
-  // CommitWouldBlockException catch in HandlePullDiscard re-stashes and returns PendingCommit
-  // — the pool driver re-parks.  On success, HandlePullDiscard sends the SUCCESS response and
-  // sets state_ = Idle.  Any other exception becomes ClientError (the bolt error was already
-  // sent by HandleFailure inside HandlePullDiscard).
-  //
-  // FLAG (re-Pull safety): commit_mutex_ is try-locked as the FIRST action in Interpreter::Commit()
-  // (interpreter.cpp:11518), before any state mutation.  The cursor has already returned its last
-  // result row and set maybe_res = COMMIT before the first CommitWouldBlockException; a second
-  // Pull() on an exhausted PullPlan/PullPlanVector cursor returns immediately (0 rows, returns
-  // the done signal) so Commit() is the only meaningful work.  The plan_execution_time in the
-  // re-generated summary accumulates a near-zero second elapsed — negligible measurement noise.
+  // FLAG (re-Pull safety): try-lock is Commit()'s first action before any mutation; an
+  // exhausted cursor's second Pull() streams 0 rows so only Commit() re-runs.
   template <typename TImpl>
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
@@ -261,10 +250,8 @@ class Session {
     const auto n = pending_commit_n_;
     const auto qid = pending_commit_qid_;
 
-    // Re-invoke the Pull path.  HandlePullDiscard's specific CommitWouldBlockException catch
-    // re-stashes n/qid and returns PendingCommit on another TryLock miss; any other exception
-    // triggers HandleFailure (bolt Error → ClientError here).  state_ is written by either the
-    // success return (Idle) or by HandleFailure (Error/Close) inside HandlePullDiscard.
+    // Re-invoke the Pull path; HandlePullDiscard's CommitWouldBlockException catch re-stashes
+    // n/qid so State::PendingCommit below means pending_commit_ is already re-set.
     state_ = details::HandlePullDiscard</*is_pull=*/true>(impl, n, qid);
 
     switch (state_) {
@@ -294,9 +281,8 @@ class Session {
     pending_begin_deadline_ = deadline;
   }
 
-  // Record that HandleBegin (explicit BEGIN message) threw BeginWouldBlockException; the pool
-  // driver retries by calling BeginTransaction(pending_begin_extra_) + MessageSuccess({}) on wake.
-  // Configure() has already run so only the BeginTransaction call is repeated.
+  // Record that HandleBegin threw BeginWouldBlockException; Configure() already ran, so the pool
+  // driver retries only BeginTransaction(pending_begin_extra_) + MessageSuccess({}) on wake.
   void StashPendingBeginMessage(map_t extra, std::chrono::steady_clock::time_point deadline) {
     pending_begin_ = true;
     pending_begin_from_message_ = true;
@@ -309,19 +295,8 @@ class Session {
   std::chrono::steady_clock::time_point PendingBeginDeadline() const { return pending_begin_deadline_; }
 
   // Pool-side retry of a BEGIN / RUN-as-first-query that threw BeginWouldBlockException.
-  //
-  // RUN origin: re-runs HandlePrepare (InterpretPrepare + header send). On another
-  // BeginWouldBlockException, HandlePrepare's catch re-stashes and returns PendingBegin →
-  // Reschedule returned here. On success → Result state → Done.
-  //
-  // BEGIN-message origin: re-runs BeginTransaction(pending_begin_extra_) + MessageSuccess({}).
-  // On another BeginWouldBlockException, returns Reschedule without re-stashing (pending_begin_
-  // stays true and pending_begin_extra_ is retained — re-stashing would self-move the map).
-  // On success → Idle state → Done.
-  //
-  // FLAG (re-Prepare safety): InterpretPrepare enters SetupDatabaseTransaction BEFORE any
-  // storage-mutating work; the BeginWouldBlockException is thrown there so nothing non-idempotent
-  // has occurred. Re-running HandlePrepare is therefore safe.
+  // FLAG (re-Prepare safety): BeginWouldBlockException is thrown in SetupDatabaseTransaction
+  // before any storage txn opens, so nothing non-idempotent has run; retry is safe.
   template <typename TImpl>
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;

@@ -382,9 +382,8 @@ class Storage {
   /// registration (for UNIQUE / READ_ONLY) so the query layer never touches main_lock_ directly.
   struct PendingAccess {
     virtual ~PendingAccess() = default;
-    /// One non-blocking probe.  Returns the built accessor if main_lock_ now admits the requested
-    /// mode, else nullptr (still registered pending — call again on the next wake).
-    /// Never blocks, never throws.
+    /// Returns the built accessor if main_lock_ now admits the requested mode, else nullptr
+    /// (still registered pending — call again on the next wake). Never blocks, never throws.
     virtual std::unique_ptr<Accessor> TryAcquire(std::optional<IsolationLevel> override_isolation_level) = 0;
   };
 
@@ -419,10 +418,8 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
-  // EXPERIMENTAL (lock-free-read-snapshot).
-  // Attempt to acquire commit_mutex_ without blocking.  Returns an owning unique_lock on success,
-  // a non-owning (default-constructed) unique_lock when another committer already holds it.
-  // Only meaningful when experimental_lockfree_read_snapshot is ON.
+  // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
+  // Returns an owning lock on success, a non-owning (empty) lock when another committer holds it.
   [[nodiscard]] std::unique_lock<std::mutex> TryCommitLock() noexcept {
     return std::unique_lock<std::mutex>{commit_mutex_, std::try_to_lock};
   }
@@ -477,10 +474,8 @@ class Storage {
   // creation.
   mutable utils::ResourceLock main_lock_;
 
-  // U3c: install-once hook that fires WakeMatching({MainLock}) from ResourceLock::maybe_notify.
-  // The boolean exchange makes concurrent first-BEGIN callers on this DB safe. The hook is
-  // cleared before pool destruction (memgraph.cpp shutdown ForEach) so no notify can call
-  // into a dead pool.
+  // Install-once hook; fires WakeMatching({MainLock}) from ResourceLock::maybe_notify.
+  // Cleared before pool destruction (memgraph.cpp ForEach) so no notify reaches a dead pool.
   std::atomic<bool> main_lock_hook_installed_{false};
 
   bool MainLockHookInstalled() const noexcept { return main_lock_hook_installed_.load(std::memory_order_acquire); }
@@ -493,10 +488,8 @@ class Storage {
     return true;
   }
 
-  // Disarm the hook for the rest of this storage's life (shutdown). Deliberately does NOT reset
-  // main_lock_hook_installed_ to false: the hook is installed at most once per lifetime, and re-arming
-  // the guard would open a window for a second SetNotifyHook to overwrite on_notify_all_storage_ while
-  // an in-flight maybe_notify reader still holds the old pointer to it (a data race).
+  // Disarm for shutdown. Does NOT reset main_lock_hook_installed_: re-arming would open a window
+  // for a second SetNotifyHook to overwrite on_notify_all_storage_ under an in-flight reader.
   void ClearMainLockNotifyHook() { main_lock_.ClearNotifyHook(); }
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
@@ -605,8 +598,7 @@ inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
   return os;
 }
 
-/// Throws the timeout exception for the given access mode (UniqueAccessTimeout, ReadOnlyAccessTimeout,
-/// or SharedAccessTimeout). Used by AcquireGuardOrThrow and the non-blocking BEGIN park driver.
+/// Throws UniqueAccessTimeout, ReadOnlyAccessTimeout, or SharedAccessTimeout for the given mode.
 [[noreturn]] void ThrowAccessTimeout(StorageAccessType rw_type);
 
 /// Acquires `main_lock_` in the mode `rw_type` names. Blocks indefinitely without a timeout; with
@@ -879,10 +871,8 @@ class Accessor {
   virtual void DropAllConstraints() = 0;
 
   // NOLINTNEXTLINE(google-default-arguments)
-  // preheld_commit_lock: when the caller (Interpreter::Commit, U4a) has already acquired
-  // commit_mutex_ via TryLockCommit(), it passes the owning lock here so PrepareForCommitPhase
-  // can adopt it instead of re-acquiring.  A default-constructed (non-owning) lock signals
-  // "no pre-held guard"; the implementation then acquires blocking, preserving OFF-path behaviour.
+  // preheld_commit_lock: owning lock pre-acquired by the caller via TryLockCommit(); adopted here.
+  // Default-constructed (non-owning) = no pre-held guard; implementation acquires blocking.
   virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(
       CommitArgs commit_args, std::unique_lock<std::mutex> preheld_commit_lock = {}) = 0;
 
@@ -893,14 +883,11 @@ class Accessor {
 
   virtual void FinalizeTransaction() = 0;
 
-  // EXPERIMENTAL (lock-free-read-snapshot) helpers for the parkable-commit path (U4a).
-  // True iff the experiment is ON for this accessor's storage.
+  // EXPERIMENTAL (lock-free-read-snapshot) helpers for the parkable-commit path.
   bool IsCommitSerialised() const noexcept { return storage_->IsCommitSerialised(); }
 
-  // Attempt commit_mutex_ without blocking. Returns an owning lock on success,
-  // a non-owning lock when another committer holds it.  Must not be called on the OFF path
-  // (storage_->commit_mutex_ is never taken there, so the try always succeeds — harmless but
-  // wasteful; gate the call with IsCommitSerialised()).
+  // Must not be called on the OFF path: commit_mutex_ is never taken there, so the try always
+  // succeeds (harmless but wasteful); gate the call with IsCommitSerialised().
   [[nodiscard]] std::unique_lock<std::mutex> TryLockCommit() noexcept { return storage_->TryCommitLock(); }
 
   // Stable per-query id; preserved across PERIODIC COMMIT.

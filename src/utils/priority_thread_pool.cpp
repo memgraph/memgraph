@@ -167,9 +167,8 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
           }
         }
 
-        // Admission park sweep: re-inject timed-out entries and kick the oldest to
-        // prevent starvation.  parked_mtx_ is never held across ScheduledReAddTask
-        // (which acquires Worker::mtx_).
+        // Sweep parked admissions: re-inject expired entries; kick oldest to prevent starvation.
+        // parked_mtx_ is released before the wakeup loop so ScheduledReAddTask can acquire Worker::mtx_.
         {
           const auto now = std::chrono::steady_clock::now();
           using WakeEntry = std::pair<TaskID, TaskSignature>;
@@ -210,9 +209,8 @@ PriorityThreadPool::~PriorityThreadPool() {
 void PriorityThreadPool::AwaitShutdown() { pool_.clear(); }
 
 void PriorityThreadPool::ShutDown() {
-  // (RC-3) Stop monitor FIRST so no sweep tick can race the drain below.
+  // Stop monitor before the drain so no sweep tick can race the swap below.
   monitoring_.Stop();
-  // (RC-1/RC-2) Mark drain: ParkAdmission now drops new arrivals under parked_mtx_.
   draining_admissions_.store(true, std::memory_order_release);
   {
     std::deque<ParkedAdmission> drain;
@@ -221,18 +219,15 @@ void PriorityThreadPool::ShutDown() {
       drain.swap(parked_admissions_);
       has_parked_.store(false, std::memory_order_release);
     }
-    // Running each continuation directly lets the session driver observe IsDrainingAdmissions()
-    // and fail the client cleanly (no re-park — the driver terminates); stragglers that park after
-    // the swap are dropped and the client is errored by connection teardown.
+    // Running continuations directly lets the session driver observe IsDrainingAdmissions() and
+    // fail cleanly; stragglers that slip in after the swap are dropped by connection teardown.
     for (auto &e : drain) e.task(utils::Priority::LOW);
   }
-  // AFTER the drain: ScheduledReAddTask's stop-guard now trips for external callers.
+  // After drain: pool_stop_source_ stop trips ScheduledReAddTask's stop-guard.
   pool_stop_source_.request_stop();
-  // Mixed work workers
   for (auto &worker : workers_) {
     worker->stop();
   }
-  // High priority workers
   for (auto &worker : hp_workers_) {
     worker->stop();
   }
@@ -277,8 +272,6 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature 
 }
 
 bool PriorityThreadPool::HasPendingWork() const noexcept {
-  // Productive (non-admission) queued work only: admission re-posts carry productive=false and never
-  // touch productive_pending_, so a reschedule storm cannot keep this gate open.
   return productive_pending_.load(std::memory_order_relaxed) > 0;
 }
 
@@ -291,15 +284,12 @@ void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chron
 }
 
 bool PriorityThreadPool::ShouldParkAdmission() const noexcept {
-  // Park only when there is other productive work AND no idle worker to take it — yielding this
-  // core actually lets real work run; otherwise the caller keeps bounded-spinning.
   return productive_pending_.load(std::memory_order_acquire) > 0 && !hot_threads_.AnySet();
 }
 
 void PriorityThreadPool::WakeMatching(FreedTag freed) {
-  // Fast-path: if has_parked_ is false, there is nothing to wake.
-  // A false-negative (stale true → we proceed under the lock unnecessarily) is safe.
-  // A false-positive (stale false → we skip a real entry) is covered by the monitor sweep backstop.
+  // Relaxed fast-path: stale-true (false positive) wastes one lock acquisition; stale-false
+  // (false negative — real entry missed) is covered by the monitor sweep backstop.
   if (!has_parked_.load(std::memory_order_relaxed)) return;
 
   using WakeEntry = std::pair<TaskID, TaskSignature>;

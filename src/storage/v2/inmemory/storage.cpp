@@ -1140,13 +1140,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   std::optional<std::unique_lock<std::mutex>> commit_serializer;
   if (lockfree) {
     if (preheld_commit_lock.owns_lock()) {
-      // Caller (Interpreter::Commit, U4a) already acquired commit_mutex_ via try_lock.
+      // Caller (Interpreter::Commit) already acquired commit_mutex_ via try_lock.
       // Adopt the existing hold so we do not re-acquire (which would deadlock).
       commit_serializer.emplace(std::move(preheld_commit_lock));
     } else {
-      // No pre-held guard (PeriodicCommit, replica paths, or OFF-path callers that
-      // passed the default-constructed lock): acquire blocking — OFF-path behavior
-      // is byte-identical to before this change.
+      // No pre-held guard (PeriodicCommit, replica paths): acquire blocking.
       commit_serializer.emplace(mem_storage->commit_mutex_);
     }
   }

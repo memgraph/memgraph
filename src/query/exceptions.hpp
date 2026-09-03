@@ -617,13 +617,9 @@ class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
 };
 
-/// Thrown inside Interpreter::Commit() when commit_mutex_ cannot be acquired without
-/// blocking (experimental_lockfree_read_snapshot ON, another committer holds the mutex).
-///
-/// This is a PURE INTERNAL PARKING SIGNAL — it never becomes a client-visible Bolt error.
-/// The Bolt session driver (U4b) catches it, parks the worker with WaitResource::CommitLock,
-/// and calls Commit() again when woken.  Because the throw happens as the very first action
-/// in Commit(), no non-idempotent side-effect has occurred and re-entry is safe.
+/// Thrown inside Interpreter::Commit() (first action, pre-mutation) when commit_mutex_ is
+/// contended (experimental_lockfree_read_snapshot ON). Never a client Bolt error; the Bolt
+/// driver (U4b) catches, parks under WaitResource::CommitLock, and retries — re-entry is safe.
 class CommitWouldBlockException final : public std::exception {
  public:
   CommitWouldBlockException() = default;
@@ -631,14 +627,9 @@ class CommitWouldBlockException final : public std::exception {
   const char *what() const noexcept override { return "commit_mutex_ held by another committer; park and retry"; }
 };
 
-/// Thrown inside CurrentDB::SetupDatabaseTransaction() when main_lock_ cannot be acquired without
-/// blocking (experimental_lockfree_read_snapshot ON, a DDL/UNIQUE/READ_ONLY holder contends) and the
-/// finite storage-access deadline has NOT yet passed.
-///
-/// PURE INTERNAL PARKING SIGNAL — never a client-visible Bolt error. The Bolt session driver (U3b)
-/// catches it, parks the pool worker under WaitResource::MainLock until `deadline()`, and re-drives
-/// the query when woken. Once the deadline passes, SetupDatabaseTransaction throws the ordinary
-/// access-timeout exception instead of this one.
+/// Thrown inside CurrentDB::SetupDatabaseTransaction() when main_lock_ is contended and the
+/// storage-access deadline has NOT yet passed (experimental_lockfree_read_snapshot ON). Never a
+/// client Bolt error; Bolt driver (U3b) catches, parks under WaitResource::MainLock, then retries.
 class BeginWouldBlockException final : public std::exception {
  public:
   explicit BeginWouldBlockException(std::chrono::steady_clock::time_point deadline) : deadline_{deadline} {}

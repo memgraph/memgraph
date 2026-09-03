@@ -135,8 +135,7 @@ struct ResourceLock {
     if (kind == NotifyKind::All) {
       cv.notify_all();
       // Fired off `mtx` (already unlocked above) so the hook may take an unrelated lock without a
-      // lock-order inversion. Covers all six NotifyKind::All points, since they all route here.
-      // acquire pairs with the release in SetNotifyHook: the storage_ write is visible to this load.
+      // lock-order inversion. acquire pairs with the release in SetNotifyHook: storage_ is visible.
       if (auto *h = on_notify_all_.load(std::memory_order_acquire)) (*h)();
     }
   }
@@ -247,12 +246,9 @@ struct ResourceLock {
 
   void unlock() { release<LockReq::UNIQUE>(); }
 
-  /// Installs a callback fired inside maybe_notify (after the internal mtx is released) on every
-  /// NotifyKind::All. Intended to wake parked schedulers waiting on this lock. Install at most once
-  /// per ResourceLock lifetime (the Storage-level exchange guard enforces this); cleared at owner
-  /// shutdown before pool destruction. release/acquire makes the callable visible to concurrent
-  /// maybe_notify readers without a mutex. An unarmed hook (the default nullptr) is a single atomic
-  /// load of overhead and no behavior change, so every other ResourceLock is unaffected.
+  /// Installs a callback fired after the internal mtx is released on every NotifyKind::All, intended
+  /// to wake parked schedulers. Install at most once per lifetime (exchange-guarded at the Storage
+  /// level); clear before pool destruction. release/acquire makes the callable visible off-mtx.
   void SetNotifyHook(std::move_only_function<void()> hook) {
     on_notify_all_storage_ = std::move(hook);
     on_notify_all_.store(on_notify_all_storage_ ? &on_notify_all_storage_ : nullptr, std::memory_order_release);
@@ -317,10 +313,8 @@ struct ResourceLock {
   // Callers waiting to acquire UNIQUE (blocking lock()/try_lock_for(), or a UniquePendingScope
   // campaign). Gates new shared acquisitions for writer-preference; see can_acquire.
   uint32_t unique_pending_count = 0;
-  // Optional wake hook; see SetNotifyHook/ClearNotifyHook. on_notify_all_ is an atomic pointer to
-  // on_notify_all_storage_ (or nullptr when unarmed). Installed at most once per lifetime via
-  // release/acquire so maybe_notify can read it off-mtx without a data race. storage_ is left
-  // intact after ClearNotifyHook so in-flight readers that loaded the old pointer remain safe.
+  // release/acquire so maybe_notify can load the pointer off-mtx without a data race; storage_
+  // survives ClearNotifyHook so in-flight readers that hold the old pointer stay safe.
   std::move_only_function<void()> on_notify_all_storage_;
   std::atomic<std::move_only_function<void()> *> on_notify_all_{nullptr};
 };

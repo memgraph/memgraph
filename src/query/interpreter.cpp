@@ -267,7 +267,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
-  // Belt-and-suspenders: destroy any in-flight pending access (deregisters PendingScope) on mid-park abort.
+  // Deregister any in-flight PendingScope if aborted while parked waiting for the commit serializer.
   pending_access_.reset();
   pending_begin_deadline_.reset();
 }
@@ -3691,10 +3691,8 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
-  // Shutdown the cursor at most once. A commit-lock park (lockfree-read-snapshot) makes the bolt driver
-  // re-invoke Pull on an already-exhausted plan to retry only the commit; without this guard the second
-  // Pull would call cursor_->Shutdown() again. Inert for today's cursors, but the interface carries no
-  // idempotency contract (a coroutine cursor could destroy() its frame on Shutdown) — so guard it.
+  // Guard against double-Shutdown: a commit-lock park re-invokes Pull on an already-exhausted plan,
+  // and a coroutine cursor's Shutdown() may not be idempotent (could destroy its frame on second call).
   bool shutdown_done_ = false;
   metrics::DatabaseMetricHandles *metric_handles_;
   utils::QueryMemoryTracker *fallback_memory_tracker_;
@@ -10244,11 +10242,8 @@ void Interpreter::BeginTransaction(QueryExtras const &extras) {
   try {
     prepared_query.query_handler(nullptr, {});
   } catch (const BeginWouldBlockException &) {
-    // The BEGIN handler set in_explicit_transaction_ = true before SetupDatabaseTransaction threw to
-    // park on main_lock_ (flag ON). ResetInterpreter does not clear that flag, so the bolt driver's
-    // park-retry BeginTransaction would otherwise re-enter the handler and hit the nested-transaction
-    // guard. Reset it here so the retry begins cleanly. Only reachable when the parking exception is
-    // thrown (flag ON) — the permanent BEGIN-failure paths keep their existing state.
+    // PrepareTransactionQuery(BEGIN) sets in_explicit_transaction_ = true before calling
+    // SetupDatabaseTransaction (which throws here). Reset it so the Bolt retry doesn't hit the nested-txn guard.
     in_explicit_transaction_ = false;
     throw;
   }
@@ -11278,10 +11273,8 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
 }
 
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
-  // U3c: lazy install of the main_lock notify hook. Fires once per DB (exchange-guarded inside
-  // TrySetMainLockNotifyHook). Inert when the flag is OFF (IsCommitSerialised() false) or on Disk
-  // storage (no parked MainLock tasks). The load-guard avoids constructing the lambda every BEGIN;
-  // TrySetMainLockNotifyHook's exchange closes the residual load→install TOCTOU race.
+  // Lazily install the main_lock wake hook once per DB; TrySetMainLockNotifyHook's internal exchange
+  // closes the load→install TOCTOU race. No-op when flag is OFF or on Disk storage.
   if (current_db_.db_acc_) {
     auto *storage = (*current_db_.db_acc_)->storage();
     if (storage->IsCommitSerialised() && interpreter_context_->worker_pool && !storage->MainLockHookInstalled()) {
@@ -11548,28 +11541,9 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }  // namespace
 
 void Interpreter::Commit() {
-  // U4a — parkable commit acquire.
-  //
-  // When the lock-free read-snapshot experiment is ON, every write commit serialises on
-  // commit_mutex_.  We try to take it here — as the absolute first action in Commit() — so
-  // that if another committer is currently in the WAL+replication phase (which can stall for
-  // hundreds of milliseconds on SYNC replication), we throw CommitWouldBlockException BEFORE
-  // any non-idempotent work runs.  The Bolt session driver (U4b) catches that exception,
-  // parks this worker with WaitResource::CommitLock, and calls Commit() again from the top
-  // when woken; because nothing else has been modified yet the retry is safe.
-  //
-  // Off-path (flag OFF, no db_transactional_accessor_, read-only txn with no deltas): the
-  // TryLockCommit call is never made, preheld_commit_lock stays non-owning, and it is passed
-  // as a default-constructed lock to PrepareForCommitPhase — which ignores it and behaves
-  // exactly as before this change.
-  //
-  // FLAG (non-idempotent work before this point): There is none — this IS the first action.
-  // Every line of Commit() below this block is non-idempotent (MG_ENTERPRISE memory decrement,
-  // status CAS, trigger execution, …), so if the try fails and throws, nothing has been
-  // mutated.
-  // Only a WRITE commit takes commit_mutex_ (PrepareForCommitPhase short-circuits an empty txn before
-  // the serializer). Reads must NOT touch commit_mutex_ — that is the whole point of #4685 (the stall
-  // is writers-only) — so gate the try on the txn actually having (meta)deltas.
+  // Try commit_mutex_ as the first action so that if another write is in WAL+replication, we throw
+  // CommitWouldBlockException before any non-idempotent work runs, making park-and-retry safe.
+  // Gate on write deltas: reads bypass the serializer entirely (the stall is writers-only, not readers).
   std::unique_lock<std::mutex> preheld_commit_lock;  // non-owning by default
   if (current_db_.db_transactional_accessor_ && current_db_.db_transactional_accessor_->IsCommitSerialised()) {
     auto const *commit_txn = current_db_.db_transactional_accessor_->GetTransaction();
@@ -11757,25 +11731,15 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
-  // did_take_commit_lock is captured before the move so we can wake parked writers
-  // after commit_mutex_ is released inside PrepareForCommitPhase (the lock goes out of scope
-  // at the end of that function).  preheld_commit_lock is moved-from and unusable afterwards.
+  // Snapshot before move: preheld_commit_lock is unusable after PrepareForCommitPhase takes ownership.
   const bool did_take_commit_lock = preheld_commit_lock.owns_lock();
   auto maybe_commit_error = current_db_.db_transactional_accessor_->PrepareForCommitPhase(
       make_commit_arg(is_main, *current_db_.db_acc_), std::move(preheld_commit_lock));
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
-  // U4a — wake parked writers.
-  // commit_mutex_ was released when commit_serializer was destroyed inside
-  // PrepareForCommitPhase.  Any writer parked by U4b with WaitResource::CommitLock
-  // can now re-try.  worker_pool is null in embedded/unit-test contexts — skip safely.
-  //
-  // FLAG (PrepareForNewEpoch wake): PrepareForNewEpoch also acquires commit_mutex_ but
-  // lives inside InMemoryStorage (no pool handle available there).  Epoch rotation is
-  // rare (leader election / HA reconfiguration only) and the 100 ms monitor sweep in
-  // PriorityThreadPool acts as a backstop, so the missed immediate wake is acceptable.
-  // A storage→pool callback hook can be added in U4b when wiring the full Bolt driver.
+  // Wake parked write commits now that commit_mutex_ has been released inside PrepareForCommitPhase.
+  // PrepareForNewEpoch also holds commit_mutex_ but has no pool handle; the 100 ms sweep is the backstop.
   if (did_take_commit_lock && interpreter_context_->worker_pool != nullptr) {
     interpreter_context_->worker_pool->WakeMatching(
         {.resource = utils::WaitResource::CommitLock, .freed = utils::AccessMode::WRITE});
