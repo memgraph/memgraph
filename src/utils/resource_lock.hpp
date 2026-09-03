@@ -12,6 +12,7 @@
 
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -130,7 +131,12 @@ struct ResourceLock {
 
   void maybe_notify(std::unique_lock<std::mutex> &lock, NotifyKind kind) {
     lock.unlock();
-    if (kind == NotifyKind::All) cv.notify_all();
+    if (kind == NotifyKind::All) {
+      cv.notify_all();
+      // Fired off `mtx` (already unlocked above) so the hook may take an unrelated lock without a
+      // lock-order inversion. Covers all six NotifyKind::All points, since they all route here.
+      if (on_notify_all_) on_notify_all_();
+    }
   }
 
   /// Acquires in mode `Req`, `wait` supplying the wait strategy. Requires `lock` to own mtx; leaves
@@ -239,6 +245,13 @@ struct ResourceLock {
 
   void unlock() { release<LockReq::UNIQUE>(); }
 
+  /// Installs a callback fired inside maybe_notify (after the internal mtx is released) on every
+  /// NotifyKind::All. Intended to wake parked schedulers waiting on this lock. Set ONCE at owner
+  /// construction, before the lock is shared with other threads: the callback is read off-mtx in
+  /// maybe_notify, so a concurrent SetNotifyHook would race. An empty hook (the default) is a single
+  /// null-check of overhead and no behavior change, so every other ResourceLock is unaffected.
+  void SetNotifyHook(std::move_only_function<void()> hook) { on_notify_all_ = std::move(hook); }
+
   template <LockReq Req = LockReq::WRITE>
     requires(Req != LockReq::UNIQUE)
   void lock_shared() {
@@ -294,6 +307,9 @@ struct ResourceLock {
   // Callers waiting to acquire UNIQUE (blocking lock()/try_lock_for(), or a UniquePendingScope
   // campaign). Gates new shared acquisitions for writer-preference; see can_acquire.
   uint32_t unique_pending_count = 0;
+  // Optional wake hook; see SetNotifyHook. Empty on every ResourceLock except where an owner installs
+  // one. Read off-mtx in maybe_notify, so it is set once before concurrent use and never mutated after.
+  std::move_only_function<void()> on_notify_all_;
 };
 
 struct SharedResourceLockGuard {
