@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -37,6 +38,11 @@ namespace memgraph::auth {
 
 class Auth;
 using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
+
+/// Replication actions an auth transaction accumulates while it runs. A system transaction is created only at
+/// COMMIT and these are moved into it, so the system mutex is held for the flush rather than the whole
+/// transaction; holding one open would fail every other system query with ConcurrentSystemQueriesException.
+using PendingActions = std::list<std::unique_ptr<system::ISystemAction>>;
 
 static const constexpr char *const kAllDatabases = "*";
 
@@ -526,6 +532,17 @@ class Auth final {
 
   // system::Transaction is only forward-declared here, so the push itself lives in the .cpp.
   static void AddSystemAction(system::Transaction &system_tx, std::unique_ptr<system::ISystemAction> action);
+
+  // AuthLayer retargets this for the duration of a call inside an auth transaction, restoring it on scope exit, and
+  // needs the base store to build an overlay over. Deliberately private: pointing auth at buffered storage is the
+  // layer's business, and a transaction must never outlive the lock it was installed under.
+  friend class AuthLayer;
+
+  AuthStorage &storage() { return storage_; }
+
+  kvstore::KVStore &durability() { return durability_; }
+
+  Epoch &epoch() { return epoch_; }
 
   // Storage access. `storage_` routes to the durable KVStore or to a transaction's overlay; Auth cannot tell which.
   std::optional<std::string> StorageGet(std::string_view key) const { return storage_.Get(key); }
