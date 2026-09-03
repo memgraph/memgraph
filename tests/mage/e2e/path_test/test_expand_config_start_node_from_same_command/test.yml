@@ -1,0 +1,11 @@
+# The start node is created in the same command as the call, so it is not yet visible to a lookup by
+# id under the read view. The walk must build the returned path from the node it was handed rather
+# than fetching that node back out of storage.
+query: >
+  CREATE (a:Node {name: "Fresh"})
+  CALL path.expand_config(a, {maxHops: 0})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["Fresh"]

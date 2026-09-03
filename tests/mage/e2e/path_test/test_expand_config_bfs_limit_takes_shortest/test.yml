@@ -1,0 +1,12 @@
+# A breadth-first walk returns every path of one length before any longer one, so a limit takes the
+# nearest nodes. A depth-first walk down the S-A-B-C chain would spend the limit on S-A and S-A-B.
+query: >
+  MATCH (s:Node {name: "S"})
+  CALL path.expand_config(s, {bfs: true, limit: 2, minHops: 1, maxHops: 3})
+  YIELD result
+  WITH result ORDER BY [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["S", "A"]
+  - names: ["S", "Z"]
