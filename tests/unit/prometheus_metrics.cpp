@@ -229,7 +229,6 @@ TEST(PrometheusMetrics, UpdateGaugesReturnsZeroAfterDefaultDbUuidChange) {
 }
 
 TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
-  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
 
   memgraph::utils::UUID const uuid_a{};
@@ -272,7 +271,6 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
 }
 
 TEST(PrometheusMetrics, RebindKeepsMetricObjectsAlive) {
-  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
 
   memgraph::utils::UUID const uuid_a{};
@@ -297,7 +295,6 @@ TEST(PrometheusMetrics, RebindKeepsMetricObjectsAlive) {
 }
 
 TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
-  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
 
   memgraph::utils::UUID const uuid_a{};
