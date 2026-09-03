@@ -67,7 +67,7 @@ class AuthStorage {
 
   /// Fn receives std::pair<std::string, std::string> const &.
   template <typename Fn>
-  void ForEach(std::string const &prefix, Fn &&fn) {
+  void ForEach(std::string const &prefix, Fn &&fn) const {
     AnyOf(prefix, [&fn](auto const &entry) {
       fn(entry);
       return false;
@@ -76,7 +76,7 @@ class AuthStorage {
 
   /// Returns true on the first match; short-circuits.
   template <typename Pred>
-  bool AnyOf(std::string const &prefix, Pred &&pred) {
+  bool AnyOf(std::string const &prefix, Pred &&pred) const {
     return std::visit(
         [&prefix, &pred](auto *target) {
           for (auto it = target->begin(prefix); it != target->end(prefix); ++it) {
@@ -87,7 +87,7 @@ class AuthStorage {
         target_);
   }
 
-  bool HasAny(std::string const &prefix) {
+  bool HasAny(std::string const &prefix) const {
     return AnyOf(prefix, [](auto const &) { return true; });
   }
 
