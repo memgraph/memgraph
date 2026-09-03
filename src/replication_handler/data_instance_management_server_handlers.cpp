@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #ifdef MG_ENTERPRISE
-#include "coordination/data_instance_management_server_handlers.hpp"
+#include "replication_handler/data_instance_management_server_handlers.hpp"
 
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/include/coordination/data_instance_management_server.hpp"

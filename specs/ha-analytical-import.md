@@ -404,7 +404,7 @@ carrying pre-import data is the natural path through the workload, not a corner 
   (`coordinator_instance.cpp:817-825`) — the Raft commit is the success criterion, the RPC
   is best-effort with reconciliation retry. This is why Q6 is about observability rather
   than error propagation.
-- `PromoteToMainHandler` (`coordination/data_instance_management_server_handlers.cpp:315`)
+- `PromoteToMainHandler` (`replication_handler/data_instance_management_server_handlers.cpp:315`)
   calls `DoRegisterReplica` per replica and a failure there makes
   `InstanceSuccessCallback` attempt `TryFailover()`. A healthy analytical main is not sent
   `PromoteToMainRpc` in steady state (it is not a replica, writing is enabled, uuid

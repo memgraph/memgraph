@@ -917,7 +917,7 @@ add_unit_test(storage_v2_wal_file
 
 add_unit_test(storage_v2_replication
     SOURCES storage_v2_replication.cpp
-    LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue storage_test_utils
+    LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue storage_test_utils mg-replication_handler
 )
 
 add_unit_test(storage_v2_error
@@ -1101,7 +1101,7 @@ add_unit_test(rpc
 if (MG_ENTERPRISE)
     add_unit_test(rpc_timeouts
         SOURCES rpc_timeouts.cpp
-        LINK_TARGETS mg-rpc mg-coordination mg-replication mg-repl_coord_glue rpc_messages
+        LINK_TARGETS mg-rpc mg-coordination mg-replication mg-repl_coord_glue mg-replication_handler rpc_messages
     )
     add_dependencies(${test_unit_prefix}rpc_timeouts memgraph__unit__tls_certs_dir)
 endif ()
@@ -1149,7 +1149,7 @@ add_unit_test(snapshot_progress
 
 add_unit_test(rpc_versioning
     SOURCES rpc_versioning.cpp
-    LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages
+    LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc mg-replication_handler rpc_messages
 )
 
 add_unit_test(replication_state_writing
