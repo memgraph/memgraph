@@ -633,6 +633,36 @@ add_unit_test(csv_csv_parsing
     LINK_TARGETS mg::csv
 )
 
+add_unit_test(query_jsonl_reader
+    SOURCES query_jsonl_reader.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(utils_prefetched
+    SOURCES utils_prefetched.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_byte_source
+    SOURCES utils_byte_source.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_download_temp_file
+    SOURCES utils_download_temp_file.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(query_download_failure_reporting
+    SOURCES query_download_failure_reporting.cpp
+    LINK_TARGETS mg-query mg-requests
+)
+
+add_unit_test(requests_transfer_stall
+    SOURCES requests_transfer_stall.cpp
+    LINK_TARGETS mg-requests mg-utils
+)
+
 add_unit_test(utils_async_timer
     SOURCES utils_async_timer.cpp
     LINK_TARGETS mg-utils
@@ -1346,4 +1376,9 @@ add_unit_test(safe_hardware_concurrency
 add_unit_test(logging
     SOURCES logging.cpp
     LINK_TARGETS gflags mg-flags
+)
+
+add_unit_test(utils_queued_byte_source
+    SOURCES utils_queued_byte_source.cpp
+    LINK_TARGETS mg-utils
 )

@@ -26,6 +26,22 @@ AWS_SECRET_ACCESS_KEY = "test"
 AWS_REGION = "us-east-1"
 BUCKET_NAME = "deps.memgraph.io"
 
+# A filesystem allows 255 bytes in one path component. The object's own name passes that, so the URL
+# is too long to name a file however little the signing library adds to it, which is a few
+# parameters under one signature version and several hundred bytes under another.
+NAME_MAX = 255
+LONG_OBJECT_KEY = "nodes_100_" + "a" * NAME_MAX + ".parquet"
+
+
+def make_s3_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=AWS_ENDPOINT_URL,
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        region_name=AWS_REGION,
+    )
+
 
 def test_aws_region_not_provided_err_msg():
     cursor = connect(host="localhost", port=7687).cursor()
@@ -59,6 +75,27 @@ def test_http_file():
     load_query = (
         f"LOAD PARQUET FROM '{AWS_ENDPOINT_URL}/{BUCKET_NAME}/nodes_100.parquet' WITH CONFIG {{'aws_region': '{AWS_REGION}', "
         f"'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
+    )
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+def test_presigned_url_longer_than_a_path_component():
+    s3_client = make_s3_client()
+    s3_client.upload_file(str(Path(__file__).parent / "nodes_100.parquet"), BUCKET_NAME, LONG_OBJECT_KEY)
+    presigned_url = s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": BUCKET_NAME, "Key": LONG_OBJECT_KEY},
+        ExpiresIn=3600,
+    )
+
+    assert len(presigned_url.split("/")[-1]) > NAME_MAX
+
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = (
+        f"LOAD PARQUET FROM '{presigned_url}' AS row "
+        f"CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
     )
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
@@ -101,14 +138,7 @@ def test_small_file_nodes_runtime_setting():
 
 
 def main():
-    # Configure S3 client for LocalStack
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url=AWS_ENDPOINT_URL,
-        aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-        region_name=AWS_REGION,
-    )
+    s3_client = make_s3_client()
 
     # Create bucket if it doesn't exist
     try:

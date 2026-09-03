@@ -315,6 +315,10 @@ add_compile_options(
         -Werror=deprecated
         -Wno-error=deprecated-declarations
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
+        # A member whose constructor starts a thread reading other members is initialized in
+        # declaration order, not the order the initializer list is written in.
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-ctor>
+        $<$<CXX_COMPILER_ID:GNU>:-Werror=reorder>
 )
 
 # Use lld linker to speedup build and use less memory.

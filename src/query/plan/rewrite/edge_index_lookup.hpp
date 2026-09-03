@@ -43,8 +43,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       : symbol_table_(symbol_table),
         ast_storage_(ast_storage),
         db_(db),
-        inherited_bound_symbols_(std::move(inherited_bound_symbols)),
-        order_by_eliminator_(db, prev_ops_, parallel_execution) {}
+        order_by_eliminator_(db, prev_ops_, parallel_execution),
+        inherited_bound_symbols_(std::move(inherited_bound_symbols)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
