@@ -45,9 +45,27 @@ struct Context {
 #endif
   utils::PriorityThreadPool *worker_pool_;
 
-  auto AddTask(auto &&task, utils::Priority priority) {
+  using TaskID = utils::PriorityThreadPool::TaskID;
+
+  // Add a new task; productive=false for admission-retry work that must not open the real-work gate.
+  auto AddTask(auto &&task, utils::Priority priority, bool productive = true) {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
-    return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority);
+    return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority, productive);
   }
+
+  // Re-add a previously issued task by its id for place-keeping in the priority order.
+  auto AddReTask(auto &&task, TaskID id, utils::Priority priority, bool productive = false) {
+    MG_ASSERT(worker_pool_, "Trying to re-add task to a non-existent worker pool");
+    return worker_pool_->ScheduledReAddTask(std::forward<decltype(task)>(task), id, priority, productive);
+  }
+
+  // Park a task until a matching WakeMatching({resource}) fires.  deadline is advisory (monitor backstop).
+  void ParkAdmission(auto &&task, TaskID id, std::chrono::steady_clock::time_point deadline, utils::WaitTag tag) {
+    MG_ASSERT(worker_pool_, "Trying to park admission on a non-existent worker pool");
+    worker_pool_->ParkAdmission(std::forward<decltype(task)>(task), id, deadline, tag);
+  }
+
+  // True when the pool is shutting down; pending tasks should be dropped (teardown errors the client).
+  bool IsDrainingAdmissions() const noexcept { return worker_pool_ && worker_pool_->IsDrainingAdmissions(); }
 };
 }  // namespace memgraph::glue
