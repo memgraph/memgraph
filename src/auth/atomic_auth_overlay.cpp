@@ -15,7 +15,7 @@ namespace memgraph::auth {
 
 AtomicAuthOverlay::AtomicAuthOverlay(kvstore::KVStore &base) : base_(base) {}
 
-std::optional<std::string> AtomicAuthOverlay::Get(std::string_view key) {
+std::optional<std::string> AtomicAuthOverlay::Get(std::string_view key) const {
   auto const key_str = std::string(key);
 
   if (auto it = write_set_.find(key_str); it != write_set_.end()) {
@@ -123,7 +123,7 @@ bool AtomicAuthOverlay::Flush() {
 
 // --- Iterator ---
 
-AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay *overlay, std::string prefix, bool at_end)
+AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const *overlay, std::string prefix, bool at_end)
     : overlay_(overlay),
       prefix_(std::move(prefix)),
       base_it_(overlay->base_.begin(prefix_)),
@@ -202,10 +202,12 @@ AtomicAuthOverlay::iterator::reference AtomicAuthOverlay::iterator::operator*() 
 
 AtomicAuthOverlay::iterator::pointer AtomicAuthOverlay::iterator::operator->() const { return &*current_; }
 
-AtomicAuthOverlay::iterator AtomicAuthOverlay::begin(std::string const &prefix) {
+AtomicAuthOverlay::iterator AtomicAuthOverlay::begin(std::string const &prefix) const {
   return iterator(this, prefix, false);
 }
 
-AtomicAuthOverlay::iterator AtomicAuthOverlay::end(std::string const &prefix) { return iterator(this, prefix, true); }
+AtomicAuthOverlay::iterator AtomicAuthOverlay::end(std::string const &prefix) const {
+  return iterator(this, prefix, true);
+}
 
 }  // namespace memgraph::auth
