@@ -894,6 +894,272 @@ TEST_F(LockFreeReadSnapshotRecovery, WriteOff_RecoverOff_DataIntact) {
   RecoverAndCheck(storage_directory, /*flag_on=*/false, 5);
 }
 
+// Phase 2, batch 7: concern-B (index-creation gap). Under the flag a label-property index is
+// built by scanning the vertex store at the accessor's frozen snapshot_ts (=
+// last_committed_mvcc_ts_ at AccessorOpen time). If a vertex committed in the window
+// (snapshot_ts, start_timestamp) -- i.e. it minted its ts and ran FinalizeCommitPhase steps
+// (set delta timestamps, update active indices) BEFORE the index was registered, but is still
+// parked at before_publish when CreateIndex opens -- it is invisible to PopulateIndex (its
+// delta ts > snapshot_ts under the flag-ON predicate) AND is not covered by the automatic
+// commit-time index update (because RegisterIndex had not yet run when it executed that step).
+// Result: the vertex is permanently absent from the index. Under flag-OFF the engine_lock is
+// held straight through GetCommitTimestamp→FinalizeCommitPhase, so a concurrent commit cannot
+// be interleaved into CreateIndex; the first-committed vertex is fully visible at start_ts.
+//
+// NOTE: This test is EXPECTED TO FAIL for flag_on=true (it reproduces a real bug). It will
+// turn green when the fix (e.g. a PopulateIndex re-pass using start_ts, or seeding
+// last_committed_mvcc_ts_ as the accessor's snapshot at index-scan time) is applied.
+
+// Helper: count vertices reachable via a label-property index scan on the given accessor.
+namespace {
+
+int64_t CountViaLabelPropertyIndex(Accessor &acc, LabelId label, memgraph::storage::PropertyId prop) {
+  const std::array paths = {memgraph::storage::PropertyPath{prop}};
+  int64_t n = 0;
+  for (auto v :
+       acc.Vertices(label, std::span<memgraph::storage::PropertyPath const>{paths.data(), paths.size()}, View::OLD)) {
+    (void)v;
+    ++n;
+  }
+  return n;
+}
+
+}  // namespace
+
+// Concurrent writers commit fresh (L, P) vertices while the main thread builds the
+// label-property index via ReadOnlyAccess(). ReadOnlyAccess() is exclusive with an in-flight
+// WRITE commit on main_lock_, so it blocks briefly per iteration until the current writer
+// finishes — there is no indefinite park and no deadlock. After all writers join, every
+// committed vertex must appear in the index: pre-seeded ones captured by PopulateIndex,
+// later ones picked up by commit-time index update.
+TEST(LockFreeReadSnapshot, IndexCreate_CompleteUnderConcurrentWrites_ON) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  const auto label = store->NameToLabel("L");
+  const auto prop = store->NameToProperty("p");
+
+  constexpr int kSeed = 5;
+  constexpr int kWriters = 4;
+  constexpr int kWritesPerWriter = 50;
+
+  // Pre-seed vertices (negative p values, distinct from writer range) so PopulateIndex
+  // has committed rows to scan regardless of when the concurrent writers commit.
+  for (int i = 0; i < kSeed; ++i) {
+    CommitLabeledVertex(*store, label, -(i + 1));
+  }
+
+  std::atomic<int> committed{0};
+
+  auto writer_fn = [&](int writer_id) {
+    for (int i = 0; i < kWritesPerWriter; ++i) {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(label).has_value());
+      // Globally unique value across all (writer_id, i) pairs; no write-write conflicts.
+      ASSERT_TRUE(v.SetProperty(prop, PropertyValue(writer_id * kWritesPerWriter + i)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      committed.fetch_add(1, std::memory_order_relaxed);
+    }
+  };
+
+  std::vector<std::thread> writers;
+  writers.reserve(kWriters);
+  for (int i = 0; i < kWriters; ++i) writers.emplace_back(writer_fn, i);
+
+  {
+    auto idx_acc = store->ReadOnlyAccess();
+    auto res = idx_acc->CreateIndex(label, {prop});
+    ASSERT_TRUE(res.has_value()) << "CreateIndex failed unexpectedly (flag_on=true).";
+    ASSERT_TRUE(idx_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  for (auto &w : writers) w.join();
+
+  const int64_t total = kSeed + committed.load(std::memory_order_relaxed);
+
+  auto reader = store->Access(memgraph::storage::READ);
+  const int64_t full_count = CountVertices(*reader);
+  ASSERT_EQ(full_count, total) << "FULL SCAN BUG (flag_on=true): expected " << total << " committed vertices.";
+
+  const int64_t index_count = CountViaLabelPropertyIndex(*reader, label, prop);
+  EXPECT_EQ(index_count, full_count)
+      << "INDEX COMPLETENESS FAILURE (flag_on=true): " << (full_count - index_count) << " of " << full_count
+      << " committed (L,P) vertices are missing from the label-property index. "
+         "Pre-seeded vertices must be captured by PopulateIndex; vertices committed after "
+         "CreateIndex must be picked up by the commit-time index update.";
+}
+
+// A/B counterpart with the flag OFF. The flag-OFF lock path (engine_lock held through
+// mint→publish) has no gap window; the completeness invariant is identical.
+TEST(LockFreeReadSnapshot, IndexCreate_CompleteUnderConcurrentWrites_OFF_AB) {
+  auto store = MakeStorage(/*flag_on=*/false);
+  const auto label = store->NameToLabel("L");
+  const auto prop = store->NameToProperty("p");
+
+  constexpr int kSeed = 5;
+  constexpr int kWriters = 4;
+  constexpr int kWritesPerWriter = 50;
+
+  for (int i = 0; i < kSeed; ++i) {
+    CommitLabeledVertex(*store, label, -(i + 1));
+  }
+
+  std::atomic<int> committed{0};
+
+  auto writer_fn = [&](int writer_id) {
+    for (int i = 0; i < kWritesPerWriter; ++i) {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(label).has_value());
+      ASSERT_TRUE(v.SetProperty(prop, PropertyValue(writer_id * kWritesPerWriter + i)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      committed.fetch_add(1, std::memory_order_relaxed);
+    }
+  };
+
+  std::vector<std::thread> writers;
+  writers.reserve(kWriters);
+  for (int i = 0; i < kWriters; ++i) writers.emplace_back(writer_fn, i);
+
+  {
+    auto idx_acc = store->ReadOnlyAccess();
+    auto res = idx_acc->CreateIndex(label, {prop});
+    ASSERT_TRUE(res.has_value()) << "CreateIndex failed unexpectedly (flag_on=false).";
+    ASSERT_TRUE(idx_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  for (auto &w : writers) w.join();
+
+  const int64_t total = kSeed + committed.load(std::memory_order_relaxed);
+
+  auto reader = store->Access(memgraph::storage::READ);
+  const int64_t full_count = CountVertices(*reader);
+  ASSERT_EQ(full_count, total) << "FULL SCAN BUG (flag_on=false): expected " << total << " committed vertices.";
+
+  const int64_t index_count = CountViaLabelPropertyIndex(*reader, label, prop);
+  EXPECT_EQ(index_count, full_count) << "INDEX COMPLETENESS FAILURE (flag_on=false): " << (full_count - index_count)
+                                     << " of " << full_count
+                                     << " committed (L,P) vertices are missing from the label-property index.";
+}
+
+// Phase 2, batch 7 (GC horizon safety): Under flag-ON, the GC visibility horizon for SI
+// readers is min(active snapshot_ts). When a version is committed BEFORE the reader opens
+// (so the reader's snapshot_ts == that version's commit_ts), GC must retain that exact version
+// -- it is the one the reader needs to answer View::OLD queries. The [S, T_r) gap (where
+// S = snapshot_ts and T_r = start_ts, with S <= T_r) must not cause GC to use start_ts as
+// the floor, which would let it reclaim the S-version as "old".
+//
+// Sequence: CommitProp(2) → open long SI reader (snapshot_ts = T_2) → CommitProp(3) → RunGc
+// (horizon = T_2) → assert reader still reads 2. Then release reader, RunGc (horizon lifts),
+// fresh reader reads 3.
+TEST(LockFreeReadSnapshot, HorizonGapCommit_RetainsDeltaBetweenSnapshotAndStart_ON) {
+  auto store = MakeStorageManualGc(/*flag_on=*/true);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  // Commit p=2 BEFORE the reader opens. Under flag-ON, the next Access(READ) will capture
+  // snapshot_ts = last_committed_mvcc_ts_ = T_2 (the commit ts of p=2). The gap
+  // [S=T_2, T_r=start_ts) arises because start_ts is minted after the snapshot load; it is
+  // always >= T_2 (and typically T_2 + 1 for a quiescent store). GC must use S = T_2 as the
+  // horizon for this reader, NOT T_r -- the p=2 version lives exactly at S and is what the
+  // reader returns for View::OLD.
+  CommitProp(*store, gid, 2);
+
+  auto long_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*long_reader, gid), 2);
+
+  // Commit p=3 while the reader is alive. The reader's snapshot_ts (T_2) is frozen; p=3 at
+  // T_3 > T_2 is invisible to the reader. GC horizon = T_2 (the oldest active snapshot_ts).
+  CommitProp(*store, gid, 3);
+
+  RunGc(*store);
+
+  // CORE SAFETY ASSERTION: p=2 was committed at exactly snapshot_ts = T_2. GC horizon = T_2
+  // means the p=2 version must be retained (its commit_ts == horizon; the reader needs it).
+  // A crash or wrong value here means GC over-reclaimed into the [S, T_r) gap -- it used
+  // start_ts (T_r > T_2) as the floor instead of snapshot_ts (T_2). This is a real feature
+  // bug, not a test problem. Do NOT weaken this assertion.
+  EXPECT_EQ(ReadProp(*long_reader, gid), 2)
+      << "GC OVER-RECLAIM: the long reader lost its snapshot version (p=2) after CommitProp(3) "
+         "plus GC. The GC horizon must be snapshot_ts (T_2), not start_ts (T_r > T_2). "
+         "Using start_ts as the floor would reclaim p=2 (T_2 < T_r, newer version p=3 exists), "
+         "leaving the SI reader with no accessible version at its snapshot.";
+
+  // Release the reader; the snapshot ring entry is gone. GC horizon lifts to T_3 (or beyond).
+  long_reader.reset();
+  RunGc(*store);
+
+  auto fresh_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
+}
+
+// Phase 2, batch 7 (V4 -- RC isolation does not depress GC floor): Under flag-ON, only
+// SNAPSHOT_ISOLATION transactions register in the lockfree snapshot ring
+// (transaction.lockfree_snapshot = flag_on && isolation == SI; see storage.cpp). A
+// READ_COMMITTED accessor therefore does NOT inject a stale snapshot_ts into the ring: its GC
+// footprint is its start_timestamp (same as flag-OFF). This means GC can advance freely past
+// the "committed-as-of-reader-open" tier, unlike with an SI reader whose frozen snapshot_ts
+// would pin the floor.
+//
+// Observable proxy (GcVisibilityHorizon() is private): we assert two properties:
+//   (1) RC semantics: the accessor sees the LATEST committed value on each read -- it is NOT
+//       frozen to the state at accessor-open time (which would signal an SI snapshot in use).
+//   (2) GC safety: after RunGc with only the RC reader as the sole active transaction, the
+//       reader still reads correctly (GC did not corrupt the live chain).
+//
+// TODO: expose InMemoryStorage::TestGcHorizon() returning the last value from
+// GcVisibilityHorizon() so we can directly assert horizon >= rc_reader.start_timestamp rather
+// than relying on the read-value proxy. Until that getter exists, this test is best-effort and
+// documents the intended behaviour.
+TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
+  auto store = MakeStorageManualGc(/*flag_on=*/true);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  CommitProp(*store, gid, 2);
+  CommitProp(*store, gid, 3);
+
+  // Open a READ_COMMITTED accessor. Its transaction.lockfree_snapshot = false (RC is excluded
+  // from the snapshot ring regardless of the flag). The GC horizon treats this txn at its
+  // start_timestamp, not at some older snapshot_ts -- so GC can advance past T_2 and T_3 once
+  // they have a newer version, without waiting for this reader to close.
+  auto rc_reader =
+      store->Access(memgraph::storage::READ, memgraph::storage::IsolationLevel::READ_COMMITTED, std::nullopt);
+
+  // (1) RC semantics: the reader's first access sees the current committed head (p=3). An SI
+  // reader opened at the same instant would also see 3 because last_committed_mvcc_ts_ == T_3
+  // at open time; the distinction surfaces on the SECOND read below, after CommitProp(4).
+  EXPECT_EQ(ReadProp(*rc_reader, gid), 3);
+
+  // Commit p=4 WHILE the RC reader is open. Under SI the reader would remain frozen at T_3 and
+  // still return 3. Under RC each read re-evaluates against the latest committed snapshot, so
+  // the next read must return 4.
+  CommitProp(*store, gid, 4);
+
+  // (1) RC semantics (distinguishing assertion): RC sees p=4; an SI reader would see p=3.
+  // If this returns 3, the isolation-level override was not applied (the accessor behaves like
+  // SI), and the subsequent GC-floor argument is moot.
+  EXPECT_EQ(ReadProp(*rc_reader, gid), 4)
+      << "RC ISOLATION MISS: expected p=4 (latest committed) but got a stale value. "
+         "The Access(READ, IsolationLevel::READ_COMMITTED, ...) override did not take effect; "
+         "the accessor is frozen like a SNAPSHOT_ISOLATION reader. Check that "
+         "transaction.lockfree_snapshot is false for RC and that View::OLD re-snapshots per read.";
+
+  // GC with only the RC reader as the sole active transaction. Horizon = rc_reader.start_ts
+  // (the RC txn does NOT depress the floor via a stale snapshot_ts). Under that horizon,
+  // p=1 (T_1) and p=2 (T_2) and p=3 (T_3) are all below start_ts and have a newer version
+  // (p=4) -- they are candidates for reclaim. p=4 (T_4) is the current head; it is kept.
+  RunGc(*store);
+
+  // (2) GC safety: the RC reader still reads correctly after GC.
+  EXPECT_EQ(ReadProp(*rc_reader, gid), 4)
+      << "RC READER BROKEN AFTER GC: expected p=4 (current head) but the RC accessor returned "
+         "a wrong value or crashed. GC must not reclaim the current head (p=4 has no successor).";
+
+  rc_reader.reset();
+  RunGc(*store);
+
+  auto fresh_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*fresh_reader, gid), 4);
+}
+
 // Phase 2, batch 6: concern-F (non-sequential edge path). Two of the four flag-converted MVCC
 // predicate sites live on the non-sequential edge path: PrepareForNonSequentialWrite's head check
 // at mvcc.hpp:160 and its chain-walk at :202. These are exercised by edge-creation interleavings
