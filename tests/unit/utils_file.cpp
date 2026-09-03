@@ -16,10 +16,11 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
+#include <atomic>
 #include <climits>
 #include <cstdio>
 #include <fstream>
+#include <latch>
 #include <map>
 #include <optional>
 #include <string>
@@ -33,9 +34,7 @@
 #include "utils/download_temp_file.hpp"
 #include "utils/file.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/string.hpp"
-#include "utils/synchronized.hpp"
 
 namespace fs = std::filesystem;
 
@@ -852,94 +851,189 @@ TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
   }
 }
 
+// Everything the writer has produced so far: the bytes already flushed to the file, then the bytes
+// still in the output buffer. The writer appends 0, 1, 2 and so on, so a snapshot is correct when
+// its bytes go up by one throughout, including across the seam where the file ends and the buffer
+// begins.
+struct FileSnapshot {
+  size_t file_bytes = 0;
+  size_t buffer_bytes = 0;
+  bool ascends_by_one = true;
+  size_t break_offset = 0;
+  uint8_t expected_byte = 0;
+  uint8_t actual_byte = 0;
+
+  size_t byte_count() const { return file_bytes + buffer_bytes; }
+};
+
 TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   const auto file_path = storage / "existing_dir_777" / "existing_file_777";
   memgraph::utils::OutputFile handle;
   handle.Open(file_path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
-  std::uniform_int_distribution<int> random_short_wait(1, 10);
+  // Disabling flushing locks the writer out, so the file and the buffer cannot change while both
+  // are read. A break is returned rather than asserted on: an assertion would return without
+  // re-enabling flushing, leaving the writer on a lock nobody releases and the test hanging.
+  const auto read_snapshot = [&] {
+    FileSnapshot snapshot;
+    handle.DisableFlushing();
+    const memgraph::utils::OnScopeExit resume_flushing([&] { handle.EnableFlushing(); });
+    auto [buffer, buffer_size] = handle.CurrentBuffer();
 
-  const auto sleep_for = [&](int milliseconds) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+    memgraph::utils::InputFile input_handle;
+    input_handle.Open(file_path);
+    const memgraph::utils::OnScopeExit close_input([&] { input_handle.Close(); });
+
+    std::optional<uint8_t> previous_byte;
+    const auto consume = [&](const uint8_t byte) {
+      if (previous_byte && snapshot.ascends_by_one) {
+        const uint8_t expected = *previous_byte + 1;
+        if (byte != expected) {
+          snapshot.ascends_by_one = false;
+          snapshot.break_offset = snapshot.byte_count();
+          snapshot.expected_byte = expected;
+          snapshot.actual_byte = byte;
+        }
+      }
+      previous_byte = byte;
+    };
+
+    uint8_t current_byte = 0;
+    while (input_handle.Read(&current_byte, 1)) {
+      consume(current_byte);
+      ++snapshot.file_bytes;
+    }
+    for (; buffer_size > 0; ++buffer, --buffer_size) {
+      consume(*buffer);
+      ++snapshot.buffer_bytes;
+    }
+    return snapshot;
   };
 
-  static constexpr size_t number_of_writes = 500;
-  std::thread writer_thread([&] {
-    std::default_random_engine engine{586'478'780};
-    uint8_t current_number = 0;
-    for (size_t i = 0; i < number_of_writes; ++i) {
-      handle.Write(&current_number, 1);
-      ++current_number;
-      handle.TryFlushing();
-      sleep_for(random_short_wait(engine));
-    }
-  });
-
   static constexpr size_t reader_threads_num = 7;
-  // number_of_reads needs to be higher than number_of_writes
-  // so we maximize the chance of having at least one reading
-  // thread that will read all of the data.
-  static constexpr size_t number_of_reads = 550;
-  std::vector<std::thread> reader_threads(reader_threads_num);
-  memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> max_read_counts;
-  for (size_t i = 0; i < reader_threads_num; ++i) {
-    reader_threads.emplace_back([&, thread_id = i] {
-      std::default_random_engine engine{586'478'780 + thread_id};
-      for (size_t i = 0; i < number_of_reads; ++i) {
-        handle.DisableFlushing();
-        auto [buffer, buffer_size] = handle.CurrentBuffer();
-        memgraph::utils::InputFile input_handle;
-        input_handle.Open(file_path);
-        std::optional<uint8_t> previous_number;
-        size_t total_read_count = 0;
-        uint8_t current_number;
-        // Read the file
-        while (input_handle.Read(&current_number, 1)) {
-          if (previous_number) {
-            const uint8_t expected_next = *previous_number + 1;
-            ASSERT_TRUE(current_number == expected_next);
+  static constexpr size_t min_writes = 500;
+  // The file and the buffer are split differently at each length, so one snapshot of a part-written
+  // file says little; what matters is catching many.
+  static constexpr size_t growth_steps_target = 200;
+  // Reading only the file exercises none of the joining, so some of those catches have to hold bytes
+  // on both sides of the seam.
+  static constexpr size_t spanning_snapshots_target = 25;
+  // So readers have bytes in both places to join, rather than an empty file and a full buffer.
+  static constexpr size_t sync_every = 64;
+  // A bound in case the readers never see the file growing, so the check below reports it instead
+  // of the test running on.
+  static constexpr size_t max_writes = 50'000;
+
+  std::atomic<bool> writer_finished{false};
+  std::atomic<size_t> bytes_written{0};
+  std::latch readers_saw_growth{reader_threads_num};
+
+  struct ReaderOutcome {
+    size_t growth_steps = 0;
+    size_t spanning_snapshots = 0;
+    std::optional<FileSnapshot> final_snapshot;
+    std::optional<FileSnapshot> broken_snapshot;
+  };
+
+  std::vector<ReaderOutcome> outcomes(reader_threads_num);
+
+  {
+    std::vector<std::jthread> reader_threads;
+    reader_threads.reserve(reader_threads_num);
+    for (size_t i = 0; i < reader_threads_num; ++i) {
+      reader_threads.emplace_back([&, thread_id = i] {
+        auto &outcome = outcomes[thread_id];
+        bool counted_down = false;
+        size_t previous_count = 0;
+        // The writer waits on this latch, so this reader has to release it however it leaves.
+        const memgraph::utils::OnScopeExit release_writer([&] {
+          if (!counted_down) readers_saw_growth.count_down();
+        });
+
+        while (true) {
+          // Read before the snapshot, so a snapshot taken once this is false must hold every write.
+          const bool writer_still_running = !writer_finished.load(std::memory_order_acquire);
+          auto snapshot = read_snapshot();
+          if (!snapshot.ascends_by_one) {
+            outcome.broken_snapshot = snapshot;
+            return;
           }
-          previous_number = current_number;
-          ++total_read_count;
-        }
-        // Read the buffer
-        while (buffer_size > 0) {
-          if (previous_number) {
-            const uint8_t expected_next = *previous_number + 1;
-            ASSERT_TRUE(*buffer == expected_next);
+          if (!writer_still_running) {
+            outcome.final_snapshot = snapshot;
+            return;
           }
-          previous_number = *buffer;
-          ++buffer;
-          --buffer_size;
-          ++total_read_count;
+          // Readers snapshot much faster than the writer advances, so the same length again says
+          // nothing new about the split.
+          if (snapshot.file_bytes > 0 && snapshot.buffer_bytes > 0) ++outcome.spanning_snapshots;
+          if (snapshot.byte_count() > 0 && snapshot.byte_count() != previous_count) {
+            previous_count = snapshot.byte_count();
+            ++outcome.growth_steps;
+            if (!counted_down && outcome.growth_steps >= growth_steps_target &&
+                outcome.spanning_snapshots >= spanning_snapshots_target) {
+              counted_down = true;
+              readers_saw_growth.count_down();
+            }
+          }
+          std::this_thread::yield();
         }
-        handle.EnableFlushing();
-        input_handle.Close();
-        // Last read will always have the highest amount of
-        // bytes read.
-        if (i == number_of_reads - 1) {
-          max_read_counts.WithLock([&](auto &read_counts) { read_counts.push_back(total_read_count); });
-        }
-        sleep_for(random_short_wait(engine));
+      });
+    }
+
+    // Declared after the readers so it is joined first: they run until it says it has finished.
+    std::jthread const writer_thread([&] {
+      uint8_t current_byte = 0;
+      size_t written = 0;
+      // The writer cannot idle while it waits: readers only see the file grow while it is growing.
+      while (written < min_writes || (!readers_saw_growth.try_wait() && written < max_writes)) {
+        handle.Write(&current_byte, 1);
+        ++current_byte;
+        ++written;
+        if (written % sync_every == 0) handle.Sync();
+        // Without this the writer keeps the lock and the file jumps forward in bursts no reader
+        // sees between.
+        std::this_thread::yield();
       }
+      bytes_written.store(written, std::memory_order_release);
+      writer_finished.store(true, std::memory_order_release);
     });
   }
 
-  if (writer_thread.joinable()) {
-    writer_thread.join();
-  }
-  for (auto &reader_thread : reader_threads) {
-    if (reader_thread.joinable()) {
-      reader_thread.join();
-    }
+  const auto total_written = bytes_written.load(std::memory_order_acquire);
+  EXPECT_GE(total_written, min_writes);
+  for (size_t i = 0; i < reader_threads_num; ++i) {
+    const auto &outcome = outcomes[i];
+    ASSERT_FALSE(outcome.broken_snapshot.has_value())
+        << "reader " << i << " read a torn snapshot at offset " << outcome.broken_snapshot->break_offset
+        << ": expected " << static_cast<int>(outcome.broken_snapshot->expected_byte) << ", got "
+        << static_cast<int>(outcome.broken_snapshot->actual_byte);
+    ASSERT_TRUE(outcome.final_snapshot.has_value()) << "reader " << i << " never took a settled snapshot";
+    EXPECT_EQ(outcome.final_snapshot->byte_count(), total_written)
+        << "reader " << i << " missed writes in a snapshot taken after the writer had finished";
+    // What stops the checks above passing against a file nothing was writing to.
+    EXPECT_GE(outcome.growth_steps, growth_steps_target)
+        << "reader " << i << " did not catch the file at enough different lengths; the writer stopped after "
+        << total_written << " of at most " << max_writes << " writes";
+    EXPECT_GE(outcome.spanning_snapshots, spanning_snapshots_target)
+        << "reader " << i << " rarely caught bytes on both sides of the seam, so the joining was hardly tested";
   }
 
+  // A reader cannot be required to catch bytes in both places: re-enabling flushing empties the
+  // buffer, and under load the readers empty it faster than the writer fills it. Joined, nothing
+  // else touches the file, so this can be checked directly.
+  static constexpr size_t seam_tail = 10;
+  handle.Sync();
+  auto trailing_byte = static_cast<uint8_t>(total_written);
+  for (size_t i = 0; i < seam_tail; ++i) {
+    handle.Write(&trailing_byte, 1);
+    ++trailing_byte;
+  }
+  const auto seam_snapshot = read_snapshot();
+  EXPECT_GT(seam_snapshot.file_bytes, 0U) << "syncing left nothing in the file";
+  EXPECT_EQ(seam_snapshot.buffer_bytes, seam_tail) << "the bytes written after the sync are not in the buffer";
+  EXPECT_TRUE(seam_snapshot.ascends_by_one) << "the bytes do not run in order across the seam";
+  EXPECT_EQ(seam_snapshot.byte_count(), total_written + seam_tail);
+
   handle.Close();
-  // Check if any of the threads read the entire data.
-  ASSERT_TRUE(max_read_counts.WithLock([&](auto &read_counts) {
-    return std::any_of(
-        read_counts.cbegin(), read_counts.cend(), [](const auto read_count) { return read_count == number_of_writes; });
-  }));
 }
 
 // Writeback pacing is advisory: every syscall it issues can be refused by the kernel with no visible
