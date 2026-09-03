@@ -1328,6 +1328,8 @@ jobs:
         run: echo "OS=ubuntu-24.04" >> $GITHUB_ENV
 
       - name: Refresh Jepsen Cluster
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           cd tests/jepsen
           ./run.sh cluster-refresh --nodes-no 6
