@@ -10241,7 +10241,17 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
-  prepared_query.query_handler(nullptr, {});
+  try {
+    prepared_query.query_handler(nullptr, {});
+  } catch (const BeginWouldBlockException &) {
+    // The BEGIN handler set in_explicit_transaction_ = true before SetupDatabaseTransaction threw to
+    // park on main_lock_ (flag ON). ResetInterpreter does not clear that flag, so the bolt driver's
+    // park-retry BeginTransaction would otherwise re-enter the handler and hit the nested-transaction
+    // guard. Reset it here so the retry begins cleanly. Only reachable when the parking exception is
+    // thrown (flag ON) — the permanent BEGIN-failure paths keep their existing state.
+    in_explicit_transaction_ = false;
+    throw;
+  }
 }
 
 std::optional<Notification> Interpreter::CommitTransaction() {

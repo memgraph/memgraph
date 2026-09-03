@@ -493,10 +493,11 @@ class Storage {
     return true;
   }
 
-  void ClearMainLockNotifyHook() {
-    main_lock_.ClearNotifyHook();
-    main_lock_hook_installed_.store(false, std::memory_order_release);
-  }
+  // Disarm the hook for the rest of this storage's life (shutdown). Deliberately does NOT reset
+  // main_lock_hook_installed_ to false: the hook is installed at most once per lifetime, and re-arming
+  // the guard would open a window for a second SetNotifyHook to overwrite on_notify_all_storage_ while
+  // an in-flight maybe_notify reader still holds the old pointer to it (a data race).
+  void ClearMainLockNotifyHook() { main_lock_.ClearNotifyHook(); }
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
