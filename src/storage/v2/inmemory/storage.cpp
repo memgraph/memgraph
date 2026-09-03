@@ -2975,9 +2975,9 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // start_timestamp in mvcc.hpp, so this is inert).
     snapshot_ts = config_.experimental_lockfree_read_snapshot ? last_committed_mvcc_ts_.load(std::memory_order_acquire)
                                                               : start_timestamp;
-    // Publish this active txn's snapshot_ts into the GC visibility ring (snap first, tag last, release-ordered)
-    // so GC can recover min(active snapshot_ts). Only meaningful under the flag; harmless (and warm) when OFF.
-    if (config_.experimental_lockfree_read_snapshot) {
+    // Publish this SI txn's frozen snapshot_ts into the GC visibility ring so GC can recover min(active snapshot_ts).
+    // RC/RU do not freeze a snapshot_ts and must not hold the GC floor down; skip them.
+    if (config_.experimental_lockfree_read_snapshot && isolation_level == IsolationLevel::SNAPSHOT_ISOLATION) {
       // Invalidate-first message passing (writers serialized under engine_lock_; the GC reader is lock-free):
       // publish the empty sentinel into tag BEFORE overwriting snap, so a concurrent GC read can never pair
       // this slot's NEW snap with the PREVIOUS owner's tag. If the reader's acquire-load of snap observes the
