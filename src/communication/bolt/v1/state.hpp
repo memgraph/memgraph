@@ -62,35 +62,21 @@ enum class State : uint8_t {
   Close,
 
   /**
-   * A PULL (or DISCARD) whose autocommit Commit() step returned
-   * CommitWouldBlockException — commit_mutex_ is held by another writer.
-   * The bolt driver parks this pool worker under WaitResource::CommitLock and
-   * retries Commit() on wake. Nothing is sent to the client until the commit
-   * completes or fails permanently.
+   * PULL/DISCARD autocommit whose Commit() threw CommitWouldBlockException (commit_mutex_ contended);
+   * parks under WaitResource::CommitLock and retries on wake — nothing sent to client until commit settles.
    */
   PendingCommit,
 
   /**
-   * A BEGIN message (or RUN-as-first-query) whose SetupDatabaseTransaction()
-   * returned BeginWouldBlockException — main_lock_ is held by a DDL/UNIQUE/
-   * READ_ONLY holder. The bolt driver parks this pool worker under
-   * WaitResource::MainLock until the finite storage-access deadline and retries
-   * on wake. Nothing is sent to the client until the accessor is acquired or
-   * the deadline expires (whereupon the ordinary access-timeout exception is
-   * thrown by the query layer).
+   * BEGIN/RUN-as-first-query whose SetupDatabaseTransaction() threw BeginWouldBlockException (main_lock_ contended);
+   * parks under WaitResource::MainLock and retries on wake — deadline expiry calls storage::ThrowAccessTimeout.
    */
   PendingBegin,
 };
 
-// Outcome of a single FinishPendingCommit_ attempt: the commit acquired commit_mutex_ and the SUCCESS
-// response was sent (Done), must be re-tried (Reschedule), or the connection should be torn down
-// (ClientError — encoder write failure or unrecoverable exception). Lives here (not session.hpp) so the
-// v2 session driver can name it without pulling in the whole bolt Session header.
+// Lives here (not session.hpp) so the v2 driver can name it without pulling in the bolt Session header.
 enum class PendingCommitOutcome : uint8_t { Reschedule, Done, ClientError };
 
-// Outcome of a single FinishPendingBegin_ attempt: main_lock_ was acquired and the query resumed
-// (Done), must be re-tried (Reschedule), or the connection should be torn down (ClientError —
-// deadline expired / encoder write failure / unrecoverable exception). Lives here so the v2 session
-// driver can name it without pulling in the whole bolt Session header.
+// Lives here (not session.hpp) so the v2 driver can name it without pulling in the bolt Session header.
 enum class PendingBeginOutcome : uint8_t { Reschedule, Done, ClientError };
 }  // namespace memgraph::communication::bolt

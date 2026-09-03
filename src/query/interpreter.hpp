@@ -292,10 +292,8 @@ struct CurrentDB {
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
   metrics::ScopedGauge transaction_gauge_;
-  // U3 main_lock BEGIN park (experimental_lockfree_read_snapshot ON). A non-blocking BEGIN attempt that
-  // missed once and is now parked/retried by the bolt driver; carries its PendingScope (writer-preference)
-  // for its whole life. unique_ptr so teardown here (CleanupDBTransaction/ResetDB/~CurrentDB) deregisters
-  // the pending scope on any abandonment — a leaked registration would block a main_lock mode process-wide.
+  // unique_ptr: teardown (CleanupDBTransaction/ResetDB/~CurrentDB) deregisters the PendingScope on
+  // abandonment — a leaked scope blocks all new main_lock acquisitions on this storage.
   std::unique_ptr<storage::Storage::PendingAccess> pending_access_;
   std::optional<std::chrono::steady_clock::time_point> pending_begin_deadline_;
 };
