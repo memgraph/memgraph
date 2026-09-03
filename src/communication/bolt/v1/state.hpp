@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,5 +60,20 @@ enum class State : uint8_t {
    * session should be closed.
    */
   Close,
+
+  /**
+   * A PULL (or DISCARD) whose autocommit Commit() step returned
+   * CommitWouldBlockException — commit_mutex_ is held by another writer.
+   * The bolt driver parks this pool worker under WaitResource::CommitLock and
+   * retries Commit() on wake. Nothing is sent to the client until the commit
+   * completes or fails permanently.
+   */
+  PendingCommit,
 };
+
+// Outcome of a single FinishPendingCommit_ attempt: the commit acquired commit_mutex_ and the SUCCESS
+// response was sent (Done), must be re-tried (Reschedule), or the connection should be torn down
+// (ClientError — encoder write failure or unrecoverable exception). Lives here (not session.hpp) so the
+// v2 session driver can name it without pulling in the whole bolt Session header.
+enum class PendingCommitOutcome : uint8_t { Reschedule, Done, ClientError };
 }  // namespace memgraph::communication::bolt
