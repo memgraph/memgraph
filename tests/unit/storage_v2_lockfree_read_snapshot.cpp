@@ -1235,3 +1235,154 @@ TEST_F(LockFreeReadSnapshotRecovery, GapSnapshotRecordsIndexAboveItsDurableTimes
                  << " attempts, so this run neither confirms nor clears the end-to-end consequence";
   }
 }
+
+// The same failure from the other direction, and this one owes nothing to the experiment.
+//
+// DROP INDEX applies to the live container the moment the statement runs, and publishes nothing at
+// commit: it registers an abort callback and a log record, and that is all. Every constraint drop
+// in the same file defers its publication to a commit callback instead, and says why. So a snapshot
+// whose transaction begins after the statement has run and before its transaction commits records
+// the index as absent, while recording a durable timestamp below the drop's. Recovery then replays
+// the drop onto a catalogue that never had the index, and refuses it.
+//
+// No probe is needed: holding the dropping transaction open is enough to place the snapshot inside
+// the window, which is why this needs no timing at all. It is checked with the experiment both off
+// and on, because the immediate apply has nothing to do with the commit window the experiment
+// widens.
+TEST_F(LockFreeReadSnapshotRecovery, UncommittedDropSnapshotBlocksRecovery) {
+  for (const bool flag_on : {false, true}) {
+    std::filesystem::remove_all(storage_directory);
+
+    Config config{};
+    config.durability.storage_directory = storage_directory;
+    config.durability.recover_on_startup = false;
+    config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    config.experimental_lockfree_read_snapshot = flag_on;
+    config.gc.type = Config::Gc::Type::NONE;
+
+    {
+      auto store = std::make_unique<InMemoryStorage>(config);
+      const auto label = store->NameToLabel("L");
+      {
+        auto acc = store->ReadOnlyAccess();
+        ASSERT_TRUE(acc->CreateIndex(label).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+
+      std::binary_semaphore applied{0};
+      std::binary_semaphore may_commit{0};
+      std::optional<bool> drop_ok;
+
+      std::thread dropper([&] {
+        auto acc = store->Access(memgraph::storage::READ);
+        ASSERT_TRUE(acc->DropIndex(label).has_value());
+        // The index is already gone from the container here, with nothing committed.
+        applied.release();
+        may_commit.acquire();
+        drop_ok = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+      });
+
+      applied.acquire();
+      // This snapshot's transaction begins inside the window: after the statement, before the commit.
+      ASSERT_TRUE(store->CreateSnapshot(/*force=*/true).has_value());
+      may_commit.release();
+      dropper.join();
+      ASSERT_TRUE(drop_ok.has_value());
+      ASSERT_TRUE(*drop_ok);
+      store.reset();
+    }
+
+    Config recover_config = config;
+    recover_config.durability.recover_on_startup = true;
+
+    std::string failure;
+    try {
+      auto recovered = std::make_unique<InMemoryStorage>(recover_config);
+      if (recovered->IsBroken()) failure = "storage recovered into the broken state";
+    } catch (std::exception const &e) {
+      failure = e.what();
+    }
+
+    EXPECT_TRUE(failure.empty()) << "with the experiment " << (flag_on ? "ON" : "OFF")
+                                 << ", a snapshot taken while an index drop was applied but uncommitted produced a "
+                                    "database that cannot be recovered: "
+                                 << failure;
+  }
+}
+
+// The second consequence of applying a drop before committing it, and the one a user sees.
+//
+// A drop evicts the index object and keeps hold of it, so that an abort can put the same object
+// back. Meanwhile writers admitted during the window took their index set from the container as it
+// now stands, without the index, so they maintain nothing. Restoring the object therefore restores
+// it as it was at eviction, missing everything written since, and the index is live again and
+// wrong: a scan through it returns fewer rows than the same scan without it.
+//
+// The interpreter takes READ_ONLY for this in the analytical mode and says, in a comment, that it
+// is to stop exactly this. The transactional mode takes READ.
+TEST_F(LockFreeReadSnapshotRecovery, AbortedDropLeavesIndexMissingConcurrentWrites) {
+  for (const bool flag_on : {false, true}) {
+    Config config{};
+    config.experimental_lockfree_read_snapshot = flag_on;
+    config.gc.type = Config::Gc::Type::NONE;
+
+    auto store = std::make_unique<InMemoryStorage>(config);
+    const auto label = store->NameToLabel("L");
+
+    {
+      auto acc = store->ReadOnlyAccess();
+      ASSERT_TRUE(acc->CreateIndex(label).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    // One labelled vertex before the window, which the index does contain.
+    {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto vertex = acc->CreateVertex();
+      ASSERT_TRUE(vertex.AddLabel(label).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    std::binary_semaphore applied{0};
+    std::binary_semaphore may_abort{0};
+
+    std::thread dropper([&] {
+      auto acc = store->Access(memgraph::storage::READ);
+      ASSERT_TRUE(acc->DropIndex(label).has_value());
+      applied.release();
+      may_abort.acquire();
+      acc->Abort();
+    });
+
+    applied.acquire();
+    // Begins inside the window, so its index set has no index to maintain.
+    {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto vertex = acc->CreateVertex();
+      ASSERT_TRUE(vertex.AddLabel(label).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    may_abort.release();
+    dropper.join();
+
+    // The drop was rolled back, so the index is live again and must answer for both vertices.
+    auto acc = store->Access(memgraph::storage::READ);
+    int64_t via_index = 0;
+    for (auto vertex : acc->Vertices(label, View::OLD)) {
+      (void)vertex;
+      ++via_index;
+    }
+    int64_t via_scan = 0;
+    for (auto vertex : acc->Vertices(View::OLD)) {
+      auto has = vertex.HasLabel(label, View::OLD);
+      ASSERT_TRUE(has.has_value());
+      if (*has) ++via_scan;
+    }
+
+    ASSERT_EQ(via_scan, 2) << "the two labelled vertices are not both committed, so this test never set up the "
+                              "comparison it exists to make";
+    EXPECT_EQ(via_index, via_scan) << "with the experiment " << (flag_on ? "ON" : "OFF")
+                                   << ", a scan through the restored index returned " << via_index << " of " << via_scan
+                                   << " labelled vertices. The rolled-back drop restored the index as it stood at "
+                                      "eviction, without what was written while it was gone.";
+  }
+}
