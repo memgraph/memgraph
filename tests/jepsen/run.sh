@@ -114,11 +114,13 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker compose > /dev/nu
 fi
 
 # Authenticate github.com access when GITHUB_TOKEN is set (CI): anonymous clones
-# from the shared runner IP get rate-limited with a 401. Per-command `-c` keeps
-# the runner's global git config untouched.
+# from the shared runner IP get rate-limited. The header is sent preemptively
+# (same as actions/checkout) because GitHub's rate-limit reply is an in-protocol
+# error, not a 401, so a credential helper would never be consulted.
+# Per-command `-c` keeps the runner's global git config untouched.
 GIT_GH=(git)
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  GIT_GH+=(-c 'credential.https://github.com.helper=!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f')
+  GIT_GH+=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 -w0)")
 fi
 
 if [ ! -d "$script_dir/jepsen" ]; then

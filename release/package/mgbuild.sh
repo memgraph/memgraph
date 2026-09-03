@@ -413,9 +413,10 @@ emit_cache_volumes() {
   fi
 }
 
-# GITHUB_TOKEN is forwarded into the container so in-container git fetches from
-# github.com are authenticated (see github_auth_in_container). Anonymous clones
-# from the shared runner IP get rate-limited with a 401.
+# GITHUB_TOKEN is forwarded into the container for in-container GitHub API use
+# (e.g. release/get_version.py); git fetches are authenticated via
+# github_auth_in_container. Anonymous access from the shared runner IP gets
+# rate-limited.
 github_token_enabled() {
   [[ -n "${GITHUB_TOKEN:-}" ]]
 }
@@ -469,17 +470,20 @@ cleanup_compose_override() {
   fi
 }
 
-# Point git at the forwarded GITHUB_TOKEN via a credential helper that reads it
-# from the environment at fetch time. Written once to the system-wide
-# /etc/gitconfig so every later `docker exec`, whether -u mg or -u root (e.g.
-# package.sh runs as root), and any nested clone (mgconsole's ExternalProjects)
-# is covered without touching individual commands.
+# Make in-container git send GITHUB_TOKEN preemptively on every github.com
+# request (same header actions/checkout uses). GitHub's rate-limit reply is an
+# in-protocol error, not a 401, so a credential helper would never be consulted.
+# Written once to the system-wide /etc/gitconfig so every later `docker exec`,
+# whether -u mg or -u root (package.sh runs as root), and any nested clone
+# (mgconsole's ExternalProjects) is covered. The container is ephemeral.
 github_auth_in_container() {
   local container=$1
   if github_token_enabled; then
     echo "Configuring authenticated github.com access in $container..."
-    docker exec -u root "$container" git config --system credential.https://github.com.helper \
-      '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
+    local auth_b64
+    auth_b64="$(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 -w0)"
+    docker exec -u root "$container" git config --system http.https://github.com/.extraheader \
+      "AUTHORIZATION: basic $auth_b64"
   fi
 }
 
