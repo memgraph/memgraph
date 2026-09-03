@@ -11,6 +11,7 @@
 
 #include "utils/priority_thread_pool.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -253,6 +254,11 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     work_.pop();
   };
 
+  // Idle-spin budget: allow at most ~one hot spinner per hardware core, so some CPU stays free
+  // rather than every worker spinning at once. Computed once per worker.
+  [[maybe_unused]] const auto kSpinBudget = memgraph::utils::GetSafeHardwareConcurrency();
+  static constexpr double kMaxSpin = 0.001;  // 1ms ceiling
+
   while (run_.load(std::memory_order_acquire)) {
     // Phase 1 get scheduled work <- cold thread???
     // Phase 2 try to steal and loop <- hot thread
@@ -316,13 +322,30 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       continue;
     }
 
-    // Phase 3 - spin for a while waiting on work (available only if TSC is available)
-    const auto freq = utils::GetTSCFrequency();
-    if (freq) {
+    // Phase 3 - spin for a while waiting on work (available only if TSC is available).
+    // Spins the window and returns whether work arrived before it elapsed.
+    const auto spin_for = [this](double window_secs) -> bool {
+      const auto freq = utils::GetTSCFrequency();
+      if (!freq) return false;
       const utils::TSCTimer timer{freq};
-      yielder y;                         // NOLINT (misc-const-correctness)
-      while (timer.Elapsed() < 0.001) {  // 1ms
-        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
+      yielder y;  // NOLINT (misc-const-correctness)
+      while (timer.Elapsed() < window_secs) {
+        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) return true;
+      }
+      return false;
+    };
+
+    if constexpr (ThreadPriority == Priority::HIGH) {
+      // The single dedicated HIGH worker always spins the full window for lowest wakeup latency;
+      // it is never throttled by the LP spinner count gate.
+      spin_for(kMaxSpin);
+    } else {
+      // LP workers spin the full window (no adaptive shrink: at low load spare cores make spinning
+      // free, parking only adds wakeup latency). The gate caps hot spinners below kSpinBudget so
+      // >=1 core stays free for dispatcher/HP/IO; Count() is a heuristic, so a bounded, harmless
+      // transient overshoot under a concurrent Set is acceptable.
+      if (hot_threads.Count() < kSpinBudget) {
+        spin_for(kMaxSpin);
       }
     }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -129,4 +129,39 @@ TEST(HotMask, Full) {
   for (uint16_t i = 0; i < kMaxN / 2; ++i) mask.Set(i * 2);
   for (uint16_t i = 0; i < kMaxN / 2; ++i) EXPECT_EQ(mask.GetHotElement(), i * 2);
   EXPECT_FALSE(mask.GetHotElement());  // All read
+}
+
+TEST(HotMask, Count) {
+  using namespace memgraph::utils;
+  constexpr auto kN = 200U;  // spans multiple 64-bit groups
+  HotMask mask(kN);
+  EXPECT_EQ(mask.Count(), 0U);
+
+  // Set bits across group boundaries.
+  mask.Set(0);
+  mask.Set(63);   // end of group 0
+  mask.Set(64);   // start of group 1
+  mask.Set(199);  // last element
+  EXPECT_EQ(mask.Count(), 4U);
+
+  // Setting an already-set bit is idempotent.
+  mask.Set(64);
+  EXPECT_EQ(mask.Count(), 4U);
+
+  // Reset lowers the count.
+  mask.Reset(63);
+  EXPECT_EQ(mask.Count(), 3U);
+
+  // GetHotElement clears the bit it returns, so it also lowers the count.
+  EXPECT_TRUE(mask.GetHotElement().has_value());
+  EXPECT_EQ(mask.Count(), 2U);
+
+  // Draining the rest returns the count to zero.
+  while (mask.GetHotElement()) {
+  }
+  EXPECT_EQ(mask.Count(), 0U);
+
+  // Every element set -> Count() == size.
+  for (uint16_t i = 0; i < kN; ++i) mask.Set(i);
+  EXPECT_EQ(mask.Count(), kN);
 }
