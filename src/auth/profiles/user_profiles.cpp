@@ -59,26 +59,24 @@ void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::Profile
   if (data.contains("usernames")) profile.usernames = data["usernames"].get<std::unordered_set<std::string>>();
 }
 
-UserProfiles::UserProfiles(kvstore::KVStore &durability) : durability_{&durability} {
+UserProfiles::UserProfiles(AuthStorage &durability) : durability_{&durability} {
   // No migration at the moment
   if (!durability_->Put(kUserProfilesVersionKey, kUserProfilesVersion)) {
     spdlog::error("Failed to put user profiles version");
   }
 
   // Populate local storage
-  for (auto it = durability_->begin(kUserProfilesPrefix.data()); it != durability_->end(kUserProfilesPrefix.data());
-       ++it) {
-    const auto &key = it->first;
-    const auto &value = it->second;
+  durability_->ForEach(kUserProfilesPrefix.data(), [this](auto const &entry) {
+    const auto &[key, value] = entry;
     const auto name = key.substr(kUserProfilesPrefix.size());
     try {
-      auto profile = nlohmann::json::parse(value).get<memgraph::auth::UserProfiles::Profile>();
+      auto profile = nlohmann::json::parse(value).template get<memgraph::auth::UserProfiles::Profile>();
       profile.name = name;
       profiles_.emplace(std::move(profile));
     } catch (const nlohmann::json::parse_error &) {
       spdlog::warn("Failed to parse user profile {}", name);
     }
-  }
+  });
 };
 
 bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
