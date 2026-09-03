@@ -70,6 +70,13 @@ std::optional<uint16_t> HotMask::GetHotElement() {
   return {};
 }
 
+bool HotMask::AnySet() const noexcept {
+  for (size_t g = 0; g < n_groups_; ++g) {
+    if (hot_masks_[g].load(std::memory_order_acquire) != 0) return true;
+  }
+  return false;
+}
+
 PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
                                        ThreadInitCallback thread_init_callback)
     : hot_threads_{mixed_work_threads_count}, task_id_{kMaxLowPriorityId}, last_wid_{0} {
@@ -89,6 +96,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
     pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
       // Divide work by each thread
       workers_[i] = std::make_unique<Worker>();
+      workers_[i]->productive_pending_ = &productive_pending_;
       barrier.arrive_and_wait();
       // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
       if (thread_init_callback) {
@@ -101,6 +109,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
       hp_workers_[i] = std::make_unique<Worker>();
+      hp_workers_[i]->productive_pending_ = &productive_pending_;
       barrier.arrive_and_wait();
       // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
       if (thread_init_callback) {
@@ -114,46 +123,82 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
 
   // Under heavy load a task can get stuck, monitor and move to different thread
   monitoring_.SetInterval(std::chrono::milliseconds(100));
-  monitoring_.Run("sched_mon",
-                  [this,
-                   workers_num = workers_.size(),
-                   hp_workers_num = hp_workers_.size(),
-                   last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
-                    size_t i = 0;
-                    for (auto &worker : workers_) {
-                      const auto worker_id = i++;
-                      auto &worker_last_task = last_task[worker_id];
-                      auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
-                      if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
-                        // worker stuck on a task; move task to a different queue
-                        auto l = std::unique_lock{worker->mtx_, std::defer_lock};
-                        if (!l.try_lock()) continue;  // Thread is busy...
-                        // Recheck under lock
-                        if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
-                        // Update flag as soon as possible
-                        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
-                        Worker::Work work{.id = worker->work_.top().id, .work = std::move(worker->work_.top().work)};
-                        worker->work_.pop();
-                        l.unlock();
+  monitoring_.Run(
+      "sched_mon",
+      [this,
+       workers_num = workers_.size(),
+       hp_workers_num = hp_workers_.size(),
+       last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
+        size_t i = 0;
+        for (auto &worker : workers_) {
+          const auto worker_id = i++;
+          auto &worker_last_task = last_task[worker_id];
+          auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
+          if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
+            // worker stuck on a task; move task to a different queue
+            auto l = std::unique_lock{worker->mtx_, std::defer_lock};
+            if (!l.try_lock()) continue;  // Thread is busy...
+            // Recheck under lock
+            if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
+            // Update flag as soon as possible
+            worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
+            const bool prod = worker->work_.top().productive;
+            Worker::Work work{
+                .id = worker->work_.top().id, .work = std::move(worker->work_.top().work), .productive = prod};
+            if (prod) productive_pending_.fetch_sub(1, std::memory_order_relaxed);
+            worker->work_.pop();
+            l.unlock();
 
-                        auto tid = hot_threads_.GetHotElement();
-                        if (!tid) {
-                          // No hot LP threads available; schedule HP work to HP thread
-                          if (work.id > kMinHighPriorityId) {
-                            static size_t last_hp_thread = 0;
-                            auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
-                            if (!hp_worker->has_pending_work_) {
-                              hp_worker->push(std::move(work.work), work.id);
-                              continue;
-                            }
-                          }
-                          // No hot thread and low priority work, schedule to the next lp worker
-                          tid = (worker_id + 1) % workers_num;
-                        }
-                        workers_[*tid]->push(std::move(work.work), work.id);
-                      }
-                    }
-                  });
+            auto tid = hot_threads_.GetHotElement();
+            if (!tid) {
+              // No hot LP threads available; schedule HP work to HP thread
+              if (work.id > kMinHighPriorityId) {
+                static size_t last_hp_thread = 0;
+                auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
+                if (!hp_worker->has_pending_work_) {
+                  hp_worker->push(std::move(work.work), work.id, work.productive);
+                  continue;
+                }
+              }
+              // No hot thread and low priority work, schedule to the next lp worker
+              tid = (worker_id + 1) % workers_num;
+            }
+            workers_[*tid]->push(std::move(work.work), work.id, work.productive);
+          }
+        }
+
+        // Admission park sweep: re-inject timed-out entries and kick the oldest to
+        // prevent starvation.  parked_mtx_ is never held across ScheduledReAddTask
+        // (which acquires Worker::mtx_).
+        {
+          const auto now = std::chrono::steady_clock::now();
+          using WakeEntry = std::pair<TaskID, TaskSignature>;
+          std::vector<WakeEntry> wakeups;
+          {
+            std::unique_lock lk{parked_mtx_};
+            if (!parked_admissions_.empty()) {
+              wakeups.reserve(parked_admissions_.size());
+              for (auto it = parked_admissions_.begin(); it != parked_admissions_.end();) {
+                if (it->deadline <= now) {
+                  wakeups.emplace_back(it->id, std::move(it->task));
+                  it = parked_admissions_.erase(it);
+                } else {
+                  ++it;
+                }
+              }
+              // Backstop: kick the oldest remaining entry to prevent starvation.
+              if (!parked_admissions_.empty()) {
+                wakeups.emplace_back(parked_admissions_.front().id, std::move(parked_admissions_.front().task));
+                parked_admissions_.pop_front();
+              }
+              has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
+            }
+          }
+          for (auto &[id, task] : wakeups) {
+            ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
+          }
+        }
+      });
 }
 
 PriorityThreadPool::~PriorityThreadPool() {
@@ -165,24 +210,38 @@ PriorityThreadPool::~PriorityThreadPool() {
 void PriorityThreadPool::AwaitShutdown() { pool_.clear(); }
 
 void PriorityThreadPool::ShutDown() {
+  // (RC-3) Stop monitor FIRST so no sweep tick can race the drain below.
+  monitoring_.Stop();
+  // (RC-1/RC-2) Mark drain: ParkAdmission now drops new arrivals under parked_mtx_.
+  draining_admissions_.store(true, std::memory_order_release);
   {
-    pool_stop_source_.request_stop();
-    // Stop monitoring thread before workers
-    monitoring_.Stop();
-    // Mixed work workers
-    for (auto &worker : workers_) {
-      worker->stop();
+    std::deque<ParkedAdmission> drain;
+    {
+      std::unique_lock lk{parked_mtx_};
+      drain.swap(parked_admissions_);
+      has_parked_.store(false, std::memory_order_release);
     }
-    // High priority workers
-    for (auto &worker : hp_workers_) {
-      worker->stop();
-    }
+    // Running each continuation directly lets the session driver observe IsDrainingAdmissions()
+    // and fail the client cleanly (no re-park — the driver terminates); stragglers that park after
+    // the swap are dropped and the client is errored by connection teardown.
+    for (auto &e : drain) e.task(utils::Priority::LOW);
+  }
+  // AFTER the drain: ScheduledReAddTask's stop-guard now trips for external callers.
+  pool_stop_source_.request_stop();
+  // Mixed work workers
+  for (auto &worker : workers_) {
+    worker->stop();
+  }
+  // High priority workers
+  for (auto &worker : hp_workers_) {
+    worker->stop();
   }
 }
 
-void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority priority) {
+PriorityThreadPool::TaskID PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, Priority priority,
+                                                                bool productive) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    return;
+    return 0;
   }
   const auto id = (TaskID(priority == Priority::HIGH) * kMinHighPriorityId) +
                   --task_id_;  // Way to priorities hp tasks and older tasks
@@ -195,15 +254,78 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     // If no hot thread found, give it to the next thread
     tid = last_wid_++ % max_wakeup_thread;
   }
-  workers_[*tid]->push(std::move(new_task), id);
+  workers_[*tid]->push(std::move(new_task), id, productive);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
   // HP threads are going to steal this work if not executed in time
+  return id;
 }
 
-void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id) {
+PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id, Priority priority,
+                                                                  bool productive) {
+  (void)priority;  // Not used for id computation here; kept for API symmetry with ScheduledAddTask
+  if (pool_stop_source_.stop_requested()) [[unlikely]] {
+    return 0;
+  }
+  auto tid = hot_threads_.GetHotElement();
+  if (!tid) {
+    static const auto max_wakeup_thread =
+        std::max(1UL, std::min(static_cast<TaskID>(GetSafeHardwareConcurrency()), workers_.size()));
+    tid = last_wid_++ % max_wakeup_thread;
+  }
+  workers_[*tid]->push(std::move(task), id, productive);
+  return id;
+}
+
+bool PriorityThreadPool::HasPendingWork() const noexcept {
+  // Productive (non-admission) queued work only: admission re-posts carry productive=false and never
+  // touch productive_pending_, so a reschedule storm cannot keep this gate open.
+  return productive_pending_.load(std::memory_order_relaxed) > 0;
+}
+
+void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline,
+                                       WaitTag tag) {
+  std::unique_lock lk{parked_mtx_};
+  if (draining_admissions_.load(std::memory_order_acquire)) return;  // shutting down: drop; teardown errors the client
+  parked_admissions_.push_back({id, std::move(task), deadline, tag});
+  has_parked_.store(true, std::memory_order_release);
+}
+
+bool PriorityThreadPool::ShouldParkAdmission() const noexcept {
+  // Park only when there is other productive work AND no idle worker to take it — yielding this
+  // core actually lets real work run; otherwise the caller keeps bounded-spinning.
+  return productive_pending_.load(std::memory_order_acquire) > 0 && !hot_threads_.AnySet();
+}
+
+void PriorityThreadPool::WakeMatching(FreedTag freed) {
+  // Fast-path: if has_parked_ is false, there is nothing to wake.
+  // A false-negative (stale true → we proceed under the lock unnecessarily) is safe.
+  // A false-positive (stale false → we skip a real entry) is covered by the monitor sweep backstop.
+  if (!has_parked_.load(std::memory_order_relaxed)) return;
+
+  using WakeEntry = std::pair<TaskID, TaskSignature>;
+  std::vector<WakeEntry> wakeups;
+  {
+    std::unique_lock lk{parked_mtx_};
+    for (auto it = parked_admissions_.begin(); it != parked_admissions_.end();) {
+      if (it->tag.resource == freed.resource) {
+        wakeups.emplace_back(it->id, std::move(it->task));
+        it = parked_admissions_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
+  }  // release parked_mtx_ BEFORE ScheduledReAddTask (which acquires Worker::mtx_)
+  for (auto &[id, task] : wakeups) {
+    ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
+  }
+}
+
+void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool productive) {
   {
     auto l = std::unique_lock{mtx_};
-    work_.emplace(id, std::move(new_task));
+    if (productive && productive_pending_) productive_pending_->fetch_add(1, std::memory_order_relaxed);
+    work_.emplace(id, std::move(new_task), productive);
   }
   has_pending_work_ = true;
   cv_.notify_one();
@@ -249,6 +371,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   auto pop_task = [&] {
     has_pending_work_.store(work_.size() > 1, std::memory_order::release);
     last_task_.store(work_.top().id, std::memory_order_release);
+    if (work_.top().productive && productive_pending_) productive_pending_->fetch_sub(1, std::memory_order_relaxed);
     task = std::move(work_.top().work);
     work_.pop();
   };
@@ -300,6 +423,8 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 
         // Move work to current thread
         last_task_.store(worker->work_.top().id, std::memory_order_release);
+        if (worker->work_.top().productive && productive_pending_)
+          productive_pending_->fetch_sub(1, std::memory_order_relaxed);
         task = std::move(worker->work_.top().work);
 
         worker->work_.pop();
