@@ -306,7 +306,9 @@ std::vector<std::pair<int, int>> GetFilteredEdgeList(const memgraph::query::Type
 }
 
 // Checks if the given path is actually a path from source to sink and if all
-// of its edges exist in the given edge list. Also ensures no edge is reused.
+// of its edges exist in the given edge list. Also ensures no edge is reused and
+// no vertex is revisited: KSHORTEST answers with loopless paths, and the
+// inner search's root-vertex blocking is what enforces that.
 template <class TPathAllocator>
 void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAccessor &source,
                const memgraph::query::VertexAccessor &sink,
@@ -315,6 +317,7 @@ void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAc
   if (path.empty()) return;
   memgraph::query::VertexAccessor curr = source;
   std::unordered_set<memgraph::storage::Gid> used_edges;
+  std::unordered_set<memgraph::storage::Gid> visited_vertices{source.Gid()};
 
   for (const auto &edge_tv : path) {
     ASSERT_TRUE(edge_tv.IsEdge());
@@ -325,6 +328,9 @@ void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAc
 
     ASSERT_TRUE(edge.From() == curr || edge.To() == curr);
     auto next = edge.From() == curr ? edge.To() : edge.From();
+
+    ASSERT_TRUE(visited_vertices.insert(next.Gid()).second)
+        << "Vertex " << next.Gid() << " is revisited in path, which is not loopless";
 
     int from = GetProp(curr, "id", dba).ValueInt();
     int to = GetProp(next, "id", dba).ValueInt();
