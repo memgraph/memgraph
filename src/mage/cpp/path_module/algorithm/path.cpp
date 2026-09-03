@@ -1082,29 +1082,32 @@ mgp::Path Path::PathExpand::PathTo(const int64_t index) {
   return path;
 }
 
-void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth, mgp::Relationships relationships,
+void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth, mgp_vertex *vertex,
                                        const bool outgoing, std::queue<int64_t> &frontier) {
-  for (const auto relationship : relationships) {
+  const BorrowedEdges edges{vertex, outgoing};
+  for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     if (path_data_.LimitReached()) {
       return;
     }
     // As in the other walks: a fully filtered supernode never reaches the poll at the dequeue.
     path_data_.MaybeAbort();
 
-    auto next_node = outgoing ? relationship.To() : relationship.From();
-    if (path_data_.visited_.contains(next_node.Id().AsInt())) {
+    auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
+    const int64_t next_id = mgp::vertex_get_id(next_vertex).as_int;
+    if (path_data_.visited_.contains(next_id)) {
       continue;
     }
 
-    if (!path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, depth)) {
+    if (!path_data_.helper_.RelationshipAdmitted(mgp::edge_get_type(edge).name, outgoing, depth)) {
       continue;
     }
 
     // Marked here rather than at the dequeue, so the first relationship to reach a node is the one that
     // keeps it -- which is what makes the tree breadth-first, and holds even for a node a filter then
     // rejects: it is spent either way.
-    path_data_.visited_.insert(next_node.Id().AsInt());
-    tree_.push_back({.node = std::move(next_node), .from_parent = relationship, .parent = index, .depth = depth + 1});
+    path_data_.visited_.insert(next_id);
+    tree_.push_back(
+        {.node = mgp::Node(next_vertex), .from_parent = mgp::Relationship(edge), .parent = index, .depth = depth + 1});
     frontier.push(static_cast<int64_t>(tree_.size()) - 1);
   }
 }
@@ -1138,9 +1141,7 @@ void Path::PathExpand::RunNodeGlobalBfs() {
     frontier.pop();
     const int64_t depth = tree_[index].depth;
     // Copied out, not bound by reference: the two ExpandTreeEntry calls below append to the tree, so the
-    // first one can reallocate it out from under the second one's `node.OutRelationships()`. The
-    // relationship iterator itself holds its own copy of the vertex, so it is the second read of `node`
-    // that needs this, not the iteration.
+    // first one can reallocate it out from under the handle the second one is passed.
     const mgp::Node node{tree_[index].node};
 
     const Evaluation evaluation = path_data_.helper_.Evaluate(node, depth);
@@ -1155,8 +1156,8 @@ void Path::PathExpand::RunNodeGlobalBfs() {
       continue;
     }
 
-    ExpandTreeEntry(index, depth, node.InRelationships(), false, frontier);
-    ExpandTreeEntry(index, depth, node.OutRelationships(), true, frontier);
+    ExpandTreeEntry(index, depth, node.GetPtr(), false, frontier);
+    ExpandTreeEntry(index, depth, node.GetPtr(), true, frontier);
   }
 }
 
@@ -1363,23 +1364,24 @@ void Path::PathSubgraph::Parse(const mgp::Value &value) {
   path_data_.AddStartNode(path_data_.graph_.GetNodeById(mgp::Id::FromInt(value.ValueInt())));
 }
 
-void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair,
-                                                 const mgp::Relationships relationships, bool outgoing,
-                                                 std::queue<std::pair<mgp::Node, int64_t>> &queue) {
-  for (const auto relationship : relationships) {
+void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair, mgp_vertex *vertex,
+                                                 bool outgoing, std::queue<std::pair<mgp::Node, int64_t>> &queue) {
+  const BorrowedEdges edges{vertex, outgoing};
+  for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     // As in the expand walk: a fully filtered supernode never reaches the dequeue poll above.
     path_data_.MaybeAbort();
 
-    auto next_node = outgoing ? relationship.To() : relationship.From();
+    auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
+    const int64_t next_id = mgp::vertex_get_id(next_vertex).as_int;
 
-    if (path_data_.visited_.contains(next_node.Id().AsInt())) {
+    if (path_data_.visited_.contains(next_id)) {
       continue;
     }
 
-    if (path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, pair.second)) {
+    if (path_data_.helper_.RelationshipAdmitted(mgp::edge_get_type(edge).name, outgoing, pair.second)) {
       // Enqueue only; TryInsertNode emits it on dequeue, once the checks are applied.
-      path_data_.visited_.insert(next_node.Id().AsInt());
-      queue.emplace(std::move(next_node), pair.second + 1);
+      path_data_.visited_.insert(next_id);
+      queue.emplace(mgp::Node(next_vertex), pair.second + 1);
     }
   }
 }
@@ -1424,10 +1426,10 @@ mgp::List Path::PathSubgraph::BFS() {
     }
 
     if (path_data_.helper_.StepAdmitsDirection(pair.second, false)) {
-      this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue);
+      this->ExpandFromRelationships(pair, pair.first.GetPtr(), false, queue);
     }
     if (path_data_.helper_.StepAdmitsDirection(pair.second, true)) {
-      this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue);
+      this->ExpandFromRelationships(pair, pair.first.GetPtr(), true, queue);
     }
   }
 
@@ -1510,22 +1512,26 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
     const auto to_be_returned_nodes = path_subgraph.BFS();
 
-    std::unordered_set<mgp::Node> to_be_returned_nodes_searchable;
+    // Keyed by id: the membership test is the only thing asked of it, and a node key copies a vertex
+    // out of storage to store and another to look up.
+    std::unordered_set<int64_t> to_be_returned_nodes_searchable;
 
     for (const auto &node : to_be_returned_nodes) {
-      to_be_returned_nodes_searchable.insert(node.ValueNode());
+      to_be_returned_nodes_searchable.insert(node.ValueNode().Id().AsInt());
     }
 
     // A second O(nodes * degree) pass outside the walk, so it polls too.
     uint64_t abort_poll_counter = 0;
     mgp::List to_be_returned_rels;
-    for (auto node : to_be_returned_nodes) {
+    for (const auto &node : to_be_returned_nodes) {
       // A sink never reaches the inner poll, so a result set of them would be uninterruptible.
       PollAbort(graph, abort_poll_counter);
-      for (auto rel : node.ValueNode().OutRelationships()) {
+      const mgp::Node from = node.ValueNode();
+      const BorrowedEdges edges{from.GetPtr(), true};
+      for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
         PollAbort(graph, abort_poll_counter);
-        if (to_be_returned_nodes_searchable.contains(rel.To())) {
-          to_be_returned_rels.AppendExtend(mgp::Value(rel));
+        if (to_be_returned_nodes_searchable.contains(mgp::vertex_get_id(mgp::edge_get_to(edge)).as_int)) {
+          to_be_returned_rels.AppendExtend(mgp::Value(mgp::Relationship(edge)));
         }
       }
     }

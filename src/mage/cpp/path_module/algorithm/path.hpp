@@ -343,8 +343,7 @@ class PathExpand {
   [[nodiscard]] mgp::Path BranchPath(int64_t index);
 
   void RunNodeGlobalBfs();
-  void ExpandTreeEntry(int64_t index, int64_t depth, mgp::Relationships relationships, bool outgoing,
-                       std::queue<int64_t> &frontier);
+  void ExpandTreeEntry(int64_t index, int64_t depth, mgp_vertex *vertex, bool outgoing, std::queue<int64_t> &frontier);
   // Not const: it polls the abort signal, which advances the poll counter.
   [[nodiscard]] mgp::Path PathTo(int64_t index);
 
@@ -357,8 +356,8 @@ class PathSubgraph {
  public:
   explicit PathSubgraph(PathData &&path_data) : path_data_(std::move(path_data)) {}
 
-  void ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair, mgp::Relationships relationships,
-                               bool outgoing, std::queue<std::pair<mgp::Node, int64_t>> &queue);
+  void ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair, mgp_vertex *vertex, bool outgoing,
+                               std::queue<std::pair<mgp::Node, int64_t>> &queue);
   void Parse(const mgp::Value &value);
   void TryInsertNode(const mgp::Node &node, int64_t hop_count, const Evaluation &evaluation);
   mgp::List BFS();
