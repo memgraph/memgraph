@@ -247,6 +247,42 @@ jobs:
           name: "Enterprise DEB package"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
+      - name: Resolve PR number for merge queue
+        if: ${{ github.event_name == 'merge_group' }}
+        id: get_pr
+        env:
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          PR_NUMBER=$(sed -n 's/.*pr-\([0-9]\+\).*/\1/p' <<<"$MERGE_GROUP_HEAD_REF")
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "Unable to resolve PR number from '$MERGE_GROUP_HEAD_REF'" >&2
+            exit 1
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "PR Number: $PR_NUMBER"
+
+      - name: Upload enterprise DEB packages to S3
+        # The post-merge MAGE build (build_packages.yml) downloads these instead
+        # of rebuilding memgraph; the merge group head commit is what lands on master.
+        if: ${{ github.event_name == 'merge_group' }}
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          S3_DEST_DIR: "pr-build/memgraph/pr${{ steps.get_pr.outputs.pr_number }}"
+        run: |
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt..."
+            if aws s3 sync "build/output/$OS" "s3://deps.memgraph.io/$S3_DEST_DIR/" \
+                 --exclude '*' --include 'memgraph*.deb'; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Failed to upload memgraph packages to S3 after 3 attempts" >&2
+          exit 1
+
       - name: Collect core dumps
         if: failure()
         continue-on-error: true

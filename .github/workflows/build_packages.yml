@@ -1,6 +1,10 @@
 name: "Build and Upload MAGE Packages for a Pull Request"
 
 on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       pr_number:
@@ -12,10 +16,13 @@ run-name: "Build and Upload Packages for a Pull Request"
 
 jobs:
   get-pr-number:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
     name: "Get PR Number"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     outputs:
       pr_number: ${{ steps.get_pr.outputs.pr_number }}
+      memgraph_download_link: ${{ steps.get_links.outputs.memgraph_download_link }}
+      memgraph_debuginfo_download_link: ${{ steps.get_links.outputs.memgraph_debuginfo_download_link }}
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -24,17 +31,58 @@ jobs:
 
       - name: Get PR Number
         id: get_pr
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR_NUMBER: ${{ github.event.inputs.pr_number }}
+          MERGED_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          PR_NUMBER=${{ github.event.inputs.pr_number }}
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            PR_NUMBER="$INPUT_PR_NUMBER"
+            echo "Using manually provided PR number: $PR_NUMBER"
+          else
+            PR_NUMBER="$MERGED_PR_NUMBER"
+            echo "Using PR number from merged PR: $PR_NUMBER"
+          fi
           if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
             echo "PR number is not a number"
             exit 1
           fi
-          echo "Using manually provided PR number: $PR_NUMBER"
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "PR Number: $PR_NUMBER"
 
+      - name: Resolve memgraph package links
+        # The merge queue run of Diff uploads the amd64 memgraph debs to
+        # pr-build/memgraph/pr<N>/ (diff_release.yaml). Reuse them so the
+        # post-merge MAGE build doesn't rebuild memgraph. If they are missing,
+        # leave the links empty and the MAGE job builds memgraph itself.
+        id: get_links
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          S3_DIR: "pr-build/memgraph/pr${{ steps.get_pr.outputs.pr_number }}"
+        run: |
+          base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/$S3_DIR"
+          # Newest upload last, so a re-queued PR resolves to its latest packages.
+          listing="$(aws s3 ls "s3://deps.memgraph.io/$S3_DIR/" 2>/dev/null | sort -k1,2 | awk '{print $4}' || true)"
+          deb="$(grep -E '^memgraph_.*_amd64\.deb$' <<<"$listing" | tail -n 1 || true)"
+          debuginfo="$(grep -E '^memgraph-debuginfo_.*_amd64\.deb$' <<<"$listing" | tail -n 1 || true)"
+          if [[ -z "$deb" || -z "$debuginfo" ]]; then
+            echo "::warning::No memgraph amd64 deb + debuginfo found under $S3_DIR; MAGE job will build memgraph from source."
+            deb_link=""
+            debuginfo_link=""
+          else
+            deb_link="$base/$deb"
+            debuginfo_link="$base/$debuginfo"
+            echo "Memgraph deb: $deb_link"
+            echo "Memgraph debuginfo deb: $debuginfo_link"
+          fi
+          echo "memgraph_download_link=$deb_link" >> $GITHUB_OUTPUT
+          echo "memgraph_debuginfo_download_link=$debuginfo_link" >> $GITHUB_OUTPUT
+
   build-packages-mage:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     name: "Build ${{ matrix.arch }} Package"
     needs: get-pr-number
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -49,4 +97,24 @@ jobs:
       push_to_s3: true
       s3_dest_dir: pr-build/mage/pr${{ needs.get-pr-number.outputs.pr_number }}
       ref: refs/heads/master
+      print_output_url: true
+
+  build-package-mage-post-merge:
+    # Diff only builds + uploads the ARM MAGE packages in the merge queue; this
+    # fills in the AMD packages once the PR lands on master. Build only, no
+    # tests, reusing the memgraph debs uploaded by the merge queue run.
+    if: ${{ github.event_name == 'pull_request' }}
+    name: "Build amd Package (post-merge)"
+    needs: get-pr-number
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    secrets: inherit
+    with:
+      arch: amd
+      build_type: RelWithDebInfo
+      build_docker_image: debug
+      push_to_s3: true
+      s3_dest_dir: pr-build/mage/pr${{ needs.get-pr-number.outputs.pr_number }}
+      ref: ${{ github.event.pull_request.merge_commit_sha }}
+      memgraph_download_link: ${{ needs.get-pr-number.outputs.memgraph_download_link }}
+      memgraph_debuginfo_download_link: ${{ needs.get-pr-number.outputs.memgraph_debuginfo_download_link }}
       print_output_url: true
