@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import os
+import re
 import sys
 import urllib.request
 from functools import partial
@@ -30,6 +31,7 @@ file = "instance_metrics"
 
 METRICS_URL = "http://localhost:9095/metrics"
 INSTANCES = ["instance_1", "instance_2", "instance_3"]
+INSTANCE_METRICS_PORTS = {"instance_1": 9091, "instance_2": 9092, "instance_3": 9093}
 
 
 def get_memgraph_instances_description(test_name: str):
@@ -40,6 +42,7 @@ def get_memgraph_instances_description(test_name: str):
                 "7688",
                 "--log-level",
                 "TRACE",
+                "--metrics-port=9091",
                 "--management-port",
                 "10011",
                 "--replication-restore-state-on-startup=true",
@@ -55,6 +58,7 @@ def get_memgraph_instances_description(test_name: str):
                 "7689",
                 "--log-level",
                 "TRACE",
+                "--metrics-port=9092",
                 "--management-port",
                 "10012",
                 "--replication-restore-state-on-startup=true",
@@ -70,6 +74,7 @@ def get_memgraph_instances_description(test_name: str):
                 "7687",
                 "--log-level",
                 "TRACE",
+                "--metrics-port=9093",
                 "--management-port",
                 "10013",
                 "--replication-restore-state-on-startup=true",
@@ -121,9 +126,29 @@ def test_name(request):
     return request.node.name
 
 
-def scrape_metrics():
-    with urllib.request.urlopen(METRICS_URL) as response:
+def scrape_metrics(port: int = 9095):
+    with urllib.request.urlopen(f"http://localhost:{port}/metrics") as response:
         return response.read().decode("utf-8")
+
+
+def default_db_uuids():
+    """The uuid label each instance presents for its default database.
+
+    Label order within a series is not guaranteed, so match the labels independently.
+    """
+    uuids = {}
+    for instance, port in INSTANCE_METRICS_PORTS.items():
+        uuids[instance] = next(
+            (
+                re.search(r'uuid="([^"]*)"', line).group(1)
+                for line in scrape_metrics(port).splitlines()
+                if line.startswith("memgraph_vertex_count{")
+                and 'database="memgraph"' in line
+                and re.search(r'uuid="([^"]*)"', line)
+            ),
+            None,
+        )
+    return uuids
 
 
 def test_instance_metrics_present(test_name):
@@ -144,6 +169,32 @@ def test_instance_metrics_present(test_name):
         assert f'memgraph_instance_last_response_seconds{{mg_instance="{instance}"}}' in metrics
 
     assert 'memgraph_instance_is_leader{mg_instance="coordinator_1"}' in metrics
+
+
+# A data instance joining the cluster adopts the main's default-database uuid, so every instance must
+# present the same uuid label for database="memgraph". Before this was fixed each instance kept the
+# uuid of its own discarded local default database, which made the series impossible to aggregate.
+def test_default_db_uuid_label_agrees_across_instances(test_name):
+    cursor = setup_test(test_name)
+
+    expected_instances = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_instances, partial(show_instances, cursor))
+
+    # The replicas realign onto the main's uuid during system recovery, so retry until they converge.
+    def uuids_agree():
+        uuids = default_db_uuids()
+        return len(set(uuids.values())) == 1 and None not in uuids.values()
+
+    mg_sleep_and_assert(True, uuids_agree)
+
+    # The entry id keys the families internally and must never reach a scrape.
+    for port in INSTANCE_METRICS_PORTS.values():
+        assert "mgentry" not in scrape_metrics(port)
 
 
 if __name__ == "__main__":
