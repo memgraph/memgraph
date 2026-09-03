@@ -1056,7 +1056,7 @@ void InMemoryStorage::InMemoryAccessor::PublishIndexArming() {
 }
 
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
-    CommitArgs const commit_args) {
+    CommitArgs const commit_args, std::unique_lock<std::mutex> preheld_commit_lock) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
@@ -1094,7 +1094,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // Serialize committers across mint->publish: (1) mint order must equal watermark publish order;
   // (2) UniqueConstraintsViolation() must not run while another committer sits between its mint and
   // publish, since its unpublished writes are invisible to MVCC.
-  auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
+  // Interpreter::Commit may already hold commit_mutex_ (parkable try-lock); adopt it instead of re-locking.
+  auto commit_serializer = preheld_commit_lock.owns_lock()
+                               ? std::optional<std::unique_lock<std::mutex>>{std::move(preheld_commit_lock)}
+                               : mem_storage->LockCommitMutexIfNarrowing();
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());

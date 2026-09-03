@@ -465,7 +465,8 @@ class InMemoryStorage final : public Storage {
     // finalize commit method which will bump ldt, update commit ts etc.
     // @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args) override;
+    std::expected<void, StorageManipulationError> PrepareForCommitPhase(
+        CommitArgs commit_args, std::unique_lock<std::mutex> preheld_commit_lock = {}) override;
 
     std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
