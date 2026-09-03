@@ -477,6 +477,11 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
       return State::Close;
     }
     return State::Idle;
+  } catch (const memgraph::query::CommitWouldBlockException &) {
+    // commit_mutex_ contended: park this write and retry the COMMIT message on wake (U4c), instead of
+    // failing the client. The explicit txn stays staged (Commit throws before mutating).
+    session.StashPendingCommitMessage();
+    return State::PendingCommit;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
