@@ -120,7 +120,7 @@ fi
 # Per-command `-c` keeps the runner's global git config untouched.
 GIT_GH=(git)
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  GIT_GH+=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 -w0)")
+  GIT_GH+=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 | tr -d '\n')")
 fi
 
 if [ ! -d "$script_dir/jepsen" ]; then

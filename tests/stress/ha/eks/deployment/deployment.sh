@@ -232,10 +232,12 @@ install_ebs_csi_driver() {
     # set) authenticate it via git's env-config so the shared runner IP isn't rate-limited.
     local -a git_auth_env=()
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        local auth_b64
+        auth_b64="$(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 | tr -d '\n')"
         git_auth_env=(
             GIT_CONFIG_COUNT=1
             GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
-            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 -w0)"
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth_b64"
         )
     fi
 

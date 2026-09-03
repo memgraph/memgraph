@@ -481,7 +481,7 @@ github_auth_in_container() {
   if github_token_enabled; then
     echo "Configuring authenticated github.com access in $container..."
     local auth_b64
-    auth_b64="$(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 -w0)"
+    auth_b64="$(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 | tr -d '\n')"
     docker exec -u root "$container" git config --system http.https://github.com/.extraheader \
       "AUTHORIZATION: basic $auth_b64"
   fi
