@@ -3660,6 +3660,11 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
+  // Shutdown the cursor at most once. A commit-lock park (lockfree-read-snapshot) makes the bolt driver
+  // re-invoke Pull on an already-exhausted plan to retry only the commit; without this guard the second
+  // Pull would call cursor_->Shutdown() again. Inert for today's cursors, but the interface carries no
+  // idempotency contract (a coroutine cursor could destroy() its frame on Shutdown) — so guard it.
+  bool shutdown_done_ = false;
   metrics::DatabaseMetricHandles *metric_handles_;
   utils::QueryMemoryTracker *fallback_memory_tracker_;
 };
@@ -3829,7 +3834,10 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }
     summary->insert_or_assign("stats", std::move(stats));
   }
-  cursor_->Shutdown();
+  if (!shutdown_done_) {
+    cursor_->Shutdown();
+    shutdown_done_ = true;
+  }
   // NOTE: += because each thread adds its own execution time to the total execution time
   ctx_.profile_execution_time += execution_time_;
 
