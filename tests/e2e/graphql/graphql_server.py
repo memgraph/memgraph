@@ -38,8 +38,9 @@ class GraphQLServer:
         else:
             return response
 
-    def __wait_process_to_init(self, port):
+    def __wait_process_to_init(self, port, timeout_s=60):
         host = "127.0.0.1"
+        deadline = time.monotonic() + timeout_s
         try:
             while True:
                 # Create a socket object
@@ -48,6 +49,13 @@ class GraphQLServer:
                     result = s.connect_ex((host, port))
                     if result == 0:
                         break
+                # Fail instead of hanging when the node server dies (e.g. graphql/setup.sh was never run).
+                if self.graphql_lib.poll() is not None:
+                    stderr = self.graphql_lib.stderr.read().decode(errors="replace")
+                    raise RuntimeError(f"GraphQL server exited with code {self.graphql_lib.returncode}:\n{stderr}")
+                if time.monotonic() > deadline:
+                    raise RuntimeError(f"Port {port} did not open within {timeout_s}s")
+                time.sleep(0.1)
 
         except socket.error as e:
             print(f"Error occurred while checking port {port}: {e}")

@@ -14,6 +14,7 @@
 #include <string_view>
 #include <thread>
 
+#include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <mgclient.hpp>
 #include "common.hpp"
@@ -479,5 +480,6 @@ INSTANTIATE_TEST_SUITE_P(TriggerPhases, PrivilegeCheckTest, testing::Values("BEF
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();
 }
