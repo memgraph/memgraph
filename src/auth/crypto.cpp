@@ -26,7 +26,6 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <span>
@@ -396,17 +395,6 @@ auto InternalParseHashAlgorithm(std::string_view algo) -> PasswordHashAlgorithm 
   return *maybe_parsed;
 }
 
-// Atomic because every hash and verify reads it from a session thread, while
-// `SetHashAlgorithm` writes it - only at startup.
-std::atomic<PasswordHashAlgorithm> &InternalCurrentHashAlgorithm() {
-  static std::atomic current = PasswordHashAlgorithm::BCRYPT;
-  static std::once_flag flag;
-  std::call_once(flag, [] {
-    current.store(InternalParseHashAlgorithm(FLAGS_password_encryption_algorithm), std::memory_order_release);
-  });
-  return current;
-}
-
 std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgorithm algo) {
   // header = algo name + :
   const auto header = std::string{AsString(algo)} + ":";
@@ -437,8 +425,13 @@ std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
   return {};
 }
 
+// The `--password-encryption-algorithm` flag is the single source of truth. It is
+// set only at startup (gflags parse, or `EnableFipsMode`) before any session thread
+// exists, and read through the gflags lock here, so no data race is possible.
 auto CurrentHashAlgorithm() -> PasswordHashAlgorithm {
-  return InternalCurrentHashAlgorithm().load(std::memory_order_acquire);
+  std::string configured;
+  gflags::GetCommandLineOption(kPasswordEncryptionAlgorithmFlag, &configured);
+  return InternalParseHashAlgorithm(configured);
 }
 
 auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
@@ -459,14 +452,14 @@ void EnableFipsMode(bool algorithm_flag_is_default) {
 
   auto const approved = AsString(PasswordHashAlgorithm::PBKDF2_SHA256);
 
-  auto configured = CurrentHashAlgorithm();
-
   if (algorithm_flag_is_default) {
+    // No explicit choice: override the flag so the approved algorithm is what
+    // actually hashes passwords and what SHOW CONFIG / SHOW FIPS INFO report.
     SetHashAlgorithm(approved);
-    configured = CurrentHashAlgorithm();
     spdlog::info("--fips-mode=true and no --password-encryption-algorithm given; selecting '{}'.", approved);
   }
 
+  auto const configured = CurrentHashAlgorithm();
   if (!IsFipsApproved(configured)) {
     utils::FailStartup(
         utils::ExitCode::FipsModeUnsupportedPasswordAlgorithm,
@@ -488,7 +481,9 @@ void EnableFipsMode() {
 }
 
 void SetHashAlgorithm(std::string_view algo) {
-  InternalCurrentHashAlgorithm().store(InternalParseHashAlgorithm(algo), std::memory_order_release);
+  // Validate first so an unknown value throws instead of being written to the flag.
+  InternalParseHashAlgorithm(algo);
+  gflags::SetCommandLineOption(kPasswordEncryptionAlgorithmFlag, std::string{algo}.c_str());
 }
 
 auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view {

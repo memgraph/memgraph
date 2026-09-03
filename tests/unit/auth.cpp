@@ -2910,14 +2910,13 @@ TEST_F(AuthFipsMode, OnlyPBKDF2IsApproved) {
 
 TEST_F(AuthFipsMode, EnableSelectsApprovedAlgorithmWhenUnset) {
   SetHashAlgorithm("bcrypt");
-  auto const flag_before = FLAGS_password_encryption_algorithm;
 
   EnableFipsMode(/*algorithm_flag_is_default=*/true);
 
   EXPECT_EQ(CurrentHashAlgorithm(), PasswordHashAlgorithm::PBKDF2_SHA256);
 
-  // when FIPS mode is enabled, the flag will still match the default
-  EXPECT_EQ(FLAGS_password_encryption_algorithm, flag_before);
+  // FIPS mode overrides the flag itself, so it now reports the approved algorithm.
+  EXPECT_EQ(FLAGS_password_encryption_algorithm, "pbkdf2-sha256");
 }
 
 TEST_F(AuthFipsMode, EnableKeepsAnExplicitlyChosenApprovedAlgorithm) {
