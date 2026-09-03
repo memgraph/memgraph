@@ -136,6 +136,11 @@ add_unit_test(query_cache
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_timeout_deadline
+    SOURCES query_timeout_deadline.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_plan
     SOURCES query_plan.cpp
     LINK_TARGETS mg-query
@@ -631,11 +636,6 @@ add_unit_test(utils_thread_pool
 add_unit_test(csv_csv_parsing
     SOURCES csv_csv_parsing.cpp
     LINK_TARGETS mg::csv
-)
-
-add_unit_test(utils_async_timer
-    SOURCES utils_async_timer.cpp
-    LINK_TARGETS mg-utils
 )
 
 add_unit_test(license

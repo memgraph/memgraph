@@ -3900,13 +3900,20 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
-    -> std::shared_ptr<utils::AsyncTimer> {
+namespace {
+auto CreateTimeoutDeadline(QueryExtras const &extras, InterpreterConfig const &config)
+    -> std::optional<utils::SteadyTimePoint> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
-    return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
+    // Anchor the deadline on the same cached clock MustAbort() reads, so we don't pay a real
+    // steady_clock::now() here. The tick is <=100ms stale, so the timeout may fire up to ~100ms
+    // early as well as late -- immaterial for a seconds-scale limit. No overflow/NaN guards: the
+    // only value that reaches this is a validated, positive TxTimeout.
+    return utils::CoarseSteadyNow() +
+           std::chrono::duration_cast<std::chrono::steady_clock::duration>(timeout.ValueUnsafe());
   }
-  return {};
+  return std::nullopt;
 }
+}  // namespace
 
 PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum,
                                                    QueryExtras const &extras) {
@@ -3922,7 +3929,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         }
         SetupInterpreterTransaction(extras);
         // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
-        current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
+        current_timeout_deadline_ = CreateTimeoutDeadline(extras, interpreter_context_->config);
         in_explicit_transaction_ = true;
         expect_rollback_ = false;
         if (!current_db_.db_acc_)
@@ -3958,7 +3965,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         expect_rollback_ = false;
         in_explicit_transaction_ = false;
         metadata_ = std::nullopt;
-        current_timeout_timer_.reset();
+        current_timeout_deadline_.reset();
       };
     } break;
     case TransactionQuery::ROLLBACK: {
@@ -3973,7 +3980,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         expect_rollback_ = false;
         in_explicit_transaction_ = false;
         metadata_ = std::nullopt;
-        current_timeout_timer_.reset();
+        current_timeout_deadline_.reset();
       };
     } break;
     default:
@@ -10310,7 +10317,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   try {
     if (!in_explicit_transaction_) {
       // BEGIN has a different execution path; for implicit transaction start the timer as soon as possible
-      current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
+      current_timeout_deadline_ = CreateTimeoutDeadline(extras, interpreter_context_->config);
     }
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
@@ -10830,7 +10837,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       return StoppingContext{
           .transaction_status = &transaction_status_,
           .is_shutting_down = &interpreter_context_->is_shutting_down,
-          .timer = current_timeout_timer_,
+          .deadline = current_timeout_deadline_,
           .exception_occurred = parallel_execution ? std::make_shared<std::atomic<uint8_t>>(false) : nullptr,
       };
     };
@@ -11332,7 +11339,7 @@ void Interpreter::Abort() {
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
-  current_timeout_timer_.reset();
+  current_timeout_deadline_.reset();
 
   // Route Abort-path deallocations/cleanup to this DB's arena.
   // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
