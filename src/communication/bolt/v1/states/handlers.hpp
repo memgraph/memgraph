@@ -27,6 +27,7 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -125,6 +126,14 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
     }
 
     return State::Idle;
+  } catch (const memgraph::query::CommitWouldBlockException &) {
+    // Interpreter::Commit() could not acquire commit_mutex_ without blocking.  Nothing has been
+    // mutated — the throw is the very first action in Commit(), before any state change.  Stash
+    // n/qid so the pool driver (PostFinishPendingCommit in v2/session.hpp) can retry Commit()
+    // on wake without re-decoding.  Both the PULL and DISCARD branches reach Commit(), so the
+    // catch is outside the if-constexpr.
+    session.StashPendingCommit(n, qid);
+    return State::PendingCommit;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

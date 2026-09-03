@@ -32,6 +32,9 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
+
+// PendingCommitOutcome lives in state.hpp (so the v2 session driver can name it).
+
 /**
  * Bolt Session Exception
  *
@@ -157,6 +160,13 @@ class Session {
         return true;  // more data to process
       }
 
+      if (state_ == State::PendingCommit) {
+        // PULL/DISCARD's Commit() step would block on commit_mutex_; the pool driver
+        // (PostFinishPendingCommit) parks this worker under CommitLock and retries on wake.
+        // Stop the dechunk loop so a pipelined message can't run before the commit finishes.
+        return true;  // more data to process
+      }
+
       if (state_ == State::Close) [[unlikely]] {
         // State::Close is handled here because we always want to check for
         // it after the above select. If any of the states above return a
@@ -170,6 +180,68 @@ class Session {
   void HandleError() {
     if (!at_least_one_run_) {
       spdlog::info("Sudden connection loss. Make sure the client supports Memgraph.");
+    }
+  }
+
+  // True while a PULL/DISCARD commit is parked waiting for commit_mutex_.
+  bool HasPendingCommit() const { return pending_commit_; }
+
+  // Whether the input buffer still has unprocessed bytes; used by PostFinishPendingCommit to
+  // decide DoWork vs DoRead after the commit completes.
+  bool HasBufferedData() const { return input_stream_.size() > 0; }
+
+  // Record the PULL arguments so FinishPendingCommit_ can retry without re-decoding.
+  // Called from HandlePullDiscard on a CommitWouldBlockException catch.
+  void StashPendingCommit(std::optional<int> n, std::optional<int> qid) {
+    pending_commit_ = true;
+    pending_commit_n_ = n;
+    pending_commit_qid_ = qid;
+  }
+
+  // Pool-side retry of a Commit() that threw CommitWouldBlockException.
+  // Re-runs the exhausted HandlePullDiscard<PULL> path: the cursor is already drained so
+  // Pull() streams 0 rows and only retries Commit().  On another TryLock miss, the specific
+  // CommitWouldBlockException catch in HandlePullDiscard re-stashes and returns PendingCommit
+  // — the pool driver re-parks.  On success, HandlePullDiscard sends the SUCCESS response and
+  // sets state_ = Idle.  Any other exception becomes ClientError (the bolt error was already
+  // sent by HandleFailure inside HandlePullDiscard).
+  //
+  // FLAG (re-Pull safety): commit_mutex_ is try-locked as the FIRST action in Interpreter::Commit()
+  // (interpreter.cpp:11518), before any state mutation.  The cursor has already returned its last
+  // result row and set maybe_res = COMMIT before the first CommitWouldBlockException; a second
+  // Pull() on an exhausted PullPlan/PullPlanVector cursor returns immediately (0 rows, returns
+  // the done signal) so Commit() is the only meaningful work.  The plan_execution_time in the
+  // re-generated summary accumulates a near-zero second elapsed — negligible measurement noise.
+  template <typename TImpl>
+    requires requires(TImpl &impl) {
+      { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
+    }
+  PendingCommitOutcome FinishPendingCommit_(TImpl &impl) {
+    MG_ASSERT(pending_commit_, "FinishPendingCommit_ called without a stashed pending commit");
+    memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
+
+    const auto n = pending_commit_n_;
+    const auto qid = pending_commit_qid_;
+
+    // Re-invoke the Pull path.  HandlePullDiscard's specific CommitWouldBlockException catch
+    // re-stashes n/qid and returns PendingCommit on another TryLock miss; any other exception
+    // triggers HandleFailure (bolt Error → ClientError here).  state_ is written by either the
+    // success return (Idle) or by HandleFailure (Error/Close) inside HandlePullDiscard.
+    state_ = details::HandlePullDiscard</*is_pull=*/true>(impl, n, qid);
+
+    switch (state_) {
+      case State::PendingCommit:
+        // CommitWouldBlockException thrown again; StashPendingCommit already re-set pending_commit_.
+        return PendingCommitOutcome::Reschedule;
+      case State::Idle:
+      case State::Result:
+        // Commit succeeded; HandlePullDiscard already sent SUCCESS to the client.
+        pending_commit_ = false;
+        return PendingCommitOutcome::Done;
+      default:
+        // State::Error or State::Close: HandleFailure sent the bolt error response.
+        pending_commit_ = false;
+        return PendingCommitOutcome::ClientError;
     }
   }
 
@@ -216,6 +288,14 @@ class Session {
   }
 
  private:
+  // Set when HandlePullDiscard catches CommitWouldBlockException; cleared when the pool-side
+  // retry completes (Done) or fails unrecoverably (ClientError).
+  bool pending_commit_{false};
+
+  // Arguments from the original PULL stashed so FinishPendingCommit_ can retry without re-decoding.
+  std::optional<int> pending_commit_n_{};
+  std::optional<int> pending_commit_qid_{};
+
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
   const std::string login_timestamp_;
