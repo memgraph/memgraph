@@ -277,6 +277,8 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    pending_access_.reset();
+    pending_begin_deadline_.reset();
   }
 
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
@@ -290,6 +292,12 @@ struct CurrentDB {
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
   metrics::ScopedGauge transaction_gauge_;
+  // U3 main_lock BEGIN park (experimental_lockfree_read_snapshot ON). A non-blocking BEGIN attempt that
+  // missed once and is now parked/retried by the bolt driver; carries its PendingScope (writer-preference)
+  // for its whole life. unique_ptr so teardown here (CleanupDBTransaction/ResetDB/~CurrentDB) deregisters
+  // the pending scope on any abandonment — a leaked registration would block a main_lock mode process-wide.
+  std::unique_ptr<storage::Storage::PendingAccess> pending_access_;
+  std::optional<std::chrono::steady_clock::time_point> pending_begin_deadline_;
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;

@@ -202,25 +202,53 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   auto &db_acc = *db_acc_;
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
-  switch (acc_type) {
-    case storage::StorageAccessType::READ:
-      [[fallthrough]];
-    case storage::StorageAccessType::WRITE:
-      db_transactional_accessor_ = db_acc->Access(acc_type,
-                                                  override_isolation_level,
-                                                  /*allow timeout*/ timeout);
-      break;
-    case storage::StorageAccessType::UNIQUE:
-      db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ timeout);
-      break;
-    case storage::StorageAccessType::READ_ONLY:
-      db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
-      break;
-    default:
-      // TODO: no access case
-      spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
-      throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
+
+  if (db_acc->storage()->IsCommitSerialised()) {
+    if (!pending_access_) {
+      if (auto acc = db_acc->storage()->TryAccess(acc_type, override_isolation_level)) {  // uncontended: no alloc
+        db_transactional_accessor_ = std::move(acc);
+      } else {
+        pending_access_ = db_acc->storage()->MakePendingAccess(acc_type);  // nullptr on Disk
+      }
+    }
+    if (pending_access_) {
+      if (!pending_begin_deadline_) pending_begin_deadline_ = std::chrono::steady_clock::now() + timeout;
+      if (auto acc = pending_access_->TryAcquire(override_isolation_level)) {
+        db_transactional_accessor_ = std::move(acc);
+        pending_access_.reset();
+        pending_begin_deadline_.reset();
+      } else if (std::chrono::steady_clock::now() >= *pending_begin_deadline_) {
+        pending_access_.reset();
+        pending_begin_deadline_.reset();
+        storage::ThrowAccessTimeout(acc_type);
+      } else {
+        throw BeginWouldBlockException{*pending_begin_deadline_};
+      }
+    }
   }
+
+  if (!db_transactional_accessor_) {
+    switch (acc_type) {
+      case storage::StorageAccessType::READ:
+        [[fallthrough]];
+      case storage::StorageAccessType::WRITE:
+        db_transactional_accessor_ = db_acc->Access(acc_type,
+                                                    override_isolation_level,
+                                                    /*allow timeout*/ timeout);
+        break;
+      case storage::StorageAccessType::UNIQUE:
+        db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ timeout);
+        break;
+      case storage::StorageAccessType::READ_ONLY:
+        db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
+        break;
+      default:
+        // TODO: no access case
+        spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
+        throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
+    }
+  }
+
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
   transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
@@ -239,6 +267,9 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
+  // Belt-and-suspenders: destroy any in-flight pending access (deregisters PendingScope) on mid-park abort.
+  pending_access_.reset();
+  pending_begin_deadline_.reset();
 }
 
 struct QueryLogWrapper {

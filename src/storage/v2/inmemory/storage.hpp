@@ -817,7 +817,14 @@ class InMemoryStorage final : public Storage {
   /// InMemoryStorage's alone: DiskStorage has no probe rather than one that always fails, so a
   /// caller polling it would spin instead of learning that it should just block.
   std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
-                                      std::optional<IsolationLevel> override_isolation_level = {});
+                                      std::optional<IsolationLevel> override_isolation_level = {}) override;
+
+  /// Builds an InMemoryAccessor from an already-held main_lock_ guard (the shared post-guard tail of
+  /// Access and TryAccess). Symmetric to TryAccess: ownership of the guard transfers into the accessor.
+  std::unique_ptr<Accessor> AccessorFromGuard(utils::ResourceLockGuard guard,
+                                              std::optional<IsolationLevel> override_isolation_level);
+
+  std::unique_ptr<PendingAccess> MakePendingAccess(StorageAccessType rw_type) override;
 
   void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 

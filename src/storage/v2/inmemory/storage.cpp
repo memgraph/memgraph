@@ -24,6 +24,7 @@
 #include <system_error>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
@@ -5088,11 +5089,59 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
       this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
 }
 
+std::unique_ptr<Storage::Accessor> InMemoryStorage::AccessorFromGuard(
+    utils::ResourceLockGuard guard, std::optional<IsolationLevel> override_isolation_level) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+}
+
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
                                                               std::optional<IsolationLevel> override_isolation_level) {
   utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
   if (!guard.owns_lock()) return nullptr;
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+  return AccessorFromGuard(std::move(guard), override_isolation_level);
+}
+
+namespace {
+class InMemoryPendingAccess final : public Storage::PendingAccess {
+ public:
+  InMemoryPendingAccess(InMemoryStorage *storage, utils::ResourceLock &main_lock, StorageAccessType rw_type)
+      : storage_{storage}, rw_type_{rw_type} {
+    switch (rw_type) {  // register pending up front for the gating modes only
+      case StorageAccessType::UNIQUE:
+        scope_.emplace<utils::UniquePendingScope>(main_lock);
+        break;
+      case StorageAccessType::READ_ONLY:
+        scope_.emplace<utils::ReadOnlyPendingScope>(main_lock);
+        break;
+      default:
+        break;  // READ / WRITE gate nobody → no scope
+    }
+  }
+
+  std::unique_ptr<Storage::Accessor> TryAcquire(std::optional<IsolationLevel> iso) override {
+    switch (rw_type_) {
+      case StorageAccessType::UNIQUE: {
+        auto g = std::get<utils::UniquePendingScope>(scope_).try_acquire();
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      case StorageAccessType::READ_ONLY: {
+        auto g = std::get<utils::ReadOnlyPendingScope>(scope_).try_acquire();
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      default:
+        return storage_->TryAccess(rw_type_, iso);  // READ/WRITE: plain one-probe
+    }
+  }
+
+ private:
+  InMemoryStorage *storage_;
+  StorageAccessType rw_type_;
+  std::variant<std::monostate, utils::UniquePendingScope, utils::ReadOnlyPendingScope> scope_;
+};
+}  // namespace
+
+std::unique_ptr<Storage::PendingAccess> InMemoryStorage::MakePendingAccess(StorageAccessType rw_type) {
+  return std::make_unique<InMemoryPendingAccess>(this, main_lock_, rw_type);
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

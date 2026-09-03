@@ -14,6 +14,7 @@
 #include "utils/exceptions.hpp"
 
 #include <fmt/format.h>
+#include <chrono>
 
 namespace memgraph::query {
 
@@ -628,6 +629,26 @@ class CommitWouldBlockException final : public std::exception {
   CommitWouldBlockException() = default;
 
   const char *what() const noexcept override { return "commit_mutex_ held by another committer; park and retry"; }
+};
+
+/// Thrown inside CurrentDB::SetupDatabaseTransaction() when main_lock_ cannot be acquired without
+/// blocking (experimental_lockfree_read_snapshot ON, a DDL/UNIQUE/READ_ONLY holder contends) and the
+/// finite storage-access deadline has NOT yet passed.
+///
+/// PURE INTERNAL PARKING SIGNAL — never a client-visible Bolt error. The Bolt session driver (U3b)
+/// catches it, parks the pool worker under WaitResource::MainLock until `deadline()`, and re-drives
+/// the query when woken. Once the deadline passes, SetupDatabaseTransaction throws the ordinary
+/// access-timeout exception instead of this one.
+class BeginWouldBlockException final : public std::exception {
+ public:
+  explicit BeginWouldBlockException(std::chrono::steady_clock::time_point deadline) : deadline_{deadline} {}
+
+  const char *what() const noexcept override { return "main_lock_ contended; park and retry BEGIN"; }
+
+  std::chrono::steady_clock::time_point deadline() const noexcept { return deadline_; }
+
+ private:
+  std::chrono::steady_clock::time_point deadline_;
 };
 
 }  // namespace memgraph::query
