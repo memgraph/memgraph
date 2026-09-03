@@ -1,12 +1,49 @@
-# Perf-box validation — engine-lock BEGIN/PREPARE reschedule stack
+# Perf-box validation — lock-park scheduling (commit-lock U4 + main-lock U3, on #4685)
 
 **For:** perf engineer running throughput measurements on a stable, isolated box.
+**Start at "## 0" below** — it names the current target (the `feat/adaptive-commit-lock-scheduling`
+flag A/B). The engine-lock sections (§1–§3b) are the historical lineage that #4685 superseded.
 **Author context:** the numbers below were gathered on a *non-perf-stable* dev VM and are
 **preliminary/directional only** — the point of this task is to confirm (or refute) them on real
 hardware. Everything needed (root cause, per-PR hypotheses, scripts, exact scenarios, expected
 shape) is in this directory.
 
 ---
+
+## 0. CURRENT TARGET — commit-lock (U4) + main-lock (U3) park, on #4685 (read this first)
+
+This kit now validates the **commit-lock / main-lock park feature** on branch
+**`feat/adaptive-commit-lock-scheduling`** (stacked on #4685 `experiment/commit-lock-narrowing`).
+`build_binaries.sh` builds it by default as `bins/cls/memgraph`. The whole feature is gated behind one
+server flag, so the clean A/B is the **same binary, flag ON vs OFF** — `phase3_run_ab.sh` takes an
+optional 3rd colon field per bundle for exactly this:
+
+```
+BIN=bins/cls/memgraph
+ON="on:$BIN:--experimental-enabled=lockfree-read-snapshot"   OFF="off:$BIN:"
+
+# U4 — commit-lock (slow writes): writers (W>0) contend the NEW commit_mutex_ behind a slow SYNC commit.
+DUR=20 REPS=6 COMBOS="16,2 16,4" NSTREAM=4 ./phase3_run_ab.sh "$ON" "$OFF"
+
+# U3 — main-lock (DDL/schema): NDDL workers hold main_lock_ while R readers BEGIN. Keep R > NWORKERS(8).
+#   DDLMODE=unique  -> DROP ALL CONSTRAINTS (a UNIQUE hold, excludes all)
+#   DDLMODE=readonly-> CREATE/DROP INDEX     (a READ_ONLY hold, excludes WRITE only)
+DUR=20 REPS=6 COMBOS="32,0 64,0" NDDL=1 DDLMODE=unique NSTREAM=4 ./phase3_run_ab.sh "$ON" "$OFF"
+```
+
+**Why `NSTREAM` matters:** parking only helps if freed workers have *other* productive work to run.
+`NSTREAM>0` runs a long-lived producer (the "other work" the park yields to) — that is where the ON/OFF
+gap appears. **Signal:** flag ON keeps READ `txn/s` + `STREAM q/s` up and bounds `q_p99` while the
+contention holds; OFF floors them as the 8 workers fill with blocked BEGINs/commits. The `DDL op/s` and
+write op/s columns should be ≈ equal A/B (the feature must not slow the contended DDL/writer itself).
+**No-regression control:** `NDDL=0 NSTREAM=0 W=0` (no contention) must be ≈ equal A/B, and running the
+same flag under both labels must report ≈0%.
+
+> **The `engine-lock` sections below (§1–§3b) are the historical lineage.** §2's root cause (a COMMIT
+> holding `engine_lock_` across the whole durability wait) is exactly what #4685 fixes at source —
+> `engine_lock_` becomes mint-only/fast and the write stall moves to the new `commit_mutex_`. The S2e
+> never-block+park work (§3b) parked on `engine_lock_`; this feature instead parks on the relocated
+> `commit_mutex_` (U4) and on `main_lock_` (U3). Kept for context; §0 is what the box builds and runs.
 
 ## 1. The customer symptom
 

@@ -18,11 +18,15 @@ REPO="${REPO:-$(git -C "$HERE" rev-parse --show-toplevel)}"
 WT_ROOT="${WT_ROOT:-/tmp/mg-perf-wt}"; mkdir -p "$WT_ROOT"
 
 # label:branch  (branches must be fetched; master baseline uses origin/master)
-# S2e validation set: master baseline, s2b = #4706 (shipped block-vs-try reschedule), s2e = never-block
-# + park (supersedes the old #4669/#4684 reschedule stack, which is folded into #4706 + park).
-BUILDS="${BUILDS:-master:origin/master \
-s2b:origin/feat/adaptive-engine-lock-reschedule \
-s2e:origin/feat/adaptive-engine-lock-neverblock}"
+# CURRENT TARGET (see REPORT.md "## 0"): the #4685-stacked commit-lock (U4) + main-lock (U3) park
+# feature. It is flag-gated, so the A/B is flag-ON vs flag-OFF on this ONE binary -- no separate
+# baseline build is needed (flag OFF == the #4685-base behavior). 'cls' = commit-lock scheduling.
+BUILDS="${BUILDS:-cls:origin/feat/adaptive-commit-lock-scheduling}"
+
+# Superseded S2e engine-lock validation set (never-block+park on engine_lock_; abandoned in favour of
+# the #4685-stacked feature above). Override BUILDS with this to re-measure the S2e lineage:
+#   BUILDS="master:origin/master s2b:origin/feat/adaptive-engine-lock-reschedule \
+#           s2e:origin/feat/adaptive-engine-lock-neverblock" ./build_binaries.sh
 
 # Old per-PR stack (superseded by #4706 + S2e); override BUILDS with this to re-measure the originals:
 #   BUILDS="master:origin/master p4662:perf/query-timeout-deadline p4663:perf/adaptive-worker-spin \
