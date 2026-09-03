@@ -3336,12 +3336,7 @@ Callback HandleConfigQuery() {
       std::vector<TypedValue> current_fields;
       current_fields.emplace_back(flag.name);
       current_fields.emplace_back(flag.default_value);
-      if (flag.name == "password_encryption_algorithm") {
-        // Required because --fips-mode=true overrides the default algorithm used
-        current_fields.emplace_back(std::string{auth::AsString(auth::CurrentHashAlgorithm())});
-      } else {
-        current_fields.emplace_back(flag.current_value);
-      }
+      current_fields.emplace_back(flag.current_value);
       current_fields.emplace_back(flag.description);
 
       results.emplace_back(std::move(current_fields));
