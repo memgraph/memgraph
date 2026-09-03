@@ -396,6 +396,17 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
+  // EXPERIMENTAL (lock-free-read-snapshot).
+  // Attempt to acquire commit_mutex_ without blocking.  Returns an owning unique_lock on success,
+  // a non-owning (default-constructed) unique_lock when another committer already holds it.
+  // Only meaningful when experimental_lockfree_read_snapshot is ON.
+  [[nodiscard]] std::unique_lock<std::mutex> TryCommitLock() noexcept {
+    return std::unique_lock<std::mutex>{commit_mutex_, std::try_to_lock};
+  }
+
+  // True iff the lock-free read-snapshot experiment is ON for this storage instance.
+  bool IsCommitSerialised() const noexcept { return config_.experimental_lockfree_read_snapshot; }
+
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }
@@ -819,7 +830,12 @@ class Accessor {
   virtual void DropAllConstraints() = 0;
 
   // NOLINTNEXTLINE(google-default-arguments)
-  virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args) = 0;
+  // preheld_commit_lock: when the caller (Interpreter::Commit, U4a) has already acquired
+  // commit_mutex_ via TryLockCommit(), it passes the owning lock here so PrepareForCommitPhase
+  // can adopt it instead of re-acquiring.  A default-constructed (non-owning) lock signals
+  // "no pre-held guard"; the implementation then acquires blocking, preserving OFF-path behaviour.
+  virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(
+      CommitArgs commit_args, std::unique_lock<std::mutex> preheld_commit_lock = {}) = 0;
 
   // NOLINTNEXTLINE(google-default-arguments)
   virtual std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) = 0;
@@ -827,6 +843,16 @@ class Accessor {
   virtual void Abort() = 0;
 
   virtual void FinalizeTransaction() = 0;
+
+  // EXPERIMENTAL (lock-free-read-snapshot) helpers for the parkable-commit path (U4a).
+  // True iff the experiment is ON for this accessor's storage.
+  bool IsCommitSerialised() const noexcept { return storage_->IsCommitSerialised(); }
+
+  // Attempt commit_mutex_ without blocking. Returns an owning lock on success,
+  // a non-owning lock when another committer holds it.  Must not be called on the OFF path
+  // (storage_->commit_mutex_ is never taken there, so the try always succeeds — harmless but
+  // wasteful; gate the call with IsCommitSerialised()).
+  [[nodiscard]] std::unique_lock<std::mutex> TryLockCommit() noexcept { return storage_->TryCommitLock(); }
 
   // Stable per-query id; preserved across PERIODIC COMMIT.
   std::optional<uint64_t> GetStartTimestamp() const;

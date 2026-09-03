@@ -616,4 +616,18 @@ class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
 };
 
+/// Thrown inside Interpreter::Commit() when commit_mutex_ cannot be acquired without
+/// blocking (experimental_lockfree_read_snapshot ON, another committer holds the mutex).
+///
+/// This is a PURE INTERNAL PARKING SIGNAL — it never becomes a client-visible Bolt error.
+/// The Bolt session driver (U4b) catches it, parks the worker with WaitResource::CommitLock,
+/// and calls Commit() again when woken.  Because the throw happens as the very first action
+/// in Commit(), no non-idempotent side-effect has occurred and re-entry is safe.
+class CommitWouldBlockException final : public std::exception {
+ public:
+  CommitWouldBlockException() = default;
+
+  const char *what() const noexcept override { return "commit_mutex_ held by another committer; park and retry"; }
+};
+
 }  // namespace memgraph::query

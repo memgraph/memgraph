@@ -11486,6 +11486,40 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }  // namespace
 
 void Interpreter::Commit() {
+  // U4a — parkable commit acquire.
+  //
+  // When the lock-free read-snapshot experiment is ON, every write commit serialises on
+  // commit_mutex_.  We try to take it here — as the absolute first action in Commit() — so
+  // that if another committer is currently in the WAL+replication phase (which can stall for
+  // hundreds of milliseconds on SYNC replication), we throw CommitWouldBlockException BEFORE
+  // any non-idempotent work runs.  The Bolt session driver (U4b) catches that exception,
+  // parks this worker with WaitResource::CommitLock, and calls Commit() again from the top
+  // when woken; because nothing else has been modified yet the retry is safe.
+  //
+  // Off-path (flag OFF, no db_transactional_accessor_, read-only txn with no deltas): the
+  // TryLockCommit call is never made, preheld_commit_lock stays non-owning, and it is passed
+  // as a default-constructed lock to PrepareForCommitPhase — which ignores it and behaves
+  // exactly as before this change.
+  //
+  // FLAG (non-idempotent work before this point): There is none — this IS the first action.
+  // Every line of Commit() below this block is non-idempotent (MG_ENTERPRISE memory decrement,
+  // status CAS, trigger execution, …), so if the try fails and throws, nothing has been
+  // mutated.
+  // Only a WRITE commit takes commit_mutex_ (PrepareForCommitPhase short-circuits an empty txn before
+  // the serializer). Reads must NOT touch commit_mutex_ — that is the whole point of #4685 (the stall
+  // is writers-only) — so gate the try on the txn actually having (meta)deltas.
+  std::unique_lock<std::mutex> preheld_commit_lock;  // non-owning by default
+  if (current_db_.db_transactional_accessor_ && current_db_.db_transactional_accessor_->IsCommitSerialised()) {
+    auto const *commit_txn = current_db_.db_transactional_accessor_->GetTransaction();
+    bool const is_write = commit_txn && (!commit_txn->deltas.empty() || !commit_txn->md_deltas.empty());
+    if (is_write) {
+      preheld_commit_lock = current_db_.db_transactional_accessor_->TryLockCommit();
+      if (!preheld_commit_lock.owns_lock()) {
+        throw CommitWouldBlockException{};
+      }
+    }
+  }
+
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {
     const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
@@ -11661,10 +11695,29 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
-  auto maybe_commit_error =
-      current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
+  // did_take_commit_lock is captured before the move so we can wake parked writers
+  // after commit_mutex_ is released inside PrepareForCommitPhase (the lock goes out of scope
+  // at the end of that function).  preheld_commit_lock is moved-from and unusable afterwards.
+  const bool did_take_commit_lock = preheld_commit_lock.owns_lock();
+  auto maybe_commit_error = current_db_.db_transactional_accessor_->PrepareForCommitPhase(
+      make_commit_arg(is_main, *current_db_.db_acc_), std::move(preheld_commit_lock));
   // Proactively unlock repl_state
   locked_repl_state.reset();
+
+  // U4a — wake parked writers.
+  // commit_mutex_ was released when commit_serializer was destroyed inside
+  // PrepareForCommitPhase.  Any writer parked by U4b with WaitResource::CommitLock
+  // can now re-try.  worker_pool is null in embedded/unit-test contexts — skip safely.
+  //
+  // FLAG (PrepareForNewEpoch wake): PrepareForNewEpoch also acquires commit_mutex_ but
+  // lives inside InMemoryStorage (no pool handle available there).  Epoch rotation is
+  // rare (leader election / HA reconfiguration only) and the 100 ms monitor sweep in
+  // PriorityThreadPool acts as a backstop, so the missed immediate wake is acceptable.
+  // A storage→pool callback hook can be added in U4b when wiring the full Bolt driver.
+  if (did_take_commit_lock && interpreter_context_->worker_pool != nullptr) {
+    interpreter_context_->worker_pool->WakeMatching(
+        {.resource = utils::WaitResource::CommitLock, .freed = utils::AccessMode::WRITE});
+  }
 
   std::optional<std::string> replication_error_msg;
   bool replication_error_committed = false;
