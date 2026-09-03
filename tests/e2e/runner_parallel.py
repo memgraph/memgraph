@@ -15,13 +15,13 @@
 Runs e2e workloads in parallel.
 
 Workloads are split into two lanes:
-  * parallel lane: workloads whose whole cluster is declared in workloads.yaml. Their ports are remapped into a
-    per-worker window and their data directories / log files get a per-worker suffix. Test processes see the mapping
-    through MEMGRAPH_E2E_PORT_MAP, which sitecustomize.py uses to redirect local connections. Workloads from the same
-    workloads.yaml never run at the same time, so shared files (query module dirs, csv fixtures...) cannot collide.
-  * exclusive lane: workloads that start their own Memgraph instances from the test (interactive_mg_runner), spawn
-    helper processes on fixed ports, or assert on endpoint strings. Those keep their hardcoded ports and data
-    directories, so they run one at a time, unmodified, exactly like runner.py would run them.
+  * parallel lane: every worker owns a private port window. Clusters declared in workloads.yaml are remapped into it
+    by this runner (their data directories / log files get a per-worker suffix), instances started from inside a test
+    are remapped by PortRemap in memgraph.py, and sitecustomize.py redirects the test's own connections and maps ports
+    back in query results. Workloads sharing a test file (or a query module dir / compiled binary from the same
+    workloads.yaml) never run at the same time, so shared files and data directories cannot collide.
+  * exclusive lane: workloads that spawn helper processes on fixed ports (graphql's node server, shell tools) or
+    compare SHOW CONFIG against defaults. Those run one at a time, unmodified, exactly like runner.py would run them.
 """
 
 import copy
@@ -55,7 +55,7 @@ DISABLE_NODE = os.getenv("DISABLE_NODE", "false") == "true"
 # Remapped ports live in [PORT_NAMESPACE_BASE, ephemeral range start). Hardcoded test ports (7687.., 10001.., 13011..)
 # all sit below the base, so the exclusive lane never collides with the parallel lane.
 PORT_NAMESPACE_BASE = 20000
-DEFAULT_PORT_OFFSET_STEP = 100
+DEFAULT_PORT_OFFSET_STEP = 200
 DEFAULT_BOLT_PORT = 7687
 DEFAULT_MONITORING_PORT = 7444
 DEFAULT_METRICS_PORT = 9091
@@ -82,15 +82,17 @@ OFFSETTABLE_FLAGS = {
 # Test directories whose helpers use fixed ports outside of Memgraph (graphql starts a node server on :4000 that
 # connects to bolt://localhost:7687 from JS).
 EXCLUSIVE_TEST_DIRS = {"graphql"}
-# Tests that compare SHOW REPLICAS / SHOW CONFIG output against hardcoded ports, which remapping would break.
+# Test directories whose workloads share on-disk state and therefore must not overlap with each other:
+# parallel/conftest.py uses the data directory parallel_e2e_data for every file, module_file_manager writes into
+# Memgraph's query module directory.
+SERIAL_TEST_DIRS = {"parallel", "module_file_manager"}
+# Tests that cannot follow the port remapping: SHOW CONFIG compared against compiled defaults, and subprocesses
+# (a compiled RPC helper, openssl s_client) pointed at hardcoded ports.
 EXCLUSIVE_TEST_FILES = {
     "configuration/configuration_check.py",
-    "replication/show.py",
-    "replication/edge_delete.py",
-    "replication/replicate_periodic_commit.py",
+    "high_availability/distributed_coords.py",
+    "high_availability/tls_cluster.py",
 }
-# A test that manages instances itself, or shells out, cannot have its ports remapped from the outside.
-EXCLUSIVE_SOURCE_RE = re.compile(r"\binteractive_mg_runner\b|\bsubprocess\b")
 
 
 @dataclass
@@ -128,6 +130,13 @@ def load_args():
         help=f"Number of ports reserved per parallel worker (default: {DEFAULT_PORT_OFFSET_STEP})",
     )
     parser.add_argument(
+        "--kill-leftovers",
+        default=False,
+        required=False,
+        action="store_true",
+        help="Kill Memgraph instances and test processes left over from a previous run instead of aborting",
+    )
+    parser.add_argument(
         "--keep-going",
         default=False,
         required=False,
@@ -151,35 +160,11 @@ def load_args():
     return parser.parse_args()
 
 
-def _read_test_sources(workload):
-    """Returns the source of a pytest workload's test file and the shared helpers next to it."""
-    if not workload["binary"].endswith("pytest_runner.sh") or not workload.get("args"):
-        return ""
-    test_rel = workload["args"][0]
-    sources = []
-    for base in (BUILD_E2E_DIR, SCRIPT_DIR):
-        test_path = os.path.join(base, test_rel)
-        if not os.path.exists(test_path):
-            continue
-        test_dir = os.path.dirname(test_path)
-        candidates = [test_path] + [os.path.join(test_dir, name) for name in ("conftest.py", "common.py")]
-        for path in candidates:
-            if os.path.exists(path):
-                with open(path, "r", errors="replace") as f:
-                    sources.append(f.read())
-        break
-    return "\n".join(sources)
-
-
 def is_exclusive(workload):
-    if "cluster" not in workload:
-        return True
     if not workload["binary"].endswith("pytest_runner.sh"):
         return False
     test_rel = workload["args"][0] if workload.get("args") else ""
-    if test_rel in EXCLUSIVE_TEST_FILES or test_rel.split("/")[0] in EXCLUSIVE_TEST_DIRS:
-        return True
-    return bool(EXCLUSIVE_SOURCE_RE.search(_read_test_sources(workload)))
+    return test_rel in EXCLUSIVE_TEST_FILES or test_rel.split("/")[0] in EXCLUSIVE_TEST_DIRS
 
 
 def load_entries(root_directory):
@@ -195,11 +180,24 @@ def load_entries(root_directory):
             continue
         if str(file).endswith("/graphql/workloads.yaml") and DISABLE_NODE:
             continue
-        group = os.path.relpath(str(file), BUILD_E2E_DIR)
+        yaml_group = os.path.relpath(str(file), BUILD_E2E_DIR)
         with open(file, "r") as f:
             for workload in yaml.load(f, Loader=yaml.FullLoader)["workloads"]:
-                entries.append(Entry(workload=workload, group=group, exclusive=is_exclusive(workload)))
+                entries.append(
+                    Entry(workload=workload, group=_group_key(workload, yaml_group), exclusive=is_exclusive(workload))
+                )
     return entries
+
+
+def _group_key(workload, yaml_group):
+    """Workloads with the same key never run concurrently in the parallel lane."""
+    # A query module dir may be written to by the tests using it: serialize per yaml.
+    if "proc" in workload or yaml_group.split("/")[0] in SERIAL_TEST_DIRS:
+        return yaml_group
+    # Python tests derive data directory names from their file name, so the same file must not overlap with itself.
+    if workload["binary"].endswith("pytest_runner.sh") and workload.get("args"):
+        return workload["args"][0]
+    return f"{yaml_group}::{workload['name']}"
 
 
 def list_workload_names(root_directory):
@@ -349,7 +347,7 @@ def _build_port_map(workload, worker_slot, port_offset_step):
         )
 
     discovered_ports = set(_extract_ports_from_args(workload.get("args", [])))
-    for config in workload["cluster"].values():
+    for config in workload.get("cluster", {}).values():
         discovered_ports.update(_extract_ports_from_args(config.get("args", [])))
         for setup_query in config.get("setup_queries", []):
             for query in setup_query if isinstance(setup_query, list) else [setup_query]:
@@ -371,13 +369,13 @@ def _build_port_map(workload, worker_slot, port_offset_step):
 
 def prepare_workload_for_worker(workload, worker_slot, port_offset_step):
     prepared = copy.deepcopy(workload)
-    for config in prepared["cluster"].values():
+    for config in prepared.get("cluster", {}).values():
         config["args"] = _ensure_default_listener_ports(config.get("args", []))
 
     port_map, namespace_start = _build_port_map(prepared, worker_slot, port_offset_step)
     suffix = f"-w{worker_slot}"
 
-    for config in prepared["cluster"].values():
+    for config in prepared.get("cluster", {}).values():
         config["args"] = _remap_ports_in_args(config.get("args", []), port_map)
         if "setup_queries" in config:
             config["setup_queries"] = _remap_query_collection(config["setup_queries"], port_map)
@@ -395,6 +393,45 @@ def prepare_workload_for_worker(workload, worker_slot, port_offset_step):
     if is_cpp_binary and not _extract_ports_from_args(workload.get("args", [])) and DEFAULT_BOLT_PORT in port_map:
         prepared["args"] = prepared["args"] + ["--bolt-port", str(port_map[DEFAULT_BOLT_PORT])]
     return prepared, namespace_start, port_map
+
+
+def find_leftover_processes():
+    """Memgraph instances and test scripts from this build tree, e.g. survivors of an interrupted run."""
+    memgraph_binary = os.path.join(BUILD_DIR, "memgraph")
+    leftovers = []
+    for pid_dir in Path("/proc").iterdir():
+        if not pid_dir.name.isdigit() or int(pid_dir.name) == os.getpid():
+            continue
+        try:
+            argv = (pid_dir / "cmdline").read_bytes().decode(errors="replace").split("\0")
+        except OSError:
+            continue
+        if not argv or not argv[0]:
+            continue
+        is_instance = argv[0] == memgraph_binary
+        is_test = os.path.basename(argv[0]).startswith("python") and len(argv) > 1 and argv[1].startswith(BUILD_E2E_DIR)
+        if is_instance or is_test:
+            leftovers.append((int(pid_dir.name), " ".join(argv[:2])[:120]))
+    return leftovers
+
+
+def kill_leftover_processes(leftovers):
+    import signal
+
+    for pid, _ in leftovers:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and any(os.path.exists(f"/proc/{pid}") for pid, _ in leftovers):
+        time.sleep(0.2)
+    for pid, _ in leftovers:
+        if os.path.exists(f"/proc/{pid}"):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
 
 
 def _extend_pythonpath(env, path):
@@ -442,10 +479,13 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
             workload, worker_slot, args_dict["port_offset_step"]
         )
         env["MEMGRAPH_PARALLEL_PROCESS_INDEX"] = str(worker_slot)
-        env["MEMGRAPH_PORT_NAMESPACE_START"] = str(port_namespace_start)
+        # Consumed by PortRemap in memgraph.py (through sitecustomize.py) inside the test process.
+        env["MEMGRAPH_PORT_WINDOW_START"] = str(port_namespace_start)
+        env["MEMGRAPH_PORT_WINDOW_SIZE"] = str(args_dict["port_offset_step"])
         env["MEMGRAPH_E2E_PORT_MAP"] = json.dumps(port_map)
-        first_instance_config = next(iter(prepared["cluster"].values()))
-        env["MEMGRAPH_BOLT_PORT"] = str(_extract_bolt_port_from_args(first_instance_config.get("args", [])))
+        if prepared.get("cluster"):
+            first_instance_config = next(iter(prepared["cluster"].values()))
+            env["MEMGRAPH_BOLT_PORT"] = str(_extract_bolt_port_from_args(first_instance_config.get("args", [])))
 
     gdb_port = None
     if args_dict["gdb"]:
@@ -556,7 +596,17 @@ def run(args):
 
     exclusive_queue = [e for e in entries if e.exclusive]
     parallel_queue = [e for e in entries if not e.exclusive]
-    parallel_slots = min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue))
+    # Longest serialized chains first, so they don't end up as the tail of the run.
+    group_sizes = {}
+    for entry in parallel_queue:
+        group_sizes[entry.group] = group_sizes.get(entry.group, 0) + 1
+    parallel_queue.sort(key=lambda entry: -group_sizes[entry.group])
+    max_windows = (_ephemeral_port_range_start() - PORT_NAMESPACE_BASE) // args.port_offset_step - 1
+    parallel_slots = min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue), max_windows)
+    if parallel_slots < min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue)):
+        log.warning(
+            "Only %d port windows of %d ports fit below the ephemeral range.", max_windows, args.port_offset_step
+        )
     worker_count = (1 if exclusive_queue else 0) + parallel_slots
     log.info(
         "Running %d workloads: %d exclusive (serial lane), %d parallel across %d worker(s).",
@@ -651,6 +701,14 @@ if __name__ == "__main__":
         sys.exit(0)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
+    leftovers = find_leftover_processes()
+    if leftovers:
+        for pid, cmd in leftovers:
+            log.warning("Leftover process from a previous run: pid %d: %s", pid, cmd)
+        if not args.kill_leftovers:
+            log.error("Leftover instances would collide with this run, stop them or pass --kill-leftovers.")
+            sys.exit(1)
+        kill_leftover_processes(leftovers)
     if not args.save_data_dir:
         # Data left behind by an interrupted run makes instances recover stale state (e.g. a persisted replica role).
         shutil.rmtree(os.path.join(BUILD_DIR, "e2e", "data"), ignore_errors=True)
@@ -660,6 +718,12 @@ if __name__ == "__main__":
         # Data directories are kept on failure for inspection, the next run wipes them.
         log.error("%s", e)
         sys.exit(1)
+    finally:
+        # Tests that fail mid-way can leave instances behind; they would collide with the next run.
+        leftovers = find_leftover_processes()
+        if leftovers:
+            log.warning("Stopping %d instance(s) left running by tests.", len(leftovers))
+            kill_leftover_processes(leftovers)
     if not args.save_data_dir:
         shutil.rmtree(os.path.join(BUILD_DIR, "e2e", "data"), ignore_errors=True)
     if args.clean_logs_dir:

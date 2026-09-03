@@ -144,7 +144,7 @@ def pidof(instances, instance_name):
     val = instances[instance_name]
     mg_args = val["args"]
     port = int(next(mg_arg.split("=", 1)[1] for mg_arg in mg_args if mg_arg.startswith("--bolt-port=")))
-    pids = pids_for_port(port)
+    pids = pids_for_port(PORT_REMAP.map_port(port))
     if len(pids) == 1:
         pids = pids[0]  # To avoid list output
     print("{:<15s}".format(str(pids)))
@@ -223,6 +223,11 @@ def _start(
         log.info(f"Instance with name {name} is registered but not running, starting it again.")
         MEMGRAPH_INSTANCES.pop(name)
 
+    # Under runner_parallel.py the ports move into this worker's window, see PortRemap in memgraph.py. An instance
+    # without --bolt-port would otherwise bind the real default port.
+    if PORT_REMAP.active and not any(str(arg).startswith(("--bolt-port", "--bolt_port")) for arg in args):
+        args = list(args) + ["--bolt-port", "7687"]
+    args = PORT_REMAP.map_args(args)
     bolt_port = extract_bolt_port(args)
     assert wait_until_port_is_free(
         bolt_port
