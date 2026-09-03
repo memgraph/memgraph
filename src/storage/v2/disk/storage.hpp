@@ -328,7 +328,8 @@ class DiskStorage final : public Storage {
     void DropAllConstraints() override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args) override;
+    std::expected<void, StorageManipulationError> PrepareForCommitPhase(
+        CommitArgs commit_args, std::unique_lock<std::mutex> preheld_commit_lock = {}) override;
 
     // NOLINTNEXTLINE(google-default-arguments)
     std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
