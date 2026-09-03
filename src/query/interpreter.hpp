@@ -297,6 +297,8 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    pending_access_.reset();
+    pending_begin_deadline_.reset();
   }
 
   // Releases db_acc_ only if held and marked for deletion; db_transactional_accessor_/execution_db_accessor_/
@@ -362,6 +364,12 @@ struct CurrentDB {
   // GKInternals::mutex_ that finish_suspend() holds across a whole ~Database; nesting them would stall the
   // session table behind a tenant suspend.
   mutable std::mutex db_acc_mutex_;
+  // U3 main_lock BEGIN park (experimental_lockfree_read_snapshot ON). A non-blocking BEGIN attempt that
+  // missed once and is now parked/retried by the bolt driver; carries its PendingScope (writer-preference)
+  // for its whole life. unique_ptr so teardown here (CleanupDBTransaction/ResetDB/~CurrentDB) deregisters
+  // the pending scope on any abandonment — a leaked registration would block a main_lock mode process-wide.
+  std::unique_ptr<storage::Storage::PendingAccess> pending_access_;
+  std::optional<std::chrono::steady_clock::time_point> pending_begin_deadline_;
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
