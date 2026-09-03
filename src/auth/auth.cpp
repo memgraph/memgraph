@@ -783,6 +783,10 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
   return user;
 }
 
+void Auth::AddSystemAction(system::Transaction &system_tx, std::unique_ptr<system::ISystemAction> action) {
+  system_tx.AddAction(std::move(action));
+}
+
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   std::map<std::string, std::string> puts;
   std::vector<std::string> deletes;
@@ -828,11 +832,9 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   UpdateEpoch();
 
   // All changes to the user end up calling this function, so no need to add a delta anywhere else
-  if (system_tx) {
 #ifdef MG_ENTERPRISE
-    system_tx->AddAction<UpdateAuthData>(user);
+  AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(user); });
 #endif
-  }
 }
 
 void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
@@ -931,11 +933,9 @@ bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *sys
   UpdateEpoch();
 
   // Handling drop user delta
-  if (system_tx) {
 #ifdef MG_ENTERPRISE
-    system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::USER, username);
+  AddAuthAction(system_tx, [&] { return std::make_unique<DropAuthData>(DropAuthData::AuthDataType::USER, username); });
 #endif
-  }
   return true;
 }
 
@@ -992,8 +992,10 @@ std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
 bool Auth::CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
                          const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
   const auto res = user_profiles_.Create(profile_name, defined_limits, usernames);
-  if (res && system_tx) {
-    system_tx->AddAction<UpdateAuthData>(UserProfiles::Profile{profile_name, defined_limits, usernames});
+  if (res) {
+    AddAuthAction(system_tx, [&] {
+      return std::make_unique<UpdateAuthData>(UserProfiles::Profile{profile_name, defined_limits, usernames});
+    });
   }
   return res;
 }
@@ -1009,9 +1011,7 @@ std::optional<UserProfiles::Profile> Auth::UpdateProfile(const std::string &prof
         UpdateProfileLimits(user, res, *user_resources_);
       }
     }
-    if (system_tx) {
-      system_tx->AddAction<UpdateAuthData>(res.value());
-    }
+    AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(res.value()); });
   }
   return res;
 }
@@ -1062,9 +1062,8 @@ bool Auth::DropProfile(const std::string &profile_name, system::Transaction *sys
         UpdateProfileLimits(user, {}, *user_resources_);
       }
     }
-    if (system_tx) {
-      system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::PROFILE, profile_name);
-    }
+    AddAuthAction(system_tx,
+                  [&] { return std::make_unique<DropAuthData>(DropAuthData::AuthDataType::PROFILE, profile_name); });
   }
   return res;
 }
@@ -1085,9 +1084,7 @@ std::optional<UserProfiles::Profile> Auth::SetProfile(const std::string &profile
     UpdateProfileLimits(name, profile, *user_resources_);
   }
 
-  if (system_tx) {
-    system_tx->AddAction<UpdateAuthData>(*profile);
-  }
+  AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(*profile); });
 
   return profile;
 }
@@ -1109,10 +1106,9 @@ void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx
     UpdateProfileLimits(name, std::nullopt, *user_resources_);
   }
 
-  if (system_tx) {
-    auto profile = user_profiles_.Get(*profile_name);
-    if (profile) {
-      system_tx->AddAction<UpdateAuthData>(*profile);
+  if (pending_actions_ || system_tx) {
+    if (auto const profile = user_profiles_.Get(*profile_name)) {
+      AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(*profile); });
     }
   }
 }
@@ -1159,11 +1155,9 @@ void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
   UpdateEpoch();
 
   // All changes to the role end up calling this function, so no need to add a delta anywhere else
-  if (system_tx) {
 #ifdef MG_ENTERPRISE
-    system_tx->AddAction<UpdateAuthData>(role);
+  AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(role); });
 #endif
-  }
 }
 
 std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transaction *system_tx) {
@@ -1292,11 +1286,9 @@ bool Auth::RemoveRole(const std::string &rolename_orig, bool force, system::Tran
   UpdateEpoch();
 
   // Handling drop role delta
-  if (system_tx) {
 #ifdef MG_ENTERPRISE
-    system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::ROLE, rolename);
+  AddAuthAction(system_tx, [&] { return std::make_unique<DropAuthData>(DropAuthData::AuthDataType::ROLE, rolename); });
 #endif
-  }
   return true;
 }
 

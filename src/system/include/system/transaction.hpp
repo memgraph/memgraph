@@ -45,6 +45,9 @@ struct Transaction {
     actions_.emplace_back(std::make_unique<TAction>(std::forward<Args>(args)...));
   }
 
+  /// Takes an already-constructed action, for a caller that builds it before choosing a destination.
+  void AddAction(std::unique_ptr<ISystemAction> action) { actions_.emplace_back(std::move(action)); }
+
   template <ReplicationPolicy Handler>
   auto Commit(Handler handler) -> AllSyncReplicaStatus {
     if (!lock_.owns_lock() || actions_.empty()) {
