@@ -241,6 +241,12 @@ State HandlePrepare(TSession &session) {
       return State::Close;
     }
     return State::Result;
+  } catch (const memgraph::query::BeginWouldBlockException &e) {
+    // main_lock_ is contended; park this worker until the accessor becomes available.
+    // Nothing non-idempotent has occurred (throw is the first action in SetupDatabaseTransaction
+    // before any storage mutation), so re-running InterpretPrepare on wake is safe.
+    session.StashPendingBeginPrepare(e.deadline());
+    return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -451,6 +457,11 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
       return State::Close;
     }
     return State::Idle;
+  } catch (const memgraph::query::BeginWouldBlockException &e) {
+    // main_lock_ is contended; Configure() has already run. Stash the extra map so the pool
+    // driver can retry BeginTransaction(extra) + MessageSuccess({}) on wake without re-decoding.
+    session.StashPendingBeginMessage(extra.ValueMap(), e.deadline());
+    return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

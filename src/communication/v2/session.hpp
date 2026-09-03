@@ -387,6 +387,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         while (session_.HasPendingCommit()) {
           session_.FinishPendingCommit();
         }
+        // Websocket busy-wait for the rare main_lock_ contention case (mirrors PendingCommit above).
+        while (session_.HasPendingBegin()) {
+          session_.FinishPendingBegin();
+        }
       }
       // Handled all data,  async wait for new incoming data
       DoReadAsio();
@@ -405,6 +409,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                   // PULL/DISCARD's Commit() would block; park this worker until commit_mutex_ frees.
                   // Return now so a pipelined message can't run before the commit finishes.
                   shared_this->PostFinishPendingCommit();
+                  return;
+                }
+                if (shared_this->session_.HasPendingBegin()) {
+                  // BEGIN/RUN-first-query would block on main_lock_; park until it frees (bounded
+                  // by the finite storage-access deadline).
+                  shared_this->PostFinishPendingBegin();
                   return;
                 }
                 // Check if we can just steal this task (loop through)
@@ -481,6 +491,60 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                                       id,
                                       std::chrono::steady_clock::time_point::max(),
                                       utils::WaitTag{utils::WaitResource::CommitLock, {}});
+    }
+  }
+
+  // Completes a would-block BEGIN / RUN-as-first-query on the pool.
+  //
+  // Mirrors PostFinishPendingCommit but uses a FINITE deadline (session_.PendingBeginDeadline())
+  // rather than time_point::max, and parks under WaitResource::MainLock (not CommitLock).  The
+  // finite deadline is mandatory: main_lock_ is the BEGIN/DDL-contention path and a max-deadline
+  // park could outlast the monitor backstop, violating the storage-access timeout contract.
+  //
+  // On Reschedule (main_lock_ still contended): re-park under MainLock until woken by the
+  // ResourceLock notify hook (U3a) or the monitor sweep.
+  // On Done / ClientError: reset task id and resume the session (DoWork or DoRead).
+  void PostFinishPendingBegin() {
+    auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+      try {
+        switch (shared_this->session_.FinishPendingBegin()) {
+          case memgraph::communication::bolt::PendingBeginOutcome::Reschedule:
+            // main_lock_ still held; re-park and wait for the next WakeMatching({MainLock}).
+            shared_this->PostFinishPendingBegin();
+            return;
+          case memgraph::communication::bolt::PendingBeginOutcome::Done:
+          case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
+            shared_this->pending_begin_task_id_.store(0, std::memory_order_relaxed);
+            if (shared_this->session_.HasBufferedData()) {
+              shared_this->DoWork();
+            } else {
+              shared_this->DoRead();
+            }
+            return;
+        }
+      } catch (const std::exception & /* unused */) {
+        boost::asio::post(shared_this->strand_,
+                          [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+      }
+    };
+
+    // Pool shutting down: drop the continuation; teardown will error the client.
+    if (session_context_->IsDrainingAdmissions()) return;
+
+    const auto id = pending_begin_task_id_.load(std::memory_order_relaxed);
+    if (id == 0) {
+      // First post: add to queue to get a place-keeping id; one spin-try before parking.
+      pending_begin_task_id_.store(
+          session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
+          std::memory_order_relaxed);
+    } else {
+      // Reschedule: park under MainLock with the FINITE storage-access deadline so the pool
+      // worker sleeps until WakeMatching({MainLock}) fires from the ResourceLock notify hook.
+      const auto deadline = session_.PendingBeginDeadline();
+      DMG_ASSERT(deadline != std::chrono::steady_clock::time_point::max(),
+                 "PendingBegin park deadline must be finite (storage-access timeout)");
+      session_context_->ParkAdmission(
+          std::move(lambda), id, deadline, utils::WaitTag{utils::WaitResource::MainLock, {}});
     }
   }
 
@@ -605,5 +669,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // Relaxed accesses are safe: a single session has at most one pending commit at a time
   // and the pool sees it via the task-queue / parked-admissions mechanisms.
   std::atomic<utils::PriorityThreadPool::TaskID> pending_commit_task_id_{0};
+
+  // TaskID of the in-flight begin-park continuation; 0 = not yet issued.
+  // Same relaxed-access reasoning as pending_commit_task_id_ above: one pending-begin per
+  // session at a time, visible to the pool via the task-queue / parked-admissions mechanisms.
+  std::atomic<utils::PriorityThreadPool::TaskID> pending_begin_task_id_{0};
 };
 }  // namespace memgraph::communication::v2
