@@ -1063,6 +1063,11 @@ if (MG_ENTERPRISE)
         LINK_TARGETS mg-auth mg-kvstore mg-utils
     )
 
+    add_unit_test(auth_layer
+        SOURCES auth_layer.cpp
+        LINK_TARGETS mg-auth mg-license mg-kvstore mg-utils mg-system
+    )
+
     add_unit_test(auth
         SOURCES auth.cpp
         LINK_TARGETS mg-auth mg-license Boost::filesystem
