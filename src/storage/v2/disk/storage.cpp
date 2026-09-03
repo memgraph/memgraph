@@ -1791,7 +1791,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 
 // NOLINTNEXTLINE(google-default-arguments)
 std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::PrepareForCommitPhase(
-    CommitArgs /*commit_args*/) {
+    CommitArgs /*commit_args*/, std::unique_lock<std::mutex> /*preheld_commit_lock*/) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 

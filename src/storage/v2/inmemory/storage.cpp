@@ -1088,7 +1088,7 @@ void InMemoryStorage::InMemoryAccessor::PublishIndexArming() {
 }
 
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
-    CommitArgs const commit_args) {
+    CommitArgs const commit_args, std::unique_lock<std::mutex> preheld_commit_lock) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
@@ -1137,7 +1137,18 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   //    the WAL append) would break unique-constraint validation even if watermark ordering were
   //    re-established through another mechanism.
   std::optional<std::unique_lock<std::mutex>> commit_serializer;
-  if (lockfree) commit_serializer.emplace(mem_storage->commit_mutex_);
+  if (lockfree) {
+    if (preheld_commit_lock.owns_lock()) {
+      // Caller (Interpreter::Commit, U4a) already acquired commit_mutex_ via try_lock.
+      // Adopt the existing hold so we do not re-acquire (which would deadlock).
+      commit_serializer.emplace(std::move(preheld_commit_lock));
+    } else {
+      // No pre-held guard (PeriodicCommit, replica paths, or OFF-path callers that
+      // passed the default-constructed lock): acquire blocking — OFF-path behavior
+      // is byte-identical to before this change.
+      commit_serializer.emplace(mem_storage->commit_mutex_);
+    }
+  }
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
