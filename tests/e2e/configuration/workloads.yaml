@@ -5,9 +5,8 @@ args: &args
   - "300"
   - "--storage-wal-enabled=True"
   # configuration_check.py asserts SHOW CONFIG matches the compiled defaults, so pin
-  # metrics-format to the default (JSON) — otherwise the e2e harness injects
-  # --metrics-format=OpenMetrics and the current-value check fails.
-  - "--metrics-format=JSON"
+  # metrics-format to the default (OpenMetrics).
+  - "--metrics-format=OpenMetrics"
 
 snap_args: &snap_args
   - "--log-level=TRACE"

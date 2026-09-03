@@ -18,7 +18,6 @@
 #include <optional>
 #include <string>
 
-#include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/resource_lock.hpp"
@@ -35,7 +34,6 @@ inline auto UniqueGuard(memgraph::utils::ResourceLock &lock) {
 class StorageV2GcMetricsTest : public testing::Test {
  protected:
   void SetUp() override {
-    FLAGS_metrics_format = "OpenMetrics";
     db_name_ = testing::UnitTest::GetInstance()->current_test_info()->name();
     InitStorage(std::chrono::seconds(3600));
   }
