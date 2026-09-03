@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -135,7 +136,8 @@ struct ResourceLock {
       cv.notify_all();
       // Fired off `mtx` (already unlocked above) so the hook may take an unrelated lock without a
       // lock-order inversion. Covers all six NotifyKind::All points, since they all route here.
-      if (on_notify_all_) on_notify_all_();
+      // acquire pairs with the release in SetNotifyHook: the storage_ write is visible to this load.
+      if (auto *h = on_notify_all_.load(std::memory_order_acquire)) (*h)();
     }
   }
 
@@ -246,11 +248,19 @@ struct ResourceLock {
   void unlock() { release<LockReq::UNIQUE>(); }
 
   /// Installs a callback fired inside maybe_notify (after the internal mtx is released) on every
-  /// NotifyKind::All. Intended to wake parked schedulers waiting on this lock. Set ONCE at owner
-  /// construction, before the lock is shared with other threads: the callback is read off-mtx in
-  /// maybe_notify, so a concurrent SetNotifyHook would race. An empty hook (the default) is a single
-  /// null-check of overhead and no behavior change, so every other ResourceLock is unaffected.
-  void SetNotifyHook(std::move_only_function<void()> hook) { on_notify_all_ = std::move(hook); }
+  /// NotifyKind::All. Intended to wake parked schedulers waiting on this lock. Install at most once
+  /// per ResourceLock lifetime (the Storage-level exchange guard enforces this); cleared at owner
+  /// shutdown before pool destruction. release/acquire makes the callable visible to concurrent
+  /// maybe_notify readers without a mutex. An unarmed hook (the default nullptr) is a single atomic
+  /// load of overhead and no behavior change, so every other ResourceLock is unaffected.
+  void SetNotifyHook(std::move_only_function<void()> hook) {
+    on_notify_all_storage_ = std::move(hook);
+    on_notify_all_.store(on_notify_all_storage_ ? &on_notify_all_storage_ : nullptr, std::memory_order_release);
+  }
+
+  /// Disarms the hook: in-flight maybe_notify readers that loaded the old pointer still dereference
+  /// valid storage_ (never freed until ~ResourceLock, which runs after all lock activity has ceased).
+  void ClearNotifyHook() { on_notify_all_.store(nullptr, std::memory_order_release); }
 
   template <LockReq Req = LockReq::WRITE>
     requires(Req != LockReq::UNIQUE)
@@ -307,9 +317,12 @@ struct ResourceLock {
   // Callers waiting to acquire UNIQUE (blocking lock()/try_lock_for(), or a UniquePendingScope
   // campaign). Gates new shared acquisitions for writer-preference; see can_acquire.
   uint32_t unique_pending_count = 0;
-  // Optional wake hook; see SetNotifyHook. Empty on every ResourceLock except where an owner installs
-  // one. Read off-mtx in maybe_notify, so it is set once before concurrent use and never mutated after.
-  std::move_only_function<void()> on_notify_all_;
+  // Optional wake hook; see SetNotifyHook/ClearNotifyHook. on_notify_all_ is an atomic pointer to
+  // on_notify_all_storage_ (or nullptr when unarmed). Installed at most once per lifetime via
+  // release/acquire so maybe_notify can read it off-mtx without a data race. storage_ is left
+  // intact after ClearNotifyHook so in-flight readers that loaded the old pointer remain safe.
+  std::move_only_function<void()> on_notify_all_storage_;
+  std::atomic<std::move_only_function<void()> *> on_notify_all_{nullptr};
 };
 
 struct SharedResourceLockGuard {
