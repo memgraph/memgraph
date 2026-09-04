@@ -91,6 +91,10 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
+        // Keep metrics on. This fixture runs a main and two replicas all named "memgraph" in one
+        // process, which is the shape that used to leave one storage holding handles into another's
+        // destroyed metrics. Registering them is what makes that a crash rather than a silent pass,
+        // so this suite is the regression test for it and needs no metric assertion of its own.
         .register_metrics = true,
     };
     UpdatePaths(config, storage_directory);

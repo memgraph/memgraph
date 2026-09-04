@@ -202,7 +202,7 @@ TEST(PrometheusMetrics, UpdateGaugesReturnsZeroAfterDefaultDbUuidChange) {
 
   pm.UpdateGauges();
 
-  auto const families = pm.registry().Collect();
+  auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "memgraph"), 42.0);
   EXPECT_EQ(FindSample(families, "memgraph_edge_count", "memgraph"), 10.0);
   EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "memgraph"), 2048.0);
@@ -240,7 +240,7 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
       return r::any_of(metric.label, [&](auto const &l) { return l.name == "uuid" && l.value == std::string(uuid_a); });
     });
   });
-  EXPECT_FALSE(has_old_uuid) << "old UUID series should be fully removed after rebind";
+  EXPECT_FALSE(has_old_uuid) << "the relabelled series must no longer present the pre-rebind uuid";
 
   auto const leaks_entry_label = r::any_of(families, [](auto const &family) {
     return r::any_of(family.metric, [](auto const &metric) {
