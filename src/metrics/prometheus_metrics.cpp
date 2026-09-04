@@ -1076,7 +1076,6 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uu
   databases_.entries.push_back({
       .id = entry_id,
       .uuid = uuid,
-      .label_uuid = uuid,
       .db_name = std::string(name),
       .handles = handles,
   });
@@ -1239,29 +1238,32 @@ DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID c
   // Relabel, don't rebind: the metric objects stay put and only the presented uuid changes, so every
   // outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
   it->uuid = new_uuid;
-  it->label_uuid = new_uuid;
   default_db_uuid_ = new_uuid;
   return it->handles;
 }
 
 std::vector<prometheus::MetricFamily> PrometheusMetrics::CollectForScrape() {
-  auto families = registry_.Collect();
   std::unordered_map<std::string, std::string> uuid_by_entry;
   {
-    std::lock_guard const lock{databases_.mutex};
+    std::shared_lock const lock{databases_.mutex};
     for (auto const &entry : databases_.entries) {
-      uuid_by_entry.emplace(std::to_string(entry.id), std::string(entry.label_uuid));
+      uuid_by_entry.emplace(std::to_string(entry.id), std::string(entry.uuid));
     }
   }
+  auto families = registry_.Collect();
   for (auto &family : families) {
+    // An entry released since the snapshot has no uuid left to present. Drop the whole metric:
+    // blanking the label would collapse two such series onto one label set, and a scrape carrying
+    // a duplicate label set is rejected in its entirety.
+    std::erase_if(family.metric, [&](auto const &metric) {
+      auto const label = r::find(metric.label, kEntryLabel, &prometheus::ClientMetric::Label::name);
+      return label != metric.label.end() && !uuid_by_entry.contains(label->value);
+    });
     for (auto &metric : family.metric) {
       for (auto &label : metric.label) {
         if (label.name != kEntryLabel) continue;
-        auto const it = uuid_by_entry.find(label.value);
-        // An entry released between Collect and here has no uuid left to present, so it reports an
-        // empty one; renaming unconditionally is what matters, so the internal name cannot leak.
         label.name = "uuid";
-        label.value = it != uuid_by_entry.end() ? it->second : std::string{};
+        label.value = uuid_by_entry.at(label.value);
       }
     }
   }

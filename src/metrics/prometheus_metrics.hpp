@@ -218,9 +218,8 @@ class PrometheusMetrics {
 
   [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
 
-  /// Removes the metrics associated with the pre-cluster default database,
-  /// and replaces them with metrics labelled with the UUID of the new
-  /// default database.
+  /// Relabels the default database's entry onto @p new_uuid. The metric objects stay put, so
+  /// every outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
   DatabaseMetricHandles RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
 
   /// Refresh any gauges whose values are pulled from current storage state,
@@ -271,12 +270,11 @@ class PrometheusMetrics {
     // Identifies the entry for its whole life, unlike the uuid and the name, either of which can
     // change while registrations are outstanding.
     uint64_t id;
-    // Identity, used for every lookup. Never presented.
+    // Used for every lookup, and substituted into the scrape output by CollectForScrape. The
+    // default database's uuid changes when the instance joins a cluster, and the metric objects
+    // must outlive that change, so it is presented at collection time rather than baked into the
+    // family key.
     utils::UUID uuid;
-    // The uuid presented in the scrape output. Tracks `uuid` except on the default database, whose
-    // uuid changes when the instance joins a cluster; the metric objects must outlive that change,
-    // so the label is substituted at collection time rather than baked into the family key.
-    utils::UUID label_uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
     // Registrations of one database share every handle, because a family returns the metric it
