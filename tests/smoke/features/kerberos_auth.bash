@@ -108,7 +108,7 @@ test_kerberos_auth_setup() {
   echo "SUBFEATURE: bringing up a throwaway KDC for realm $KERBEROS_REALM"
   # The KDC image pins the distro mirrors rather than trusting the redirector;
   # the scripts have to be inside the build context.
-  "$SCRIPT_DIR/../../../tools/ci/mirrors/stage.sh" "$KERBEROS_DIR"
+  "$SMOKE_DIR/../../tools/ci/mirrors/stage.sh" "$KERBEROS_DIR"
   # BuildKit required: the Dockerfile uses RUN --mount=type=bind.
   DOCKER_BUILDKIT=1 docker build -t "$KERBEROS_KDC_IMAGE" "$KERBEROS_DIR"
   docker run -d --name "$KERBEROS_KDC_CONTAINER" \
