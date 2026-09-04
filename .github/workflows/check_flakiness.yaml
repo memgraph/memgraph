@@ -244,4 +244,7 @@ jobs:
           path: ctest-results
       - name: Summarise failures across the runs
         run: |
+          # Without pipefail the step takes tee's status, so the summariser
+          # could fail and still leave the step green.
+          set -euo pipefail
           python3 tools/ci/summarize_ctest_results.py ctest-results | tee -a "$GITHUB_STEP_SUMMARY"

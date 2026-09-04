@@ -1865,10 +1865,14 @@ test_memgraph() {
   # ctest's per-test results are what say which test failed and how often across
   # repeated runs, and they matter most on the runs that failed. Copy them out of
   # the container whatever the exit status was, then hand that status back.
+  # A failure here is reported rather than hidden: an empty summary otherwise
+  # reads the same as a clean run.
   collect_ctest_results() {
     local status=$1
     mkdir -p "$PROJECT_ROOT/build/test-results"
-    docker cp "$build_container:$BUILD_DIR/test-results/." "$PROJECT_ROOT/build/test-results/" 2>/dev/null || true
+    if ! docker cp "$build_container:$BUILD_DIR/test-results/." "$PROJECT_ROOT/build/test-results/" 2>&1; then
+      echo "Warning: could not copy ctest results out of $build_container; this run will be absent from the flake summary." >&2
+    fi
     return "$status"
   }
 
