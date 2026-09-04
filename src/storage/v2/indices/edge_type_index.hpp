@@ -75,7 +75,7 @@ struct EdgeTypeIndexActiveIndices {
   virtual auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t = 0;
 
   virtual bool IndexReady(EdgeTypeId edge_type) const = 0;
-  virtual bool IndexRegistered(EdgeTypeId edge_type) const = 0;
+  virtual bool IndexExists(EdgeTypeId edge_type) const = 0;
 
   virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> = 0;
 

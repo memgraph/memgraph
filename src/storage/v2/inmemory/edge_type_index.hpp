@@ -202,7 +202,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
     bool IndexReady(EdgeTypeId edge_type) const override;
 
-    bool IndexRegistered(EdgeTypeId edge_type) const override;
+    bool IndexExists(EdgeTypeId edge_type) const override;
 
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> override;
 

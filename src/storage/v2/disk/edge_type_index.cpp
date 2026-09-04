@@ -31,7 +31,7 @@ bool DiskEdgeTypeIndex::ActiveIndices::IndexReady(EdgeTypeId /*edge_type*/) cons
   return false;
 }
 
-bool DiskEdgeTypeIndex::ActiveIndices::IndexRegistered(EdgeTypeId /*edge_type*/) const {
+bool DiskEdgeTypeIndex::ActiveIndices::IndexExists(EdgeTypeId /*edge_type*/) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return false;
 }
