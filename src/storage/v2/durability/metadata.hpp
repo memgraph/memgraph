@@ -97,6 +97,29 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const cha
   }
 }
 
+// Removes an index that a replayed drop refers to, tolerating its absence.
+//
+// An index drop takes effect on the live catalogue when the statement runs and
+// is recorded in the log only when the transaction commits. A snapshot whose
+// transaction begins between those two points therefore records the index as
+// already gone, while recording a durable timestamp below the drop's, so replay
+// resumes above the drop and applies it to a catalogue that never had it.
+//
+// Refusing the replay makes such a snapshot unrecoverable, and the end state is
+// the same either way: the index is absent. Applying a drop to something already
+// absent is idempotent, so tolerating it is not a patch over corruption. It does
+// give up a canary for the case where an index really did vanish for another
+// reason, which is why this is separate from RemoveRecoveredIndexConstraint and
+// used only where a drop can legitimately arrive twice.
+template <typename TObj>
+void RemoveRecoveredIndexIfPresent(std::vector<TObj> *list, TObj obj) {
+  auto it = std::find(list->begin(), list->end(), obj);
+  if (it != list->end()) {
+    std::swap(*it, list->back());
+    list->pop_back();
+  }
+}
+
 // Helper function used to remove indices stats from the recovered
 // indices/constraints object.
 // @note multiple stats can be pushed one after the other; when removing, remove from the back
