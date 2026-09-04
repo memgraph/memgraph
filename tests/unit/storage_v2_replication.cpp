@@ -1959,6 +1959,107 @@ TEST_F(ReplicationTest, SchemaReplication) {
   EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
 }
 
+// Schema info is reconstructed after a transaction commits, and the reconstruction has to tell the
+// transaction's own deltas apart from another transaction's. It does so by comparing the timestamp
+// it queued against the delta's, which holds the local mint. On a main those are the same number.
+// On a replica write they are not: the queued one is the main's desired timestamp and the delta
+// carries the replica's own, so the replica reads its own writes as another transaction's.
+//
+// That switches the four-way edge reconciliation onto the pre-state of both endpoints, so its plus
+// one and minus one land on different shape buckets and the counts drift. It shows up only where
+// the reconciliation actually fires on state the transaction itself wrote, which is why the
+// sequential single-endpoint traffic in SchemaReplication above never sees it: one transaction has
+// to modify BOTH endpoints of an existing edge.
+TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
+  memgraph::storage::Config conf{
+      .durability =
+          {
+              .root_data_directory = storage_directory,
+              .recover_on_startup = false,
+              .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+              .snapshot_retention_count = 1,
+              .restore_replication_state_on_startup = true,
+          },
+      .salient.items =
+          {
+              .properties_on_edges = true,
+              .enable_schema_info = true,
+          },
+      .register_metrics = false,
+  };
+
+  auto repl_conf = conf;
+  UpdatePaths(conf, storage_directory);
+  std::optional<MinMemgraph> main(conf);
+
+  UpdatePaths(repl_conf, repl_storage_directory);
+  std::optional<MinMemgraph> replica(repl_conf);
+
+  replica->repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  const auto &reg = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
+
+  auto get_schema = [](auto &instance) {
+    return instance.db.storage()->schema_info_.ToJson(*instance.db.storage()->name_id_mapper_,
+                                                      instance.db.storage()->enum_store_);
+  };
+
+  std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main->db.Arena()};
+
+  auto l1 = main->db.storage()->NameToLabel("L1");
+  auto l2 = main->db.storage()->NameToLabel("L2");
+  auto e1 = main->db.storage()->NameToEdgeType("E1");
+
+  memgraph::storage::Gid v1_gid;
+  memgraph::storage::Gid v2_gid;
+
+  // Two vertices with an edge between them, all in one transaction.
+  {
+    auto acc = main->db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+  }
+
+  // Now label BOTH endpoints of that edge in a single transaction. This is the case where the
+  // reconstruction must recognise the deltas as its own.
+  {
+    auto acc = main->db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::NEW);
+    auto v2 = acc->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(v2->AddLabel(l2).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+  }
+
+  const auto main_schema = get_schema(*main);
+  const auto replica_schema = get_schema(*replica);
+
+  // The main's own answer is the reference, and is asserted first so a change that broke both sides
+  // in the same direction could not pass as agreement.
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],)"
+      R"("nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(main_schema, expected))
+      << "the main's own schema is already wrong, so this test is not measuring replication. Actual: "
+      << main_schema.dump(2);
+
+  EXPECT_TRUE(ConfrontJSON(replica_schema, main_schema))
+      << "the replica's schema diverged from the main's. Main: " << main_schema.dump(2)
+      << " Replica: " << replica_schema.dump(2);
+}
+
 TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
