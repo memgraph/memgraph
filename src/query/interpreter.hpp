@@ -399,6 +399,14 @@ class Interpreter final {
 
   Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
 
+  // True while an autocommit (RUN-first-query) BEGIN is parked on main_lock_ with its parse stashed.
+  bool HasParkedPrepare() const { return parked_prepare_.has_value(); }
+
+  // Re-drive a parked autocommit Prepare from the stashed parse (pool wake). Re-attempts only the
+  // storage-access acquire; on a further would-block it re-stashes and rethrows (park again). This is
+  // the implicit-transaction analogue of retrying an explicit BEGIN via BeginTransaction().
+  Interpreter::PrepareResult ResumeParkedPrepare();
+
   /**
    * Prepare a query for execution.
    *
@@ -677,6 +685,19 @@ class Interpreter final {
   // TODO Figure out how this would work for multi-database
   // SubqueryExpression only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
+
+  // Stash for a parked autocommit BEGIN. When Prepare's storage-access acquire would block, the
+  // still-intact parse inputs are moved here (Prepare throws before consuming them) so the pool wake
+  // can re-drive via ResumeParkedPrepare instead of failing "not parsed". pending_access_ lives on
+  // CurrentDB and survives ResetInterpreter, so the retained scope keeps writer-preference across the
+  // park. Cleared on the first successful/failed re-drive.
+  struct ParkedPrepare {
+    ParseRes parse_res;
+    UserParameters_fn params_getter;
+    QueryExtras extras;
+  };
+
+  std::optional<ParkedPrepare> parked_prepare_;
 
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;

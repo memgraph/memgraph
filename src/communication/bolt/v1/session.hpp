@@ -121,6 +121,12 @@ class Session {
       if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
       }
+      // RUN-first-query parked on main_lock_: return before the dechunk loop below. Otherwise its first
+      // GetChunk() consumes a pipelined PULL out of input_stream_ into the decoder (the in-loop
+      // PendingBegin guard is one GetChunk() too late — it stops dispatch, not consumption), leaving
+      // input_stream_ empty so the park-resolution's HasBufferedData() picks DoRead() and the PULL is
+      // stranded. Leaving it in input_stream_ lets resolution (HasBufferedData -> DoWork) dispatch it.
+      if (state_ == State::PendingBegin) return true;  // more data to process
       // We are here, so the query will have the correct priority; just fall down to execute any other requests
     }
 

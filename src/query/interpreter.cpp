@@ -11232,6 +11232,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             .privileges = query_execution->prepared_query->privileges,
             .qid = qid,
             .db = query_execution->prepared_query->db};
+  } catch (const BeginWouldBlockException &) {
+    // Autocommit (RUN-first-query) BEGIN parked on main_lock_: stash the still-intact parse. Prepare
+    // throws at the storage-access acquire, before parsed_query/params_getter are consumed, so the
+    // pool wake can re-drive via ResumeParkedPrepare instead of hitting "query was not parsed". Do NOT
+    // AbortCommand here: pending_access_ (on CurrentDB) must survive to keep writer-preference across
+    // the park; ResetInterpreter on the re-drive clears the transient query_execution.
+    parked_prepare_.emplace(ParkedPrepare{std::move(parse_res), std::move(params_getter), extras});
+    throw;
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
     // query_execution holds the query string copy that survives Prepare* moving it out.
@@ -11249,6 +11257,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     AbortCommand(query_execution_ptr);
     throw;
   }
+}
+
+Interpreter::PrepareResult Interpreter::ResumeParkedPrepare() {
+  MG_ASSERT(parked_prepare_, "ResumeParkedPrepare called without a stashed parked prepare");
+  // Move the stash out first: a further would-block re-stashes a fresh copy inside Prepare, and a
+  // terminal outcome (acquired or access-timeout) leaves it cleared.
+  auto parked = std::move(*parked_prepare_);
+  parked_prepare_.reset();
+  return Prepare(std::move(parked.parse_res), std::move(parked.params_getter), parked.extras);
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
