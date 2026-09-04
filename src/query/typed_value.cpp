@@ -22,6 +22,8 @@
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
+#include "query/relations/equality.hpp"
+#include "query/relations/equivalence.hpp"
 #include "query/virtual_edge.hpp"
 #include "query/virtual_graph.hpp"
 #include "query/virtual_node.hpp"
@@ -1727,88 +1729,10 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 }
 
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
-
-  // check we have values that can be compared
-  // this means that either they're the same type, or (int, double) combo
-  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric()))) return TypedValue(false, a.alloc_);
-
-  switch (a.type()) {
-    case TypedValue::Type::Bool:
-      return TypedValue(a.ValueBool() == b.ValueBool(), a.alloc_);
-    case TypedValue::Type::Int:
-      if (b.IsDouble())
-        return TypedValue(ToDouble(a) == ToDouble(b), a.alloc_);
-      else
-        return TypedValue(a.ValueInt() == b.ValueInt(), a.alloc_);
-    case TypedValue::Type::Double:
-      return TypedValue(ToDouble(a) == ToDouble(b), a.alloc_);
-    case TypedValue::Type::String:
-      return TypedValue(a.ValueString() == b.ValueString(), a.alloc_);
-    case TypedValue::Type::Vertex:
-      return TypedValue(a.ValueVertex() == b.ValueVertex(), a.alloc_);
-    case TypedValue::Type::Edge:
-      return TypedValue(a.ValueEdge() == b.ValueEdge(), a.alloc_);
-    case TypedValue::Type::VirtualEdge:
-      return TypedValue(a.ValueVirtualEdge() == b.ValueVirtualEdge(), a.alloc_);
-    case TypedValue::Type::VirtualNode:
-      return TypedValue(a.ValueVirtualNode() == b.ValueVirtualNode(), a.alloc_);
-    case TypedValue::Type::List: {
-      // We are not compatible with neo4j at this point. In neo4j 2 = [2]
-      // compares
-      // to true. That is not the end of unselfishness of developers at neo4j so
-      // they allow us to use as many braces as we want to get to the truth in
-      // list comparison, so [[2]] = [[[[[[2]]]]]] compares to true in neo4j as
-      // well. Because, why not?
-      // At memgraph we prefer sanity so [1,2] = [1,2] compares to true and
-      // 2 = [2] compares to false.
-      const auto &list_a = a.ValueList();
-      const auto &list_b = b.ValueList();
-      if (list_a.size() != list_b.size()) return TypedValue(false, a.alloc_);
-      // two arrays are considered equal (by neo) if all their
-      // elements are bool-equal. this means that:
-      //    [1] == [null] -> false
-      //    [null] == [null] -> true
-      // in that sense array-comparison never results in Null
-      return TypedValue(std::equal(list_a.begin(), list_a.end(), list_b.begin(), TypedValue::BoolEqual{}), a.alloc_);
-    }
-    case TypedValue::Type::Map: {
-      const auto &map_a = a.ValueMap();
-      const auto &map_b = b.ValueMap();
-      if (map_a.size() != map_b.size()) return TypedValue(false, a.alloc_);
-      for (const auto &kv_a : map_a) {
-        auto found_b_it = map_b.find(kv_a.first);
-        if (found_b_it == map_b.end()) return TypedValue(false, a.alloc_);
-        TypedValue comparison = kv_a.second == found_b_it->second;
-        if (comparison.IsNull() || !comparison.ValueBool()) return TypedValue(false, a.alloc_);
-      }
-      return TypedValue(true, a.alloc_);
-    }
-    case TypedValue::Type::Path:
-      return TypedValue(a.ValuePath() == b.ValuePath(), a.alloc_);
-    case TypedValue::Type::Date:
-      return TypedValue(a.ValueDate() == b.ValueDate(), a.alloc_);
-    case TypedValue::Type::LocalTime:
-      return TypedValue(a.ValueLocalTime() == b.ValueLocalTime(), a.alloc_);
-    case TypedValue::Type::LocalDateTime:
-      return TypedValue(a.ValueLocalDateTime() == b.ValueLocalDateTime(), a.alloc_);
-    case TypedValue::Type::ZonedDateTime:
-      return TypedValue(a.ValueZonedDateTime() == b.ValueZonedDateTime(), a.alloc_);
-    case TypedValue::Type::Duration:
-      return TypedValue(a.ValueDuration() == b.ValueDuration(), a.alloc_);
-    case TypedValue::Type::Enum:
-      return TypedValue(a.ValueEnum() == b.ValueEnum(), a.alloc_);
-    case TypedValue::Type::Point2d:
-      return TypedValue(a.ValuePoint2d() == b.ValuePoint2d(), a.alloc_);
-    case TypedValue::Type::Point3d:
-      return TypedValue(a.ValuePoint3d() == b.ValuePoint3d(), a.alloc_);
-    case TypedValue::Type::Graph:
-    case TypedValue::Type::VirtualGraph:
-      throw TypedValueException("Unsupported comparison operator");
-    case TypedValue::Type::Function:
-    case TypedValue::Type::Null:
-      LOG_FATAL("Unhandled comparison for types");
-  }
+  // Inlined here on purpose. The relation is reached through this operator by
+  // every caller, and the project builds without sibling-call optimisation, so
+  // forwarding to it would cost a call frame on every comparison.
+  [[clang::always_inline]] return relations::equality::Equal(a, b);
 }
 
 TypedValue operator!(const TypedValue &a) {
@@ -2083,14 +2007,14 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
-  if (lhs.IsNull() && rhs.IsNull()) return true;
-  TypedValue equality_result = lhs == rhs;
-  DMG_ASSERT(equality_result.type() == TypedValue::Type::Bool || equality_result.type() == TypedValue::Type::Null,
-             "Equality between two TypedValues must result in either Null or Bool");
-  return equality_result.type() == TypedValue::Type::Bool && equality_result.ValueBool();
+  return relations::equivalence::Equivalent(lhs, rhs);
 }
 
-size_t TypedValue::Hash::operator()(const TypedValue &value) const {
+size_t TypedValue::Hash::operator()(const TypedValue &value) const { return relations::equivalence::Hash(value); }
+
+namespace relations::equivalence {
+
+size_t Hash(const TypedValue &value) {
   switch (value.type()) {
     case TypedValue::Type::Null:
       return 31;
@@ -2111,13 +2035,13 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::String:
       return std::hash<std::string_view>{}(value.ValueString());
     case TypedValue::Type::List: {
-      return utils::FnvCollection<TypedValue::TVector, TypedValue, Hash>{}(value.ValueList());
+      return utils::FnvCollection<TypedValue::TVector, TypedValue, TypedValue::Hash>{}(value.ValueList());
     }
     case TypedValue::Type::Map: {
       size_t hash = 6'543'457;
       for (const auto &kv : value.ValueMap()) {
         hash ^= std::hash<std::string_view>{}(kv.first);
-        hash ^= this->operator()(kv.second);
+        hash ^= Hash(kv.second);
       }
       return hash;
     }
@@ -2160,6 +2084,8 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }
+
+}  // namespace relations::equivalence
 
 auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem> {
   switch (tv.type()) {
