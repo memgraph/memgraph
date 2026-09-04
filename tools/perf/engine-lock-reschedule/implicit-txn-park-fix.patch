@@ -1,0 +1,125 @@
+diff --git a/src/communication/bolt/v1/session.hpp b/src/communication/bolt/v1/session.hpp
+index 7eec697f3..6048c37c8 100644
+--- a/src/communication/bolt/v1/session.hpp
++++ b/src/communication/bolt/v1/session.hpp
+@@ -121,6 +121,12 @@ class Session {
+       if (state_ == State::Close) [[unlikely]] {
+         ClientFailureInvalidData();
+       }
++      // RUN-first-query parked on main_lock_: return before the dechunk loop below. Otherwise its first
++      // GetChunk() consumes a pipelined PULL out of input_stream_ into the decoder (the in-loop
++      // PendingBegin guard is one GetChunk() too late — it stops dispatch, not consumption), leaving
++      // input_stream_ empty so the park-resolution's HasBufferedData() picks DoRead() and the PULL is
++      // stranded. Leaving it in input_stream_ lets resolution (HasBufferedData -> DoWork) dispatch it.
++      if (state_ == State::PendingBegin) return true;  // more data to process
+       // We are here, so the query will have the correct priority; just fall down to execute any other requests
+     }
+ 
+diff --git a/src/glue/SessionHL.cpp b/src/glue/SessionHL.cpp
+index 76540f889..2730a79af 100644
+--- a/src/glue/SessionHL.cpp
++++ b/src/glue/SessionHL.cpp
+@@ -568,15 +568,24 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
+ }
+ 
+ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare() {
+-  if (!parsed_res_) {
++  // A parked autocommit (RUN-first-query) BEGIN consumed parsed_res_ on its first pass; on the pool
++  // wake, re-drive the stashed Prepare rather than failing "not parsed". Explicit BEGIN is already
++  // re-runnable via BeginTransaction(); this makes the implicit path symmetric.
++  const bool resume = !parsed_res_ && interpreter_.HasParkedPrepare();
++  if (!parsed_res_ && !resume) {
+     throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
+   }
+ 
+   try {
+-    auto parsed_res = *std::move(parsed_res_);
+-    parsed_res_.reset();
+-    auto result =
+-        interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
++    // BeginWouldBlockException propagates out (it is not a QueryException) so the Bolt pool driver
++    // parks/reschedules the BEGIN; a re-block inside ResumeParkedPrepare re-stashes and re-parks.
++    auto result = [&] {
++      if (resume) return interpreter_.ResumeParkedPrepare();
++      auto parsed_res = *std::move(parsed_res_);
++      parsed_res_.reset();
++      return interpreter_.Prepare(
++          std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
++    }();
+     interpreter_.CheckAuthorized(result.privileges, result.db);
+ 
+     return {std::move(result.headers), result.qid};
+diff --git a/src/query/interpreter.cpp b/src/query/interpreter.cpp
+index 51f3b4066..5a1177998 100644
+--- a/src/query/interpreter.cpp
++++ b/src/query/interpreter.cpp
+@@ -11232,6 +11232,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
+             .privileges = query_execution->prepared_query->privileges,
+             .qid = qid,
+             .db = query_execution->prepared_query->db};
++  } catch (const BeginWouldBlockException &) {
++    // Autocommit (RUN-first-query) BEGIN parked on main_lock_: stash the still-intact parse. Prepare
++    // throws at the storage-access acquire, before parsed_query/params_getter are consumed, so the
++    // pool wake can re-drive via ResumeParkedPrepare instead of hitting "query was not parsed". Do NOT
++    // AbortCommand here: pending_access_ (on CurrentDB) must survive to keep writer-preference across
++    // the park; ResetInterpreter on the re-drive clears the transient query_execution.
++    parked_prepare_.emplace(ParkedPrepare{std::move(parse_res), std::move(params_getter), extras});
++    throw;
+   } catch (const utils::BasicException &e) {
+     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
+     // query_execution holds the query string copy that survives Prepare* moving it out.
+@@ -11251,6 +11259,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
+   }
+ }
+ 
++Interpreter::PrepareResult Interpreter::ResumeParkedPrepare() {
++  MG_ASSERT(parked_prepare_, "ResumeParkedPrepare called without a stashed parked prepare");
++  // Move the stash out first: a further would-block re-stashes a fresh copy inside Prepare, and a
++  // terminal outcome (acquired or access-timeout) leaves it cleared.
++  auto parked = std::move(*parked_prepare_);
++  parked_prepare_.reset();
++  return Prepare(std::move(parked.parse_res), std::move(parked.params_getter), parked.extras);
++}
++
+ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
+   if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
+     Abort();
+diff --git a/src/query/interpreter.hpp b/src/query/interpreter.hpp
+index 45e139977..8f18134a1 100644
+--- a/src/query/interpreter.hpp
++++ b/src/query/interpreter.hpp
+@@ -399,6 +399,14 @@ class Interpreter final {
+ 
+   Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
+ 
++  // True while an autocommit (RUN-first-query) BEGIN is parked on main_lock_ with its parse stashed.
++  bool HasParkedPrepare() const { return parked_prepare_.has_value(); }
++
++  // Re-drive a parked autocommit Prepare from the stashed parse (pool wake). Re-attempts only the
++  // storage-access acquire; on a further would-block it re-stashes and rethrows (park again). This is
++  // the implicit-transaction analogue of retrying an explicit BEGIN via BeginTransaction().
++  Interpreter::PrepareResult ResumeParkedPrepare();
++
+   /**
+    * Prepare a query for execution.
+    *
+@@ -678,6 +686,19 @@ class Interpreter final {
+   // SubqueryExpression only during a single transaction (for now should be okay as is)
+   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
+ 
++  // Stash for a parked autocommit BEGIN. When Prepare's storage-access acquire would block, the
++  // still-intact parse inputs are moved here (Prepare throws before consuming them) so the pool wake
++  // can re-drive via ResumeParkedPrepare instead of failing "not parsed". pending_access_ lives on
++  // CurrentDB and survives ResetInterpreter, so the retained scope keeps writer-preference across the
++  // park. Cleared on the first successful/failed re-drive.
++  struct ParkedPrepare {
++    ParseRes parse_res;
++    UserParameters_fn params_getter;
++    QueryExtras extras;
++  };
++
++  std::optional<ParkedPrepare> parked_prepare_;
++
+   // all queries that are run as part of the current transaction
+   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
+ 
