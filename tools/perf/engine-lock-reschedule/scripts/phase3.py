@@ -104,14 +104,18 @@ def ddl(idx, q, stop_at):
     # visitor), not by whether it does work: readonly => CREATE INDEX takes a READ_ONLY hold (excludes
     # WRITE, not READ); unique => DROP ALL CONSTRAINTS takes a UNIQUE hold (excludes all) even with zero
     # constraints. Per-worker label so concurrent readonly workers don't collide on one index name.
+    # Retries on transient errors (e.g. UNIQUE starved by long-lived readers holding main_lock_) instead
+    # of dying, so the contention is sustained for the whole window and DDL op/s reflects the real acquire
+    # rate. n = successful holds, errs = contended attempts that timed out.
     d = GraphDatabase.driver(URI, auth=None)
     n = 0
+    errs = 0
     lats = []
     lbl = f"Ddl{idx}"
-    try:
-        with d.session() as s:
-            while time.monotonic() < stop_at:
-                t0 = time.monotonic()
+    with d.session() as s:
+        while time.monotonic() < stop_at:
+            t0 = time.monotonic()
+            try:
                 if DDLMODE == "unique":
                     s.run("DROP ALL CONSTRAINTS").consume()  # UNIQUE hold on main_lock_
                 else:
@@ -119,12 +123,11 @@ def ddl(idx, q, stop_at):
                     s.run(f"DROP INDEX ON :{lbl}(p)").consume()  # READ
                 lats.append((time.monotonic() - t0) * 1000.0)
                 n += 1
-    except Exception as e:
-        q.put(("derr", str(e)[:120]))
-        d.close()
-        return
+            except Exception:
+                errs += 1
+                time.sleep(0.005)  # transient contended access -> back off and retry, don't kill the worker
     d.close()
-    q.put(("d", n, lats))
+    q.put(("d", n, errs, lats))
 
 
 def streamer(idx, q, stop_at):
@@ -200,16 +203,17 @@ def main():
     wn = sum(m[1] for m in got if m[0] == "w")
     wl = [x for m in got if m[0] == "w" for x in m[2]]
     dn = sum(m[1] for m in got if m[0] == "d")
-    dl = [x for m in got if m[0] == "d" for x in m[2]]
+    derr = sum(m[2] for m in got if m[0] == "d")
+    dl = [x for m in got if m[0] == "d" for x in m[3]]
     sn = sum(m[1] for m in got if m[0] == "s")
     sl = [x for m in got if m[0] == "s" for x in m[2]]
-    errs = [m for m in got if m[0] in ("rerr", "werr", "derr", "serr")]
+    errs = [m for m in got if m[0] in ("rerr", "werr", "serr")]
     print(
         f"R={NR} W={NW} dur={elapsed:.1f}s | "
         f"READ q/s={rq/elapsed:7.1f} txn/s={rtx/elapsed:6.1f} q_p50={pct(rql,50):6.1f} q_p99={pct(rql,99):7.1f} | "
         f"WRITE op/s={wn/elapsed:6.1f} p50={pct(wl,50):7.1f}ms"
         + (f" | STREAM q/s={sn/elapsed:8.1f} p50={pct(sl,50):6.1f} p99={pct(sl,99):8.1f}" if NSTREAM else "")
-        + (f" | DDL({DDLMODE}) op/s={dn/elapsed:6.1f} p50={pct(dl,50):7.1f}ms" if NDDL else "")
+        + (f" | DDL({DDLMODE}) op/s={dn/elapsed:6.1f} p50={pct(dl,50):7.1f}ms derr={derr}" if NDDL else "")
         + (f" | ERR={len(errs)}:{errs[0][1]}" if errs else "")
     )
 
