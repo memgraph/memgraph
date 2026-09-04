@@ -18,7 +18,8 @@
 #include <string>
 
 #include "memory/db_arena_fwd.hpp"
-#include "query/cypher_query_interpreter.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "query/plan_cache.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_protector.hpp"
@@ -170,11 +171,6 @@ class Database {
    */
   void AddTask(utils::ThreadPool::TaskSignature new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
 
-  /**
-   * @brief Returns the PlanCache vector raw pointer
-   *
-   * @return utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<PlanWrapper>>, utils::RWSpinLock>
-   */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
   storage::ttl::TTL &ttl();
