@@ -232,30 +232,32 @@ std::string HashPassword(std::string_view password, const uint64_t number_of_ite
 #endif
 }
 
-auto ExtractSalt(std::string_view salt_durable) -> std::array<char, SALT_SIZE> {
+auto ExtractSalt(std::string_view salt_durable) -> std::optional<std::array<char, SALT_SIZE>> {
   static_assert(SALT_SIZE_DURABLE % 2 == 0);
   static_assert(SALT_SIZE_DURABLE / 2 == SALT_SIZE);
 
-  MG_ASSERT(salt_durable.size() == SALT_SIZE_DURABLE);
-  auto const *b = salt_durable.cbegin();
-  auto const *const e = salt_durable.cend();
+  if (salt_durable.size() != SALT_SIZE_DURABLE) {
+    return std::nullopt;
+  }
 
-  auto salt = std::array<char, SALT_SIZE>{};
-  auto *inserter = salt.begin();
-
-  auto const toval = [](char a) -> uint8_t {
+  auto const toval = [](char a) -> std::optional<uint8_t> {
     if ('0' <= a && a <= '9') {
       return a - '0';
     }
     if ('a' <= a && a <= 'f') {
       return 10 + (a - 'a');
     }
-    MG_ASSERT(false, "Currupt hash, can't extract salt");
-    std::unreachable();
+    return std::nullopt;
   };
 
-  for (; b != e; b += 2, ++inserter) {
-    *inserter = static_cast<char>(static_cast<uint8_t>(toval(b[0]) << 4U) | toval(b[1]));
+  auto salt = std::array<char, SALT_SIZE>{};
+  for (auto i = 0U; i < SALT_SIZE; ++i) {
+    auto const high = toval(salt_durable[i * 2]);
+    auto const low = toval(salt_durable[(i * 2) + 1]);
+    if (!high || !low) {
+      return std::nullopt;
+    }
+    salt[i] = static_cast<char>(static_cast<uint8_t>(*high << 4U) | *low);
   }
   return salt;
 }
@@ -263,19 +265,19 @@ auto ExtractSalt(std::string_view salt_durable) -> std::array<char, SALT_SIZE> {
 bool IsSalted(std::string_view hash) { return hash.size() == SHA_LENGTH + SALT_SIZE_DURABLE; }
 
 bool VerifyPassword(std::string_view password, std::string_view hash, const uint64_t number_of_iterations) {
-  auto password_hash = std::invoke([&] {
-    if (hash.size() == SHA_LENGTH) [[unlikely]] {
-      // Just SHA256
-      return HashPassword(password, number_of_iterations, {});
-    } else {
-      // SHA256 + SALT
-      MG_ASSERT(IsSalted(hash));
-      auto const salt_durable = std::string_view{hash.data(), SALT_SIZE_DURABLE};
-      std::array<char, SALT_SIZE> salt = ExtractSalt(salt_durable);
-      return HashPassword(password, number_of_iterations, {salt.data(), salt.size()});
-    }
-  });
-  return password_hash == hash;
+  if (hash.size() == SHA_LENGTH) [[unlikely]] {
+    // Just SHA256
+    return HashPassword(password, number_of_iterations, {}) == hash;
+  }
+
+  if (!IsSalted(hash)) {
+    return false;
+  }
+  auto const salt = ExtractSalt(hash.substr(0, SALT_SIZE_DURABLE));
+  if (!salt) {
+    return false;
+  }
+  return HashPassword(password, number_of_iterations, {salt->data(), salt->size()}) == hash;
 }
 
 }  // namespace
@@ -351,7 +353,10 @@ bool VerifyPassword(std::string_view password, std::string_view hash) {
     return false;
   }
   auto const salt = SHA::ExtractSalt(hash.substr(0, SALT_SIZE_DURABLE));
-  auto const candidate = HashPassword(password, {salt.data(), salt.size()});
+  if (!salt) {
+    return false;
+  }
+  auto const candidate = HashPassword(password, {salt->data(), salt->size()});
   return candidate.size() == hash.size() && CRYPTO_memcmp(candidate.data(), hash.data(), hash.size()) == 0;
 }
 

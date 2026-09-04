@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <optional>
 
@@ -2827,6 +2828,23 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordDefault) {
   auto hash = HashPassword("hello");
   ASSERT_TRUE(hash.VerifyPassword("hello"));
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
+}
+
+TEST_F(AuthWithVariousEncryptionAlgorithms, CorruptSaltFailsVerificationWithoutAborting) {
+  for (auto const algo :
+       {PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE, PasswordHashAlgorithm::PBKDF2_SHA256}) {
+    auto const corrupt = std::string(HashSize(algo).salted, 'z');
+    // Exit 0 means it returned false, 1 means it wrongly accepted the password,
+    // and a signal means it aborted.
+    EXPECT_EXIT(
+        {
+          auto hash = HashedPassword{algo, corrupt};
+          std::exit(hash.VerifyPassword("hello") ? 1 : 0);
+        },
+        ::testing::ExitedWithCode(0),
+        "")
+        << AsString(algo);
+  }
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256) {
