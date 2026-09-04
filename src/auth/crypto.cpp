@@ -251,7 +251,7 @@ auto ExtractSalt(std::string_view salt_durable) -> std::optional<std::array<char
   };
 
   auto salt = std::array<char, SALT_SIZE>{};
-  for (auto i = 0U; i < SALT_SIZE; ++i) {
+  for (auto i = std::size_t{0}; i < SALT_SIZE; ++i) {
     auto const high = toval(salt_durable[i * 2]);
     auto const low = toval(salt_durable[(i * 2) + 1]);
     if (!high || !low) {
