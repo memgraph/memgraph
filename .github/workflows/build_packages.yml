@@ -73,8 +73,11 @@ jobs:
             deb_link=""
             debuginfo_link=""
           else
-            deb_link="$base/$deb"
-            debuginfo_link="$base/$debuginfo"
+            # Percent-encode the filename: S3 treats a raw '+' in the path as a
+            # space, so 3.13.0+11~<commit> must become 3.13.0%2B11~<commit>.
+            urlencode() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"; }
+            deb_link="$base/$(urlencode "$deb")"
+            debuginfo_link="$base/$(urlencode "$debuginfo")"
             echo "Memgraph deb: $deb_link"
             echo "Memgraph debuginfo deb: $debuginfo_link"
           fi
