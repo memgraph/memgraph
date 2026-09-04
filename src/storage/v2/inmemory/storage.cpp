@@ -1108,6 +1108,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // Replica can log only the write transaction received from main
   // so the wal files are consistent
   auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
+  // A main's durable commit timestamp is its local one. Several comparisons elsewhere test the two
+  // for equality, so an edit that separates them must fail here rather than in whichever of those
+  // notices first.
+  DMG_ASSERT(!commit_args.replication_allowed() || durability_commit_timestamp == *commit_timestamp_,
+             "on a main the durable commit timestamp must be the local one");
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
@@ -1209,6 +1214,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
                          std::move(transaction_.post_process_),
                          transaction_.start_timestamp,
                          durability_commit_timestamp,
+                         *commit_timestamp_,
                          mem_storage->config_.salient.items.properties_on_edges));
   }
 
@@ -1287,8 +1293,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   // Mark transaction as finished for commit ordering and MVCC visibility.
   // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers
-  // to vertices. GC protects these by using last_processed_commit_ts_ as a safety horizon
-  // (see CollectGarbage implementation).
+  // to vertices. GC protects these by clamping its horizon to the lowest reconstruction boundary
+  // still queued: a queued entry's reconstruction walks version chains down to that boundary, so
+  // nothing at or above it may be unlinked while the entry is waiting.
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
 
   if (config_.enable_schema_info) {
@@ -1838,7 +1845,7 @@ void InMemoryStorage::ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts) {
 
   for (auto &update : to_process) {
     schema_info_.ProcessTransaction(
-        update.schema_diff, update.post_process, update.start_ts, update.commit_ts, update.property_on_edges);
+        update.schema_diff, update.post_process, update.start_ts, update.local_commit_ts, update.property_on_edges);
   }
 }
 
