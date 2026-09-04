@@ -98,12 +98,12 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   fi && \
   /mirrors/retry.sh -- apt-get update && \
   if test -n "$(find /openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
-    apt-get install -y \
+    /mirrors/retry.sh -- apt-get install -y \
     /openssl/*.deb \
     --no-install-recommends; \
   fi && \
   if [ "$BUILD_TYPE" = "RelWithDebInfo" ]; then \
-    apt-get install -y gdb libc6-dbg --no-install-recommends; \
+    /mirrors/retry.sh -- apt-get install -y gdb libc6-dbg --no-install-recommends; \
   fi && \
   /mirrors/retry.sh -- apt-get install adduser libxmlsec1 python3 libpython3.12 python3-pip -y --no-install-recommends && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \

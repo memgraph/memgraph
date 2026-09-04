@@ -1076,6 +1076,7 @@ jobs:
           # TODO(matt): add centos-10 when the image is fixed
           distros=(
             centos-9
+            centos-10
           )
           for distro in "${distros[@]}"; do
             ./release/package/mgbuild.sh \

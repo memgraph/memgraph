@@ -2552,7 +2552,7 @@ package_mage_docker() {
 
   # The Dockerfile falls back to the vetted public mirror list whenever the
   # in-network custom mirror isn't in play, so the scripts are always needed.
-  $PROJECT_ROOT/tools/ci/mirrors/stage.sh $PROJECT_ROOT/release/package/mage
+  "$PROJECT_ROOT/tools/ci/mirrors/stage.sh" "$PROJECT_ROOT/release/package/mage"
 
   # build the docker image
   docker buildx build \

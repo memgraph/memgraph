@@ -11,7 +11,7 @@
 #   retry.sh --attempts 5 --delay 30 -- docker build .
 #
 # The wait before attempt N is (N-1) * delay seconds, so the default of 5
-# attempts at 10s spends at most 60s waiting.
+# attempts at 10s spends at most 100s waiting.
 
 set -euo pipefail
 

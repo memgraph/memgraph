@@ -109,8 +109,7 @@ test_kerberos_auth_setup() {
   # The KDC image pins the distro mirrors rather than trusting the redirector;
   # the scripts have to be inside the build context.
   "$SMOKE_DIR/../../tools/ci/mirrors/stage.sh" "$KERBEROS_DIR"
-  # BuildKit required: the Dockerfile uses RUN --mount=type=bind.
-  DOCKER_BUILDKIT=1 docker build -t "$KERBEROS_KDC_IMAGE" "$KERBEROS_DIR"
+  docker build -t "$KERBEROS_KDC_IMAGE" "$KERBEROS_DIR"
   docker run -d --name "$KERBEROS_KDC_CONTAINER" \
     --network "$KERBEROS_NETWORK" --network-alias "$KERBEROS_KDC_HOST" \
     -v "$KERBEROS_SHARED_DIR:/krb5" \
