@@ -11,6 +11,10 @@
 
 #include <fmt/format.h>
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include "parameters/parameters.hpp"
 #include "parameters/rpc.hpp"
 #include "replication/include/replication/replication_client.hpp"
@@ -144,7 +148,13 @@ bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
   for (const auto &p : params) {
     items[MakeKey(p.name, p.scope_context)] = p.value;
   }
-  return storage_.PutMultiple(items);
+  // Recovery replaces local state: a parameter the instance held before joining must not survive,
+  // or a $placeholder here resolves to a value that exists nowhere on main.
+  std::vector<std::string> stale;
+  for (auto it = storage_.begin(); it != storage_.end(); ++it) {
+    if (!items.contains(it->first)) stale.push_back(it->first);
+  }
+  return storage_.PutAndDeleteMultiple(items, stale);
 }
 
 std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {
