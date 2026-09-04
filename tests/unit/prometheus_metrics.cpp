@@ -47,6 +47,22 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
   return std::nullopt;
 }
 
+std::optional<double> FindSampleByUuid(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
+                                       memgraph::utils::UUID const &uuid) {
+  auto const wanted = std::string{uuid};
+  for (auto const &family : families) {
+    if (family.name != name) continue;
+    for (auto const &metric : family.metric) {
+      auto const has_uuid_label =
+          std::ranges::any_of(metric.label, [&](auto const &l) { return l.name == "uuid" && l.value == wanted; });
+      if (!has_uuid_label) continue;
+      if (family.type == prometheus::MetricType::Gauge) return metric.gauge.value;
+      if (family.type == prometheus::MetricType::Counter) return metric.counter.value;
+    }
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
@@ -250,6 +266,35 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
   EXPECT_FALSE(leaks_entry_label) << "the entry-id label keys the family internally and must never be scraped";
 }
 
+// CollectForScrape snapshots the entries before collecting, so a database registered in between is
+// collected without a uuid to present. Dropping those metrics keeps two such series from colliding
+// on {database, uuid=""}, which would make Prometheus reject the whole scrape.
+TEST(PrometheusMetrics, ScrapeDropsSeriesWithNoLiveEntry) {
+  memgraph::metrics::PrometheusMetrics pm;
+
+  auto reg = pm.AddDatabase(memgraph::utils::UUID{}, "present");
+  reg.handles().vertex_count.Set(3.0);
+
+  {
+    auto orphan = pm.AddDatabase(memgraph::utils::UUID{}, "orphan");
+    orphan.handles().vertex_count.Set(9.0);
+    ASSERT_EQ(FindSample(pm.CollectForScrape(), "memgraph_vertex_count", "orphan"), 9.0)
+        << "a live entry must be scraped normally";
+  }
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "present"), 3.0) << "the live series was dropped";
+  EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "orphan"), std::nullopt)
+      << "a released database must leave no series behind";
+
+  auto const leaks_entry_label = r::any_of(families, [](auto const &family) {
+    return r::any_of(family.metric, [](auto const &metric) {
+      return r::any_of(metric.label, [](auto const &l) { return l.name == "mgentry"; });
+    });
+  });
+  EXPECT_FALSE(leaks_entry_label);
+}
+
 TEST(PrometheusMetrics, RebindKeepsMetricObjectsAlive) {
   memgraph::metrics::PrometheusMetrics pm;
 
@@ -311,13 +356,15 @@ TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  // Scrape and verify gauges appear under uuid_b
+  // Scrape and verify gauges appear under uuid_b, not the uuid the storage was built with.
   auto const families = pm.CollectForScrape();
-  auto const idx_val = FindSample(families, "memgraph_active_label_indices", "memgraph");
+  EXPECT_EQ(FindSampleByUuid(families, "memgraph_active_label_indices", uuid_a), std::nullopt)
+      << "the series still presents the pre-rebind uuid";
+  auto const idx_val = FindSampleByUuid(families, "memgraph_active_label_indices", uuid_b);
   ASSERT_TRUE(idx_val.has_value());
   EXPECT_EQ(*idx_val, 1.0);
 
-  auto const constr_val = FindSample(families, "memgraph_active_existence_constraints", "memgraph");
+  auto const constr_val = FindSampleByUuid(families, "memgraph_active_existence_constraints", uuid_b);
   ASSERT_TRUE(constr_val.has_value());
   EXPECT_EQ(*constr_val, 1.0);
 }
@@ -360,21 +407,6 @@ namespace {
 
 // Samples carry the labels the database registered under, so a stale series is found by its uuid
 // rather than by the name a later database may reuse.
-std::optional<double> FindSampleByUuid(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
-                                       memgraph::utils::UUID const &uuid) {
-  auto const wanted = std::string{uuid};
-  for (auto const &family : families) {
-    if (family.name != name) continue;
-    for (auto const &metric : family.metric) {
-      auto const has_uuid_label =
-          std::ranges::any_of(metric.label, [&](auto const &l) { return l.name == "uuid" && l.value == wanted; });
-      if (!has_uuid_label) continue;
-      if (family.type == prometheus::MetricType::Gauge) return metric.gauge.value;
-      if (family.type == prometheus::MetricType::Counter) return metric.counter.value;
-    }
-  }
-  return std::nullopt;
-}
 
 auto MakeConfig(std::filesystem::path const &dir, std::string_view name, memgraph::utils::UUID const &uuid)
     -> memgraph::storage::Config {
