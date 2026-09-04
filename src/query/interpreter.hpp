@@ -18,6 +18,7 @@
 #include <optional>
 #include <utility>
 
+#include "auth/auth_layer.hpp"
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -633,6 +634,13 @@ class Interpreter final {
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 
+  // An explicit auth transaction's buffered state, live from the first auth statement until COMMIT or ROLLBACK.
+  // Unlike system_transaction_ this is created on the first auth statement, not at BEGIN, because a transaction is
+  // only known to be an auth one once its first statement has been classified.
+  std::optional<memgraph::auth::AuthTransaction> auth_transaction_{};
+
+  memgraph::auth::AuthTransaction *auth_transaction_ptr() { return auth_transaction_ ? &*auth_transaction_ : nullptr; }
+
   memgraph::system::Transaction *system_transaction_ptr() {
     return system_transaction_ ? &*system_transaction_ : nullptr;
   }
@@ -664,6 +672,7 @@ class Interpreter final {
   void ResetInterpreter() {
     query_executions_.clear();
     system_transaction_.reset();
+    auth_transaction_.reset();
     transaction_queries_->clear();
     commit_notification_.reset();
     tx_mode_.reset();
