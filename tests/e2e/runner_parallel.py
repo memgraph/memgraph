@@ -597,7 +597,7 @@ def run(args):
         group_sizes[entry.group] = group_sizes.get(entry.group, 0) + 1
     parallel_queue.sort(key=lambda entry: -group_sizes[entry.group])
     max_windows = (_ephemeral_port_range_start() - PORT_NAMESPACE_BASE) // args.port_offset_step - 1
-    parallel_slots = min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue), max_windows)
+    parallel_slots = min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue), max_windows - 1)
     if parallel_slots < min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue)):
         log.warning(
             "Only %d port windows of %d ports fit below the ephemeral range.", max_windows, args.port_offset_step
@@ -625,6 +625,7 @@ def run(args):
     # Slot 0 is the exclusive lane, slots 1.. are parallel lanes (each owns a port window).
     free_parallel_slots = list(range(1, parallel_slots + 1))
     exclusive_busy = False
+    slot0_released = [not exclusive_queue]  # no exclusive lane at all: nothing to release
     stop_scheduling = False
     start_time = time.monotonic()
 
@@ -653,6 +654,11 @@ def run(args):
                 entry = exclusive_queue.pop(0)
                 exclusive_busy = True
                 futures[pool.submit(run_single_workload, entry.workload, 0, True, args_dict)] = (0, entry)
+            elif not exclusive_queue and not exclusive_busy and not slot0_released[0]:
+                # The exclusive lane is done, its worker joins the parallel lane (window 0 is unused otherwise).
+                slot0_released[0] = True
+                free_parallel_slots.append(0)
+                schedule()
 
         schedule()
         while futures:
