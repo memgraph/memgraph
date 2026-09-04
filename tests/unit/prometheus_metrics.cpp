@@ -72,7 +72,7 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
   reg.handles().vertex_count.Set(42.0);
   reg.handles().committed_transactions.Increment(5.0);
 
-  auto const families = pm.registry().Collect();
+  auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 42.0);
   EXPECT_EQ(FindSample(families, "memgraph_committed_transactions_total", "db1"), 5.0);
 }
@@ -85,7 +85,7 @@ TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   db1.handles().vertex_count.Set(10.0);
   db2.handles().vertex_count.Set(20.0);
 
-  auto const families = pm.registry().Collect();
+  auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 10.0);
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db2"), 20.0);
 }
@@ -107,7 +107,7 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
 
   pm.UpdateGauges();
 
-  auto const families = pm.registry().Collect();
+  auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 7.0);
   EXPECT_EQ(FindSample(families, "memgraph_edge_count", "db1"), 3.0);
   EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "db1"), 1024.0);
@@ -123,7 +123,7 @@ TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
 
   reg = {};
 
-  auto const families = pm.registry().Collect();
+  auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), std::nullopt);
 }
 
@@ -139,13 +139,13 @@ TEST(PrometheusMetrics, MetricsSurviveWhileAnotherRegistrationHoldsThem) {
   first = {};
 
   // Checked before the handle is used: writing through a dropped metric is the bug under test.
-  ASSERT_NE(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "db1"), std::nullopt);
+  ASSERT_NE(FindSample(pm.CollectForScrape(), "memgraph_vertex_count", "db1"), std::nullopt);
 
   second.handles().vertex_count.Set(7.0);
-  EXPECT_EQ(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "db1"), 7.0);
+  EXPECT_EQ(FindSample(pm.CollectForScrape(), "memgraph_vertex_count", "db1"), 7.0);
 
   second = {};
-  EXPECT_EQ(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "db1"), std::nullopt);
+  EXPECT_EQ(FindSample(pm.CollectForScrape(), "memgraph_vertex_count", "db1"), std::nullopt);
 }
 
 // A database's metrics are identified by the labels it registered under, so deregistering one name
@@ -160,8 +160,8 @@ TEST(PrometheusMetrics, RemovingOneNameLeavesTheOtherRegisteredUnderThatUuid) {
   under_new_name = {};
 
   under_old_name.handles().vertex_count.Set(5.0);
-  EXPECT_EQ(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "old"), 5.0);
-  EXPECT_EQ(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "new"), std::nullopt);
+  EXPECT_EQ(FindSample(pm.CollectForScrape(), "memgraph_vertex_count", "old"), 5.0);
+  EXPECT_EQ(FindSample(pm.CollectForScrape(), "memgraph_vertex_count", "new"), std::nullopt);
 }
 
 TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {

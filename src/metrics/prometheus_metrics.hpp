@@ -256,11 +256,9 @@ class PrometheusMetrics {
 
   nlohmann::json GetTelemetryCounters() const;
 
-  prometheus::Registry &registry() { return registry_; }
-
   /// Collects every family for a scrape, substituting each per-database entry's current uuid for the
-  /// internal entry-id label. Always use this rather than `registry().Collect()` for anything that
-  /// leaves the process: the entry-id label is an implementation detail and must never be exposed.
+  /// internal entry-id label. This is the only way out of the registry, because the entry-id label
+  /// keys the families internally and must never be exposed.
   std::vector<prometheus::MetricFamily> CollectForScrape();
 
   GlobalMetricHandles global;
