@@ -16,25 +16,51 @@ import sys
 import xml.etree.ElementTree as ET
 
 
+def build_of(root: pathlib.Path, path: pathlib.Path) -> str:
+    """Name the build a result file came from.
+
+    Each repeat arrives as its own artifact directory, named for the build and
+    the repeat, so the first path component below the download root identifies
+    the build once the repeat suffix is taken off. Counting a test's runs across
+    builds instead would average a break in one build against a pass in
+    another, and report neither.
+    """
+    try:
+        head = path.relative_to(root).parts[0]
+    except (ValueError, IndexError):
+        return "unknown"
+    head = head.removeprefix("ctest_results_")
+    return head.rsplit("-", 1)[0] if "-" in head else head
+
+
 def collect(roots: list[str]):
-    runs: collections.Counter[str] = collections.Counter()
-    failures: collections.Counter[str] = collections.Counter()
+    runs: collections.Counter[tuple[str, str]] = collections.Counter()
+    failures: collections.Counter[tuple[str, str]] = collections.Counter()
     files = 0
-    for root in roots:
-        for path in sorted(pathlib.Path(root).rglob("*.xml")):
+    for raw_root in roots:
+        root = pathlib.Path(raw_root)
+        for path in sorted(root.rglob("*.xml")):
             try:
                 tree = ET.parse(path)
-            except ET.ParseError:
-                print(f"skipped unparseable {path}", file=sys.stderr)
+            except (ET.ParseError, OSError, ValueError):
+                print(f"skipped unreadable {path}", file=sys.stderr)
                 continue
             files += 1
+            build = build_of(root, path)
             for case in tree.iter("testcase"):
-                name = case.get("name") or "<unnamed>"
-                runs[name] += 1
+                # A test ctest never ran tells us nothing about whether it
+                # fails, and counting it would understate the rate of one that
+                # fails whenever it does run. ctest reports an execution as
+                # either run or fail and gives anything it declined to start a
+                # status of its own.
+                if case.find("skipped") is not None or case.get("status") not in ("run", "fail"):
+                    continue
+                key = (build, case.get("name") or "<unnamed>")
+                runs[key] += 1
                 # ctest writes <failure> for a failing test and marks skipped
                 # ones separately; anything with a failure child counts.
                 if case.find("failure") is not None or case.find("error") is not None:
-                    failures[name] += 1
+                    failures[key] += 1
     return runs, failures, files
 
 
@@ -50,19 +76,20 @@ def main() -> int:
     total_runs = sum(runs.values())
     flaky = sorted(failures.items(), key=lambda kv: (-kv[1], kv[0]))
 
-    print(f"Read {files} result file(s): {len(runs)} distinct tests, {total_runs} executions.\n")
+    print(f"Read {files} result file(s): {len(runs)} build/test pairs, {total_runs} executions.\n")
     if not flaky:
         print("No failures across any repeat.")
         return 0
 
-    print("| test | failed | of runs | rate |")
-    print("| --- | ---: | ---: | ---: |")
-    for name, failed in flaky:
-        n = runs[name]
-        print(f"| `{name}` | {failed} | {n} | {failed / n:.0%} |")
+    print("| build | test | failed | of runs | rate |")
+    print("| --- | --- | ---: | ---: | ---: |")
+    for key, failed in flaky:
+        build, name = key
+        n = runs[key]
+        print(f"| {build} | `{name}` | {failed} | {n} | {failed / n:.0%} |")
 
-    always = [n for n, f in flaky if f == runs[n]]
-    sometimes = [n for n, f in flaky if f != runs[n]]
+    always = [k for k, f in flaky if f == runs[k]]
+    sometimes = [k for k, f in flaky if f != runs[k]]
     print()
     print(f"{len(sometimes)} test(s) failed on some runs but not all, which is the flaky set.")
     if always:
