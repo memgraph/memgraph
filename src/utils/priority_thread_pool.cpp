@@ -259,6 +259,11 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature 
                                                                   bool productive) {
   (void)priority;  // Not used for id computation here; kept for API symmetry with ScheduledAddTask
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
+    // Shutting down (past the parked-set drain): run the woken continuation inline rather than
+    // dropping it. It observes IsDrainingAdmissions() and fails the client cleanly, exactly as
+    // ShutDown's drain does. Dropping here would lose a task that WakeMatching pulled from the deque
+    // in the window where ShutDown swapped the parked set and then requested stop.
+    task(utils::Priority::LOW);
     return 0;
   }
   auto tid = hot_threads_.GetHotElement();
@@ -306,8 +311,17 @@ void PriorityThreadPool::WakeMatching(FreedTag freed) {
     }
     has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
   }  // release parked_mtx_ BEFORE ScheduledReAddTask (which acquires Worker::mtx_)
+  // If the pool is draining, run the woken continuations inline (each fails the client cleanly via
+  // IsDrainingAdmissions()) instead of rescheduling onto workers that ShutDown is about to stop.
+  // ScheduledReAddTask's own stop-guard covers the narrower window where stop is requested after this
+  // check; between them a task pulled out of the deque here is never lost.
+  const bool draining = draining_admissions_.load(std::memory_order_acquire);
   for (auto &[id, task] : wakeups) {
-    ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
+    if (draining) [[unlikely]] {
+      task(utils::Priority::LOW);
+    } else {
+      ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
+    }
   }
 }
 

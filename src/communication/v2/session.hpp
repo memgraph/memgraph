@@ -643,8 +643,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
 
-  // TaskID of the in-flight commit-park continuation; 0 = not yet issued.
-  // Relaxed is safe: one pending commit per session; enqueue/dequeue order provides visibility.
+  // TaskID of the in-flight commit-park continuation; 0 = not yet issued. Only one commit-park is ever
+  // in flight per session (the sequential post-and-return chain). Relaxed is safe because the sole
+  // hazard — the first-post store landing after AddTask returns — is self-correcting: a stale-0 read
+  // costs at most one extra (harmless, sequential) AddTask, and a stale-nonzero read is recovered by
+  // the pool's 100ms monitor backstop. Not a load-bearing ordering; do not read into it.
   std::atomic<utils::PriorityThreadPool::TaskID> pending_commit_task_id_{0};
 
   // TaskID of the in-flight begin-park continuation; 0 = not yet issued; same relaxed reasoning as above.
