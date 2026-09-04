@@ -21,6 +21,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/plan_v2/frontend/query_planner_context.hpp"
 #include "query/stream.hpp"
