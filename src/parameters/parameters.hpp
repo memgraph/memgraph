@@ -84,7 +84,8 @@ struct Parameters {
 
   /**
    * @brief Apply parameter recovery snapshot from main (used by SystemRecoveryHandler).
-   * Applied atomically: either all parameters are written or none.
+   * Replaces local state: parameters absent from the snapshot are dropped. Applied atomically,
+   * so a failure leaves the store untouched.
    * @return true on success, false on storage error.
    */
   bool ApplyRecovery(const std::vector<ParameterInfo> &params);
