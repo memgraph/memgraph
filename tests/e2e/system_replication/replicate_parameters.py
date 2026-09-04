@@ -286,5 +286,43 @@ def test_parameter_replication_after_replica_recovery(connection, test_name, cle
     assert len(main_params) == 2
 
 
+def test_parameters_set_before_registration_do_not_survive_recovery(connection, test_name, clean_dirs):
+    # An instance joining a cluster takes main's state as its own, so a parameter set while it was
+    # standalone must not survive the join. A parameter that did survive would stay reachable: an
+    # unbound $placeholder resolves against the server-side parameters, so a name held only by the
+    # replica would resolve there to a value present nowhere else in the cluster.
+    # 0/ Start all three with no replica setup_queries, so parameters can be set before registration.
+    # 1/ Set parameters on main and different ones on each replica while all are standalone.
+    # 2/ Make the replicas replicas, then register them, which triggers recovery.
+    # 3/ Assert each replica holds exactly main's parameters and the local-only ones are unreachable.
+    instances = _instances_with_recovery(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    execute_and_fetch_all(cursor, 'SET GLOBAL PARAMETER on_main="MAIN-only";')
+    execute_and_fetch_all(cursor, 'SET GLOBAL PARAMETER shared="from-MAIN";')
+    execute_and_fetch_all(cursor, 'SET PARAMETER db_on_main="MAIN-db";')
+
+    for name, port in [("replica_1", BOLT_PORTS["replica_1"]), ("replica_2", BOLT_PORTS["replica_2"])]:
+        repl_cursor = connection(port, "replica").cursor()
+        execute_and_fetch_all(repl_cursor, f'SET GLOBAL PARAMETER only_on_{name}="REPLICA-only";')
+        execute_and_fetch_all(repl_cursor, 'SET GLOBAL PARAMETER shared="from-REPLICA";')
+        execute_and_fetch_all(repl_cursor, 'SET PARAMETER db_only_on_replica="REPLICA-db";')
+        execute_and_fetch_all(repl_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS[name]};")
+
+    execute_and_fetch_all(cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';")
+    execute_and_fetch_all(cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';")
+
+    main_params = sorted(_show_parameters(cursor))
+    assert len(main_params) == 3
+
+    for name, port in [("replica_1", BOLT_PORTS["replica_1"]), ("replica_2", BOLT_PORTS["replica_2"])]:
+        repl_cursor = connection(port, "replica").cursor()
+        mg_sleep_and_assert_collection(main_params, lambda c=repl_cursor: sorted(_show_parameters(c)))
+        # The parameter named only on this replica must not resolve as a query placeholder.
+        with pytest.raises(Exception, match="not provided"):
+            execute_and_fetch_all(repl_cursor, f"RETURN $only_on_{name};")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
