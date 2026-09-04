@@ -22,6 +22,7 @@
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
+#include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 #include "query/relations/equivalence.hpp"
 #include "query/virtual_edge.hpp"
@@ -1633,99 +1634,11 @@ double ToDouble(const TypedValue &value) {
   }
 }
 
-namespace {
-bool IsTemporalType(const TypedValue::Type type) {
-  static constexpr std::array temporal_types{TypedValue::Type::Date,
-                                             TypedValue::Type::LocalTime,
-                                             TypedValue::Type::LocalDateTime,
-                                             TypedValue::Type::ZonedDateTime,
-                                             TypedValue::Type::Duration};
-  return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
-};
-
-}  // namespace
-
-// TODO: make it faster
 TypedValue operator<(const TypedValue &a, const TypedValue &b) {
-  auto is_legal = [](TypedValue::Type type) {
-    switch (type) {
-      case TypedValue::Type::Null:
-      case TypedValue::Type::Int:
-      case TypedValue::Type::Double:
-      case TypedValue::Type::String:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
-      case TypedValue::Type::Duration:
-        return true;
-
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::List:
-      case TypedValue::Type::Map:
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::VirtualEdge:
-      case TypedValue::Type::VirtualNode:
-      case TypedValue::Type::Path:
-      case TypedValue::Type::Graph:
-      case TypedValue::Type::VirtualGraph:
-      case TypedValue::Type::Function:
-      case TypedValue::Type::Enum:
-      case TypedValue::Type::Point2d:
-      case TypedValue::Type::Point3d:
-        return false;
-    }
-  };
-  if (!is_legal(a.type()) || !is_legal(b.type())) {
-    if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type())) return {};
-    throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
-  }
-
-  if (a.IsNull() || b.IsNull()) {
-    return TypedValue(a.alloc_);
-  }
-
-  if (a.IsString() || b.IsString()) {
-    if (a.type() != b.type()) {
-      return {};
-    } else {
-      return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
-    }
-  }
-
-  if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
-    if (a.type() != b.type()) {
-      return {};
-    }
-
-    switch (a.type()) {
-      case TypedValue::Type::Date:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDate() < b.ValueDate(), a.alloc_);
-      case TypedValue::Type::LocalTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.alloc_);
-      case TypedValue::Type::LocalDateTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.alloc_);
-      case TypedValue::Type::ZonedDateTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.alloc_);
-      case TypedValue::Type::Duration:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDuration() < b.ValueDuration(), a.alloc_);
-      default:
-        LOG_FATAL("Invalid temporal type");
-    }
-  }
-
-  // at this point we only have int and double
-  if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) < ToDouble(b), a.alloc_);
-  } else {
-    return TypedValue(a.ValueInt() < b.ValueInt(), a.alloc_);
-  }
+  // Inlined here on purpose. The relation is reached through this operator by
+  // every caller, and the project builds without sibling-call optimisation, so
+  // forwarding to it would cost a call frame on every comparison.
+  [[clang::always_inline]] return relations::comparability::Less(a, b);
 }
 
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
