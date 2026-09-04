@@ -186,18 +186,24 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       continue;
     }
 
+    WalHeader header{};
     try {
-      auto header = ReadWalHeader(item.path());
-      if ((!uuid.empty() && header.uuid != uuid) || (current_seq_num && header.seq_num >= *current_seq_num)) {
-        spdlog::trace("Wal file {} won't be used. UUID: {}. Header UUID: {}. Current seq num: {}. Header seq num: {}.",
-                      item.path(),
-                      uuid,
-                      header.uuid,
-                      current_seq_num,
-                      header.seq_num);
-        continue;
-      }
-
+      header = ReadWalHeader(item.path());
+    } catch (const RecoveryFailure &e) {
+      if (unreadable_candidates_out != nullptr) ++*unreadable_candidates_out;
+      spdlog::warn("Failed to read WAL header for {}. Error: {}", item.path(), e.what());
+      continue;
+    }
+    if ((!uuid.empty() && header.uuid != uuid) || (current_seq_num && header.seq_num >= *current_seq_num)) {
+      spdlog::trace("Wal file {} won't be used. UUID: {}. Header UUID: {}. Current seq num: {}. Header seq num: {}.",
+                    item.path(),
+                    uuid,
+                    header.uuid,
+                    current_seq_num,
+                    header.seq_num);
+      continue;
+    }
+    try {
       // A file holding no complete transaction has no timestamps to offer, and ReadWalContents throwing for it is
       // how it gets dropped here.
       auto info = ReadWalContents(item.path(), std::move(header));
@@ -691,7 +697,18 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
-    if (!utils::DirExists(wal_directory_)) return std::nullopt;
+    constexpr const char *kBrokenDurabilityMsg =
+        "Durability files are present but none could be read; refusing to start with an empty database "
+        "and discard existing data. The database is now in the broken state. Please inspect the "
+        "snapshot and WAL files and restart.";
+    // If the snapshot scan found unreadable candidates, a missing WAL directory must not silently
+    // start empty — the corrupt-snapshot signal would be discarded by the early return.
+    if (!utils::DirExists(wal_directory_)) {
+      if (unusable_candidates > 0) {
+        throw RecoveryFailure(kBrokenDurabilityMsg);
+      }
+      return std::nullopt;
+    }
 
     // The UUID isn't known yet, so every file in the directory is collected and the unrelated ones dropped below.
     auto maybe_wal_files = GetWalFiles(wal_directory_, "", std::nullopt, &unusable_candidates);
@@ -701,15 +718,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     wal_files = std::move(*maybe_wal_files);
 
     if (wal_files.empty()) {
-      // #4742: distinguish a genuinely empty durability directory (fresh DB — correct to start empty)
-      // from one whose durability files are present but unreadable/corrupt (an existing DB whose data
-      // cannot be loaded). Starting empty in the second case silently discards data, so fail loud in the
-      // same "broken state" way the recognised-but-unrecoverable snapshot path above already does.
+      // Non-zero unusable_candidates means durability files exist but are unreadable (not a fresh DB):
+      // starting empty would silently discard data, so fail loud instead.
       if (unusable_candidates > 0) {
-        throw RecoveryFailure(
-            "Durability files are present but none could be read; refusing to start with an empty database "
-            "and discard existing data. The database is now in the broken state. Please inspect the "
-            "snapshot and WAL files and restart.");
+        throw RecoveryFailure(kBrokenDurabilityMsg);
       }
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
