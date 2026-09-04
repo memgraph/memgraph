@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <future>
 #include <latch>
 #include <mutex>
@@ -432,53 +433,128 @@ TEST_F(ResourceLockTest, GuardTryLockForUniqueTimesOutWhenHeld) {
 // Stress tests: a varied TSan surface plus liveness probes (UNIQUE starvation vs shared holders,
 // READ_ONLY latency vs new writers).
 
-// Mutual-exclusion fuzzer. Threads hammer every entry point while atomic counters are checked
-// against the lock's invariants on each acquisition (catches violations + TSan races).
+namespace {
+
+// Counts the holders that have announced themselves, packed into one word so that a reader gets
+// all four counts from a single load. Separate atomics would have to be read one at a time. A READ
+// holder is compatible with both WRITE and READ_ONLY, so a reader holding READ could see a writer
+// that had already released, alongside a READ_ONLY admitted afterwards, and report an overlap that
+// never happened.
+//
+// A holder is announced strictly inside its own hold, so a count can be too low but never too
+// high. An overlap seen in one load is therefore real.
+class HolderCensus {
+ public:
+  enum class Holder : unsigned { kRead = 0, kWrite = 16, kReadOnly = 32, kUnique = 48 };
+
+  struct Census {
+    int read;
+    int write;
+    int read_only;
+    int unique;
+  };
+
+  void Enter(Holder who) { word_.fetch_add(Unit(who), std::memory_order_acq_rel); }
+
+  void Leave(Holder who) { word_.fetch_sub(Unit(who), std::memory_order_acq_rel); }
+
+  [[nodiscard]] Census Read() const {
+    auto const word = word_.load(std::memory_order_acquire);
+    return {.read = Lane(word, Holder::kRead),
+            .write = Lane(word, Holder::kWrite),
+            .read_only = Lane(word, Holder::kReadOnly),
+            .unique = Lane(word, Holder::kUnique)};
+  }
+
+ private:
+  static constexpr std::uint64_t Unit(Holder who) { return std::uint64_t{1} << static_cast<unsigned>(who); }
+
+  static constexpr int Lane(std::uint64_t word, Holder who) {
+    return static_cast<int>((word >> static_cast<unsigned>(who)) & 0xFFFFU);
+  }
+
+  std::atomic<std::uint64_t> word_{0};
+};
+
+// Watches the lock's contract from outside it:
+//  1. WRITE and READ_ONLY are never simultaneously active.
+//  2. UNIQUE active implies nothing else is active (and vice versa).
+//  3. At most one UNIQUE holder at a time.
+// Keeps the first violation it sees and drops any that follow.
+class InvariantMonitor {
+ public:
+  void Check(char const *where) {
+    auto const [ar, aw, aro, au] = census_.Read();
+    if (aw > 0 && aro > 0) {
+      Record(std::string(where) + ": WRITE(" + std::to_string(aw) + ") and READ_ONLY(" + std::to_string(aro) +
+             ") concurrently active");
+    }
+    if (au > 0 && (aw > 0 || ar > 0 || aro > 0)) {
+      Record(std::string(where) + ": UNIQUE(" + std::to_string(au) + ") active alongside shared holders (w=" +
+             std::to_string(aw) + ", r=" + std::to_string(ar) + ", ro=" + std::to_string(aro) + ")");
+    }
+    if (au > 1) {
+      Record(std::string(where) + ": more than one UNIQUE holder concurrently (" + std::to_string(au) + ")");
+    }
+  }
+
+  [[nodiscard]] bool Violated() const { return violated_.load(std::memory_order_acquire); }
+
+  [[nodiscard]] std::string Message() const {
+    auto lg = std::lock_guard{message_mutex_};
+    return message_;
+  }
+
+  HolderCensus &census() { return census_; }
+
+ private:
+  void Record(std::string msg) {
+    bool expected = false;
+    if (violated_.compare_exchange_strong(expected, true)) {
+      auto lg = std::lock_guard{message_mutex_};
+      message_ = std::move(msg);
+    }
+  }
+
+  HolderCensus census_;
+  std::atomic<bool> violated_{false};
+  mutable std::mutex message_mutex_;
+  std::string message_;
+};
+
+// Announces a holder for as long as it is in scope, and checks the invariants as it announces it.
+// Tying the announcement to a scope keeps it from outliving the hold it stands for.
+class Holding {
+ public:
+  Holding(InvariantMonitor &monitor, HolderCensus::Holder who, char const *where) : monitor_{&monitor}, who_{who} {
+    monitor_->census().Enter(who_);
+    monitor_->Check(where);
+  }
+
+  ~Holding() { monitor_->census().Leave(who_); }
+
+  Holding(Holding const &) = delete;
+  Holding &operator=(Holding const &) = delete;
+  Holding(Holding &&) = delete;
+  Holding &operator=(Holding &&) = delete;
+
+ private:
+  InvariantMonitor *monitor_;
+  HolderCensus::Holder who_;
+};
+
+using Holder = HolderCensus::Holder;
+
+}  // namespace
+
+// Mutual-exclusion fuzzer. Threads hammer every entry point, and each acquisition checks the
+// announced holders against the lock's invariants. Catches both violations and TSan races.
 TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzz) {
   using namespace std::chrono_literals;
   constexpr int kNumThreads = 24;
   constexpr auto kDuration = 400ms;
 
-  struct Counters {
-    std::atomic<int> active_read{0};
-    std::atomic<int> active_write{0};
-    std::atomic<int> active_ro{0};
-    std::atomic<int> active_unique{0};
-  } counters;
-
-  std::atomic<bool> invariant_violated{false};
-  std::mutex violation_mutex;
-  std::string violation_message;
-
-  auto record_violation = [&](const std::string &msg) {
-    bool expected = false;
-    if (invariant_violated.compare_exchange_strong(expected, true)) {
-      std::lock_guard<std::mutex> lg(violation_mutex);
-      violation_message = msg;
-    }
-  };
-
-  // Invariants (per the lock's contract):
-  //  1. WRITE and READ_ONLY are never simultaneously active.
-  //  2. UNIQUE active implies nothing else is active (and vice versa).
-  //  3. At most one UNIQUE holder at a time.
-  auto check_invariants = [&](const char *where) {
-    const int aw = counters.active_write.load(std::memory_order_acquire);
-    const int aro = counters.active_ro.load(std::memory_order_acquire);
-    const int ar = counters.active_read.load(std::memory_order_acquire);
-    const int au = counters.active_unique.load(std::memory_order_acquire);
-    if (aw > 0 && aro > 0) {
-      record_violation(std::string(where) + ": WRITE(" + std::to_string(aw) + ") and READ_ONLY(" + std::to_string(aro) +
-                       ") concurrently active");
-    }
-    if (au > 0 && (aw > 0 || ar > 0 || aro > 0)) {
-      record_violation(std::string(where) + ": UNIQUE(" + std::to_string(au) + ") active alongside shared holders (w=" +
-                       std::to_string(aw) + ", r=" + std::to_string(ar) + ", ro=" + std::to_string(aro) + ")");
-    }
-    if (au > 1) {
-      record_violation(std::string(where) + ": more than one UNIQUE holder concurrently (" + std::to_string(au) + ")");
-    }
-  };
+  InvariantMonitor monitor;
 
   std::atomic<bool> stop{false};
 
@@ -489,49 +565,49 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzz) {
     std::uniform_int_distribution<int> hold_us(0, 50);
     std::uniform_int_distribution<int> downgrade_roll(0, 3);
 
-    while (!stop.load(std::memory_order_relaxed) && !invariant_violated.load(std::memory_order_relaxed)) {
+    auto hold_for = [&](int us) { std::this_thread::sleep_for(std::chrono::microseconds(us)); };
+
+    while (!stop.load(std::memory_order_relaxed) && !monitor.Violated()) {
       switch (op_pick(rng)) {
         case 0: {  // READ: never conflicts with anything but UNIQUE
           lock.lock_shared<ResourceLock::LockReq::READ>();
-          counters.active_read.fetch_add(1, std::memory_order_acq_rel);
-          check_invariants("READ");
-          std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-          counters.active_read.fetch_sub(1, std::memory_order_acq_rel);
+          {
+            Holding held{monitor, Holder::kRead, "READ"};
+            hold_for(hold_us(rng));
+          }
           lock.unlock_shared<ResourceLock::LockReq::READ>();
           break;
         }
         case 1: {  // WRITE (shared writer), conflicts with READ_ONLY
           lock.lock_shared<ResourceLock::LockReq::WRITE>();
-          counters.active_write.fetch_add(1, std::memory_order_acq_rel);
-          check_invariants("WRITE");
-          std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
+          {
+            Holding held{monitor, Holder::kWrite, "WRITE"};
+            hold_for(hold_us(rng));
+          }
           if (downgrade_roll(rng) == 0) {
-            counters.active_write.fetch_sub(1, std::memory_order_acq_rel);
             ASSERT_TRUE(lock.downgrade_to_read<ResourceLock::LockReq::WRITE>());
-            counters.active_read.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("WRITE->READ downgrade");
-            counters.active_read.fetch_sub(1, std::memory_order_acq_rel);
+            {
+              Holding held{monitor, Holder::kRead, "WRITE->READ downgrade"};
+            }
             lock.unlock_shared<ResourceLock::LockReq::READ>();
           } else {
-            counters.active_write.fetch_sub(1, std::memory_order_acq_rel);
             lock.unlock_shared<ResourceLock::LockReq::WRITE>();
           }
           break;
         }
         case 2: {  // READ_ONLY, blocking, conflicts with WRITE
           lock.lock_shared<ResourceLock::LockReq::READ_ONLY>();
-          counters.active_ro.fetch_add(1, std::memory_order_acq_rel);
-          check_invariants("READ_ONLY(block)");
-          std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
+          {
+            Holding held{monitor, Holder::kReadOnly, "READ_ONLY(block)"};
+            hold_for(hold_us(rng));
+          }
           if (downgrade_roll(rng) == 0) {
-            counters.active_ro.fetch_sub(1, std::memory_order_acq_rel);
             ASSERT_TRUE(lock.downgrade_to_read<ResourceLock::LockReq::READ_ONLY>());
-            counters.active_read.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("READ_ONLY->READ downgrade");
-            counters.active_read.fetch_sub(1, std::memory_order_acq_rel);
+            {
+              Holding held{monitor, Holder::kRead, "READ_ONLY->READ downgrade"};
+            }
             lock.unlock_shared<ResourceLock::LockReq::READ>();
           } else {
-            counters.active_ro.fetch_sub(1, std::memory_order_acq_rel);
             lock.unlock_shared<ResourceLock::LockReq::READ_ONLY>();
           }
           break;
@@ -539,30 +615,30 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzz) {
         case 3: {  // READ_ONLY, timed try with a short timeout (frequently expected to fail)
           if (lock.try_lock_shared_for<std::chrono::microseconds::rep, std::micro, ResourceLock::LockReq::READ_ONLY>(
                   std::chrono::microseconds(200))) {
-            counters.active_ro.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("READ_ONLY(try_for)");
-            std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-            counters.active_ro.fetch_sub(1, std::memory_order_acq_rel);
+            {
+              Holding held{monitor, Holder::kReadOnly, "READ_ONLY(try_for)"};
+              hold_for(hold_us(rng));
+            }
             lock.unlock_shared<ResourceLock::LockReq::READ_ONLY>();
           }
           break;
         }
         case 4: {  // UNIQUE via try_lock
           if (lock.try_lock()) {
-            counters.active_unique.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("UNIQUE(try_lock)");
-            std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-            counters.active_unique.fetch_sub(1, std::memory_order_acq_rel);
+            {
+              Holding held{monitor, Holder::kUnique, "UNIQUE(try_lock)"};
+              hold_for(hold_us(rng));
+            }
             lock.unlock();
           }
           break;
         }
         case 5: {  // UNIQUE via try_lock_for
           if (lock.try_lock_for(std::chrono::microseconds(200))) {
-            counters.active_unique.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("UNIQUE(try_lock_for)");
-            std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-            counters.active_unique.fetch_sub(1, std::memory_order_acq_rel);
+            {
+              Holding held{monitor, Holder::kUnique, "UNIQUE(try_lock_for)"};
+              hold_for(hold_us(rng));
+            }
             lock.unlock();
           }
           break;
@@ -581,7 +657,7 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzz) {
   stop.store(true, std::memory_order_relaxed);
   threads.clear();  // joins all workers
 
-  ASSERT_FALSE(invariant_violated.load()) << violation_message;
+  ASSERT_FALSE(monitor.Violated()) << monitor.Message();
 }
 
 // UNIQUE-starvation probe under continuous READ churn. With writer-preference, unique_pending_
@@ -814,30 +890,34 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresUnderContinuousWriteH
     std::atomic<bool> stop{false};
     auto hammers = SpawnHammers<ResourceLock::LockReq::WRITE>(lock, stop, kNumHammers);
 
-    auto scoped_future = std::async(std::launch::async, [&] {
+    auto scoped_future = std::async(std::launch::async, [&]() -> std::optional<std::chrono::milliseconds> {
       auto start = std::chrono::steady_clock::now();
       UniquePendingScope scope(lock);
       std::optional<ResourceLockGuard> acquired;
-      while (!acquired) {
+      while (!acquired && !stop.load(std::memory_order_relaxed)) {
         acquired = scope.try_acquire();
         if (!acquired) std::this_thread::sleep_for(20us);
       }
-      auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-      return latency;  // `acquired` unlocks on scope exit here
-    });
+      if (!acquired) return std::nullopt;
+      return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+    });  // `acquired` unlocks on scope exit here
 
     const bool acquired_in_time = scoped_future.wait_for(kPendingScopeBound) == std::future_status::ready;
+    // Collect the campaign before joining the hammers, so that it is no longer registered as
+    // pending when they have to make progress. A hammer blocks inside lock_shared(), which a
+    // pending registration refuses, and it does not read `stop` while parked there. Joining first
+    // would keep in place the registration that is holding it there.
     stop.store(true, std::memory_order_relaxed);
+    const auto latency = scoped_future.get();
     hammers.clear();
 
     if (acquired_in_time) {
-      const auto latency = scoped_future.get();
-      RecordProperty("unique_pending_scope_latency_ms", std::to_string(latency.count()));
+      ASSERT_TRUE(latency.has_value());
+      RecordProperty("unique_pending_scope_latency_ms", std::to_string(latency->count()));
     } else {
       ADD_FAILURE() << "UniquePendingScope::try_acquire() campaign did not acquire within "
                     << kPendingScopeBound.count() << "s under continuous WRITE churn from " << kNumHammers
                     << " hammer threads: pending-scope writer-preference regression";
-      scoped_future.get();  // reap the async thread now that hammers have stopped
     }
   }
 
@@ -860,14 +940,15 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresUnderContinuousWriteH
 
     auto control_result = control_future.get();
     stop.store(true, std::memory_order_relaxed);
+    // A hammer parked in lock_shared<WRITE>() cannot take the lock while it is held UNIQUE, and it
+    // only reads `stop` between acquisitions. The probe therefore has to release its own
+    // acquisition before the hammers are joined. Releasing it afterwards leaves the join waiting
+    // on threads that only this release can free.
+    if (control_result) lock.unlock();
     hammers.clear();
 
-    if (control_result) {
-      lock.unlock();  // it did acquire; release so later tests in the suite start from UNLOCKED
-      RecordProperty("bare_try_lock_acquired_ms", std::to_string(control_result->count()));
-    } else {
-      RecordProperty("bare_try_lock_acquired_ms", "starved");
-    }
+    RecordProperty("bare_try_lock_acquired_ms",
+                   control_result ? std::to_string(control_result->count()) : std::string{"starved"});
   }
 }
 
@@ -880,32 +961,35 @@ TEST_F(ResourceLockTest, ReadOnlyPendingScopeCampaignAcquiresUnderContinuousWrit
   std::atomic<bool> stop{false};
   auto hammers = SpawnHammers<ResourceLock::LockReq::WRITE>(lock, stop, kNumHammers);
 
-  auto scoped_future = std::async(std::launch::async, [&] {
+  using Outcome = std::pair<std::chrono::milliseconds, ResourceLockGuard::Type>;
+  auto scoped_future = std::async(std::launch::async, [&]() -> std::optional<Outcome> {
     auto start = std::chrono::steady_clock::now();
     ReadOnlyPendingScope scope(lock);
     std::optional<ResourceLockGuard> acquired;
-    while (!acquired) {
+    while (!acquired && !stop.load(std::memory_order_relaxed)) {
       acquired = scope.try_acquire();
       if (!acquired) std::this_thread::sleep_for(20us);
     }
+    if (!acquired) return std::nullopt;
     auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-    const auto acquired_type = acquired->type();
-    return std::pair{latency, acquired_type};  // guard unlocks on scope exit here
-  });
+    return Outcome{latency, acquired->type()};
+  });  // guard unlocks on scope exit here
 
   const bool acquired_in_time = scoped_future.wait_for(kBound) == std::future_status::ready;
+  // Collect the campaign before joining the hammers: see the note in the UniquePendingScope
+  // campaign.
   stop.store(true, std::memory_order_relaxed);
+  const auto outcome = scoped_future.get();
   hammers.clear();
 
   if (acquired_in_time) {
-    const auto [latency, acquired_type] = scoped_future.get();
-    EXPECT_EQ(acquired_type, ResourceLockGuard::READ_ONLY);
-    RecordProperty("ro_pending_scope_latency_ms", std::to_string(latency.count()));
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->second, ResourceLockGuard::READ_ONLY);
+    RecordProperty("ro_pending_scope_latency_ms", std::to_string(outcome->first.count()));
   } else {
     ADD_FAILURE() << "ReadOnlyPendingScope::try_acquire() campaign did not acquire within " << kBound.count()
                   << "s under continuous WRITE churn from " << kNumHammers
                   << " hammer threads: pending-scope priority regression";
-    scoped_future.get();  // reap the async thread now that hammers have stopped
   }
 }
 
@@ -1226,42 +1310,7 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
   constexpr int kNumThreads = 24;
   constexpr auto kDuration = 400ms;
 
-  struct Counters {
-    std::atomic<int> active_read{0};
-    std::atomic<int> active_write{0};
-    std::atomic<int> active_ro{0};
-    std::atomic<int> active_unique{0};
-  } counters;
-
-  std::atomic<bool> invariant_violated{false};
-  std::mutex violation_mutex;
-  std::string violation_message;
-
-  auto record_violation = [&](const std::string &msg) {
-    bool expected = false;
-    if (invariant_violated.compare_exchange_strong(expected, true)) {
-      std::lock_guard<std::mutex> lg(violation_mutex);
-      violation_message = msg;
-    }
-  };
-
-  auto check_invariants = [&](const char *where) {
-    const int aw = counters.active_write.load(std::memory_order_acquire);
-    const int aro = counters.active_ro.load(std::memory_order_acquire);
-    const int ar = counters.active_read.load(std::memory_order_acquire);
-    const int au = counters.active_unique.load(std::memory_order_acquire);
-    if (aw > 0 && aro > 0) {
-      record_violation(std::string(where) + ": WRITE(" + std::to_string(aw) + ") and READ_ONLY(" + std::to_string(aro) +
-                       ") concurrently active");
-    }
-    if (au > 0 && (aw > 0 || ar > 0 || aro > 0)) {
-      record_violation(std::string(where) + ": UNIQUE(" + std::to_string(au) + ") active alongside shared holders (w=" +
-                       std::to_string(aw) + ", r=" + std::to_string(ar) + ", ro=" + std::to_string(aro) + ")");
-    }
-    if (au > 1) {
-      record_violation(std::string(where) + ": more than one UNIQUE holder concurrently (" + std::to_string(au) + ")");
-    }
-  };
+  InvariantMonitor monitor;
 
   std::atomic<bool> stop{false};
 
@@ -1271,41 +1320,43 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
     std::uniform_int_distribution<int> op_pick(0, 6);
     std::uniform_int_distribution<int> hold_us(0, 50);
 
-    while (!stop.load(std::memory_order_relaxed) && !invariant_violated.load(std::memory_order_relaxed)) {
+    auto hold_for = [&](int us) { std::this_thread::sleep_for(std::chrono::microseconds(us)); };
+
+    while (!stop.load(std::memory_order_relaxed) && !monitor.Violated()) {
       switch (op_pick(rng)) {
         case 0: {  // READ
           lock.lock_shared<ResourceLock::LockReq::READ>();
-          counters.active_read.fetch_add(1, std::memory_order_acq_rel);
-          check_invariants("READ");
-          std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-          counters.active_read.fetch_sub(1, std::memory_order_acq_rel);
+          {
+            Holding held{monitor, Holder::kRead, "READ"};
+            hold_for(hold_us(rng));
+          }
           lock.unlock_shared<ResourceLock::LockReq::READ>();
           break;
         }
         case 1: {  // WRITE
           lock.lock_shared<ResourceLock::LockReq::WRITE>();
-          counters.active_write.fetch_add(1, std::memory_order_acq_rel);
-          check_invariants("WRITE");
-          std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-          counters.active_write.fetch_sub(1, std::memory_order_acq_rel);
+          {
+            Holding held{monitor, Holder::kWrite, "WRITE"};
+            hold_for(hold_us(rng));
+          }
           lock.unlock_shared<ResourceLock::LockReq::WRITE>();
           break;
         }
         case 2: {  // READ_ONLY, blocking
           lock.lock_shared<ResourceLock::LockReq::READ_ONLY>();
-          counters.active_ro.fetch_add(1, std::memory_order_acq_rel);
-          check_invariants("READ_ONLY(block)");
-          std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-          counters.active_ro.fetch_sub(1, std::memory_order_acq_rel);
+          {
+            Holding held{monitor, Holder::kReadOnly, "READ_ONLY(block)"};
+            hold_for(hold_us(rng));
+          }
           lock.unlock_shared<ResourceLock::LockReq::READ_ONLY>();
           break;
         }
         case 3: {  // UNIQUE via try_lock
           if (lock.try_lock()) {
-            counters.active_unique.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("UNIQUE(try_lock)");
-            std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-            counters.active_unique.fetch_sub(1, std::memory_order_acq_rel);
+            {
+              Holding held{monitor, Holder::kUnique, "UNIQUE(try_lock)"};
+              hold_for(hold_us(rng));
+            }
             lock.unlock();
           }
           break;
@@ -1313,31 +1364,29 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
         case 4: {  // UNIQUE via a single-shot UniquePendingScope::try_acquire()
           UniquePendingScope scope(lock);
           if (auto acquired = scope.try_acquire()) {
-            counters.active_unique.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("UNIQUE(pending_scope)");
-            std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-            counters.active_unique.fetch_sub(1, std::memory_order_acq_rel);
-            // *acquired unlocks on scope exit below (std::unique_lock<ResourceLock> dtor)
+            Holding held{monitor, Holder::kUnique, "UNIQUE(pending_scope)"};
+            hold_for(hold_us(rng));
+            // `held` is destroyed before `acquired`, so the holder leaves the census while the
+            // lock is still held
           }
           break;
         }
         case 5: {  // READ_ONLY via a single-shot ReadOnlyPendingScope::try_acquire()
           ReadOnlyPendingScope scope(lock);
           if (auto acquired = scope.try_acquire()) {
-            counters.active_ro.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("READ_ONLY(pending_scope)");
-            std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-            counters.active_ro.fetch_sub(1, std::memory_order_acq_rel);
-            // *acquired unlocks on scope exit below (SharedResourceLockGuard dtor)
+            Holding held{monitor, Holder::kReadOnly, "READ_ONLY(pending_scope)"};
+            hold_for(hold_us(rng));
+            // `held` is destroyed before `acquired`, so the holder leaves the census while the
+            // lock is still held
           }
           break;
         }
         case 6: {  // plain try_lock_shared READ_ONLY (existing entry point, for contrast)
           if (lock.try_lock_shared<ResourceLock::LockReq::READ_ONLY>()) {
-            counters.active_ro.fetch_add(1, std::memory_order_acq_rel);
-            check_invariants("READ_ONLY(try)");
-            std::this_thread::sleep_for(std::chrono::microseconds(hold_us(rng)));
-            counters.active_ro.fetch_sub(1, std::memory_order_acq_rel);
+            {
+              Holding held{monitor, Holder::kReadOnly, "READ_ONLY(try)"};
+              hold_for(hold_us(rng));
+            }
             lock.unlock_shared<ResourceLock::LockReq::READ_ONLY>();
           }
           break;
@@ -1356,7 +1405,7 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
   stop.store(true, std::memory_order_relaxed);
   threads.clear();
 
-  ASSERT_FALSE(invariant_violated.load()) << violation_message;
+  ASSERT_FALSE(monitor.Violated()) << monitor.Message();
 }
 
 // A pending UNIQUE waiter must not miss its wake-up to a waiter that cannot use it.
