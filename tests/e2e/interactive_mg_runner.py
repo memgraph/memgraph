@@ -185,6 +185,15 @@ def load_args():
     return parser.parse_args()
 
 
+def effective_port(port: int) -> int:
+    """
+    The port an instance configured with `port` really listens on. Under runner_parallel.py ports move into the
+    worker's window (see PortRemap in memgraph.py); Python clients follow automatically, but anything that reaches an
+    instance from a subprocess (openssl, a compiled helper, node) has to be given this port explicitly.
+    """
+    return PORT_REMAP.map_port(port)
+
+
 def wait_until_port_is_free(port: int) -> bool:
     """
     Return True when port is free, False if port is still not free after 10s.

@@ -79,20 +79,15 @@ OFFSETTABLE_FLAGS = {
     "--metrics_port",
 }
 
-# Test directories whose helpers use fixed ports outside of Memgraph (graphql starts a node server on :4000 that
-# connects to bolt://localhost:7687 from JS).
-EXCLUSIVE_TEST_DIRS = {"graphql"}
+# Test directories that cannot follow the port remapping at all.
+EXCLUSIVE_TEST_DIRS = set()
 # Test directories whose workloads share on-disk state and therefore must not overlap with each other:
 # parallel/conftest.py uses the data directory parallel_e2e_data for every file, module_file_manager writes into
 # Memgraph's query module directory.
 SERIAL_TEST_DIRS = {"parallel", "module_file_manager"}
-# Tests that cannot follow the port remapping: SHOW CONFIG compared against compiled defaults, and subprocesses
-# (a compiled RPC helper, openssl s_client) pointed at hardcoded ports.
-EXCLUSIVE_TEST_FILES = {
-    "configuration/configuration_check.py",
-    "high_availability/distributed_coords.py",
-    "high_availability/tls_cluster.py",
-}
+# Tests that cannot follow the port remapping: SHOW CONFIG is compared against the compiled defaults. Tests that
+# reach an instance from a subprocess use interactive_mg_runner.effective_port() instead of being listed here.
+EXCLUSIVE_TEST_FILES = {"configuration/configuration_check.py"}
 
 
 @dataclass
