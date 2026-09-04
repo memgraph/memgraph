@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import atexit
 import contextlib
 import copy
 import ctypes
@@ -20,6 +21,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from typing import List, Optional
@@ -71,6 +73,8 @@ class PortRemap:
         self.active = self.window_start > 0 and self.window_size > 0
         self.forward = {}
         self.reverse = {}
+        # Clusters start their instances from a thread pool, so allocation and the env override must be serialized.
+        self.lock = threading.RLock()
         if not self.active:
             return
         try:
@@ -85,21 +89,34 @@ class PortRemap:
         return 1024 <= port < self.window_start
 
     def map_port(self, port):
+        """Allocates a window port for `port` on first sight; later calls return the same one."""
         if not self.active or not isinstance(port, int) or not self.is_candidate(port):
             return port
-        if port not in self.forward:
-            mapped = next(
-                (p for p in range(self.window_start, self.window_start + self.window_size) if p not in self.reverse),
-                None,
-            )
-            if mapped is None:
-                raise RuntimeError(
-                    f"Port window {self.window_start}-{self.window_start + self.window_size - 1} exhausted, "
-                    "increase --port-offset-step of runner_parallel.py."
+        with self.lock:
+            if port not in self.forward:
+                mapped = next(
+                    (
+                        p
+                        for p in range(self.window_start, self.window_start + self.window_size)
+                        if p not in self.reverse
+                    ),
+                    None,
                 )
-            self.forward[port] = mapped
-            self.reverse[mapped] = port
-        return self.forward[port]
+                if mapped is None:
+                    raise RuntimeError(
+                        f"Port window {self.window_start}-{self.window_start + self.window_size - 1} exhausted, "
+                        "increase --port-offset-step of runner_parallel.py."
+                    )
+                self.forward[port] = mapped
+                self.reverse[mapped] = port
+            return self.forward[port]
+
+    def lookup_port(self, port):
+        """Like map_port but never allocates: a port nothing was started on (e.g. a local Kafka) is left alone."""
+        if not self.active or not isinstance(port, int):
+            return port
+        with self.lock:
+            return self.forward.get(port, port)
 
     def unmap_port(self, port):
         return self.reverse.get(port, port) if self.active else port
@@ -159,7 +176,11 @@ class PortRemap:
         if not self.active:
             yield
             return
-        saved = []
+        with self.lock:
+            saved = []
+            yield from self._override_child_env(saved)
+
+    def _override_child_env(self, saved):
         for name in list(os.environ):
             if not (name.startswith("MEMGRAPH_") and name.endswith("_PORT")):
                 continue
@@ -177,6 +198,7 @@ class PortRemap:
             remapped_path = f"{init_queries}.w{self.window_start}"
             with open(remapped_path, "w") as f:
                 f.write(self.map_text(content))
+            atexit.register(lambda: os.path.exists(remapped_path) and os.remove(remapped_path))
             os.putenv(HA_INIT_QUERIES_ENV, remapped_path)
             saved.append((HA_INIT_QUERIES_ENV, init_queries))
         try:

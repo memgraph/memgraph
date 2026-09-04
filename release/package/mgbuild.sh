@@ -2255,7 +2255,7 @@ test_memgraph() {
     ;;
     e2e-parallel)
       shift 1
-      local machine_nproc='$(nproc)'
+      local machine_nproc="$(nproc)"
       local nprocesses="$machine_nproc"
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2278,8 +2278,9 @@ test_memgraph() {
 
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
       docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
-      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
-      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run_parallel.sh $nprocesses"
     ;;
     query_modules_e2e)

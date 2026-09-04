@@ -27,13 +27,18 @@ except Exception:  # Not an e2e test process.
     PORT_REMAP = None
 
 
-def _remap_address(address):
-    # (host, port) for AF_INET, (host, port, flowinfo, scope_id) for AF_INET6.
-    if not isinstance(address, tuple) or len(address) < 2 or address[0] not in LOCAL_HOSTS and address[0] != "":
+def _remap_address(address, allocate):
+    """
+    (host, port) for AF_INET, (host, port, flowinfo, scope_id) for AF_INET6. Binding allocates a window port, so a
+    mock server a test starts moves along with its clients. Connecting only looks up ports that an instance start, a
+    bind or a query already mapped, so a local service nothing here started (e.g. Kafka) keeps its real port.
+    """
+    if not isinstance(address, tuple) or len(address) < 2 or (address[0] not in LOCAL_HOSTS and address[0] != ""):
         return address
     if not isinstance(address[1], int):
         return address
-    return (address[0], PORT_REMAP.map_port(address[1])) + tuple(address[2:])
+    port = PORT_REMAP.map_port(address[1]) if allocate else PORT_REMAP.lookup_port(address[1])
+    return (address[0], port) + tuple(address[2:])
 
 
 def _patch_socket():
@@ -42,14 +47,13 @@ def _patch_socket():
     original_bind = socket.socket.bind
 
     def connect(self, address):
-        return original_connect(self, _remap_address(address))
+        return original_connect(self, _remap_address(address, allocate=False))
 
     def connect_ex(self, address):
-        return original_connect_ex(self, _remap_address(address))
+        return original_connect_ex(self, _remap_address(address, allocate=False))
 
     def bind(self, address):
-        # Mock servers started by tests (e.g. an OIDC endpoint on :8443) move along with the clients that dial them.
-        return original_bind(self, _remap_address(address))
+        return original_bind(self, _remap_address(address, allocate=True))
 
     socket.socket.connect = connect
     socket.socket.connect_ex = connect_ex
@@ -110,15 +114,17 @@ def _patch_mgclient():
         args = list(args)
         host = kwargs.get("host", args[0] if args else None)
         if "port" in kwargs:
-            kwargs["port"] = _remap_address((host, kwargs["port"]))[1]
+            kwargs["port"] = _remap_address((host, kwargs["port"]), allocate=False)[1]
         elif len(args) >= 2:
-            args[1] = _remap_address((host, args[1]))[1]
+            args[1] = _remap_address((host, args[1]), allocate=False)[1]
         return _ConnectionProxy(original_connect(*args, **kwargs))
 
     mgclient.connect = connect
 
 
 def _patch_neo4j():
+    """Only the query text is rewritten. Results are not mapped back, unlike mgclient's, so tests that assert on
+    endpoint strings have to read them through mgclient."""
     try:
         import neo4j
     except Exception:

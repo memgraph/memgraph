@@ -30,8 +30,8 @@ Workloads are split into two lanes:
 import copy
 import json
 import logging
+import multiprocessing
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -45,6 +45,7 @@ from pathlib import Path
 
 import interactive_mg_runner
 import yaml
+from memgraph import ENDPOINT_RE, PORT_KEYWORD_RE
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -62,8 +63,6 @@ DEFAULT_PORT_OFFSET_STEP = 200
 DEFAULT_BOLT_PORT = 7687
 DEFAULT_MONITORING_PORT = 7444
 DEFAULT_METRICS_PORT = 9091
-PORT_AFTER_COLON_RE = re.compile(r"(?<=:)(\d{2,5})(?=(?:['\"\s,]|$))")
-PORT_KEYWORD_RE = re.compile(r"(?i)(\bPORT\s+)(\d{2,5})")
 
 OFFSETTABLE_FLAGS = {
     "--bolt-port",
@@ -117,8 +116,9 @@ def load_args():
     parser.add_argument(
         "--nprocesses",
         type=int,
-        required=True,
-        help="Number of parallel worker processes (one of them is reserved for the exclusive lane)",
+        required=False,
+        default=os.cpu_count() or 1,
+        help="Number of worker processes, one of them is reserved for the exclusive lane (default: number of CPUs)",
     )
     parser.add_argument(
         "--port-offset-step",
@@ -126,6 +126,13 @@ def load_args():
         required=False,
         default=DEFAULT_PORT_OFFSET_STEP,
         help=f"Number of ports reserved per parallel worker (default: {DEFAULT_PORT_OFFSET_STEP})",
+    )
+    parser.add_argument(
+        "--workload-timeout",
+        type=int,
+        required=False,
+        default=1800,
+        help="Seconds a single workload may run before it is killed and counted as failed (default: 1800)",
     )
     parser.add_argument(
         "--kill-leftovers",
@@ -250,7 +257,7 @@ def _extract_ports_from_args(args):
 def _extract_ports_from_query(query):
     if not isinstance(query, str):
         return set()
-    ports = set(int(m.group(1)) for m in PORT_AFTER_COLON_RE.finditer(query))
+    ports = set(int(m.group(2)) for m in ENDPOINT_RE.finditer(query))
     ports.update(int(m.group(2)) for m in PORT_KEYWORD_RE.finditer(query))
     return ports
 
@@ -259,16 +266,27 @@ def _remap_ports_in_query(query, port_map):
     if not isinstance(query, str) or not port_map:
         return query
 
-    def replace_colon_port(match):
-        original = int(match.group(1))
-        return str(port_map.get(original, original))
+    def replace_endpoint(match):
+        original = int(match.group(2))
+        return f"{match.group(1)}:{port_map.get(original, original)}"
 
     def replace_port_keyword(match):
         original = int(match.group(2))
         return f"{match.group(1)}{port_map.get(original, original)}"
 
-    updated = PORT_AFTER_COLON_RE.sub(replace_colon_port, query)
+    updated = ENDPOINT_RE.sub(replace_endpoint, query)
     return PORT_KEYWORD_RE.sub(replace_port_keyword, updated)
+
+
+def _unmap_ports_in_value(value, reverse_map):
+    """Maps window ports back to the ones the workload was written with, anywhere inside a query result."""
+    if isinstance(value, str):
+        return _remap_ports_in_query(value, reverse_map)
+    if isinstance(value, (list, tuple)):
+        return type(value)(_unmap_ports_in_value(v, reverse_map) for v in value)
+    if isinstance(value, dict):
+        return {k: _unmap_ports_in_value(v, reverse_map) for k, v in value.items()}
+    return value
 
 
 def _remap_ports_in_args(args, port_map):
@@ -393,8 +411,11 @@ def prepare_workload_for_worker(workload, worker_slot, port_offset_step):
     return prepared, namespace_start, port_map
 
 
-def find_leftover_processes():
-    """Memgraph instances and test scripts from this build tree, e.g. survivors of an interrupted run."""
+def find_leftover_processes(window=None):
+    """
+    Memgraph instances and test scripts from this build tree, e.g. survivors of an interrupted run. With `window`
+    (start, size) only instances whose port flags fall inside that worker's window are returned.
+    """
     memgraph_binary = os.path.join(BUILD_DIR, "memgraph")
     leftovers = []
     for pid_dir in Path("/proc").iterdir():
@@ -408,6 +429,11 @@ def find_leftover_processes():
             continue
         is_instance = argv[0] == memgraph_binary
         is_test = os.path.basename(argv[0]).startswith("python") and len(argv) > 1 and argv[1].startswith(BUILD_E2E_DIR)
+        if window is not None:
+            start, size = window
+            ports = set(_extract_ports_from_args(argv[1:]))
+            is_instance = is_instance and any(start <= port < start + size for port in ports)
+            is_test = False
         if is_instance or is_test:
             leftovers.append((int(pid_dir.name), " ".join(argv[:2])[:120]))
     return leftovers
@@ -470,6 +496,7 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
     env = os.environ.copy()
     _extend_pythonpath(env, SCRIPT_DIR)
     port_namespace_start = None
+    reverse_map = {}
     if exclusive:
         prepared = copy.deepcopy(workload)
     else:
@@ -481,6 +508,7 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
         env["MEMGRAPH_PORT_WINDOW_START"] = str(port_namespace_start)
         env["MEMGRAPH_PORT_WINDOW_SIZE"] = str(args_dict["port_offset_step"])
         env["MEMGRAPH_E2E_PORT_MAP"] = json.dumps(port_map)
+        reverse_map = {mapped: original for original, mapped in port_map.items()}
         if prepared.get("cluster"):
             first_instance_config = next(iter(prepared["cluster"].values()))
             env["MEMGRAPH_BOLT_PORT"] = str(_extract_bolt_port_from_args(first_instance_config.get("args", [])))
@@ -513,7 +541,12 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
                 time.sleep(10)
 
             mg_test_binary = os.path.join(BUILD_DIR, prepared["binary"])
-            subprocess.run([mg_test_binary] + prepared["args"], check=True, env=env)
+            try:
+                subprocess.run(
+                    [mg_test_binary] + prepared["args"], check=True, env=env, timeout=args_dict["workload_timeout"]
+                )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(f"Workload exceeded --workload-timeout of {args_dict['workload_timeout']}s")
 
             if "cluster" in prepared:
                 for name, config in prepared["cluster"].items():
@@ -523,7 +556,8 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
                     mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
                     conn = mg_instance.get_connection()
                     for validation in validation_queries:
-                        data = mg_instance.query(validation["query"], conn)[0][0]
+                        # This process is not remapped, so bring the ports in the result back to the workload's own.
+                        data = _unmap_ports_in_value(mg_instance.query(validation["query"], conn)[0][0], reverse_map)
                         assert (
                             data == validation["expected"]
                         ), f"Assertion failed: got {data}, expected {validation['expected']} from query `{validation['query']}`"
@@ -540,6 +574,13 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
                 cleanup(prepared, keep_directories=args_save_data_dir)
             except Exception:
                 traceback.print_exc()
+            if not success and not exclusive:
+                # A test that died mid-way may have left instances in this worker's window; the next workload here
+                # would trip over them.
+                leftovers = find_leftover_processes(window=(port_namespace_start, args_dict["port_offset_step"]))
+                if leftovers:
+                    log.warning("Stopping %d instance(s) the failed workload left behind.", len(leftovers))
+                    kill_leftover_processes(leftovers)
 
     return {
         "name": workload_name,
@@ -599,11 +640,18 @@ def run(args):
     for entry in parallel_queue:
         group_sizes[entry.group] = group_sizes.get(entry.group, 0) + 1
     parallel_queue.sort(key=lambda entry: -group_sizes[entry.group])
-    max_windows = (_ephemeral_port_range_start() - PORT_NAMESPACE_BASE) // args.port_offset_step - 1
-    parallel_slots = min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue), max_windows - 1)
-    if parallel_slots < min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue)):
+    # Window 0 belongs to the exclusive worker, the parallel slots use the remaining windows below the ephemeral range.
+    available_windows = (_ephemeral_port_range_start() - PORT_NAMESPACE_BASE) // args.port_offset_step
+    wanted_slots = min(args.nprocesses - (1 if exclusive_queue else 0), len(parallel_queue))
+    parallel_slots = min(wanted_slots, available_windows - 1)
+    if parallel_slots < wanted_slots:
         log.warning(
-            "Only %d port windows of %d ports fit below the ephemeral range.", max_windows, args.port_offset_step
+            "Only %d port windows of %d ports fit below the ephemeral range.", available_windows, args.port_offset_step
+        )
+    if parallel_queue and parallel_slots < 1:
+        raise RuntimeError(
+            f"No port window of {args.port_offset_step} ports fits below the ephemeral range for the parallel lane, "
+            "use a smaller --port-offset-step."
         )
     worker_count = (1 if exclusive_queue else 0) + parallel_slots
     log.info(
@@ -620,6 +668,7 @@ def run(args):
         "gdb": args.gdb,
         "gdb_port": args.gdb_port,
         "port_offset_step": args.port_offset_step,
+        "workload_timeout": args.workload_timeout,
     }
 
     results = []
@@ -638,7 +687,7 @@ def run(args):
                 return queue.pop(index)
         return None
 
-    with ProcessPoolExecutor(max_workers=max(worker_count, 1)) as pool:
+    with ProcessPoolExecutor(max_workers=max(worker_count, 1), mp_context=multiprocessing.get_context("fork")) as pool:
 
         def schedule():
             nonlocal exclusive_busy
@@ -686,7 +735,7 @@ def run(args):
     failed = [r for r in results if not r["success"]]
     skipped = len(exclusive_queue) + len(parallel_queue)
     print("\n===== SUMMARY =====")
-    for result in results:
+    for result in sorted(results, key=lambda r: r["name"]):
         print(f"{'PASSED' if result['success'] else 'FAILED':6s} {result['elapsed']:8.2f}s  {result['name']}")
     print(
         f"total={len(results)} passed={len(results) - len(failed)} failed={len(failed)} skipped={skipped} "
