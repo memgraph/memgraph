@@ -8173,6 +8173,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       };
     } break;
     case SystemInfoQuery::InfoType::FIPS: {
+#ifdef MG_ENTERPRISE
       header = {"fips info", "value"};
       handler = [] {
         auto const fips = utils::GetFipsStatus();
@@ -8184,6 +8185,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("tls_min_version"), TypedValue(fips->tls_min_version)}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
+#else
+      throw EnterpriseOnlyException();
+#endif
     } break;
     case SystemInfoQuery::InfoType::ACTIVE_USERS: {
       header = {"username", "session uuid", "login timestamp"};

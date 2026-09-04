@@ -71,6 +71,7 @@ void Cleanup() {}
 #endif
 }  // namespace
 
+#ifdef MG_ENTERPRISE
 void EnableFipsMode() {
   // Activates the provider if openssl.cnf configured one, so this both proves
   // the module is present and forces its power-on self-tests to run.
@@ -144,6 +145,7 @@ void EnableFipsMode() {
   // verified rather than merely requested.
   utils::SetFipsStatus(std::move(fips_status));
 }
+#endif
 
 SSLInit::SSLInit() {
   // Initialize the OpenSSL library.

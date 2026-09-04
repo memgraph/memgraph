@@ -313,12 +313,14 @@ int main(int argc, char **argv) {
                  build_info.build_name);
   }
 
+#ifdef MG_ENTERPRISE
   // Must run before anything builds an SSL context or hashes a password, and
   // after logger init so a failure is actually delivered.
   if (FLAGS_fips_mode) {
     memgraph::auth::EnableFipsMode();
     memgraph::communication::EnableFipsMode();
   }
+#endif
 
   // Owns the thread that drops read-through snapshots from the page cache. Declared here so it
   // outlives every database that can hand it a file, and is joined before `main` returns rather
@@ -506,6 +508,7 @@ int main(int argc, char **argv) {
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
 
+#ifdef MG_ENTERPRISE
   // FIPS mode engages much earlier (it has to precede the first SSL context and
   // password hash), but the license cannot be evaluated until here — it may come
   // from settings, which need the data directory. Both are still well before the
@@ -517,6 +520,7 @@ int main(int argc, char **argv) {
                                    memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"));
     }
   }
+#endif
 
   // Has to be initialized after the storage and license startup
   memgraph::flags::run_time::Initialize(*settings);

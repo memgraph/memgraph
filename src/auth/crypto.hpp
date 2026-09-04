@@ -37,6 +37,7 @@ auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
  */
 [[nodiscard]] auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool;
 
+#ifdef MG_ENTERPRISE
 /**
  * @brief Enable FIPS approved-mode password policy, or exit if the configured
  * algorithm is not approved.
@@ -60,6 +61,7 @@ void EnableFipsMode();
  * tests drive both branches without depending on process-wide flag state.
  */
 void EnableFipsMode(bool algorithm_flag_is_default);
+#endif
 
 /**
  * @brief Return algorithm name. Needs to be stable; auth queries depend on it.

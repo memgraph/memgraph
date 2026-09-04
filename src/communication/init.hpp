@@ -13,6 +13,7 @@
 
 namespace memgraph::communication {
 
+#ifdef MG_ENTERPRISE
 /**
  * Puts the process into FIPS 140-3 approved mode: verifies that the validated
  * OpenSSL FIPS provider is available and operational, then makes it the
@@ -32,6 +33,7 @@ namespace memgraph::communication {
  * algorithms need a check of their own.
  */
 void EnableFipsMode();
+#endif
 
 /**
  * Create this object in each `main` file that uses the Communication stack. It

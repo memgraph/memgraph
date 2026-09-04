@@ -2908,6 +2908,8 @@ TEST_F(AuthFipsMode, OnlyPBKDF2IsApproved) {
   ASSERT_TRUE(IsFipsApproved(PasswordHashAlgorithm::PBKDF2_SHA256));
 }
 
+// `EnableFipsMode` is enterprise-only, so these two are compiled out with it.
+#ifdef MG_ENTERPRISE
 TEST_F(AuthFipsMode, EnableSelectsApprovedAlgorithmWhenUnset) {
   SetHashAlgorithm("bcrypt");
 
@@ -2926,6 +2928,7 @@ TEST_F(AuthFipsMode, EnableKeepsAnExplicitlyChosenApprovedAlgorithm) {
 
   EXPECT_EQ(CurrentHashAlgorithm(), PasswordHashAlgorithm::PBKDF2_SHA256);
 }
+#endif
 
 TEST_F(AuthFipsMode, HashingRefusesNonApprovedAlgorithms) {
   memgraph::utils::SetFipsStatus({.enabled = true});

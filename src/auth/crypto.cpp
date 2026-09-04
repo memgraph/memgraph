@@ -447,6 +447,7 @@ auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
   std::unreachable();
 }
 
+#ifdef MG_ENTERPRISE
 void EnableFipsMode(bool algorithm_flag_is_default) {
   utils::SetFipsStatus({.enabled = true});
 
@@ -479,6 +480,7 @@ void EnableFipsMode(bool algorithm_flag_is_default) {
 void EnableFipsMode() {
   EnableFipsMode(gflags::GetCommandLineFlagInfoOrDie(kPasswordEncryptionAlgorithmFlag).is_default);
 }
+#endif
 
 void SetHashAlgorithm(std::string_view algo) {
   // Validate first so an unknown value throws instead of being written to the flag.
