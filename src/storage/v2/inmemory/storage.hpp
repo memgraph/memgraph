@@ -1149,14 +1149,11 @@ class InMemoryStorage final : public Storage {
     LocalSchemaTracking schema_diff;
     SchemaInfoPostProcess post_process;
     uint64_t start_ts;
-    // Orders the queue, and orders it correctly on a replica too, because a replica applies its
-    // main's transactions in the main's order.
+    // Orders the queue, on a replica as well, since a replica applies transactions in its main's
+    // order.
     uint64_t commit_ts;
-    // Identifies this transaction's own deltas during the deferred reconstruction, which compares
-    // against Delta::commit_info->timestamp. That holds the local mint, so it is not commit_ts: the
-    // two are equal on a main, while on a replica write commit_ts is the main's desired timestamp
-    // and the delta carries the replica's own. A reconstruction given commit_ts there does not
-    // recognise its own writes.
+    // The local mint, which is what identifies this transaction's own deltas. Not the durable
+    // timestamp, for the reason GetState gives.
     uint64_t local_commit_ts;
     bool property_on_edges;
 

@@ -99,25 +99,14 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const cha
 
 // Removes an index that a replayed drop refers to, tolerating its absence.
 //
-// A drop decides that the index exists when its statement runs and evicts it
-// when it commits, so two transactions can both find it and both record a drop
-// of it. One of them evicts and the other has nothing left to evict, and the
-// log holds two drops of the same index either way. Replay of the second finds
-// the catalogue already without it.
+// The log can legitimately hold two drops of one index: a drop settles that the index exists when
+// its statement runs and evicts when it commits, so two transactions can both record one. Older
+// snapshots reach the same place from the other side, recording the index as gone under a durable
+// timestamp below the drop's.
 //
-// Snapshots written before the eviction moved to commit time reach the same
-// state by a different route, and recovery still has to read them: such a
-// snapshot records the index as already gone while recording a durable
-// timestamp below the drop's, so replay resumes above the drop and applies it
-// to a catalogue that never had it.
-//
-// Refusing either makes a recoverable database unrecoverable, and the end state
-// is the same as accepting: the index is absent. Applying a drop to something
-// already absent is idempotent, so tolerating it is not a patch over
-// corruption. It does give up a canary for an index that vanished for some
-// other reason, which is why this is separate from
-// RemoveRecoveredIndexConstraint and used only where a drop can legitimately
-// arrive twice.
+// Applying a drop to something already absent is idempotent, so tolerating it hides no corruption.
+// It does give up a canary for an index that vanished for another reason, which is why the strict
+// RemoveRecoveredIndexConstraint stays in use everywhere else.
 template <typename TObj>
 void RemoveRecoveredIndexIfPresent(std::vector<TObj> *list, TObj obj) {
   auto it = std::find(list->begin(), list->end(), obj);

@@ -9,13 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// An index drop mutates the live catalogue the moment the statement runs and publishes nothing at
-// commit: it registers an abort callback and a log record. Every constraint drop in the same file
-// defers publication to a commit callback instead, and its comment gives this as the reason. These
-// tests cover the two consequences of the difference.
+// An index drop evicts the catalogue entry when it commits, not when its statement runs. These
+// tests pin what that buys: an index stays complete across a rolled-back drop, and a database
+// snapshotted while a drop was pending still starts.
 //
-// Neither test depends on timing. Holding the dropping transaction open is enough to place the
-// other operation inside the window, so both are deterministic.
+// None of them depends on timing. Holding the dropping transaction open places the other operation
+// inside the window.
 
 #include <gtest/gtest.h>
 
@@ -54,17 +53,9 @@ class IndexDropVisibility : public ::testing::Test {
 
 }  // namespace
 
-// A drop evicts the index object and keeps hold of it so that an abort can reinstate the same
-// object. That is only exact if the index was maintained while it was gone, and what decides
-// whether a concurrent writer maintains it is the index set that writer captured when it began.
-//
-// So the drop mutates the container as the statement runs and publishes nothing: the snapshot new
-// transactions capture still holds the index until the drop commits. A writer admitted during the
-// window therefore maintains the very object the abort restores, and the restore is exact without
-// excluding anybody.
-//
-// The drop here takes an accessor that admits writers, and the writer commits inside the window
-// rather than waiting for it, because that is the case the deferral exists to make safe.
+// A rolled-back drop leaves an index that answers for everything committed, including rows written
+// while the drop was pending. The drop takes an accessor that admits writers, and the writer commits
+// inside the window rather than waiting for it.
 TEST_F(IndexDropVisibility, AbortedDropLeavesIndexComplete) {
   Config config{};
   config.gc.type = Config::Gc::Type::NONE;
@@ -77,7 +68,6 @@ TEST_F(IndexDropVisibility, AbortedDropLeavesIndexComplete) {
     ASSERT_TRUE(acc->CreateIndex(label).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
-  // One labelled vertex before the window, which the index does contain.
   {
     auto acc = store->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
@@ -99,8 +89,7 @@ TEST_F(IndexDropVisibility, AbortedDropLeavesIndexComplete) {
 
   applied.acquire();
 
-  // Begins and commits entirely inside the window, and is not made to wait for it. Ordering the
-  // abort after this commit is what puts the write inside the window rather than after it.
+  // Ordering the abort after this commit is what puts the write inside the window.
   std::thread writer([&] {
     auto acc = store->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
@@ -114,7 +103,6 @@ TEST_F(IndexDropVisibility, AbortedDropLeavesIndexComplete) {
   dropper.join();
   writer.join();
 
-  // The drop was rolled back, so the index is live again and must answer for both vertices.
   auto acc = store->Access(memgraph::storage::READ);
   int64_t via_index = 0;
   for (auto vertex : acc->Vertices(label, View::OLD)) {
@@ -135,14 +123,9 @@ TEST_F(IndexDropVisibility, AbortedDropLeavesIndexComplete) {
                                     "written while it was gone.";
 }
 
-// The same completeness claim, broken by a publisher that is not the dropper. This is the case
-// that decides where the eviction belongs, and it is why withholding only the dropper's own
-// publication is not enough.
-//
-// Publishing means publishing the catalogue. An eviction that happens when the statement runs is
-// therefore visible to every other publisher, and registering an unrelated index publishes at
-// statement time because a creation must. So the creation below hands out the uncommitted drop on
-// the dropper's behalf, and the writer that begins next maintains nothing for the dropped index.
+// The same claim, against a publisher that is not the dropper. Registering an index publishes the
+// catalogue as it stands, and a creation publishes when its statement runs, so an unrelated
+// creation inside the window is enough to hand out a drop that has not committed.
 TEST_F(IndexDropVisibility, ConcurrentCreateDoesNotPublishAnUncommittedDrop) {
   Config config{};
   config.gc.type = Config::Gc::Type::NONE;
@@ -214,16 +197,9 @@ TEST_F(IndexDropVisibility, ConcurrentCreateDoesNotPublishAnUncommittedDrop) {
                                     "the dropping transaction committed it.";
 }
 
-// A snapshot taken while a drop is pending must leave a database that starts.
-//
-// The snapshot's transaction captures the index set it can see, and the drop has not committed, so
-// the index is recorded as present and replay applies the drop to a catalogue that has it. What
-// makes this worth pinning is the arrangement it rules out: an eviction that happened when the
-// statement ran would have the snapshot record the index as gone while recording a durable
-// timestamp below the drop's, and replay would then apply the drop to a catalogue that never had
-// it. The snapshot fallback would not save that, because the snapshot itself is a valid file that
-// loads, and the refusal comes later during log replay, outside the loop that tries older
-// snapshots.
+// A snapshot taken while a drop is pending leaves a database that starts. The snapshot records the
+// index as present, because the drop has not committed, so replay applies the drop to a catalogue
+// that has it.
 TEST_F(IndexDropVisibility, SnapshotAcrossUncommittedDropStaysRecoverable) {
   Config config{};
   config.durability.storage_directory = storage_directory;
@@ -244,8 +220,6 @@ TEST_F(IndexDropVisibility, SnapshotAcrossUncommittedDropStaysRecoverable) {
     std::binary_semaphore may_commit{0};
     std::optional<bool> drop_ok;
 
-    // Read-only, which excludes writers but not the snapshot's own read accessor, so the window is
-    // still open to it.
     std::thread dropper([&] {
       auto acc = store->ReadOnlyAccess();
       ASSERT_TRUE(acc->DropIndex(label).has_value());
@@ -281,12 +255,8 @@ TEST_F(IndexDropVisibility, SnapshotAcrossUncommittedDropStaysRecoverable) {
 }
 
 // Two transactions can both find the index and both record a drop of it, because a drop settles
-// that the index exists when its statement runs and evicts when it commits. One evicts and the
-// other finds nothing left, and the log holds two drops either way, so replay of the second meets a
-// catalogue that no longer has the index. Recovery has to accept that rather than refuse to start.
-//
-// This is what keeps the tolerant replay honest. Without a case that reaches it, the branch is
-// reachable only from snapshots written by older binaries, which no test here produces.
+// existence when its statement runs and evicts when it commits. The log then holds two drops, and
+// replay of the second meets a catalogue that no longer has the index.
 TEST_F(IndexDropVisibility, ConcurrentDropsOfOneIndexStayRecoverable) {
   Config config{};
   config.durability.storage_directory = storage_directory;

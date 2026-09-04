@@ -1108,9 +1108,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // Replica can log only the write transaction received from main
   // so the wal files are consistent
   auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
-  // A main's durable commit timestamp is its local one. Several comparisons elsewhere test the two
-  // for equality, so an edit that separates them must fail here rather than in whichever of those
-  // notices first.
+  // Asserted where the two are derived, so that separating them fails here rather than at whichever
+  // comparison notices first.
   DMG_ASSERT(!commit_args.replication_allowed() || durability_commit_timestamp == *commit_timestamp_,
              "on a main the durable commit timestamp must be the local one");
 
@@ -1292,10 +1291,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   // Mark transaction as finished for commit ordering and MVCC visibility.
-  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers
-  // to vertices. GC protects these by clamping its horizon to the lowest reconstruction boundary
-  // still queued: a queued entry's reconstruction walks version chains down to that boundary, so
-  // nothing at or above it may be unlinked while the entry is waiting.
+  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
+  // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
+  // requires that nothing at or above that boundary is unlinked while it waits.
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
 
   if (config_.enable_schema_info) {
@@ -2070,24 +2068,19 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 namespace {
 
-/// Sequences an index drop, which is the same sequence for every kind of index.
+/// Sequences an index drop. Two things about the order carry the correctness.
 ///
-/// Two things about the order are load-bearing, and both are easy to lose when this is written out
-/// by hand once per index kind.
+/// Existence is settled here and never asked again, because the caller writes its log records
+/// against this answer. Re-asking the catalogue from the commit callback would let an index created
+/// in between be evicted with no record, and recovery would bring back a dropped index.
 ///
-/// The existence of the index is settled HERE, where the caller goes on to write its log records,
-/// and never again. Asking the catalogue a second time from inside the commit callback would let an
-/// index created in between be evicted without a record, and recovery would then bring back an
-/// index that had been dropped.
+/// Evicting and publishing stay in the one call that does both under the catalogue lock, and it
+/// waits for the commit. Evicting earlier leaves the catalogue without an entry that any other
+/// publisher then hands out, and a writer admitted after that maintains nothing for the index, so
+/// an abort restores it short of that writer's rows.
 ///
-/// The eviction and the publication of the new snapshot are left to one call on the index, which
-/// does both under the catalogue lock, and that call waits for the commit. Splitting them, or
-/// publishing a snapshot read earlier, lets another publisher hand out an uncommitted drop and
-/// costs the rollback guarantee: a writer admitted meanwhile would maintain nothing for the index,
-/// so restoring the entry on abort would restore it short of that writer's rows.
-///
-/// Returns the error a statement reports when there is no such index. The caller records its own
-/// metadata deltas, because which and how many of those there are is what differs between kinds.
+/// Returns the error a statement reports when there is no such index. Callers record their own
+/// metadata deltas, which is what differs between kinds.
 template <typename TIndex, typename... TArgs>
 [[nodiscard]] auto DropIndexOnCommit(Transaction &transaction, PlanInvalidator &invalidator, TIndex *index,
                                      ActiveIndicesUpdater const &updater, TArgs... args)
@@ -2131,15 +2124,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
 
-  // Spelled out rather than going through DropIndexOnCommit, because this is the one kind whose
-  // statement decides more than whether the index is there: it decides which ORDERS it will evict,
-  // and it emits a log record per order. The sequence and its reasons are the same, and
-  // DropIndexOnCommit is where they are written down.
-  //
-  // The orders are settled here rather than at commit for the reason that function gives about
-  // existence: the log records written below have to describe what the commit will actually evict.
-  // Asking again at commit would let an order that another transaction created in between be
-  // evicted without a record, and recovery would then bring back an index that had been dropped.
+  // Spelled out rather than going through DropIndexOnCommit, whose comment gives the sequence and
+  // its reasons, because this statement settles which ORDERS it will evict and emits a record per
+  // order. Settling them here is the same requirement that function states about existence.
   auto const drop_result = mem_label_property_index->OrdersPresent(label, properties, order);
   if (!drop_result) {
     return std::unexpected{IndexDefinitionError{}};
