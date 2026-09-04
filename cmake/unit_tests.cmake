@@ -60,22 +60,33 @@ function(add_unit_test exec_name)
 
     # This project calls enable_testing() without including the CTest module, so
     # ctest applies no timeout of its own: a test that hangs runs until whatever
-    # is driving ctest gives up, and the report names no test. Cap it here, well
-    # above the slowest test so that only a hang trips it. A test that needs
-    # longer passes its own TIMEOUT in TEST_PROPERTIES.
+    # is driving ctest gives up, and the report names no test. Cap it here, above
+    # the slowest test so that only a hang trips it, and near enough to it that a
+    # hang is reached well before the job's own limit. A test that needs longer
+    # passes its own TIMEOUT in TEST_PROPERTIES, and still gets the signal
+    # settings below.
     list(FIND test_properties "TIMEOUT" timeout_index)
     if(timeout_index EQUAL -1)
-        list(APPEND test_properties TIMEOUT 1800)
+        list(APPEND test_properties TIMEOUT 1200)
     endif()
 
     # Kill a timed-out test with SIGQUIT, whose default disposition dumps core, so the
     # hang leaves a stack behind for tools/ci/core-dumps to symbolise. SIGKILL, which
     # ctest sends once the grace period is up, leaves nothing to look at. The grace
-    # period covers writing the core, which is far longer than the one second ctest
-    # would otherwise allow for a process this size.
+    # period is there for the core to be written; ctest would otherwise allow one
+    # second, which will not do it for a process this size.
+    #
+    # The two are guarded separately. A caller naming only the signal still wants a
+    # usable window, and one naming only the window would otherwise lose it, since
+    # the later value of a repeated test property is the one that takes effect.
     list(FIND test_properties "TIMEOUT_SIGNAL_NAME" signal_index)
     if(signal_index EQUAL -1)
-        list(APPEND test_properties TIMEOUT_SIGNAL_NAME SIGQUIT TIMEOUT_SIGNAL_GRACE_PERIOD 30)
+        list(APPEND test_properties TIMEOUT_SIGNAL_NAME SIGQUIT)
+    endif()
+
+    list(FIND test_properties "TIMEOUT_SIGNAL_GRACE_PERIOD" grace_index)
+    if(grace_index EQUAL -1)
+        list(APPEND test_properties TIMEOUT_SIGNAL_GRACE_PERIOD 30)
     endif()
 
     # Use gtest_discover_tests if DISCOVER_TESTS is set, otherwise use add_test
