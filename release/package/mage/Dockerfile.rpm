@@ -16,6 +16,7 @@
 # Dockerfile.release does with ./memgraph.deb):
 #   ./memgraph.rpm        - the base memgraph package
 #   ./memgraph-mage.rpm   - the MAGE query-modules package built by package.sh
+# plus ./mirrors/, staged by tools/ci/mirrors/stage.sh.
 ARG BASE_IMAGE=quay.io/centos/centos:stream9
 FROM ${BASE_IMAGE} AS base
 
@@ -36,32 +37,17 @@ USER root
 ARG PY_VERSION=""
 RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
     --mount=type=bind,source=./memgraph-mage.rpm,target=/packages/memgraph-mage.rpm,ro \
+    --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   export PIP_BREAK_SYSTEM_PACKAGES=1 && \
   if [ -n "$PY_VERSION" ]; then \
     py_pkgs="python${PY_VERSION} python${PY_VERSION}-pip python${PY_VERSION}-devel"; \
   else \
     py_pkgs="python3 python3-pip python3-devel"; \
   fi && \
-  # CentOS Stream metalinks often hand dnf a mirror that is mid-sync (repomd
-  # checksum mismatch); pin the same mirror list package_smoke_image uses
-  # (mgbuild.sh — keep in sync), upstream master last. Rocky etc. untouched.
-  mirror_opts="" && \
-  if [ "$(. /etc/os-release; echo "$ID")" = "centos" ]; then \
-    stream="$(. /etc/os-release; echo "$VERSION_ID")-stream"; \
-    basearch="$(uname -m)"; \
-    baseos_urls=""; appstream_urls=""; \
-    for m in https://ftp.plusline.net/centos-stream \
-             https://ftp.gwdg.de/pub/linux/centos-stream \
-             https://centos.anexia.at/centos-stream \
-             https://mirror.stream.centos.org; do \
-      baseos_urls="${baseos_urls:+$baseos_urls,}$m/$stream/BaseOS/$basearch/os/"; \
-      appstream_urls="${appstream_urls:+$appstream_urls,}$m/$stream/AppStream/$basearch/os/"; \
-    done; \
-    mirror_opts="--setopt=baseos.metalink= --setopt=baseos.baseurl=$baseos_urls --setopt=appstream.metalink= --setopt=appstream.baseurl=$appstream_urls"; \
-  fi && \
-  dnf install -y --setopt=tsflags='' $mirror_opts \
+  /mirrors/pin_mirrors.sh apply && \
+  /mirrors/retry.sh -- dnf install -y --setopt=tsflags='' \
     $py_pkgs gcc gcc-c++ krb5-devel unixODBC && \
-  dnf install -y --setopt=tsflags='' $mirror_opts \
+  /mirrors/retry.sh -- dnf install -y --setopt=tsflags='' \
     /packages/memgraph.rpm /packages/memgraph-mage.rpm && \
   auth_py="$(sed -n '1s|^#!||p' /usr/lib/memgraph/auth_module/kerberos.py)" && \
   echo "auth modules run on $auth_py ($($auth_py --version 2>&1))" && \

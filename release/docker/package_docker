@@ -182,6 +182,9 @@ if [[ "$custom_mirror" == true ]]; then
   cp -v ../../tools/ci/ubuntu-mirrors/${arch}/ci.sources "${working_dir}/ci.sources"
 fi
 
+# copy scripts to be bind mounted for setting/unsetting mirrors
+../../tools/ci/mirrors/stage.sh "${working_dir}"
+
 # Assemble the optional --build-arg for DEBUGINFO_BINARY_NAME so it only
 # appears when the relwithdebinfo target needs it.
 debuginfo_build_arg=()

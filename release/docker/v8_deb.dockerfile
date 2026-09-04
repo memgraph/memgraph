@@ -22,16 +22,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 USER root
 COPY auth-module-requirements.txt /tmp/auth-module-requirements.txt
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
   fi && \
-  apt-get update && apt-get install -y \
+  /mirrors/retry.sh -- apt-get update && /mirrors/retry.sh -- apt-get install -y \
   python3 libpython3.12 python3-pip adduser curl binutils \
   --no-install-recommends && \
   rm -rf /var/lib/apt/lists/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
   fi && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
@@ -57,18 +62,21 @@ ARG CUSTOM_MIRROR
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   --mount=type=bind,source="./${BINARY_NAME}${TARGETARCH}.${EXTENSION}",target=/${BINARY_NAME}${TARGETARCH}.${EXTENSION},ro \
   --mount=type=bind,source="./openssl",target=/openssl,ro \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
   fi && \
-  apt-get update && apt-get install -y \
+  /mirrors/retry.sh -- apt-get update && apt-get install -y \
     /openssl/openssl*.deb \
     /openssl/libssl3t64*.deb \
     --no-install-recommends && \
-  apt-get install -y \
+  /mirrors/retry.sh -- apt-get install -y \
     libcurl4 libseccomp2 python3 python3-pip libpython3.12 libatomic1 adduser ca-certificates \
     --no-install-recommends && \
-  apt install -y libxmlsec1 && \
+  /mirrors/retry.sh -- apt install -y libxmlsec1 && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
   # Ubuntu Docker images exclude /usr/share/doc/* but only include copyright and changelog files
@@ -87,6 +95,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
   fi
 
 # Memgraph listens for Bolt Protocol on this port by default.
@@ -133,11 +143,14 @@ ARG CUSTOM_MIRROR
 USER root
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   --mount=type=bind,source="./${DEBUGINFO_BINARY_NAME}${TARGETARCH}.${EXTENSION}",target=/${DEBUGINFO_BINARY_NAME}${TARGETARCH}.${EXTENSION},ro \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
   fi && \
-  apt-get update && apt-get install -y \
+  /mirrors/retry.sh -- apt-get update && /mirrors/retry.sh -- apt-get install -y \
     python3-pip python3.12-venv \
     gdb procps linux-tools-common linux-tools-generic libc6-dbg \
     --no-install-recommends && \
@@ -145,6 +158,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
   fi
 
 COPY "${SOURCE_CODE}" /home/mg/memgraph/src

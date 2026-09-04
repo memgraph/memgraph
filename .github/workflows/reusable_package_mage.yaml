@@ -729,6 +729,7 @@ jobs:
           fi
           mage_rpm="$(ls -t output/memgraph-mage-[0-9]*.rpm | head -n 1)"
           cp -v "$mage_rpm" release/package/mage/memgraph-mage.rpm
+          ./tools/ci/mirrors/stage.sh release/package/mage
           distros=(
             centos-9
             centos-10
