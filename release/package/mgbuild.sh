@@ -2255,7 +2255,8 @@ test_memgraph() {
     ;;
     e2e-parallel)
       shift 1
-      local nprocesses='$(nproc)'
+      local machine_nproc='$(nproc)'
+      local nprocesses="$machine_nproc"
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --nprocesses)
@@ -2263,18 +2264,16 @@ test_memgraph() {
             shift 2
           ;;
           *)
-            echo "Error: Unknown flag '$1' for e2e-parallel"
-            echo "Supported flags: --nprocesses"
+            echo "Error: Unknown flag '$1' for e2e-parallel" >&2
+            echo "Supported flags: --nprocesses" >&2
             exit 1
           ;;
         esac
       done
 
-      if [[ "$nprocesses" != '$(nproc)' ]]; then
-        if ! [[ "$nprocesses" =~ ^[0-9]+$ ]] || [[ "$nprocesses" -lt 1 ]]; then
-          echo "Error: --nprocesses must be a positive integer."
-          exit 1
-        fi
+      if [[ "$nprocesses" != "$machine_nproc" &&  ()]] ! [[ "$nprocesses" =~ ^[0-9]+$ ]] || [[ "$nprocesses" -lt 1 ]]; then
+        echo "Error: --nprocesses must be a positive integer." >&2
+        exit 1
       fi
 
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.

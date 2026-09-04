@@ -18,10 +18,13 @@ Workloads are split into two lanes:
   * parallel lane: every worker owns a private port window. Clusters declared in workloads.yaml are remapped into it
     by this runner (their data directories / log files get a per-worker suffix), instances started from inside a test
     are remapped by PortRemap in memgraph.py, and sitecustomize.py redirects the test's own connections and maps ports
-    back in query results. Workloads sharing a test file (or a query module dir / compiled binary from the same
-    workloads.yaml) never run at the same time, so shared files and data directories cannot collide.
-  * exclusive lane: workloads that spawn helper processes on fixed ports (graphql's node server, shell tools) or
-    compare SHOW CONFIG against defaults. Those run one at a time, unmodified, exactly like runner.py would run them.
+    back in query results. Tests that reach an instance from a subprocess (openssl, node, a compiled helper) ask
+    interactive_mg_runner.effective_port() for the real port. Workloads sharing a test file, a query module dir or a
+    directory listed in SERIAL_TEST_DIRS never run at the same time, so shared files and data directories cannot
+    collide.
+  * exclusive lane: workloads that cannot follow the remapping (SHOW CONFIG compared against compiled defaults). They
+    run one at a time, unmodified, exactly like runner.py would run them; once the lane is drained its worker joins
+    the parallel lane.
 """
 
 import copy
