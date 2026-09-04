@@ -18,7 +18,7 @@ from functools import partial
 import interactive_mg_runner
 import pytest
 from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_eval_function
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -126,6 +126,15 @@ def test_name(request):
     return request.node.name
 
 
+EXPECTED_INSTANCES = [
+    ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
+    ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
+    ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+]
+UUID_LABEL = re.compile(r'uuid="([^"]*)"')
+
+
 def scrape_metrics(port: int = 9095):
     with urllib.request.urlopen(f"http://localhost:{port}/metrics") as response:
         return response.read().decode("utf-8")
@@ -138,29 +147,20 @@ def default_db_uuids():
     """
     uuids = {}
     for instance, port in INSTANCE_METRICS_PORTS.items():
-        uuids[instance] = next(
-            (
-                re.search(r'uuid="([^"]*)"', line).group(1)
-                for line in scrape_metrics(port).splitlines()
-                if line.startswith("memgraph_vertex_count{")
-                and 'database="memgraph"' in line
-                and re.search(r'uuid="([^"]*)"', line)
-            ),
-            None,
-        )
+        uuids[instance] = None
+        for line in scrape_metrics(port).splitlines():
+            if not line.startswith("memgraph_vertex_count{") or 'database="memgraph"' not in line:
+                continue
+            if match := UUID_LABEL.search(line):
+                uuids[instance] = match.group(1)
+                break
     return uuids
 
 
 def test_instance_metrics_present(test_name):
     cursor = setup_test(test_name)
 
-    expected_instances = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
-    ]
-    mg_sleep_and_assert(expected_instances, partial(show_instances, cursor))
+    mg_sleep_and_assert(EXPECTED_INSTANCES, partial(show_instances, cursor))
 
     metrics = scrape_metrics()
     for instance in INSTANCES:
@@ -177,20 +177,14 @@ def test_instance_metrics_present(test_name):
 def test_default_db_uuid_label_agrees_across_instances(test_name):
     cursor = setup_test(test_name)
 
-    expected_instances = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
-    ]
-    mg_sleep_and_assert(expected_instances, partial(show_instances, cursor))
+    mg_sleep_and_assert(EXPECTED_INSTANCES, partial(show_instances, cursor))
 
-    # The replicas realign onto the main's uuid during system recovery, so retry until they converge.
-    def uuids_agree():
-        uuids = default_db_uuids()
-        return len(set(uuids.values())) == 1 and None not in uuids.values()
+    # The replicas realign onto the main's uuid during system recovery, so retry until they
+    # converge. Retrying on the dict means a timeout reports the uuids each instance presented.
+    def agreed(uuids):
+        return None not in uuids.values() and len(set(uuids.values())) == 1
 
-    mg_sleep_and_assert(True, uuids_agree)
+    mg_sleep_and_assert_eval_function(agreed, default_db_uuids)
 
     # The entry id keys the families internally and must never reach a scrape.
     for port in INSTANCE_METRICS_PORTS.values():
