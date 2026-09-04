@@ -574,3 +574,62 @@ TEST_F(RecoverSnapshotTest, EmptyDurabilityDirectoriesStartFreshWithoutError) {
     EXPECT_EQ(count, 0) << "A fresh database started from empty dirs must have zero vertices";
   });
 }
+
+// Positive regression guard for #4742: the fail-loud predicate must be gated on wal_files.empty(),
+// not on unusable_candidates>0 alone. A corrupt snapshot raises unusable_candidates, but a valid
+// WAL chain must still drive a full recovery — no RecoveryFailure, all committed vertices visible.
+TEST_F(RecoverSnapshotTest, CorruptSnapshotWithValidWalStillRecoversFromWal) {
+  // Phase 1: commit all vertices BEFORE the snapshot so the WAL chain from seq 0 holds every
+  // create delta. WAL-only replay then reconstructs the full dataset even without the snapshot.
+  {
+    memgraph::dbms::Database db{config_};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+    {
+      auto acc = storage->Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      acc->CreateVertex();
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    auto snapshot_result = storage->CreateSnapshot();
+    ASSERT_TRUE(snapshot_result.has_value());
+  }
+
+  auto const snapshots_dir = config_.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory;
+
+  // Corrupt each snapshot: a readable regular file passes ValidateDurabilityFile (no magic/CRC check)
+  // but fails ReadSnapshotInfo, counting it as an unusable candidate — this is the state under test.
+  // WAL files are deliberately left intact so WAL-only recovery can proceed.
+  int corrupted_count = 0;
+  if (std::filesystem::exists(snapshots_dir)) {
+    for (const auto &entry : std::filesystem::directory_iterator(snapshots_dir)) {
+      if (entry.is_regular_file()) {
+        std::ofstream f{entry.path(), std::ios::out | std::ios::trunc};
+        f << "CORRUPTED-NOT-A-VALID-DURABILITY-MAGIC";
+        ++corrupted_count;
+      }
+    }
+  }
+  ASSERT_GT(corrupted_count, 0) << "Expected at least one snapshot file to have been created and corrupted";
+
+  // Phase 3: startup recovery must not throw and must replay all 3 vertices from the WAL chain.
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+
+  EXPECT_NO_THROW({
+    memgraph::dbms::Database db2{recover_cfg};
+    const memgraph::memory::DbArenaScope arena_scope2{&db2.Arena()};
+    auto *storage2 = static_cast<memgraph::storage::InMemoryStorage *>(db2.storage());
+
+    auto acc = storage2->Access(memgraph::storage::READ);
+    auto vertices = acc->Vertices(memgraph::storage::View::OLD);
+    int count = 0;
+    for ([[maybe_unused]] const auto &v : vertices) {
+      ++count;
+    }
+    EXPECT_EQ(count, 3) << "WAL-only recovery must restore all 3 committed vertices";
+  });
+}
