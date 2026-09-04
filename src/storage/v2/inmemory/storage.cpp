@@ -2075,21 +2075,24 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  // Capture the evicted entry so an aborted DROP (e.g. STRICT_SYNC commit failure)
-  // can re-install it instead of leaving the index permanently gone on main.
-  std::shared_ptr<InMemoryLabelIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_label_index->DropIndex(label, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  if (!mem_label_index->GetActiveIndices()->IndexRegistered(label)) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_label_index, label, updater, evicted]() mutable {
-    mem_label_index->RestoreIndex(label, std::move(evicted), updater);
-  });
+  // Evicting the entry and publishing the new snapshot happen together, inside the catalogue lock,
+  // and both wait for the commit. The eviction cannot run when the statement does: publishing means
+  // publishing the catalogue, so an entry missing from it is an entry any OTHER publisher hands out
+  // on this transaction's behalf, and registering an unrelated index publishes at statement time
+  // because a creation must. A writer admitted after that captures an index set without this index
+  // and maintains nothing for it, so a drop that then rolls back restores an index short of
+  // whatever that writer wrote.
+  //
+  // So nothing happens here but the check and the record. There is no abort callback because there
+  // is nothing to undo, and the drop is atomic: all that moved is when it happens.
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_label_index, label, updater](uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_label_index->DropIndex(label, updater));
+      });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -2106,30 +2109,25 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
 
-  LabelPropertyIndex::DropResult drop_result;
-  std::optional<InMemoryLabelPropertyIndex::AscIndexPtrVariant> asc_evicted;
-  std::optional<InMemoryLabelPropertyIndex::DescIndexPtrVariant> desc_evicted;
-  std::optional<InMemoryLabelPropertyIndex::PropertiesIndicesStats> stats_evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    auto captured = mem_label_property_index->DropIndex(label, properties, updater, order);
-    drop_result = captured.result;
-    asc_evicted = std::move(captured.asc_evicted);
-    desc_evicted = std::move(captured.desc_evicted);
-    stats_evicted = std::move(captured.stats_evicted);
-    return static_cast<bool>(drop_result);
-  });
+  // See DropIndex(LabelId) above for why the eviction waits for the commit.
+  //
+  // The orders are settled here rather than at commit, because the log records written below have
+  // to describe what the commit will actually evict. Asking again at commit would let an order that
+  // another transaction created in between be evicted without a record, and recovery would then
+  // bring back an index that had been dropped.
+  auto const drop_result = mem_label_property_index->OrdersPresent(label, properties, order);
   if (!drop_result) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add(
-      [mem_label_property_index, label, properties, updater, asc_evicted, desc_evicted, stats_evicted]() mutable {
-        mem_label_property_index->RestoreIndex(label,
-                                               std::move(properties),
-                                               std::move(asc_evicted),
-                                               std::move(desc_evicted),
-                                               std::move(stats_evicted),
-                                               updater);
+  auto const settled_order = [&]() -> std::optional<IndexOrder> {
+    if (drop_result.dropped_asc && drop_result.dropped_desc) return std::nullopt;
+    return drop_result.dropped_asc ? IndexOrder::ASC : IndexOrder::DESC;
+  }();
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_label_property_index, label, properties, updater, settled_order](uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_label_property_index->DropIndex(label, properties, updater, settled_order).result);
       });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   if (drop_result.dropped_asc) {
     transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
@@ -2156,17 +2154,15 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
   // Done inside the wrapper to ensure plan cache invalidation is safe.
-  std::shared_ptr<InMemoryEdgeTypeIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_type_index->DropIndex(edge_type, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  if (!mem_edge_type_index->GetActiveIndices()->IndexRegistered(edge_type)) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_type_index, edge_type, updater, evicted]() mutable {
-    mem_edge_type_index->RestoreIndex(edge_type, std::move(evicted), updater);
-  });
+  // See DropIndex(LabelId) above for why the eviction waits for the commit.
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_edge_type_index, edge_type, updater](uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_edge_type_index->DropIndex(edge_type, updater));
+      });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
@@ -2185,17 +2181,17 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
   // Done inside the wrapper to ensure plan cache invalidation is safe.
-  std::shared_ptr<InMemoryEdgeTypePropertyIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_type_property_index->DropIndex(edge_type, property, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  if (!static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+           mem_edge_type_property_index->GetActiveIndices().get())
+           ->IndexRegistered(edge_type, property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_type_property_index, edge_type, property, updater, evicted]() mutable {
-    mem_edge_type_property_index->RestoreIndex(edge_type, property, std::move(evicted), updater);
-  });
+  // See DropIndex(LabelId) above for why the eviction waits for the commit.
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_edge_type_property_index, edge_type, property, updater](uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_edge_type_property_index->DropIndex(edge_type, property, updater));
+      });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
@@ -2214,17 +2210,15 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  std::shared_ptr<InMemoryEdgePropertyIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_property_index->DropIndex(property, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  if (!mem_edge_property_index->GetActiveIndices()->IndexExists(property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_property_index, property, updater, evicted]() mutable {
-    mem_edge_property_index->RestoreIndex(property, std::move(evicted), updater);
-  });
+  // See DropIndex(LabelId) above for why the eviction waits for the commit.
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_edge_property_index, property, updater](uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_edge_property_index->DropIndex(property, updater));
+      });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
@@ -2238,17 +2232,15 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_vertex_property_index =
       static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  std::shared_ptr<InMemoryVertexPropertyIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_vertex_property_index->DropIndex(property, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  if (!mem_vertex_property_index->GetActiveIndices()->IndexExists(property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_vertex_property_index, property, updater, evicted]() mutable {
-    mem_vertex_property_index->RestoreIndex(property, std::move(evicted), updater);
-  });
+  // See DropIndex(LabelId) above for why the eviction waits for the commit.
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_vertex_property_index, property, updater](uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_vertex_property_index->DropIndex(property, updater));
+      });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_drop, property);
   return {};
