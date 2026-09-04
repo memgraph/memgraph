@@ -763,8 +763,10 @@ int main(int argc, char **argv) {
     if (locked_out_count != 0) {
       spdlog::warn(
           "{} user(s) cannot authenticate in FIPS mode. Their passwords must be reset, not migrated -- re-hashing "
-          "needs the plaintext, which Memgraph does not store. Use --init-file to reset an administrator, then ALTER "
-          "USER for the rest.",
+          "needs the plaintext, which Memgraph does not store. Reset them with 'SET PASSWORD FOR <user> TO "
+          "<password>', which does not read the old hash. To avoid the lockout entirely, do that on a non-FIPS "
+          "instance started with --password-encryption-algorithm=pbkdf2-sha256 before enabling --fips-mode; if this "
+          "instance is already locked out, use --init-file to reset an administrator first.",
           locked_out_count);
     }
   }
