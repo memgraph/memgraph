@@ -218,8 +218,6 @@ class TTL final {
    */
   void Pause() { ttl_.Pause(); }
 
-  void PauseAndWait() { ttl_.PauseAndWait(); }
-
   /**
    * @brief Use Resume() to restart once MAIN.
    *
@@ -309,8 +307,6 @@ class TTL final {
   void Stop() {}
 
   void Pause() {}
-
-  void PauseAndWait() {}
 
   void Resume() {}
 

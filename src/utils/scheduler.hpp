@@ -94,9 +94,6 @@ class Scheduler {
 
   void Pause();
 
-  /// Like Pause(), but blocks until any in-flight callback has finished.
-  void PauseAndWait();
-
   void Stop();
 
   bool IsRunning();
@@ -135,11 +132,6 @@ class Scheduler {
    * Variable is true when thread is paused.
    */
   bool is_paused_ = false;
-
-  /**
-   * True while the worker thread is inside f(). Guarded by mutex_.
-   */
-  bool is_executing_ = false;
 
   /**
    * Mutex used to synchronize threads using condition variable.
