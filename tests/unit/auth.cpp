@@ -2831,19 +2831,14 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordDefault) {
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, CorruptSaltFailsVerificationWithoutAborting) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+
   for (auto const algo :
        {PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE, PasswordHashAlgorithm::PBKDF2_SHA256}) {
-    auto const corrupt = std::string(HashSize(algo).salted, 'z');
+    auto hash = HashedPassword{algo, std::string(HashSize(algo).salted, 'z')};
     // Exit 0 means it returned false, 1 means it wrongly accepted the password,
     // and a signal means it aborted.
-    EXPECT_EXIT(
-        {
-          auto hash = HashedPassword{algo, corrupt};
-          std::exit(hash.VerifyPassword("hello") ? 1 : 0);
-        },
-        ::testing::ExitedWithCode(0),
-        "")
-        << AsString(algo);
+    EXPECT_EXIT(std::exit(hash.VerifyPassword("hello") ? 1 : 0), ::testing::ExitedWithCode(0), "") << AsString(algo);
   }
 }
 
