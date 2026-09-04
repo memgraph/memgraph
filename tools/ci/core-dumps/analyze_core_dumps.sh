@@ -69,11 +69,29 @@ if [[ ${#cores[@]} -eq 0 ]]; then
   exit 0
 fi
 
-binary_missing=false
 if [[ ! -f "$BINARY" ]]; then
-  echo "Warning: Memgraph binary '$BINARY' not found; stack traces will have NO SYMBOLS (addresses only)." >&2
-  binary_missing=true
+  echo "Warning: fallback binary '$BINARY' not found; any core that does not name its own executable will have NO SYMBOLS (addresses only)." >&2
 fi
+
+# A core records the path of every file mapped into the process, and the
+# executable is the first of them, so a core from a test binary symbolises as
+# well as one from memgraph, without the caller having to say which binary to
+# expect. The command line the core also records is truncated to a fixed width
+# by the kernel, so a binary sitting deep enough in the tree is unrecoverable
+# from it. Falls back to the binary passed in when the core maps no file, or
+# names one that is not present here.
+resolve_binary_for_core() {
+  local core="$1" exe
+  # gdb exits non-zero on a core it cannot read, which would otherwise take the
+  # whole run down and lose the cores not yet analysed.
+  exe="$(gdb -batch -nx -ex "info proc mappings" --core="$core" 2>/dev/null |
+    awk '$1 ~ /^0x/ { i = index($0, " /"); if (i > 0) { print substr($0, i + 1); exit } }' || true)"
+  if [[ -n "$exe" && -f "$exe" ]]; then
+    printf '%s' "$exe"
+  else
+    printf '%s' "$BINARY"
+  fi
+}
 
 mkdir -p "$OUT_DIR"
 
@@ -103,14 +121,15 @@ for core in "${cores[@]}"; do
     out="$OUT_DIR/${trace_name}_${dup}.txt"
     dup=$((dup + 1))
   done
-  echo "Analyzing $core -> $out"
+  core_binary="$(resolve_binary_for_core "$core")"
+  echo "Analyzing $core ($(basename "$core_binary")) -> $out"
   {
     echo "=== Memgraph CI core dump stack trace ==="
     echo "core:      $core"
     [[ -n "$sig" ]] && echo "signal:    $sig"
     [[ -n "$epoch" ]] && echo "crashed:   $(date -u -d "@${epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "epoch ${epoch}")"
-    echo "binary:    $BINARY"
-    [[ "$binary_missing" == true ]] && echo "symbols:   MISSING — binary not found; backtrace shows addresses only, treat as unreliable"
+    echo "binary:    $core_binary"
+    [[ -f "$core_binary" ]] || echo "symbols:   MISSING — binary not found; backtrace shows addresses only, treat as unreliable"
     echo "generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "gdb:       $(gdb --version | head -n1)"
     echo "=========================================="
@@ -124,7 +143,7 @@ for core in "${cores[@]}"; do
       -ex "thread apply all bt" \
       -ex "info sharedlibrary" \
       -ex "quit" \
-      "$BINARY" "$core" 2>&1 || echo "(gdb exited non-zero while analyzing $core)"
+      "$core_binary" "$core" 2>&1 || echo "(gdb exited non-zero while analyzing $core)"
   } > "$out"
   count=$((count + 1))
 done
