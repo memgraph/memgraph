@@ -749,6 +749,27 @@ int main(int argc, char **argv) {
   }
   auth_glue(auth_.get(), auth_handler, auth_checker);
 
+#ifdef MG_ENTERPRISE
+  if (FLAGS_fips_mode) {
+    auto locked_out_count = 0U;
+    for (auto const &user : auth_->ReadLock()->AllUsers()) {
+      auto const algo = user.PasswordHashAlgo();
+      if (!algo || memgraph::auth::IsFipsApproved(*algo)) continue;
+      spdlog::warn("User '{}' cannot authenticate in FIPS mode: its password hash uses '{}', which is not approved.",
+                   user.username(),
+                   memgraph::auth::AsString(*algo));
+      ++locked_out_count;
+    }
+    if (locked_out_count != 0) {
+      spdlog::warn(
+          "{} user(s) cannot authenticate in FIPS mode. Their passwords must be reset, not migrated -- re-hashing "
+          "needs the plaintext, which Memgraph does not store. Use --init-file to reset an administrator, then ALTER "
+          "USER for the rest.",
+          locked_out_count);
+    }
+  }
+#endif
+
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
   int const extracted_bolt_port = [&]() {

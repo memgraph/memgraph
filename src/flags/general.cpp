@@ -104,7 +104,7 @@ DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed i
 DEFINE_bool(fips_mode, false,
             "Run Memgraph in FIPS 140-3 approved mode. Enterprise only. Requires the validated OpenSSL FIPS "
             "provider to be available and restricts password hashing and TLS to FIPS-approved algorithms. "
-            "Experimental: existing users must be re-created, as their password hashes cannot be migrated.");
+            "Experimental: existing users' passwords must be reset, as their hashes cannot be re-hashed.");
 #endif
 
 // Storage flags.

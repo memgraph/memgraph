@@ -471,14 +471,14 @@ void EnableFipsMode(bool algorithm_flag_is_default) {
         utils::ExitCode::FipsModeUnsupportedPasswordAlgorithm,
         fmt::format("--fips-mode=true is incompatible with --password-encryption-algorithm={}. Only '{}' is approved; "
                     "omit the flag entirely and it will be selected automatically. Note that switching also locks out "
-                    "existing users: their password hashes cannot be migrated, so they have to be re-created.",
+                    "existing users: their passwords have to be reset, as re-hashing needs the plaintext.",
                     AsString(configured),
                     approved));
   }
 
   spdlog::warn(
       "FIPS mode is experimental. Existing users whose passwords were hashed with an algorithm other than '{}' can no "
-      "longer authenticate and must be re-created; there is no upgrade path.",
+      "longer authenticate; their passwords must be reset, as re-hashing needs the plaintext.",
       AsString(PasswordHashAlgorithm::PBKDF2_SHA256));
 }
 
