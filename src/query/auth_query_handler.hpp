@@ -23,6 +23,10 @@
 #include "system/system.hpp"
 #include "utils/resource_monitoring.hpp"
 
+namespace memgraph::auth {
+class AuthTransaction;
+}  // namespace memgraph::auth
+
 namespace memgraph::query {
 
 struct CreateUserResult {
@@ -45,6 +49,26 @@ class AuthQueryHandler {
   AuthQueryHandler(AuthQueryHandler &&) = delete;
   AuthQueryHandler &operator=(const AuthQueryHandler &) = delete;
   AuthQueryHandler &operator=(AuthQueryHandler &&) = delete;
+
+  /// Binds an auth transaction so this handler's operations buffer into it rather than writing through, and returns
+  /// the previously bound one. Prefer the ScopedTransaction guard below to calling this directly.
+  virtual auth::AuthTransaction *BindTransaction(auth::AuthTransaction *tx) = 0;
+
+  /// Binds an auth transaction for as long as it lives. Pass nullptr outside an auth transaction.
+  class [[nodiscard]] ScopedTransaction {
+   public:
+    ScopedTransaction(AuthQueryHandler &handler, auth::AuthTransaction *tx)
+        : handler_{&handler}, previous_{handler.BindTransaction(tx)} {}
+
+    ~ScopedTransaction() { handler_->BindTransaction(previous_); }
+
+    ScopedTransaction(ScopedTransaction const &) = delete;
+    ScopedTransaction &operator=(ScopedTransaction const &) = delete;
+
+   private:
+    AuthQueryHandler *handler_;
+    auth::AuthTransaction *previous_;
+  };
 
   /// Return created=false if the user already exists.
   /// @throw QueryRuntimeException if an error ocurred.
