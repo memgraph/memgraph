@@ -568,15 +568,24 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
 }
 
 std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare() {
-  if (!parsed_res_) {
+  // A parked autocommit (RUN-first-query) BEGIN consumed parsed_res_ on its first pass; on the pool
+  // wake, re-drive the stashed Prepare rather than failing "not parsed". Explicit BEGIN is already
+  // re-runnable via BeginTransaction(); this makes the implicit path symmetric.
+  const bool resume = !parsed_res_ && interpreter_.HasParkedPrepare();
+  if (!parsed_res_ && !resume) {
     throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
   }
 
   try {
-    auto parsed_res = *std::move(parsed_res_);
-    parsed_res_.reset();
-    auto result =
-        interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
+    // BeginWouldBlockException propagates out (it is not a QueryException) so the Bolt pool driver
+    // parks/reschedules the BEGIN; a re-block inside ResumeParkedPrepare re-stashes and re-parks.
+    auto result = [&] {
+      if (resume) return interpreter_.ResumeParkedPrepare();
+      auto parsed_res = *std::move(parsed_res_);
+      parsed_res_.reset();
+      return interpreter_.Prepare(
+          std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
+    }();
     interpreter_.CheckAuthorized(result.privileges, result.db);
 
     return {std::move(result.headers), result.qid};
