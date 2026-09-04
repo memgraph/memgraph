@@ -14,7 +14,6 @@
 #include <memory>
 #include <set>
 
-#include "metrics/metric_handles.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/vertex.hpp"
 

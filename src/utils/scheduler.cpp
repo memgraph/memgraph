@@ -15,7 +15,6 @@
 
 #include "croncpp.h"
 #include "utils/logging.hpp"
-#include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/temporal.hpp"
@@ -184,16 +183,8 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
         spin_once_ = false;
         continue;
       }
-      is_executing_ = true;
     }
 
-    auto const reset_executing = OnScopeExit{[this] {
-      {
-        auto lk = std::unique_lock{mutex_};
-        is_executing_ = false;
-      }
-      condition_variable_.notify_one();
-    }};
     f();
   }
 }
@@ -218,12 +209,6 @@ void Scheduler::Pause() {
   // Lock needs to be held when modifying cv even if atomic
   auto lk = std::unique_lock{mutex_};
   is_paused_ = true;
-}
-
-void Scheduler::PauseAndWait() {
-  auto lk = std::unique_lock{mutex_};
-  is_paused_ = true;
-  condition_variable_.wait(lk, [&] { return !is_executing_; });
 }
 
 // Sets atomic is_paused_ to false and notifies thread
