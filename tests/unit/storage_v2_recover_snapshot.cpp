@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <filesystem>
+#include <fstream>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -18,6 +19,7 @@
 #include "memory/db_arena.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -433,4 +435,106 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
     }
     ASSERT_GT(current_wals.size(), 0) << "Should have exactly one WAL file after recovery";
   }
+}
+
+// Regression test for GitHub issue #4742.
+//
+// Before the fix, RecoverData would silently start the database with an empty
+// dataset when all snapshot candidates were corrupt and no WAL files were
+// present.  The fix makes RecoverData throw RecoveryFailure in that case so
+// data is not silently discarded.
+//
+// The corrupted file is a readable regular file filled with garbage text, so
+// it passes ValidateDurabilityFile (readable + is_regular_file) but causes
+// ReadSnapshotInfo to throw RecoveryFailure, which GetSnapshotFiles counts as
+// unusable_candidates.  With no WAL files to fall back on, RecoverData must
+// fail loud instead of returning nullopt.
+TEST_F(RecoverSnapshotTest, CorruptSnapshotWithNoWalFailsRecoveryInsteadOfStartingEmpty) {
+  // Phase 1: create data + a snapshot, then let the database go out of scope
+  // so all WAL and snapshot files are flushed and closed before we tamper.
+  {
+    memgraph::dbms::Database db{config_};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+    {
+      auto acc = storage->Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      acc->CreateVertex();
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    auto snapshot_result = storage->CreateSnapshot();
+    ASSERT_TRUE(snapshot_result.has_value());
+  }  // db and arena_scope destroyed here; WAL file is finalized and closed.
+
+  auto const snapshots_dir = config_.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory;
+  auto const wal_dir = config_.durability.storage_directory / memgraph::storage::durability::kWalDirectory;
+
+  // Phase 2: overwrite every snapshot file with garbage text.  The file
+  // remains a readable regular file (passes ValidateDurabilityFile) but
+  // ReadSnapshotInfo will throw RecoveryFailure on the bogus content, making
+  // GetSnapshotFiles count it as an unusable candidate.
+  int corrupted_count = 0;
+  if (std::filesystem::exists(snapshots_dir)) {
+    for (const auto &entry : std::filesystem::directory_iterator(snapshots_dir)) {
+      if (entry.is_regular_file()) {
+        std::ofstream f{entry.path(), std::ios::out | std::ios::trunc};
+        f << "CORRUPTED-NOT-A-VALID-DURABILITY-MAGIC";
+        ++corrupted_count;
+      }
+    }
+  }
+  ASSERT_GT(corrupted_count, 0) << "Expected at least one snapshot file to have been created and corrupted";
+
+  // Phase 3: remove all WAL regular files so wal_files is empty at recovery
+  // time.  The WAL directory itself is kept; if it did not exist, the else
+  // branch in RecoverData would return nullopt early (line 694) before
+  // reaching the unusable_candidates check.
+  if (std::filesystem::exists(wal_dir)) {
+    for (const auto &entry : std::filesystem::directory_iterator(wal_dir)) {
+      if (entry.is_regular_file()) {
+        std::filesystem::remove(entry.path());
+      }
+    }
+  }
+
+  // Phase 4: attempt recovery.  allow_recovery_failure is false by default,
+  // so the exception propagates unchanged from RecoverData through
+  // InMemoryStorage and Database constructors.
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+
+  // RecoveryFailure is defined in src/storage/v2/durability/exceptions.hpp and
+  // propagates via InMemoryStorage::ctor (throw; at line ~423 of storage.cpp)
+  // when allow_recovery_failure=false.
+  EXPECT_THROW({ memgraph::dbms::Database db2{recover_cfg}; }, memgraph::storage::durability::RecoveryFailure);
+}
+
+// Control case for issue #4742: a genuinely empty durability directory (no
+// snapshot or WAL files at all) must not trigger the new failure path.
+// RecoverData returns nullopt when neither directory contains any files, and
+// the database starts fresh with zero vertices.
+TEST_F(RecoverSnapshotTest, EmptyDurabilityDirectoriesStartFreshWithoutError) {
+  // No data is created; the storage constructor will create both directories
+  // (EnsureDirOrDie at line ~345 of storage.cpp) before calling RecoverData.
+  // RecoverData finds them empty, unusable_candidates stays 0, and returns
+  // nullopt — fresh start, no exception.
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+
+  EXPECT_NO_THROW({
+    memgraph::dbms::Database db{recover_cfg};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto vertices = acc->Vertices(memgraph::storage::View::OLD);
+    int count = 0;
+    for ([[maybe_unused]] const auto &v : vertices) {
+      ++count;
+    }
+    EXPECT_EQ(count, 0) << "A fresh database started from empty dirs must have zero vertices";
+  });
 }

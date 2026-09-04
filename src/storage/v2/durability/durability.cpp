@@ -128,7 +128,8 @@ bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
 }
 
 std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                                    const std::string_view uuid) {
+                                                                    const std::string_view uuid,
+                                                                    std::size_t *unreadable_candidates_out) {
   std::vector<SnapshotDurabilityInfo> snapshot_files;
   if (!utils::DirExists(snapshot_directory)) {
     spdlog::error("Snapshot directory {} doesn't exist", snapshot_directory);
@@ -137,7 +138,10 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
 
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
-    if (!ValidateDurabilityFile(item)) continue;
+    if (!ValidateDurabilityFile(item)) {
+      if (unreadable_candidates_out != nullptr && item.is_regular_file()) ++*unreadable_candidates_out;
+      continue;
+    }
 
     try {
       auto info = ReadSnapshotInfo(item.path());
@@ -148,6 +152,7 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
       }
     } catch (const RecoveryFailure &e) {
       spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
+      if (unreadable_candidates_out != nullptr) ++*unreadable_candidates_out;
     }
   }
   if (error_code) {
@@ -161,7 +166,8 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
 
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
                                                           const std::string_view uuid,
-                                                          const std::optional<size_t> current_seq_num) {
+                                                          const std::optional<size_t> current_seq_num,
+                                                          std::size_t *unreadable_candidates_out) {
   std::vector<WalDurabilityInfo> wal_files;
   if (!utils::DirExists(wal_directory)) {
     spdlog::error("WAL directory {} doesn't exist", wal_directory);
@@ -175,7 +181,10 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
   std::error_code error_code;
 
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
-    if (!ValidateDurabilityFile(item)) continue;
+    if (!ValidateDurabilityFile(item)) {
+      if (unreadable_candidates_out != nullptr && item.is_regular_file()) ++*unreadable_candidates_out;
+      continue;
+    }
 
     try {
       auto header = ReadWalHeader(item.path());
@@ -614,7 +623,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
   auto *const epoch_history = &repl_storage_state.history;
 
-  auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
+  std::size_t unusable_candidates = 0;
+  auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_, "", &unusable_candidates);
   if (!maybe_snapshot_files.has_value()) {
     throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
   }
@@ -684,13 +694,23 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
 
     // The UUID isn't known yet, so every file in the directory is collected and the unrelated ones dropped below.
-    auto maybe_wal_files = GetWalFiles(wal_directory_);
+    auto maybe_wal_files = GetWalFiles(wal_directory_, "", std::nullopt, &unusable_candidates);
     if (!maybe_wal_files.has_value()) {
       throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
     }
     wal_files = std::move(*maybe_wal_files);
 
     if (wal_files.empty()) {
+      // #4742: distinguish a genuinely empty durability directory (fresh DB — correct to start empty)
+      // from one whose durability files are present but unreadable/corrupt (an existing DB whose data
+      // cannot be loaded). Starting empty in the second case silently discards data, so fail loud in the
+      // same "broken state" way the recognised-but-unrecoverable snapshot path above already does.
+      if (unusable_candidates > 0) {
+        throw RecoveryFailure(
+            "Durability files are present but none could be read; refusing to start with an empty database "
+            "and discard existing data. The database is now in the broken state. Please inspect the "
+            "snapshot and WAL files and restart.");
+      }
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
     }
