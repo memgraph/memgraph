@@ -715,7 +715,7 @@ jobs:
         # framework can exercise the rpm install path. Never pushed. The base
         # memgraph rpm was staged to release/package/mage/memgraph.rpm by the Copy/Download step;
         # the memgraph-mage rpm comes from the Build RPM package step.
-        if: ${{ inputs.run_smoke_tests && !inputs.cugraph && !inputs.cuda && !inputs.malloc }}
+        if: ${{ inputs.run_smoke_tests && !inputs.cugraph && !inputs.cuda && !inputs.malloc && github.event_name != 'merge_group' }}
         run: |
           set -euo pipefail
           # Map the distro to its base image and the python version the modules
@@ -1070,7 +1070,7 @@ jobs:
             --image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}"
 
       - name: "Run Docker smoke tests (rpm)"
-        if: ${{ inputs.run_smoke_tests && !inputs.cugraph && !inputs.cuda  && !inputs.malloc }}
+        if: ${{ inputs.run_smoke_tests && !inputs.cugraph && !inputs.cuda  && !inputs.malloc && github.event_name != 'merge_group' }}
         run: |
           # TODO(matt): add centos-10 when the image is fixed
           distros=(
