@@ -878,6 +878,20 @@ void InMemoryLabelPropertyIndex::CleanupStatsForDrop(IndexContainer const &new_i
   }
 }
 
+auto InMemoryLabelPropertyIndex::OrdersPresent(LabelId label, std::vector<PropertyPath> const &properties,
+                                               std::optional<IndexOrder> order) const -> DropResult {
+  return index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &index) -> DropResult {
+    bool const try_asc = !order || *order == IndexOrder::ASC;
+    bool const try_desc = !order || *order == IndexOrder::DESC;
+    auto const present = [&](auto const &per_label) {
+      auto const lit = per_label.find(label);
+      return lit != per_label.end() && lit->second.find(properties) != lit->second.end();
+    };
+    return {.dropped_asc = try_asc && present(index->asc_indices_),
+            .dropped_desc = try_desc && present(index->desc_indices_)};
+  });
+}
+
 auto InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                                            ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order)
     -> DropCapture {

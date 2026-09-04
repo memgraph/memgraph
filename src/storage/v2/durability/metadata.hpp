@@ -99,18 +99,25 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const cha
 
 // Removes an index that a replayed drop refers to, tolerating its absence.
 //
-// An index drop takes effect on the live catalogue when the statement runs and
-// is recorded in the log only when the transaction commits. A snapshot whose
-// transaction begins between those two points therefore records the index as
-// already gone, while recording a durable timestamp below the drop's, so replay
-// resumes above the drop and applies it to a catalogue that never had it.
+// A drop decides that the index exists when its statement runs and evicts it
+// when it commits, so two transactions can both find it and both record a drop
+// of it. One of them evicts and the other has nothing left to evict, and the
+// log holds two drops of the same index either way. Replay of the second finds
+// the catalogue already without it.
 //
-// Refusing the replay makes such a snapshot unrecoverable, and the end state is
-// the same either way: the index is absent. Applying a drop to something already
-// absent is idempotent, so tolerating it is not a patch over corruption. It does
-// give up a canary for the case where an index really did vanish for another
-// reason, which is why this is separate from RemoveRecoveredIndexConstraint and
-// used only where a drop can legitimately arrive twice.
+// Snapshots written before the eviction moved to commit time reach the same
+// state by a different route, and recovery still has to read them: such a
+// snapshot records the index as already gone while recording a durable
+// timestamp below the drop's, so replay resumes above the drop and applies it
+// to a catalogue that never had it.
+//
+// Refusing either makes a recoverable database unrecoverable, and the end state
+// is the same as accepting: the index is absent. Applying a drop to something
+// already absent is idempotent, so tolerating it is not a patch over
+// corruption. It does give up a canary for an index that vanished for some
+// other reason, which is why this is separate from
+// RemoveRecoveredIndexConstraint and used only where a drop can legitimately
+// arrive twice.
 template <typename TObj>
 void RemoveRecoveredIndexIfPresent(std::vector<TObj> *list, TObj obj) {
   auto it = std::find(list->begin(), list->end(), obj);

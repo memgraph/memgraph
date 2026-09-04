@@ -228,6 +228,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
     bool IndexReady(EdgeTypeId edge_type, PropertyId property) const override;
 
+    /// Whether the entry is in the catalogue at all, ready or not. IndexReady answers a different
+    /// question, and a DROP has to ask this one: an index that is registered but not yet committed
+    /// is still an index a drop evicts.
+    bool IndexRegistered(EdgeTypeId edge_type, PropertyId property) const;
+
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     Iterable Edges(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
