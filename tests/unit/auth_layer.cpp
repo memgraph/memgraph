@@ -53,9 +53,9 @@ TEST_F(AuthLayerTest, WritesOutsideATransactionAreImmediatelyDurable) {
 }
 
 TEST_F(AuthLayerTest, TransactionalWritesAreInvisibleUntilCommit) {
-  AuthLayer::Transaction tx;
+  memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
   }
 
   // A separate, non-transactional read must not see the buffered user.
@@ -66,25 +66,25 @@ TEST_F(AuthLayerTest, TransactionalWritesAreInvisibleUntilCommit) {
 }
 
 TEST_F(AuthLayerTest, TransactionSeesItsOwnWrites) {
-  AuthLayer::Transaction tx;
+  memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
   }
-  EXPECT_TRUE(layer_->Lock(tx)->HasUser("alice"));
+  EXPECT_TRUE(layer_->Lock(&tx)->HasUser("alice"));
 }
 
 TEST_F(AuthLayerTest, AbandonedTransactionLeavesNothingBehind) {
   {
-    AuthLayer::Transaction tx;
-    ASSERT_TRUE(layer_->Lock(tx)->AddUser("alice").has_value());
+    memgraph::auth::AuthTransaction tx;
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
   }
   EXPECT_FALSE(layer_->Lock()->HasUser("alice"));
 }
 
 TEST_F(AuthLayerTest, StorageIsRestoredAfterEachTransactionalCall) {
-  AuthLayer::Transaction tx;
+  memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
   }
 
   // Auth must be back on durable storage between calls, so an unrelated write lands on disk immediately.
@@ -102,10 +102,10 @@ TEST_F(AuthLayerTest, ConflictingCommitLeavesStorageUntouched) {
     ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
   }
 
-  AuthLayer::Transaction tx;
+  memgraph::auth::AuthTransaction tx;
   // Read alice into the read-set, then modify her outside the transaction.
   {
-    ASSERT_TRUE(layer_->Lock(tx)->GetUser("alice").has_value());
+    ASSERT_TRUE(layer_->Lock(&tx)->GetUser("alice").has_value());
   }
   {
     auto locked = layer_->Lock();
@@ -115,7 +115,7 @@ TEST_F(AuthLayerTest, ConflictingCommitLeavesStorageUntouched) {
     locked->SaveUser(*user);
   }
   {
-    ASSERT_TRUE(layer_->Lock(tx)->AddUser("bob").has_value());
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
   }
 
   EXPECT_FALSE(layer_->Commit(tx));
@@ -128,12 +128,12 @@ TEST_F(AuthLayerTest, TransactionalWritesDoNotMoveTheEpochUntilCommit) {
   Auth::Epoch seen;
   layer_->Lock()->UpToDate(seen);
 
-  AuthLayer::Transaction tx;
+  memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
   }
   {
-    ASSERT_TRUE(layer_->Lock(tx)->AddUser("bob").has_value());
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
   }
   EXPECT_TRUE(layer_->Lock()->UpToDate(seen));
 
