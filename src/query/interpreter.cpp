@@ -5994,11 +5994,17 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                        .query_handler = [handler = std::move(callback.fn),
                                          runtime_notifications = std::move(callback.notifications_ptr),
                                          notifications,
+                                         auth_handler = interpreter_context->auth,
+                                         interpreter = &interpreter,
                                          pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](  // NOLINT
                                             AnyStream *stream,
                                             std::optional<int>
                                                 n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {
+                           // Every auth query runs through here, so this is the one place the handler needs binding
+                           // to the session's auth transaction. Outside one this binds nullptr and nothing changes.
+                           auto const bound =
+                               AuthQueryHandler::ScopedTransaction{*auth_handler, interpreter->auth_transaction_ptr()};
                            auto results = handler();
                            if (runtime_notifications) {
                              for (auto &notif : *runtime_notifications) {
@@ -10379,6 +10385,7 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 void Interpreter::ResetInterpreter() {
   query_executions_.clear();
   system_transaction_.reset();
+  auth_transaction_.reset();
   transaction_queries_->clear();
   commit_notification_.reset();
   tx_mode_.reset();
