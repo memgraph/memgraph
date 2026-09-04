@@ -348,7 +348,8 @@ TEST_F(MonitoringServerTest, AuthenticationThrows) {
 
     const auto response = client.Read();
     EXPECT_THAT(response, ::testing::HasSubstr(R"("success":false)"));
-    EXPECT_THAT(response, ::testing::HasSubstr("mock hash cannot be verified"));
+    EXPECT_THAT(response, ::testing::Not(::testing::HasSubstr("mock hash cannot be verified")));
+    EXPECT_THAT(response, ::testing::HasSubstr("Authentication failed!"));
   }
 
   // The server is still serving: the throw took down one login, not the process.

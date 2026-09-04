@@ -146,9 +146,9 @@ auto ServerContext::reload() -> std::expected<void, utils::SSL_CTX_Error> {
                        ssl::context::single_dh_use);
 
   if (!ApplyTlsVersionPolicy(new_ctx->native_handle())) {
-    return std::unexpected{
-        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS,
-                             .msg = "Unable to apply the TLS version policy to the server SSL context."}};
+    static constexpr auto kErrMsg = "Unable to apply the TLS version policy to the server SSL context.";
+    spdlog::error(kErrMsg);
+    return std::unexpected{utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = kErrMsg}};
   }
 
   // We deliberately do NOT call `set_default_verify_paths()` here. The trust

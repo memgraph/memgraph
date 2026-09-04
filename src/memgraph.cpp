@@ -751,6 +751,14 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   if (FLAGS_fips_mode) {
+    if (!FLAGS_auth_module_mappings.empty()) {
+      spdlog::warn(
+          "An external auth module is configured ({}); it authenticates in a separate process, which approved mode "
+          "cannot constrain. A module that uses OpenSSL inherits OPENSSL_CONF and so follows the same provider "
+          "configuration, but any other cryptography it performs is outside FIPS 140-3 approved mode.",
+          FLAGS_auth_module_mappings);
+    }
+
     auto locked_out_count = 0U;
     for (auto const &user : auth_->ReadLock()->AllUsers()) {
       auto const algo = user.PasswordHashAlgo();

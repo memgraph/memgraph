@@ -217,9 +217,8 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       std::invoke(auth_failed, err_msg);
       return;
     } catch (const std::exception &e) {
-      const auto err_msg = fmt::format("Authentication failed: {}!", e.what());
-      spdlog::error(err_msg);
-      std::invoke(auth_failed, err_msg);
+      spdlog::error("Authentication failed: {}", e.what());
+      std::invoke(auth_failed, "Authentication failed!");
       return;
     }
   }

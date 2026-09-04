@@ -86,8 +86,11 @@ void EnableFipsMode() {
     utils::FailStartup(utils::ExitCode::FipsModeUnavailable,
                        "--fips-mode=true but the FIPS default property query could not be enabled.");
   }
-  MG_ASSERT(EVP_default_properties_is_fips_enabled(nullptr) == 1,
-            "Enabling the FIPS default property query reported success but did not take effect.");
+  if (EVP_default_properties_is_fips_enabled(nullptr) != 1) {
+    utils::FailStartup(
+        utils::ExitCode::FipsModeUnavailable,
+        "--fips-mode=true and enabling the FIPS default property query reported success, but it did not take effect.");
+  }
 
   // retain_fallbacks=1: we only want a handle to read the module's identity.
   // OSSL_PROVIDER_load() would additionally disable the fallback providers as
