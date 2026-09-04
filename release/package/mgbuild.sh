@@ -2271,7 +2271,7 @@ test_memgraph() {
         esac
       done
 
-      if [[ "$nprocesses" != "$machine_nproc" &&  ()]] ! [[ "$nprocesses" =~ ^[0-9]+$ ]] || [[ "$nprocesses" -lt 1 ]]; then
+      if [[ "$nprocesses" != "$machine_nproc" ]] && { ! [[ "$nprocesses" =~ ^[0-9]+$ ]] || [[ "$nprocesses" -lt 1 ]]; }; then
         echo "Error: --nprocesses must be a positive integer." >&2
         exit 1
       fi
