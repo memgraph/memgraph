@@ -100,7 +100,7 @@ fi
 # Wait for connectivity using the in-container mgconsole (same helper as the
 # bolt smoke test), so we time the shutdown of a fully-started instance.
 docker cp "$WAIT_SCRIPT" "$CONTAINER_NAME:/tmp/wait_for_memgraph_bolt.sh"
-if ! docker exec "$CONTAINER_NAME" bash /tmp/wait_for_memgraph_bolt.sh 127.0.0.1 7687 30 1; then
+if ! docker exec "$CONTAINER_NAME" bash /tmp/wait_for_memgraph_bolt.sh 127.0.0.1 7687; then
   echo "Shutdown smoke test FAILED for $IMAGE: container did not accept Bolt connections." >&2
   echo "--- container logs ---" >&2
   docker logs "$CONTAINER_NAME" 2>&1 || true

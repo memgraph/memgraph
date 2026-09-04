@@ -106,6 +106,9 @@ test_kerberos_auth_setup() {
   docker network create "$KERBEROS_NETWORK" >/dev/null
 
   echo "SUBFEATURE: bringing up a throwaway KDC for realm $KERBEROS_REALM"
+  # The KDC image pins the distro mirrors rather than trusting the redirector;
+  # the scripts have to be inside the build context.
+  "$SMOKE_DIR/../../tools/ci/mirrors/stage.sh" "$KERBEROS_DIR"
   docker build -t "$KERBEROS_KDC_IMAGE" "$KERBEROS_DIR"
   docker run -d --name "$KERBEROS_KDC_CONTAINER" \
     --network "$KERBEROS_NETWORK" --network-alias "$KERBEROS_KDC_HOST" \

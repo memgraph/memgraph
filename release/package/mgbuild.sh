@@ -143,7 +143,7 @@ print_help () {
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
   echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"$DEFAULT_RUST_VERSION\")"
-  echo -e "  --node-version number         Specify nodejs version which be installed (default \"20\")"
+  echo -e "  --node-version number         Specify nodejs version which be installed (default \"24.19.0\")"
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
@@ -1360,15 +1360,14 @@ package_smoke_image() {
 
   local base_image=""
   local pkg_format=""
-  local centos_stream=""
   case "$os" in
     ubuntu-26.04*) base_image="ubuntu:26.04"; pkg_format="deb" ;;
     ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb" ;;
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb" ;;
     debian-13*)    base_image="debian:13";    pkg_format="deb" ;;
-    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; centos_stream="9-stream" ;;
-    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm"; centos_stream="10-stream" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
+    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
     fedora-43*)    base_image="fedora:43"; pkg_format="rpm" ;;
     fedora-44*)    base_image="fedora:44"; pkg_format="rpm" ;;
@@ -1403,6 +1402,7 @@ package_smoke_image() {
   # if $build_dir's scope has unwound by the time the trap fires.
   trap "rm -rf '$build_dir'" EXIT
   cp "$package_dir/$package_name" "$build_dir/"
+  "$PROJECT_ROOT/tools/ci/mirrors/stage.sh" "$build_dir"
 
   local pip_find_links=""
   local copy_wheels_line=""
@@ -1445,54 +1445,37 @@ package_smoke_image() {
     # Add a path-include exception before installing the package, matching
     # the workaround in release/docker/v8_deb.dockerfile.
     install_cmd="export DEBIAN_FRONTEND=noninteractive && \
-      apt-get update && \
-      apt-get install -y --no-install-recommends libcurl4 libseccomp2 && \
+      /mirrors/pin_mirrors.sh apply && \
+      /mirrors/retry.sh -- apt-get install -y --no-install-recommends libcurl4 libseccomp2 && \
       if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
         echo '' >> /etc/dpkg/dpkg.cfg.d/excludes && \
         echo '# Include all memgraph documentation files (licenses, etc.)' >> /etc/dpkg/dpkg.cfg.d/excludes && \
         echo 'path-include=/usr/share/doc/memgraph/*' >> /etc/dpkg/dpkg.cfg.d/excludes; \
       fi && \
-      apt-get install -y --no-install-recommends /pkg/$package_name && \
+      /mirrors/retry.sh -- apt-get install -y --no-install-recommends /pkg/$package_name && \
       ($gssapi_cmd) && \
       rm -rf /var/lib/apt/lists/*"
   else
-    # CentOS Stream metalinks often hand dnf a mirror that is mid-sync
-    # (repomd.xml fails its metalink checksum), so pin baseos/appstream to a
-    # list of nearby mirrors that dnf tries in order, with the upstream
-    # master as the final fallback.
-    local mirror_opts=""
-    if [[ -n "$centos_stream" ]]; then
-      local rpm_arch="x86_64"
-      [[ "$arch" == "arm" ]] && rpm_arch="aarch64"
-      local mirror baseos_urls="" appstream_urls=""
-      for mirror in \
-        "https://ftp.plusline.net/centos-stream" \
-        "https://ftp.gwdg.de/pub/linux/centos-stream" \
-        "https://centos.anexia.at/centos-stream" \
-        "https://mirror.stream.centos.org"; do
-        baseos_urls+="${baseos_urls:+,}$mirror/$centos_stream/BaseOS/$rpm_arch/os/"
-        appstream_urls+="${appstream_urls:+,}$mirror/$centos_stream/AppStream/$rpm_arch/os/"
-      done
-      mirror_opts="--setopt=baseos.metalink= --setopt=baseos.baseurl=$baseos_urls \
-      --setopt=appstream.metalink= --setopt=appstream.baseurl=$appstream_urls"
-    fi
     # Fedora/CentOS/Rocky minimal docker images set tsflags=nodocs in
     # /etc/dnf/dnf.conf, which strips memgraph's license files in
     # /usr/share/doc/memgraph/. Override on the dnf install line so the
     # smoke license check passes.
     # rpm demotes %post scriptlet failures to warnings, so a failed pip
     # install would still produce an image; assert the deps actually landed.
-    install_cmd="dnf install -y --setopt=tsflags='' $mirror_opts libseccomp /pkg/$package_name && \
+    install_cmd="/mirrors/pin_mirrors.sh apply && \
+      /mirrors/retry.sh -- dnf install -y --setopt=tsflags='' libseccomp /pkg/$package_name && \
       ls /var/lib/memgraph/.local/lib/python3.*/site-packages/networkx >/dev/null && \
       ($gssapi_cmd) && \
       dnf clean all"
   fi
 
+  # The mirror scripts come in on a bind mount rather than a COPY so they
+  # leave no trace in the image the smoke tests then run.
   cat > "$build_dir/Dockerfile" <<EOF
 FROM $base_image
 COPY $package_name /pkg/$package_name
 ${copy_wheels_line}
-RUN $install_cmd
+RUN --mount=type=bind,source=./mirrors,target=/mirrors,ro $install_cmd
 USER memgraph
 WORKDIR /usr/lib/memgraph
 EXPOSE 7687
@@ -1504,9 +1487,6 @@ EOF
   cat "$build_dir/Dockerfile"
   echo "------------------"
 
-  # Transient repo-mirror failures (e.g. a CentOS Stream mirror mid-sync whose
-  # repomd.xml fails its metalink checksum) dominate here; growing waits give
-  # the sync window time to close, and each attempt refetches the metadata.
   local attempt
   local built=false
   for attempt in 1 2 3 4 5; do
@@ -2570,6 +2550,10 @@ package_mage_docker() {
     build_args+=(--secret id=ubuntu_sources,src=ci.sources)
   fi
 
+  # The Dockerfile falls back to the vetted public mirror list whenever the
+  # in-network custom mirror isn't in play, so the scripts are always needed.
+  "$PROJECT_ROOT/tools/ci/mirrors/stage.sh" "$PROJECT_ROOT/release/package/mage"
+
   # build the docker image
   docker buildx build \
     ${build_args[*]} \
@@ -2809,17 +2793,16 @@ test_mage() {
           ;;
         esac
       done
+
       cleanup_container() {
-        docker stop $neo4j_container || true
-        docker rm $neo4j_container || true
-        # This trap replaces the outer stop_monitoring trap, so chain it here
-        # to ensure the monitoring stack restarts fresh for the next test (and
-        # picks up the new service_name/labels from the regenerated configs).
-        if [[ "$enable_monitoring" == "true" ]]; then
+        local container="$1"
+        docker stop "$container" || true
+        docker rm "$container" || true
+        if [[ "${enable_monitoring:-false}" == "true" ]]; then
           stop_monitoring || true
         fi
       }
-      trap cleanup_container EXIT INT TERM
+      trap "cleanup_container '$neo4j_container'" EXIT INT TERM
       create_e2e_test_env
       cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
@@ -2829,7 +2812,7 @@ test_mage() {
         $neo4j_container \
         $mage_container \
         $memgraph_network
-      cleanup_container
+      cleanup_container "$neo4j_container"
       if [[ "$clean_env" = true ]]; then
         rm -rf $PROJECT_ROOT/tests/mage/env
       fi
@@ -2866,23 +2849,19 @@ test_mage() {
           ;;
         esac
       done
-      # Define cleanup function for this case branch
+
       cleanup_containers() {
-        docker stop $mage_container || true
-        docker rm $mage_container || true
-        docker stop $mysql_container || true
-        docker rm $mysql_container || true
-        docker stop $postgresql_container || true
-        docker rm $postgresql_container || true
-        # This trap replaces the outer stop_monitoring trap, so chain it here
-        # to ensure the monitoring stack restarts fresh for the next test (and
-        # picks up the new service_name/labels from the regenerated configs).
-        if [[ "$enable_monitoring" == "true" ]]; then
+        local container
+        for container in "$@"; do
+          docker stop "$container" || true
+          docker rm "$container" || true
+        done
+        if [[ "${enable_monitoring:-false}" == "true" ]]; then
           stop_monitoring || true
         fi
       }
       # Set trap to cleanup on exit/interrupt (scoped to this case branch)
-      trap cleanup_containers EXIT INT TERM
+      trap "cleanup_containers '$mage_container' '$mysql_container' '$postgresql_container'" EXIT INT TERM
       create_e2e_test_env
       cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
@@ -2891,7 +2870,7 @@ test_mage() {
         --mysql-container $mysql_container \
         --postgresql-container $postgresql_container
       # Normal cleanup
-      cleanup_containers
+      cleanup_containers "$mage_container" "$mysql_container" "$postgresql_container"
       if [[ "$clean_env" = true ]]; then
         rm -rf $PROJECT_ROOT/tests/mage/env
       fi
@@ -3411,7 +3390,7 @@ case $command in
       # Default values for --git-ref, --rust-version and --node-version
       git_ref_flag="--build-arg GIT_REF=master"
       rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
-      node_version_flag="--build-arg NODE_VERSION=20"
+      node_version_flag="--build-arg NODE_VERSION=24.19.0"
       rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
       cuda_version_minor="13.1.0"
       python_build_version_flag="--build-arg PY_VERSION=3.12"
