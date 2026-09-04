@@ -143,7 +143,7 @@ print_help () {
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
   echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"$DEFAULT_RUST_VERSION\")"
-  echo -e "  --node-version number         Specify nodejs version which be installed (default \"20\")"
+  echo -e "  --node-version number         Specify nodejs version which be installed (default \"24.19.0\")"
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
@@ -3395,7 +3395,7 @@ case $command in
       # Default values for --git-ref, --rust-version and --node-version
       git_ref_flag="--build-arg GIT_REF=master"
       rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
-      node_version_flag="--build-arg NODE_VERSION=20"
+      node_version_flag="--build-arg NODE_VERSION=24.19.0"
       rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
       cuda_version_minor="13.1.0"
       python_build_version_flag="--build-arg PY_VERSION=3.12"
