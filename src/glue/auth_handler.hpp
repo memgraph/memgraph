@@ -22,7 +22,6 @@
 #include "query/auth_query_handler.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
-#include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::glue {
@@ -41,12 +40,11 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
  public:
   explicit AuthQueryHandler(memgraph::auth::SynchedAuth *auth);
 
-  /// Binds an auth transaction for as long as the returned guard lives. Pass nullptr outside a transaction.
-  [[nodiscard]] auto WithTransaction(memgraph::auth::AuthTransaction *tx) {
+  memgraph::auth::AuthTransaction *BindTransaction(memgraph::auth::AuthTransaction *tx) override {
     DMG_ASSERT(tx_ == nullptr || bound_thread_ == std::this_thread::get_id(),
                "Auth transaction bound from two threads: auth queries must run on their own session's thread");
     bound_thread_ = std::this_thread::get_id();
-    return utils::OnScopeExit{[this, previous = std::exchange(tx_, tx)] { tx_ = previous; }};
+    return std::exchange(tx_, tx);
   }
 
   query::CreateUserResult CreateUser(const std::string &username, const std::optional<std::string> &password,
