@@ -2793,17 +2793,16 @@ test_mage() {
           ;;
         esac
       done
+
       cleanup_container() {
-        docker stop $neo4j_container || true
-        docker rm $neo4j_container || true
-        # This trap replaces the outer stop_monitoring trap, so chain it here
-        # to ensure the monitoring stack restarts fresh for the next test (and
-        # picks up the new service_name/labels from the regenerated configs).
-        if [[ "$enable_monitoring" == "true" ]]; then
+        local container="$1"
+        docker stop "$container" || true
+        docker rm "$container" || true
+        if [[ "${enable_monitoring:-false}" == "true" ]]; then
           stop_monitoring || true
         fi
       }
-      trap cleanup_container EXIT INT TERM
+      trap "cleanup_container '$neo4j_container'" EXIT INT TERM
       create_e2e_test_env
       cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
@@ -2813,7 +2812,7 @@ test_mage() {
         $neo4j_container \
         $mage_container \
         $memgraph_network
-      cleanup_container
+      cleanup_container "$neo4j_container"
       if [[ "$clean_env" = true ]]; then
         rm -rf $PROJECT_ROOT/tests/mage/env
       fi
@@ -2850,23 +2849,19 @@ test_mage() {
           ;;
         esac
       done
-      # Define cleanup function for this case branch
+
       cleanup_containers() {
-        docker stop $mage_container || true
-        docker rm $mage_container || true
-        docker stop $mysql_container || true
-        docker rm $mysql_container || true
-        docker stop $postgresql_container || true
-        docker rm $postgresql_container || true
-        # This trap replaces the outer stop_monitoring trap, so chain it here
-        # to ensure the monitoring stack restarts fresh for the next test (and
-        # picks up the new service_name/labels from the regenerated configs).
-        if [[ "$enable_monitoring" == "true" ]]; then
+        local container
+        for container in "$@"; do
+          docker stop "$container" || true
+          docker rm "$container" || true
+        done
+        if [[ "${enable_monitoring:-false}" == "true" ]]; then
           stop_monitoring || true
         fi
       }
       # Set trap to cleanup on exit/interrupt (scoped to this case branch)
-      trap cleanup_containers EXIT INT TERM
+      trap "cleanup_containers '$mage_container' '$mysql_container' '$postgresql_container'" EXIT INT TERM
       create_e2e_test_env
       cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
@@ -2875,7 +2870,7 @@ test_mage() {
         --mysql-container $mysql_container \
         --postgresql-container $postgresql_container
       # Normal cleanup
-      cleanup_containers
+      cleanup_containers "$mage_container" "$mysql_container" "$postgresql_container"
       if [[ "$clean_env" = true ]]; then
         rm -rf $PROJECT_ROOT/tests/mage/env
       fi
