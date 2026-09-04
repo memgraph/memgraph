@@ -2068,6 +2068,42 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   return {};
 }
 
+namespace {
+
+/// Sequences an index drop, which is the same sequence for every kind of index.
+///
+/// Two things about the order are load-bearing, and both are easy to lose when this is written out
+/// by hand once per index kind.
+///
+/// The existence of the index is settled HERE, where the caller goes on to write its log records,
+/// and never again. Asking the catalogue a second time from inside the commit callback would let an
+/// index created in between be evicted without a record, and recovery would then bring back an
+/// index that had been dropped.
+///
+/// The eviction and the publication of the new snapshot are left to one call on the index, which
+/// does both under the catalogue lock, and that call waits for the commit. Splitting them, or
+/// publishing a snapshot read earlier, lets another publisher hand out an uncommitted drop and
+/// costs the rollback guarantee: a writer admitted meanwhile would maintain nothing for the index,
+/// so restoring the entry on abort would restore it short of that writer's rows.
+///
+/// Returns the error a statement reports when there is no such index. The caller records its own
+/// metadata deltas, because which and how many of those there are is what differs between kinds.
+template <typename TIndex, typename... TArgs>
+[[nodiscard]] auto DropIndexOnCommit(Transaction &transaction, PlanInvalidator &invalidator, TIndex *index,
+                                     ActiveIndicesUpdater const &updater, TArgs... args)
+    -> std::expected<void, StorageIndexDefinitionError> {
+  if (!index->GetActiveIndices()->IndexExists(args...)) {
+    return std::unexpected{IndexDefinitionError{}};
+  }
+  auto publisher = invalidator.invalidate_for_timestamp_wrapper([index, updater, args...](uint64_t /*commit_ts*/) {
+    return static_cast<bool>(index->DropIndex(args..., updater));
+  });
+  transaction.commit_callbacks_.Add(std::move(publisher));
+  return {};
+}
+
+}  // namespace
+
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
@@ -2075,24 +2111,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  if (!mem_label_index->GetActiveIndices()->IndexRegistered(label)) {
-    return std::unexpected{IndexDefinitionError{}};
+  auto const scheduled = DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_label_index, updater, label);
+  if (!scheduled) {
+    return scheduled;
   }
-  // Evicting the entry and publishing the new snapshot happen together, inside the catalogue lock,
-  // and both wait for the commit. The eviction cannot run when the statement does: publishing means
-  // publishing the catalogue, so an entry missing from it is an entry any OTHER publisher hands out
-  // on this transaction's behalf, and registering an unrelated index publishes at statement time
-  // because a creation must. A writer admitted after that captures an index set without this index
-  // and maintains nothing for it, so a drop that then rolls back restores an index short of
-  // whatever that writer wrote.
-  //
-  // So nothing happens here but the check and the record. There is no abort callback because there
-  // is nothing to undo, and the drop is atomic: all that moved is when it happens.
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [mem_label_index, label, updater](uint64_t /*commit_ts*/) {
-        return static_cast<bool>(mem_label_index->DropIndex(label, updater));
-      });
-  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -2109,12 +2131,15 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
 
-  // See DropIndex(LabelId) above for why the eviction waits for the commit.
+  // Spelled out rather than going through DropIndexOnCommit, because this is the one kind whose
+  // statement decides more than whether the index is there: it decides which ORDERS it will evict,
+  // and it emits a log record per order. The sequence and its reasons are the same, and
+  // DropIndexOnCommit is where they are written down.
   //
-  // The orders are settled here rather than at commit, because the log records written below have
-  // to describe what the commit will actually evict. Asking again at commit would let an order that
-  // another transaction created in between be evicted without a record, and recovery would then
-  // bring back an index that had been dropped.
+  // The orders are settled here rather than at commit for the reason that function gives about
+  // existence: the log records written below have to describe what the commit will actually evict.
+  // Asking again at commit would let an order that another transaction created in between be
+  // evicted without a record, and recovery would then bring back an index that had been dropped.
   auto const drop_result = mem_label_property_index->OrdersPresent(label, properties, order);
   if (!drop_result) {
     return std::unexpected{IndexDefinitionError{}};
@@ -2153,16 +2178,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  if (!mem_edge_type_index->GetActiveIndices()->IndexRegistered(edge_type)) {
-    return std::unexpected{IndexDefinitionError{}};
+  auto const scheduled =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_edge_type_index, updater, edge_type);
+  if (!scheduled) {
+    return scheduled;
   }
-  // See DropIndex(LabelId) above for why the eviction waits for the commit.
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [mem_edge_type_index, edge_type, updater](uint64_t /*commit_ts*/) {
-        return static_cast<bool>(mem_edge_type_index->DropIndex(edge_type, updater));
-      });
-  transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
@@ -2180,18 +2200,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  if (!static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-           mem_edge_type_property_index->GetActiveIndices().get())
-           ->IndexRegistered(edge_type, property)) {
-    return std::unexpected{IndexDefinitionError{}};
+  auto const scheduled = DropIndexOnCommit(
+      transaction_, *storage_->invalidator_, mem_edge_type_property_index, updater, edge_type, property);
+  if (!scheduled) {
+    return scheduled;
   }
-  // See DropIndex(LabelId) above for why the eviction waits for the commit.
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [mem_edge_type_property_index, edge_type, property, updater](uint64_t /*commit_ts*/) {
-        return static_cast<bool>(mem_edge_type_property_index->DropIndex(edge_type, property, updater));
-      });
-  transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
@@ -2210,15 +2223,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  if (!mem_edge_property_index->GetActiveIndices()->IndexExists(property)) {
-    return std::unexpected{IndexDefinitionError{}};
+  auto const scheduled =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_edge_property_index, updater, property);
+  if (!scheduled) {
+    return scheduled;
   }
-  // See DropIndex(LabelId) above for why the eviction waits for the commit.
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [mem_edge_property_index, property, updater](uint64_t /*commit_ts*/) {
-        return static_cast<bool>(mem_edge_property_index->DropIndex(property, updater));
-      });
-  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
@@ -2232,15 +2241,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_vertex_property_index =
       static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  if (!mem_vertex_property_index->GetActiveIndices()->IndexExists(property)) {
-    return std::unexpected{IndexDefinitionError{}};
+  auto const scheduled =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_vertex_property_index, updater, property);
+  if (!scheduled) {
+    return scheduled;
   }
-  // See DropIndex(LabelId) above for why the eviction waits for the commit.
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [mem_vertex_property_index, property, updater](uint64_t /*commit_ts*/) {
-        return static_cast<bool>(mem_vertex_property_index->DropIndex(property, updater));
-      });
-  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_drop, property);
   return {};

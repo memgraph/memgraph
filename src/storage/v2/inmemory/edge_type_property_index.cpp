@@ -306,7 +306,7 @@ auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, Property
   return {};
 }
 
-bool InMemoryEdgeTypePropertyIndex::ActiveIndices::IndexRegistered(EdgeTypeId edge_type, PropertyId property) const {
+bool InMemoryEdgeTypePropertyIndex::ActiveIndices::IndexExists(EdgeTypeId edge_type, PropertyId property) const {
   return index_container_->contains(std::make_pair(edge_type, property));
 }
 
