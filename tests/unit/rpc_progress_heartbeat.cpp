@@ -253,11 +253,14 @@ TEST(ProgressHeartbeatTest, StopIsIdempotentAndSafeWithoutProgress) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-    ProgressHeartbeat heartbeat{res_builder, kHeartbeatInterval};
+    ProgressHeartbeat heartbeat;
+    heartbeat.Start(res_builder, kHeartbeatInterval);
     heartbeat.Stop();
     heartbeat.Stop();
-    // Recording after the heartbeat stopped must not resurrect it or write anything.
+    // Recording after the heartbeat stopped must not resurrect it or leak progress into the next activation.
     heartbeat.RecordProgress();
+    heartbeat.Start(res_builder, kHeartbeatInterval);
+    std::this_thread::sleep_for(2 * kHeartbeatInterval);
     heartbeat.Stop();
 
     SumRes const res{5};

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include "utils/scheduler.hpp"
 
+#include <charconv>
 #include <ctime>
 
 #include "croncpp.h"
@@ -99,32 +100,26 @@ void Scheduler::SetInterval_(std::string_view cron_expr) {
 SchedulerInterval::SchedulerInterval(std::string str) {
   str = utils::Trim(str);
   if (str.empty()) return;  // Default period_or_cron -> evaluates to false
-  bool failure = false;
+
+  // A plain number is a period in seconds. Checked first and without exceptions: this runs for every
+  // scheduler on startup, and probing the cron parser with a period would throw as control flow.
+  auto const *begin = str.data() + (str.front() == '+' ? 1 : 0);
+  auto const *end = str.data() + str.size();
+  if (int64_t seconds{0};
+      begin != end && std::from_chars(begin, end, seconds) == std::from_chars_result{end, std::errc{}}) {
+    period_or_cron = PeriodStartTime{std::chrono::seconds(seconds), std::nullopt};
+    return;
+  }
+
 #ifdef MG_ENTERPRISE
-  // Try cron
   try {
     (void)cron::make_cron(str);
     period_or_cron = str;
     return;
   } catch (cron::bad_cronexpr & /* unused */) {
-    // Handled later on
-    failure = true;
+    // Not a cron expression either; fatal below.
   }
 #endif
-  try {
-    // Try period
-    size_t n_processed = 0;
-    const auto period = std::chrono::seconds(std::stol(str, &n_processed));
-    if (n_processed != str.size()) {
-      throw std::invalid_argument{"String contains non numerical characteres."};
-    }
-    period_or_cron = PeriodStartTime{period, std::nullopt};
-    return;
-  } catch (const std::invalid_argument & /* unused */) {
-    // Handled later on
-    failure = true;
-  }
-  MG_ASSERT(failure, "Failure not handled correctly.");
   LOG_FATAL("Scheduler setup not an interval or cron expression");
 }
 

@@ -32,12 +32,16 @@ namespace memgraph::rpc {
 //
 // This thread is the only writer of InProgressRes for its builder. The socket write behind slk::Builder is
 // unsynchronized, so a handler writing its final response at the same time would interleave segments on the wire.
-// Stop() must therefore run before the final response is written; the destructor calls it as a backstop.
+// Stop() must therefore run before the final response is written.
+//
+// The default-constructed form lazily starts an idle worker which can be reused across sequential RPCs with
+// Start()/Stop(). The builder constructor remains as a convenience for one-shot users.
 class ProgressHeartbeat {
  public:
   // min timeout of PrepareCommit,WalFiles,CurrentWal,SnapshotReq - 5s (buffer for network)
   static constexpr std::chrono::milliseconds kDefaultInterval{25000};
 
+  ProgressHeartbeat();
   explicit ProgressHeartbeat(slk::Builder *res_builder, std::chrono::milliseconds interval = kDefaultInterval);
   ~ProgressHeartbeat();
 
@@ -45,6 +49,9 @@ class ProgressHeartbeat {
   ProgressHeartbeat &operator=(ProgressHeartbeat const &) = delete;
   ProgressHeartbeat(ProgressHeartbeat &&) = delete;
   ProgressHeartbeat &operator=(ProgressHeartbeat &&) = delete;
+
+  // Activates the idle worker for a new RPC. Start() may only be called after the preceding RPC called Stop().
+  void Start(slk::Builder *res_builder, std::chrono::milliseconds interval = kDefaultInterval);
 
   // Records that the handler made progress. Sits on per-item paths (every delta, every vertex visited while
   // populating an index or validating a constraint.
@@ -54,13 +61,16 @@ class ProgressHeartbeat {
   // a job whose result can no longer be delivered.
   bool PeerGone() const noexcept { return peer_gone_.load(std::memory_order_relaxed); }
 
-  // Joins the heartbeat thread. Idempotent. Must run before the handler writes its final response.
+  // Makes the worker idle. Idempotent and synchronous with an in-flight heartbeat write. Must run before the handler
+  // writes its final response. The worker thread itself stays alive for the next Start().
   void Stop() noexcept;
 
  private:
-  void Run(std::stop_token token, std::chrono::milliseconds interval);
+  void Run(std::stop_token token);
 
-  slk::Builder *res_builder_;
+  slk::Builder *res_builder_{nullptr};
+  std::chrono::milliseconds interval_{kDefaultInterval};
+  bool active_{false};
 
   // Separate cache lines: the heartbeat thread clears work_done_ once per tick while population threads read
   // peer_gone_ on a per-item path, so sharing a line would let each tick invalidate the cancel check.
@@ -69,7 +79,7 @@ class ProgressHeartbeat {
 
   std::mutex mtx_;
   std::condition_variable_any cv_;
-  // Declared last so it starts only after every member it touches is initialised, and is joined first on destruction.
+  // Declared last so a lazily started worker only observes fully initialised members.
   std::jthread worker_;
 };
 
