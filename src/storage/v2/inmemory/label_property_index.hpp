@@ -539,6 +539,16 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   [[nodiscard]] auto DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                                ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order = std::nullopt)
       -> DropCapture;
+
+  /// Which of the orders `order` selects exist for (label, properties), reported in the same shape
+  /// a drop of them would return and without removing anything.
+  ///
+  /// A DROP statement needs this because it decides what to write to the log when the statement
+  /// runs and evicts when it commits, and the two have to agree. Asking again at commit would let
+  /// an order created in between be dropped and go unlogged, and recovery would then bring back an
+  /// index that was dropped.
+  [[nodiscard]] auto OrdersPresent(LabelId label, std::vector<PropertyPath> const &properties,
+                                   std::optional<IndexOrder> order = std::nullopt) const -> DropResult;
   void RestoreIndex(LabelId label, std::vector<PropertyPath> properties, std::optional<AscIndexPtrVariant> asc_evicted,
                     std::optional<DescIndexPtrVariant> desc_evicted,
                     std::optional<PropertiesIndicesStats> stats_evicted, ActiveIndicesUpdater const &updater);

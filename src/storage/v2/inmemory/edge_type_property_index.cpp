@@ -306,6 +306,10 @@ auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, Property
   return {};
 }
 
+bool InMemoryEdgeTypePropertyIndex::ActiveIndices::IndexExists(EdgeTypeId edge_type, PropertyId property) const {
+  return index_container_->contains(std::make_pair(edge_type, property));
+}
+
 bool InMemoryEdgeTypePropertyIndex::ActiveIndices::IndexReady(EdgeTypeId edge_type, PropertyId property) const {
   auto it = index_container_->find(std::make_pair(edge_type, property));
   if (it == index_container_->cend()) [[unlikely]] {

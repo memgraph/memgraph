@@ -248,9 +248,7 @@ void InMemoryLabelIndex::RestoreIndex(LabelId label, std::shared_ptr<IndividualI
   (void)InstallIndividualIndex_(label, std::move(evicted), updater, /*register_in_all_indices=*/false);
 }
 
-bool InMemoryLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const {
-  return index_container_->contains(label);
-}
+bool InMemoryLabelIndex::ActiveIndices::IndexExists(LabelId label) const { return index_container_->contains(label); }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexReady(LabelId label) const {
   auto it = index_container_->find(label);

@@ -241,7 +241,7 @@ bool InMemoryEdgeTypeIndex::ActiveIndices::IndexReady(memgraph::storage::EdgeTyp
   return it->second->status_.IsReady();
 }
 
-bool InMemoryEdgeTypeIndex::ActiveIndices::IndexRegistered(EdgeTypeId edge_type) const {
+bool InMemoryEdgeTypeIndex::ActiveIndices::IndexExists(EdgeTypeId edge_type) const {
   return index_container_->indices_.contains(edge_type);
 }
 

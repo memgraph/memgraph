@@ -89,6 +89,9 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
 
 enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
+// `commit_timestamp` is tested for equality against a delta's own timestamp, so it must come from
+// the same sequence the delta carries: the local commit stamp. A durable timestamp is the main's on
+// a replica, and passing one here leaves a transaction unable to recognise its own writes.
 inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp,
                       bool traverse_chain = false) {
   // This tx is running, so no deltas means there are no changes made after the tx started
