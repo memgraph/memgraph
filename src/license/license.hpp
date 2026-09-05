@@ -38,6 +38,14 @@ constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
   return type == LicenseType::ENTERPRISE || type == LicenseType::AI_PLATFORM || type == LicenseType::OEM;
 }
 
+// Validity and tier are published together as one atomic value, so a reader always observes a pair
+// that was actually stored together, never a mix of an old type with a new validity (or vice versa).
+struct LicenseState {
+  bool valid{false};
+  LicenseType type{LicenseType::ENTERPRISE};
+  bool operator==(const LicenseState &) const = default;
+};
+
 std::string LicenseTypeToString(LicenseType license_type);
 
 inline constexpr std::string_view kLicenseTypeEnterprise = "enterprise";
@@ -126,12 +134,16 @@ struct LicenseChecker {
  private:
   void RevalidateLicense(utils::Settings &settings);
 
+  // Written once at startup (SetCliLicense/CheckEnvLicense on the main thread) before the background
+  // scheduler and the Bolt server exist; thread creation publishes them to every later reader. This
+  // startup-only invariant is what makes these non-atomic fields safe -- a runtime writer would need
+  // explicit serialisation (they are not trivially copyable, so unlike state_ they cannot be atomics).
   std::optional<std::pair<std::string, std::string>> cli_license_info_;
   std::optional<std::pair<std::string, std::string>> env_license_info_;
   mutable utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
   bool enterprise_enabled_{false};
-  std::atomic<bool> is_valid_{false};
-  LicenseType license_type_;
+  std::atomic<LicenseState> state_{};
+  static_assert(std::atomic<LicenseState>::is_always_lock_free);
   utils::Scheduler scheduler_;
 
   friend void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings);
