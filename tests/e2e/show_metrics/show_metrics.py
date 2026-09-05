@@ -164,6 +164,9 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "GCSkiplistCleanupLatency_us_50p", "type": "Memory", "metric type": "Histogram"},
         {"name": "GCSkiplistCleanupLatency_us_90p", "type": "Memory", "metric type": "Histogram"},
         {"name": "GCSkiplistCleanupLatency_us_99p", "type": "Memory", "metric type": "Histogram"},
+        # MultiTenancy (sorted by metric type, name)
+        {"name": "DeferredTenantDestructions", "type": "MultiTenancy", "metric type": "Counter"},
+        {"name": "PendingTenantDestructions", "type": "MultiTenancy", "metric type": "Gauge"},
         # Operator (alphabetical)
         {"name": "AccumulateOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "AggregateOperator", "type": "Operator", "metric type": "Counter"},

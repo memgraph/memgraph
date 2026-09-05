@@ -447,7 +447,7 @@ add_unit_test(utils_algorithm
 # Hot/cold tenants: gatekeeper 4-state lifecycle machine
 add_unit_test(hot_cold_gatekeeper
     SOURCES hot_cold_gatekeeper.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-metrics
 )
 
 # Hot/cold tenants: node-local suspend engine (HOT -> COLD teardown)

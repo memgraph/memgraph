@@ -9,12 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <thread>
 
 #include <gtest/gtest.h>
 
+#include "dbms/handler.hpp"
 #include "utils/gatekeeper.hpp"
 
 using namespace memgraph::utils;
@@ -263,4 +265,132 @@ TEST(HotColdGatekeeper, TryDeleteDestroysValueWithMutexReleased) {
   EXPECT_TRUE(acc->try_delete());         // completes (no deadlock) on fixed code
   EXPECT_TRUE(dtor_saw_nullopt);          // access() during ~Reentrant saw value_ gone
   EXPECT_FALSE(gk.access().has_value());  // value destroyed
+}
+
+// ---------------------------------------------------------------------------
+// DeferDeleteErasesButDefersDestruction
+// ---------------------------------------------------------------------------
+// DeferDeleteProbe: dtor sleeps then flips an atomic, so destruction is observable and slow enough
+// that inline (non-deferred) destruction would visibly block the DeferDelete() call itself.
+namespace {
+struct DeferDeleteProbe {
+  DeferDeleteProbe(std::atomic<bool> *destroyed, std::chrono::milliseconds dtor_delay)
+      : destroyed_{destroyed}, dtor_delay_{dtor_delay} {}
+
+  DeferDeleteProbe(DeferDeleteProbe const &) = delete;
+  DeferDeleteProbe(DeferDeleteProbe &&) = delete;
+  DeferDeleteProbe &operator=(DeferDeleteProbe const &) = delete;
+  DeferDeleteProbe &operator=(DeferDeleteProbe &&) = delete;
+
+  ~DeferDeleteProbe() {
+    std::this_thread::sleep_for(dtor_delay_);
+    destroyed_->store(true, std::memory_order_release);
+  }
+
+ private:
+  std::atomic<bool> *destroyed_;
+  std::chrono::milliseconds dtor_delay_;
+};
+}  // namespace
+
+TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
+  // Declared ahead of `handler` on purpose: the probe's dtor writes through a raw pointer to these
+  // flags from a worker thread, so `~Handler`'s joins (reverse-declaration-order unwind) must finish first.
+  std::atomic<bool> destroyed{false};
+  std::atomic<bool> callback_fired{false};
+  memgraph::dbms::Handler<DeferDeleteProbe> handler;
+
+  constexpr auto kDtorDelay = std::chrono::milliseconds(200);
+
+  auto new_result = handler.New(std::piecewise_construct, "probe", &destroyed, kDtorDelay);
+  ASSERT_TRUE(new_result.has_value());
+  auto held_acc = std::move(*new_result);
+  ASSERT_TRUE(held_acc);
+
+  // held_acc + DeferDelete's own minted accessor push count_ to 2, so try_delete()'s count_==1 check
+  // times out (~100ms) and takes the deferred path; the 500ms bound catches a regression to inline delete.
+  const auto call_start = std::chrono::steady_clock::now();
+  handler.DeferDelete("probe", [&callback_fired] { callback_fired.store(true, std::memory_order_release); });
+  const auto call_elapsed = std::chrono::steady_clock::now() - call_start;
+  EXPECT_LT(call_elapsed, std::chrono::milliseconds(500));
+
+  // Erased from the map immediately even though held_acc keeps the object alive.
+  EXPECT_FALSE(handler.Has("probe"));
+
+  // Poll a bounded window (not an instant check) that destruction hasn't happened while held_acc is alive.
+  constexpr auto kPollUntil = std::chrono::milliseconds(250);
+  const auto poll_start = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - poll_start < kPollUntil) {
+    ASSERT_FALSE(destroyed.load(std::memory_order_acquire));
+    ASSERT_FALSE(callback_fired.load(std::memory_order_acquire));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Dropping held_acc's count to 0 is what lets the next reschedule tick's try_delete(0) finally see
+  // count_==1 and destroy the probe (until now every tick trylocked and backed off).
+  held_acc.reset();
+
+  const auto wait_start = std::chrono::steady_clock::now();
+  while (!destroyed.load(std::memory_order_acquire) || !callback_fired.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now() - wait_start, std::chrono::seconds(5));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_TRUE(destroyed.load(std::memory_order_acquire));
+  EXPECT_TRUE(callback_fired.load(std::memory_order_acquire));
+}
+
+// ---------------------------------------------------------------------------
+// DeferDeleteDoesNotHeadOfLineBlockAnotherEntry
+// ---------------------------------------------------------------------------
+// Regression guard for the old shared-worker starvation bug: one pool worker serialized all deferred
+// destructions, so an entry nobody released occupied it forever and every later entry's destruction
+// queued behind it and never ran. "stuck" stays pinned; "freed" must be destroyed anyway.
+TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
+  // Declared ahead of `handler`: these flags are written through raw pointers/references from a worker
+  // thread (the probe's dtor or the post-delete callback), so `~Handler`'s joins must finish first.
+  std::atomic<bool> stuck_destroyed{false};
+  std::atomic<bool> freed_destroyed{false};
+  std::atomic<bool> freed_callback_fired{false};
+  memgraph::dbms::Handler<DeferDeleteProbe> handler;
+
+  auto stuck = handler.New(std::piecewise_construct, "stuck", &stuck_destroyed, std::chrono::milliseconds(0));
+  ASSERT_TRUE(stuck.has_value());
+  auto stuck_acc = std::move(*stuck);
+  ASSERT_TRUE(stuck_acc);
+
+  auto freed = handler.New(std::piecewise_construct, "freed", &freed_destroyed, std::chrono::milliseconds(0));
+  ASSERT_TRUE(freed.has_value());
+  auto freed_acc = std::move(*freed);
+  ASSERT_TRUE(freed_acc);
+
+  // Both drops take the deferred path: each entry's own accessor is still held, so DeferDelete's
+  // minted accessor pushes count_ to 2 and try_delete()'s count_==1 check fails for both.
+  handler.DeferDelete("stuck", [] {});
+  handler.DeferDelete("freed",
+                      [&freed_callback_fired] { freed_callback_fired.store(true, std::memory_order_release); });
+
+  // Release only "freed" -- "stuck" stays pinned, so if the two shared a worker "freed" would never
+  // complete either.
+  freed_acc.reset();
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!freed_destroyed.load(std::memory_order_acquire) || !freed_callback_fired.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+        << "\"freed\" never got destroyed while \"stuck\" was pinned: head-of-line blocking between "
+           "unrelated entries";
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // "stuck" must still be alive. Without this the test would also pass if something had released
+  // "stuck" -- i.e. for the wrong reason, with the two entries never actually decoupled.
+  EXPECT_FALSE(stuck_destroyed.load(std::memory_order_acquire));
+
+  // Release "stuck" and wait for it: not load-bearing for raw-pointer safety (see the flags' declaration
+  // comment above) but is the only check that "stuck" actually gets destroyed once released.
+  stuck_acc.reset();
+  const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!stuck_destroyed.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), drain_deadline) << "\"stuck\" was not destroyed after being released";
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
 }

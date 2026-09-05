@@ -347,6 +347,14 @@ struct Gatekeeper {
     return pimpl_->state_;
   }
 
+  // Live-Accessor count at this instant — INHERENTLY RACY: Accessors mint/release under only
+  // pimpl_->mutex_ (e.g. the database-protector factory takes no handler lock). Diagnostics only;
+  // use try_delete()/try_begin_suspend(), which re-check count_ under this mutex, to actually gate.
+  uint64_t holder_count() const {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    return pimpl_->count_;
+  }
+
   // HOT -> SUSPENDING.
   // Waits up to `timeout` for the accessor count to drain to exactly 1 (i.e.
   // only the caller's own accessor is live). The caller MUST hold exactly one

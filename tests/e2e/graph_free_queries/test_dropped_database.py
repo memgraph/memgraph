@@ -22,7 +22,10 @@ def admin_cursor():
     yield cursor
     execute_and_fetch_all(cursor, "USE DATABASE memgraph")
     for row in execute_and_fetch_all(cursor, "SHOW DATABASES"):
-        if row[0].startswith("tenant_"):
+        # A force-dropped tenant still draining behind a live accessor lingers as a DETACHED row but
+        # is already gone and unaddressable by name, so a second DROP ... FORCE says "does not exist".
+        # Skip it; HOT/COLD tenants of the same prefix are still dropped.
+        if row[0].startswith("tenant_") and row[1] != "DETACHED":
             execute_and_fetch_all(cursor, f"DROP DATABASE {row[0]} FORCE")
 
 
