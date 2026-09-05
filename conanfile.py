@@ -95,7 +95,7 @@ class Memgraph(ConanFile):
         # early-return is memgraph-only.
         # force=True makes boost both a direct require (so CMakeDeps generates
         # full Boost::headers config) and overrides transitive boost ranges
-        self.requires("boost/1.88.0-memgraph", force=True)
+        self.requires("boost/1.91.0-memgraph", force=True)
         self.requires("fmt/12.2.0", force=True)
         self.requires("nlohmann_json/3.11.3-memgraph")
         self.requires("libuuid/1.0.3")
