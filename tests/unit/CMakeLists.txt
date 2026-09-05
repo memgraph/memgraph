@@ -1034,6 +1034,16 @@ add_unit_test(text_index
 
 # Test mg-auth
 if (MG_ENTERPRISE)
+    add_unit_test(atomic_auth_overlay
+        SOURCES atomic_auth_overlay.cpp
+        LINK_TARGETS mg-auth mg-kvstore mg-utils
+    )
+
+    add_unit_test(auth_storage
+        SOURCES auth_storage.cpp
+        LINK_TARGETS mg-auth mg-kvstore mg-utils
+    )
+
     add_unit_test(auth
         SOURCES auth.cpp
         LINK_TARGETS mg-auth mg-license Boost::filesystem

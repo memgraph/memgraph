@@ -10593,6 +10593,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       throw SchemaAssertInMulticommandTxException();
     }
 
+    // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
+    // releases the accessor BEGIN opened (see PrepareAuthQuery), so a later data query would have none to run
+    // against.
+    auto const mode = utils::Downcast<AuthQuery>(parsed_query.query) ? TxMode::Auth : TxMode::Data;
+    if (!tx_mode_) {
+      tx_mode_ = mode;
+    } else if (*tx_mode_ != mode) {
+      throw MixedAuthAndDataTxException();
+    }
+
     transaction_queries_->push_back(parsed_query.query_string);
     AdvanceCommand();
   } else {
