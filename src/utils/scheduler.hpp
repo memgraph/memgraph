@@ -90,9 +90,9 @@ class Scheduler {
     SetIntervalAndWake(SchedulerInterval{period, start_time});
   }
 
-  void Resume();
+  void Resume() noexcept;
 
-  void Pause();
+  void Pause() noexcept;
 
   void Stop();
 

@@ -26,6 +26,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
 
 using testing::Types;
@@ -2938,7 +2939,12 @@ TEST(StorageSetStorageModeTest, ConcurrentUniqueHoldersAreNeverBothAdmitted) {
   threads.emplace_back([&] {
     while (!stop.load(std::memory_order_relaxed)) {
       store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
-      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+      try {
+        store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+      } catch (memgraph::utils::BasicException const &) {
+        // A prober's unique access between the prepared exit snapshot and the flip aborts the
+        // switch by design, telling the caller to repeat it; the next iteration is that repeat.
+      }
     }
   });
 
@@ -3082,7 +3088,12 @@ TEST(StorageAccessRaceTest, ReadsModeAndIsolationWithoutRacingTheWriter) {
   threads.emplace_back([&] {
     while (!stop.load(std::memory_order_relaxed)) {
       store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
-      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+      try {
+        store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+      } catch (memgraph::utils::BasicException const &) {
+        // A reader admitted just before the switch's pending registration can make the flip abort
+        // by design, telling the caller to repeat it; the next iteration is that repeat.
+      }
     }
   });
 

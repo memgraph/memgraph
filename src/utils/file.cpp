@@ -23,7 +23,6 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
-#include <ranges>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -74,16 +73,31 @@ bool DeleteDir(const std::filesystem::path &dir) noexcept {
   return std::filesystem::remove_all(dir, error_code) > 0;
 }
 
-auto GetFilesFromDir(std::filesystem::path const &dir) -> std::vector<std::filesystem::path> {
+auto TryGetFilesFromDir(std::filesystem::path const &dir) noexcept
+    -> std::optional<std::vector<std::filesystem::path>> try {
   if (!utils::DirExists(dir)) {
     spdlog::error("Directory {} doesn't exist", dir);
-    return {};
+    return std::vector<std::filesystem::path>{};
   }
+  std::vector<std::filesystem::path> files;
   std::error_code error_code;
-  return std::filesystem::directory_iterator(dir, error_code) |
-         std::views::transform([](auto const &dir_entry) { return dir_entry.path(); }) |
-         std::views::filter([](std::filesystem::path const &path) { return path.filename() != ".old"; }) |
-         std::ranges::to<std::vector>();
+  auto dir_it = std::filesystem::directory_iterator(dir, error_code);
+  for (; !error_code && dir_it != std::filesystem::directory_iterator{}; dir_it.increment(error_code)) {
+    auto const &path = dir_it->path();
+    if (path.filename() != ".old") files.push_back(path);
+  }
+  if (error_code) {
+    spdlog::error("Failed to read directory {}. Err: {}", dir, error_code.message());
+    return std::nullopt;
+  }
+  return files;
+} catch (...) {
+  // Only allocation can land here (iteration reports through the error code).
+  return std::nullopt;
+}
+
+auto GetFilesFromDir(std::filesystem::path const &dir) noexcept -> std::vector<std::filesystem::path> {
+  return TryGetFilesFromDir(dir).value_or(std::vector<std::filesystem::path>{});
 }
 
 bool DeleteFile(const std::filesystem::path &file) noexcept {

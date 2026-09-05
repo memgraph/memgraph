@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <stop_token>
 #include <string>
@@ -28,6 +30,7 @@
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/scheduler.hpp"
 
 class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
@@ -227,6 +230,154 @@ TEST_F(StorageModeMultiTxTest, AnalyticalIndexDropAccess) {
   auto acc = db->storage()->Access(memgraph::storage::READ);
   ASSERT_EQ(acc->ListAllIndices().label.size(), 0);
   acc->Abort();
+}
+
+// The analytical -> transactional direction writes its exit snapshot under READ_ONLY and finishes
+// the exclusive flip asynchronously when readers are in flight; these tests pin that contract.
+class StorageModeSwitchTest : public ::testing::Test {
+ protected:
+  std::filesystem::path data_directory = []() {
+    const auto tmp = std::filesystem::temp_directory_path() / "MG_tests_unit_storage_mode_switch";
+    std::filesystem::remove_all(tmp);
+    return tmp;
+  }();  // iile
+
+  void TearDown() override {
+    storage.reset();
+    std::filesystem::remove_all(data_directory);
+  }
+
+  std::unique_ptr<memgraph::storage::InMemoryStorage> storage =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .durability = {
+              .storage_directory = data_directory,
+              .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+              .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)}}});
+};
+
+TEST_F(StorageModeSwitchTest, ReaderDefersSwitchBackUntilRelease) {
+  using memgraph::storage::StorageMode;
+  storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto reader = storage->Access(memgraph::storage::READ);
+  // Returns with the exit snapshot written but the exclusive flip still pending behind the reader.
+  storage->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+  EXPECT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_ANALYTICAL);
+
+  reader.reset();
+  // Accessors requested after the switch wait for the flip, so this doubles as a barrier.
+  auto barrier = storage->Access(memgraph::storage::WRITE);
+  EXPECT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_TRANSACTIONAL);
+}
+
+TEST_F(StorageModeSwitchTest, AccessorsRequestedAfterSwitchStartTransactional) {
+  using memgraph::storage::StorageMode;
+  storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+
+  auto reader = storage->Access(memgraph::storage::READ);
+  storage->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_ANALYTICAL);
+
+  std::atomic<bool> writer_admitted{false};
+  std::atomic<StorageMode> mode_at_admission{StorageMode::IN_MEMORY_ANALYTICAL};
+  std::jthread writer([&] {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    mode_at_admission.store(storage->GetStorageMode(), std::memory_order_release);
+    writer_admitted.store(true, std::memory_order_release);
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // The pending flip gates every new accessor: nothing is admitted into the half-switched state.
+  EXPECT_FALSE(writer_admitted.load(std::memory_order_acquire));
+
+  reader.reset();
+  writer.join();
+  EXPECT_EQ(mode_at_admission.load(std::memory_order_acquire), StorageMode::IN_MEMORY_TRANSACTIONAL);
+}
+
+TEST_F(StorageModeSwitchTest, BackToBackTransitionsSerialize) {
+  using memgraph::storage::StorageMode;
+  storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+
+  auto reader = storage->Access(memgraph::storage::READ);
+  storage->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_ANALYTICAL);
+
+  // Must wait for the pending flip and only then switch, never jump ahead of it.
+  std::jthread back_to_analytical([&] { storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  reader.reset();
+  back_to_analytical.join();
+  EXPECT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_ANALYTICAL);
+
+  // The intermediate flip to transactional really happened: it left its exit snapshot behind.
+  size_t snapshot_count = 0;
+  for (auto const &entry : std::filesystem::directory_iterator(data_directory / "snapshots")) {
+    snapshot_count += static_cast<size_t>(entry.is_regular_file());
+  }
+  EXPECT_GE(snapshot_count, 1);
+}
+
+TEST_F(StorageModeSwitchTest, CompetingUniqueAccessAbortsSwitch) {
+  using memgraph::storage::StorageMode;
+  // A unique access can win the lock between the prepared snapshot and the flip; the flip then
+  // detects it and aborts, leaving the storage analytical for the user to repeat the switch. The
+  // race is genuine, so iterate to land on both orders and assert the invariant that holds for
+  // either: the mode is never half-switched, and repeating the switch always converges.
+  for (int i = 0; i < 20; ++i) {
+    storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+    auto reader = storage->Access(memgraph::storage::READ);
+    storage->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+    std::jthread interloper([&] { auto unique = storage->UniqueAccess(); });
+    reader.reset();
+    interloper.join();
+
+    // Admitted only once the flip's exclusive cycle is over, so the outcome is settled after this.
+    {
+      auto barrier = storage->Access(memgraph::storage::WRITE);
+    }
+    if (storage->GetStorageMode() == StorageMode::IN_MEMORY_ANALYTICAL) {
+      // The interloper won and the switch aborted; repeating it succeeds.
+      storage->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+    }
+    ASSERT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_TRANSACTIONAL);
+  }
+}
+
+TEST_F(StorageModeSwitchTest, ConcurrentReadOnlyIndexDdlAbortsSwitch) {
+  using memgraph::storage::StorageMode;
+  storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+
+  // Analytical index DDL runs under READ_ONLY access: admitted alongside the read-only exit
+  // snapshot, it can commit an index the snapshot does not record, invisibly to the
+  // transaction-id check (its transaction predates the switch).
+  auto ddl = storage->ReadOnlyAccess();
+  storage->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_ANALYTICAL);
+
+  // The exit snapshot is already written; this index is missing from it.
+  ASSERT_TRUE(ddl->CreateIndex(storage->NameToLabel("ConcurrentlyIndexed")).has_value());
+  ASSERT_TRUE(ddl->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ddl.reset();
+
+  // The flip compares index definitions against the snapshot's, detects the divergence and aborts.
+  {
+    auto barrier = storage->Access(memgraph::storage::WRITE);
+  }
+  ASSERT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_ANALYTICAL);
+
+  // Repeating the switch snapshots the index too and succeeds.
+  storage->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_TRANSACTIONAL);
+  auto acc = storage->Access(memgraph::storage::READ);
+  ASSERT_EQ(acc->ListAllIndices().label.size(), 1);
 }
 
 // nlohmann ADL hooks for StorageMode (storage_mode.hpp): integer wire encoding + range-checked read.
