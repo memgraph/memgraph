@@ -59,6 +59,7 @@ class TestOutputStream {
   bool Write(const uint8_t *data, size_t len, bool have_more = false) {
     if (!write_success_) return false;
     output.insert(output.end(), data, data + len);
+    ++write_count;
     return true;
   }
 
@@ -69,6 +70,7 @@ class TestOutputStream {
   void SetWriteSuccess(bool success) { write_success_ = success; }
 
   std::vector<uint8_t> output;
+  size_t write_count = 0;  // number of successful Write() calls (batched sends)
 
  protected:
   bool write_success_{true};

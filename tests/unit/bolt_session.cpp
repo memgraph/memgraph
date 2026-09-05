@@ -1384,3 +1384,101 @@ TEST(BoltSession, FailureAfterLargeResultIsNotCorrupted) {
   EXPECT_EQ(messages.back()[0], 0xB1);
   EXPECT_EQ(messages.back()[1], 0x7F);  // Failure signature
 }
+
+TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
+  // Response batching: a pipelined RUN+PULL auto-commit burst must reach the socket as a SINGLE
+  // write — the deferred SUCCESS acks, the record, and the PULL summary are drained together at
+  // end-of-input — instead of one write per message. This is what supersedes the v2-layer batching.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  output.clear();
+  output_stream.write_count = 0;
+
+  // Pipeline RUN + PULL into the input buffer, THEN drive Execute once (no execute in between,
+  // or the two would drain separately).
+  WriteRunRequest(input_stream, kQueryReturn42, true);
+  WriteChunkHeader(input_stream, sizeof(v4::pullall_req));
+  input_stream.Write(v4::pullall_req, sizeof(v4::pullall_req));
+  WriteChunkTail(input_stream);
+
+  session.Execute();
+
+  // The whole burst leaves as one write.
+  EXPECT_EQ(output_stream.write_count, 1u);
+
+  // Byte-transparency: that single write still carries all three complete messages —
+  // RUN SUCCESS header, one RECORD, PULL SUCCESS summary — in order, nothing merged or dropped.
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<uint8_t> current;
+  size_t i = 0;
+  while (i + 2 <= output.size()) {
+    const uint16_t len = (static_cast<uint16_t>(output[i]) << 8) | output[i + 1];
+    i += 2;
+    if (len == 0) {
+      messages.push_back(std::move(current));
+      current.clear();
+      continue;
+    }
+    ASSERT_LE(i + len, output.size());
+    current.insert(current.end(), output.begin() + i, output.begin() + i + len);
+    i += len;
+  }
+  ASSERT_EQ(messages.size(), 3u);
+  ASSERT_GE(messages[0].size(), 2u);
+  EXPECT_EQ(messages[0][1], 0x70);  // SUCCESS (RUN header)
+  ASSERT_GE(messages[1].size(), 2u);
+  EXPECT_EQ(messages[1][1], 0x71);  // RECORD
+  ASSERT_GE(messages[2].size(), 2u);
+  EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
+
+TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {
+  // With response-batching, a RUN+PULL response deferred earlier in a pipelined burst must still
+  // reach the client when the same burst ends with GOODBYE — GOODBYE closes the connection, but the
+  // handler flushes the deferred buffer first, matching the pre-batching per-message flush.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  output.clear();
+
+  // Pipeline RUN + PULL + GOODBYE into the input buffer, then drive once. GOODBYE throws.
+  WriteRunRequest(input_stream, kQueryReturn42, true);
+  WriteChunkHeader(input_stream, sizeof(v4::pullall_req));
+  input_stream.Write(v4::pullall_req, sizeof(v4::pullall_req));
+  WriteChunkTail(input_stream);
+  WriteChunkHeader(input_stream, sizeof(v4::goodbye));
+  input_stream.Write(v4::goodbye, sizeof(v4::goodbye));
+  WriteChunkTail(input_stream);
+
+  ASSERT_THROW(session.Execute(), memgraph::communication::SessionClosedException);
+
+  // The deferred RUN+PULL responses were flushed before the close: exactly the three framed
+  // messages RUN SUCCESS, RECORD, PULL SUCCESS — not dropped.
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<uint8_t> current;
+  size_t i = 0;
+  while (i + 2 <= output.size()) {
+    const uint16_t len = (static_cast<uint16_t>(output[i]) << 8) | output[i + 1];
+    i += 2;
+    if (len == 0) {
+      messages.push_back(std::move(current));
+      current.clear();
+      continue;
+    }
+    ASSERT_LE(i + len, output.size());
+    current.insert(current.end(), output.begin() + i, output.begin() + i + len);
+    i += len;
+  }
+  ASSERT_EQ(messages.size(), 3u);
+  ASSERT_GE(messages[0].size(), 2u);
+  EXPECT_EQ(messages[0][1], 0x70);  // SUCCESS (RUN header)
+  ASSERT_GE(messages[1].size(), 2u);
+  EXPECT_EQ(messages[1][1], 0x71);  // RECORD
+  ASSERT_GE(messages[2].size(), 2u);
+  EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
