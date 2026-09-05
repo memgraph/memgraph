@@ -4173,11 +4173,18 @@ class KShortestPathsCursor : public Cursor {
         current_target_(std::nullopt),
         blocked_edges_(mem),
         blocked_vertices_(mem),
-        distances_(mem),
         in_edges_(mem),
         out_edges_(mem),
-        predecessors_(mem),
-        expansion_memo_(mem) {}
+        trie_first_child_(mem),
+        trie_children_(mem),
+        path_gids_scratch_(mem),
+        bfs_source_frontier_(mem),
+        bfs_target_frontier_(mem),
+        bfs_source_next_(mem),
+        bfs_target_next_(mem),
+        expansion_memo_(mem),
+        bfs_in_edge_(mem),
+        bfs_out_edge_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -4303,19 +4310,12 @@ class KShortestPathsCursor : public Cursor {
     size_t deviation_vertex_index;  // Index where this path deviates from parent
 
     explicit PathInfo(utils::MemoryResource *mem) : edges(mem), deviation_vertex_index(0) {}
-
-    PathInfo(const utils::pmr::vector<EdgeAccessor> &path_edges, size_t deviation_idx, utils::MemoryResource *mem)
-        : edges(path_edges.begin(), path_edges.end(), mem), deviation_vertex_index(deviation_idx) {}
   };
 
   struct PathComparator {
     bool operator()(const PathInfo &a, const PathInfo &b) const {
-      return a.edges.size() > b.edges.size();  // Min-heap: smaller costs have higher priority
+      return a.edges.size() > b.edges.size();  // Reversed: the heap serves the shortest path first
     }
-  };
-
-  struct EdgeAccessorHash {
-    size_t operator()(const EdgeAccessor &edge) const { return std::hash<storage::Gid>{}(edge.Gid()); }
   };
 
   struct VertexAccessorHash {
@@ -4357,7 +4357,8 @@ class KShortestPathsCursor : public Cursor {
 
   // State for K-shortest paths algorithm
   utils::pmr::vector<PathInfo> shortest_paths_;
-  std::priority_queue<PathInfo, utils::pmr::vector<PathInfo>, PathComparator> candidate_paths_;
+  // A heap by hand, not a `priority_queue`: its `top()` is const, so serving a candidate copies it.
+  utils::pmr::vector<PathInfo> candidate_paths_;
   utils::pmr::unordered_set<utils::pmr::vector<storage::Gid>, PathGidsHash> found_paths_set_;
   size_t current_path_index_ = 0;
 
@@ -4366,10 +4367,11 @@ class KShortestPathsCursor : public Cursor {
   std::optional<VertexAccessor> current_source_;
   std::optional<VertexAccessor> current_target_;
 
-  // Dijkstra's algorithm state (reused for efficiency)
-  utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
-  utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
-  utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
+  // The inner search skips these. Blocked edges are rebuilt for every deviation; blocked vertices
+  // are the root walked so far, so they only accumulate down the base path. There are no weights:
+  // `PathComparator` orders by hop count.
+  utils::pmr::unordered_set<storage::Gid> blocked_edges_;
+  utils::pmr::unordered_set<storage::Gid> blocked_vertices_;
   // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
   // searches don't re-fetch. Must stay unfiltered: a lambda reading an outer-row value would make
   // post-filter results wrong. Copied into an arena vector because `EdgeVertexAccessorResult` is not
@@ -4378,7 +4380,32 @@ class KShortestPathsCursor : public Cursor {
   using CachedEdges = utils::pmr::vector<EdgeAccessor>;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
-  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
+
+  // Trie of the found paths' edges: a root prefix's children are exactly the edges a deviation
+  // there must block. Children form an intrusive sibling list, so a node holds no container.
+  static constexpr uint32_t kNoChild = std::numeric_limits<uint32_t>::max();
+
+  struct TrieChild {
+    storage::Gid edge;
+    uint32_t node;
+    uint32_t next_sibling;
+  };
+
+  utils::pmr::vector<uint32_t> trie_first_child_;
+  utils::pmr::vector<TrieChild> trie_children_;
+
+  // Probe buffer for `found_paths_set_`.
+  utils::pmr::vector<storage::Gid> path_gids_scratch_;
+
+  // The inner search's scratch, reused across the searches Yen's runs for one input row instead
+  // of being rebuilt per call. This saves the allocation and the regrowth; it does not fix a leak,
+  // because the arena recycles a pooled block and frees an unpooled one, so a per-call container
+  // was never retained. The reuse only pays within a row, so `ReleaseInnerSearchState` gives the
+  // capacity back at the row boundary.
+  utils::pmr::vector<VertexAccessor> bfs_source_frontier_;
+  utils::pmr::vector<VertexAccessor> bfs_target_frontier_;
+  utils::pmr::vector<VertexAccessor> bfs_source_next_;
+  utils::pmr::vector<VertexAccessor> bfs_target_next_;
 
   // Memoised `access check && filter lambda` verdicts. Sound across Yen's inner searches because the
   // blocked sets - the only per-deviation inputs - are checked outside the memo.
@@ -4388,12 +4415,14 @@ class KShortestPathsCursor : public Cursor {
 
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
+  VertexEdgeMapT bfs_in_edge_;
+  VertexEdgeMapT bfs_out_edge_;
 
   bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target, Frame &frame,
                                 ExpressionEvaluator &evaluator, ExecutionContext &context) {
     ResetState();
 
-    // Find the shortest path using Dijkstra's algorithm
+    // Seeds Yen's with the shortest path; the rest are deviations from it.
     auto shortest_path = ComputeShortestPath(source, target, upper_bound_, frame, evaluator, context);
     if (!shortest_path.edges.empty()) {
       shortest_paths_.emplace_back(std::move(shortest_path));
@@ -4407,17 +4436,48 @@ class KShortestPathsCursor : public Cursor {
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (shortest_paths_.empty()) return false;
 
-    const auto &last_path = shortest_paths_.back();
+    // Scoped so the reference cannot outlive the loop. Nothing in it appends to
+    // `shortest_paths_`; the scope means that does not have to be re-checked.
+    {
+      const auto &base_path = shortest_paths_.back();
 
-    // Generate candidate paths by deviating at each vertex of the last shortest path
-    for (size_t i = 0UZ; i < last_path.edges.size(); ++i) {
-      GenerateCandidatesFromDeviation(source, target, last_path, i, frame, evaluator, context);
+      // Lawler: start where this path left its parent, not at 0. Its first `first_deviation` edges
+      // are the deviation root it was generated from, and every edge of that root was already a
+      // trie child, so accepting this path can only have added children at `first_deviation` or
+      // deeper - exactly the range below. It has to be the root rather than the parent's prefix,
+      // because one path can be generated at two depths and only the copy popped first sets the
+      // index.
+      const size_t first_deviation = base_path.deviation_vertex_index;
+
+      blocked_vertices_.clear();
+      VertexAccessor deviation_vertex = source;
+      // The base path is itself a found path, so this walk never falls off the trie.
+      uint32_t trie_node = 0;
+
+      for (size_t i = 0UZ; i < base_path.edges.size(); ++i) {
+        if (i >= first_deviation) {
+          blocked_edges_.clear();
+          for (uint32_t c = trie_first_child_[trie_node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+            blocked_edges_.insert(trie_children_[c].edge);
+          }
+          GenerateCandidatesFromDeviation(target, base_path, i, deviation_vertex, frame, evaluator, context);
+        }
+
+        blocked_vertices_.insert(deviation_vertex.Gid());
+        const auto &edge = base_path.edges[i];
+        deviation_vertex = (edge.From() == deviation_vertex) ? edge.To() : edge.From();
+        trie_node = TrieDescend(trie_node, edge.Gid());
+        // Checked in release too: a miss is `kNoChild`, and the next iteration would index the
+        // child array with it.
+        MG_ASSERT(trie_node != kNoChild, "the base path must be in the trie of found paths");
+      }
     }
 
     // Find the best candidate path
     while (!candidate_paths_.empty()) {
-      PathInfo candidate = candidate_paths_.top();
-      candidate_paths_.pop();
+      std::ranges::pop_heap(candidate_paths_, PathComparator{});
+      PathInfo candidate = std::move(candidate_paths_.back());
+      candidate_paths_.pop_back();
       // Handle upper bound
       if (candidate.edges.size() > upper_bound_) {
         // Next path is too long, stop generating candidates
@@ -4432,90 +4492,35 @@ class KShortestPathsCursor : public Cursor {
     return false;
   }
 
-  void GenerateCandidatesFromDeviation(const VertexAccessor &source, const VertexAccessor &target,
-                                       const PathInfo &base_path, size_t deviation_index, Frame &frame,
+  void GenerateCandidatesFromDeviation(const VertexAccessor &target, const PathInfo &base_path, size_t deviation_index,
+                                       const VertexAccessor &deviation_vertex, Frame &frame,
                                        ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    // Set up blocked edges and vertices for this deviation
-    SetupBlockedElementsForDeviation(source, base_path, deviation_index);
-
-    // Get the deviation vertex
-    VertexAccessor deviation_vertex = GetVertexAtIndex(source, base_path, deviation_index);
-
     // The candidate's total is `deviation_index + spur_len`, so the spur gets what's left of it.
     auto spur_path = ComputeShortestPath(
         deviation_vertex, target, upper_bound_ - static_cast<int64_t>(deviation_index), frame, evaluator, context);
 
-    if (!spur_path.edges.empty()) {
-      // Combine the root path (up to deviation) with the spur path
-      PathInfo candidate_path(evaluator.GetMemoryResource());
+    if (spur_path.edges.empty()) return;
 
-      // Add edges from source to deviation vertex
-      for (size_t i = 0UZ; i < deviation_index; ++i) {
-        candidate_path.edges.push_back(base_path.edges[i]);
-      }
+    // Reserved because the final size is known: one allocation instead of a realloc chain.
+    PathInfo candidate_path(evaluator.GetMemoryResource());
+    candidate_path.edges.reserve(deviation_index + spur_path.edges.size());
+    candidate_path.edges.assign(base_path.edges.begin(),
+                                base_path.edges.begin() + static_cast<std::ptrdiff_t>(deviation_index));
+    candidate_path.edges.insert(candidate_path.edges.end(), spur_path.edges.begin(), spur_path.edges.end());
+    candidate_path.deviation_vertex_index = deviation_index;
 
-      // Add spur path edges
-      for (const auto &edge : spur_path.edges) {
-        candidate_path.edges.push_back(edge);
-      }
-
-      candidate_path.deviation_vertex_index = deviation_index;
-
-      candidate_paths_.push(std::move(candidate_path));
-    }
+    candidate_paths_.push_back(std::move(candidate_path));
+    std::ranges::push_heap(candidate_paths_, PathComparator{});
   }
 
-  void SetupBlockedElementsForDeviation(const VertexAccessor &source, const PathInfo &base_path,
-                                        size_t deviation_index) {
-    blocked_edges_.clear();
-    blocked_vertices_.clear();
-
-    // Block the edge at deviation index from all previously found paths that share the same prefix
-    for (const auto &path : shortest_paths_) {
-      if (deviation_index < path.edges.size()) {
-        // Check if the path prefix matches up to deviation index
-        bool prefix_matches = true;
-        for (size_t i = 0UZ; i < deviation_index; ++i) {
-          if (i >= base_path.edges.size() || path.edges[i].Gid() != base_path.edges[i].Gid()) {
-            prefix_matches = false;
-            break;
-          }
-        }
-
-        if (prefix_matches) {
-          blocked_edges_.insert(path.edges[deviation_index]);
-        }
-      }
-    }
-
-    // Block vertices in the root path (except the deviation vertex)
-    VertexAccessor current_vertex = source;
-    for (size_t i = 0UZ; i < deviation_index; ++i) {
-      blocked_vertices_.insert(current_vertex);
-      const auto &edge = base_path.edges[i];
-      current_vertex = (edge.From() == current_vertex) ? edge.To() : edge.From();
-    }
-  }
-
-  static VertexAccessor GetVertexAtIndex(const VertexAccessor &source, const PathInfo &path, size_t index) {
-    if (index == 0) return source;
-
-    VertexAccessor current = source;
-    for (size_t i = 0UZ; i < index && i < path.edges.size(); ++i) {
-      const auto &edge = path.edges[i];
-      current = (edge.From() == current) ? edge.To() : edge.From();
-    }
-    return current;
-  }
-
-  static PathInfo ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge,
-                                  const VertexEdgeMapT &out_edge, utils::MemoryResource *memory) {
-    utils::pmr::vector<EdgeAccessor> result(memory);
+  PathInfo ReconstructPath(const VertexAccessor &midpoint, utils::MemoryResource *memory) const {
+    PathInfo out(memory);
+    auto &result = out.edges;
     VertexAccessor current = midpoint;
 
     // Reconstruct the path from midpoint to source
-    while (in_edge.contains(current)) {
-      const auto &edge_opt = in_edge.at(current);
+    while (bfs_in_edge_.contains(current)) {
+      const auto &edge_opt = bfs_in_edge_.at(current);
       if (edge_opt) {
         const auto &edge = edge_opt.value();
         result.push_back(edge);
@@ -4530,8 +4535,8 @@ class KShortestPathsCursor : public Cursor {
 
     // Reconstruct the path from midpoint to target
     current = midpoint;
-    while (out_edge.contains(current)) {
-      const auto &edge_opt = out_edge.at(current);
+    while (bfs_out_edge_.contains(current)) {
+      const auto &edge_opt = bfs_out_edge_.at(current);
       if (edge_opt) {
         const auto &edge = edge_opt.value();
         result.push_back(edge);
@@ -4541,7 +4546,7 @@ class KShortestPathsCursor : public Cursor {
       }
     }
 
-    return PathInfo(result, 0, memory);
+    return out;
   }
 
   static constexpr bool kTo = true;
@@ -4594,7 +4599,8 @@ class KShortestPathsCursor : public Cursor {
   bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &expand_from, const VertexEdgeMapT &reached,
                     Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     const VertexAccessor next = To == kTo ? edge.To() : edge.From();
-    if (blocked_edges_.contains(edge) || blocked_vertices_.contains(next) || reached.contains(next)) return false;
+    if (blocked_edges_.contains(edge.Gid()) || blocked_vertices_.contains(next.Gid()) || reached.contains(next))
+      return false;
 
     const VertexAccessor &inner_node = Backward ? expand_from : next;
     // Access check first: an edge the user cannot read must never make the lambda run on it.
@@ -4623,28 +4629,19 @@ class KShortestPathsCursor : public Cursor {
     // perform better for real-world like graphs where the expansion front
     // grows exponentially, effectively reducing the exponent by half.
 
-    auto *pull_memory = evaluator.GetMemoryResource();
-    // Holds vertices at the current level of expansion from the source
-    // (target).
-    utils::pmr::vector<VertexAccessor> source_frontier(pull_memory);
-    utils::pmr::vector<VertexAccessor> target_frontier(pull_memory);
-
-    // Holds vertices we can expand to from `source_frontier`
-    // (`target_frontier`).
-    utils::pmr::vector<VertexAccessor> source_next(pull_memory);
-    utils::pmr::vector<VertexAccessor> target_next(pull_memory);
-
-    // Maps each vertex we visited expanding from the source (target) to the
-    // edge used. Necessary for path reconstruction.
-    VertexEdgeMapT in_edge(pull_memory);
-    VertexEdgeMapT out_edge(pull_memory);
+    bfs_source_frontier_.clear();
+    bfs_target_frontier_.clear();
+    bfs_source_next_.clear();
+    bfs_target_next_.clear();
+    bfs_in_edge_.clear();
+    bfs_out_edge_.clear();
 
     size_t current_length = 0;
 
-    source_frontier.emplace_back(source);
-    in_edge[source] = std::nullopt;
-    target_frontier.emplace_back(target);
-    out_edge[target] = std::nullopt;
+    bfs_source_frontier_.emplace_back(source);
+    bfs_in_edge_[source] = std::nullopt;
+    bfs_target_frontier_.emplace_back(target);
+    bfs_out_edge_[target] = std::nullopt;
 
     while (true) {
       AbortCheck(context);
@@ -4652,7 +4649,7 @@ class KShortestPathsCursor : public Cursor {
       ++current_length;
       if (std::cmp_greater(current_length, upper_bound)) return PathInfo(evaluator.GetMemoryResource());
 
-      for (const auto &vertex : source_frontier) {
+      for (const auto &vertex : bfs_source_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           if (!out_edges_.contains(vertex)) {
@@ -4665,14 +4662,14 @@ class KShortestPathsCursor : public Cursor {
                                            out_edges_.get_allocator().resource()));
           }
           for (const auto &edge : out_edges_.at(vertex)) {
-            if (!ShouldExpand<kTo, kForward>(edge, vertex, in_edge, frame, evaluator, context)) {
+            if (!ShouldExpand<kTo, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
-            in_edge.emplace(edge.To(), edge);
-            if (out_edge.contains(edge.To())) {
-              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+            bfs_in_edge_.emplace(edge.To(), edge);
+            if (bfs_out_edge_.contains(edge.To())) {
+              return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
             }
-            source_next.push_back(edge.To());
+            bfs_source_next_.push_back(edge.To());
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
@@ -4686,21 +4683,21 @@ class KShortestPathsCursor : public Cursor {
                     in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
           }
           for (const auto &edge : in_edges_.at(vertex)) {
-            if (!ShouldExpand<kFrom, kForward>(edge, vertex, in_edge, frame, evaluator, context)) {
+            if (!ShouldExpand<kFrom, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
-            in_edge.emplace(edge.From(), edge);
-            if (out_edge.contains(edge.From())) {
-              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+            bfs_in_edge_.emplace(edge.From(), edge);
+            if (bfs_out_edge_.contains(edge.From())) {
+              return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
             }
-            source_next.push_back(edge.From());
+            bfs_source_next_.push_back(edge.From());
           }
         }
       }
 
-      if (source_next.empty()) return PathInfo(evaluator.GetMemoryResource());
-      source_frontier.clear();
-      std::swap(source_frontier, source_next);
+      if (bfs_source_next_.empty()) return PathInfo(evaluator.GetMemoryResource());
+      bfs_source_frontier_.clear();
+      std::swap(bfs_source_frontier_, bfs_source_next_);
 
       // Bottom-up step (expansion from the target).
       ++current_length;
@@ -4709,7 +4706,7 @@ class KShortestPathsCursor : public Cursor {
       // When expanding from the target we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
-      for (const auto &vertex : target_frontier) {
+      for (const auto &vertex : bfs_target_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           if (!out_edges_.contains(vertex)) {
@@ -4722,14 +4719,14 @@ class KShortestPathsCursor : public Cursor {
                                            out_edges_.get_allocator().resource()));
           }
           for (const auto &edge : out_edges_.at(vertex)) {
-            if (!ShouldExpand<kTo, kBackward>(edge, vertex, out_edge, frame, evaluator, context)) {
+            if (!ShouldExpand<kTo, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
-            out_edge.emplace(edge.To(), edge);
-            if (in_edge.contains(edge.To())) {
-              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+            bfs_out_edge_.emplace(edge.To(), edge);
+            if (bfs_in_edge_.contains(edge.To())) {
+              return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
             }
-            target_next.push_back(edge.To());
+            bfs_target_next_.push_back(edge.To());
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
@@ -4743,21 +4740,21 @@ class KShortestPathsCursor : public Cursor {
                     in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
           }
           for (const auto &edge : in_edges_.at(vertex)) {
-            if (!ShouldExpand<kFrom, kBackward>(edge, vertex, out_edge, frame, evaluator, context)) {
+            if (!ShouldExpand<kFrom, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
-            out_edge.emplace(edge.From(), edge);
-            if (in_edge.contains(edge.From())) {
-              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+            bfs_out_edge_.emplace(edge.From(), edge);
+            if (bfs_in_edge_.contains(edge.From())) {
+              return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
             }
-            target_next.push_back(edge.From());
+            bfs_target_next_.push_back(edge.From());
           }
         }
       }
 
-      if (target_next.empty()) return PathInfo(evaluator.GetMemoryResource());
-      target_frontier.clear();
-      std::swap(target_frontier, target_next);
+      if (bfs_target_next_.empty()) return PathInfo(evaluator.GetMemoryResource());
+      bfs_target_frontier_.clear();
+      std::swap(bfs_target_frontier_, bfs_target_next_);
     }
   }
 
@@ -4771,34 +4768,79 @@ class KShortestPathsCursor : public Cursor {
   }
 
   bool IsPathInFoundSet(const PathInfo &path) {
-    utils::pmr::vector<storage::Gid> path_gids(found_paths_set_.get_allocator());
+    path_gids_scratch_.clear();
     for (const auto &edge : path.edges) {
-      path_gids.push_back(edge.Gid());
+      path_gids_scratch_.push_back(edge.Gid());
     }
-    return found_paths_set_.contains(path_gids);
+    return found_paths_set_.contains(path_gids_scratch_);
   }
 
   void AddPathToFoundSet(const PathInfo &path) {
     utils::pmr::vector<storage::Gid> path_gids(found_paths_set_.get_allocator());
+    path_gids.reserve(path.edges.size());
     for (const auto &edge : path.edges) {
       path_gids.push_back(edge.Gid());
     }
     found_paths_set_.insert(std::move(path_gids));
+
+    uint32_t node = 0;
+    for (const auto &edge : path.edges) {
+      node = TrieDescendOrCreate(node, edge.Gid());
+    }
+  }
+
+  /// The child of `node` reached by `edge`, created if this is the first path to take it.
+  uint32_t TrieDescendOrCreate(uint32_t node, storage::Gid edge) {
+    for (uint32_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+      if (trie_children_[c].edge == edge) return trie_children_[c].node;
+    }
+    // `kNoChild` is the sentinel, so it is also the ceiling on the node count. Reaching it needs
+    // tens of GB of trie, but the narrowing below would alias node 0 rather than fail.
+    DMG_ASSERT(trie_first_child_.size() < kNoChild, "KSHORTEST trie outgrew its 32-bit node ids");
+    const auto fresh = static_cast<uint32_t>(trie_first_child_.size());
+    trie_first_child_.push_back(kNoChild);
+    trie_children_.push_back(TrieChild{.edge = edge, .node = fresh, .next_sibling = trie_first_child_[node]});
+    trie_first_child_[node] = static_cast<uint32_t>(trie_children_.size() - 1);
+    return fresh;
+  }
+
+  /// The child of `node` reached by `edge`; `kNoChild` when no found path took it.
+  uint32_t TrieDescend(uint32_t node, storage::Gid edge) const {
+    for (uint32_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+      if (trie_children_[c].edge == edge) return trie_children_[c].node;
+    }
+    return kNoChild;
   }
 
   void ResetState() {
     shortest_paths_.clear();
-    while (!candidate_paths_.empty()) candidate_paths_.pop();
+    candidate_paths_.clear();
     found_paths_set_.clear();
     current_path_index_ = 0;
     blocked_edges_.clear();
     blocked_vertices_.clear();
-    distances_.clear();
-    predecessors_.clear();
+    trie_children_.clear();
+    trie_first_child_.assign(1, kNoChild);  // node 0 is the empty root
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
+    ReleaseInnerSearchState();
     // Makes `|K` per input row; `Pull` guards each serving site instead of returning early.
     n_returned_paths_ = 0;
+  }
+
+  // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
+  // table's bucket array and a vector's capacity, so without this one expensive row would leave
+  // every later search sweeping buckets sized for a search it never runs, and hold that memory for
+  // the life of the cursor. Called per row, so the reuse within a row still stands.
+  void ReleaseInnerSearchState() {
+    for (auto *frontier : {&bfs_source_frontier_, &bfs_target_frontier_, &bfs_source_next_, &bfs_target_next_}) {
+      frontier->clear();
+      frontier->shrink_to_fit();
+    }
+    for (auto *reached : {&bfs_in_edge_, &bfs_out_edge_}) {
+      reached->clear();
+      reached->rehash(0);
+    }
   }
 };
 

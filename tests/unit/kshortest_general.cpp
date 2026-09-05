@@ -155,6 +155,16 @@ TEST_F(GeneralKShortestTestInMemory, KShortestWithLimit) {
   db_->KShortestTest(db_.get(), 2, -1, EdgeAtom::Direction::OUT, {}, 1);
 }
 
+// Deviations that start deep, and trie nodes with several children each, are where a dropped
+// candidate would show up as a missing path; the 6-vertex fixture reaches neither. Runs the ladder
+// unbounded and checks the exact count and per-index length against the brute-force enumerator.
+TEST_F(GeneralKShortestTestInMemory, LadderMatchesOracleAtDepth) {
+  for (auto direction : {EdgeAtom::Direction::OUT, EdgeAtom::Direction::BOTH}) {
+    db_->KShortestTest(
+        db_.get(), -1, -1, direction, {}, -1, FilterLambdaType::NONE, kLadderVertexLocations, kLadderEdges);
+  }
+}
+
 TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
   db_->KShortestTestInvertedRangeDoesNotSearch(db_.get());
 }

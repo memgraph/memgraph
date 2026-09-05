@@ -64,6 +64,32 @@ const std::vector<std::tuple<int, int, std::string>> kEdges = {{0, 1, "a"},
                                                                {5, 4, "a"},
                                                                {5, 5, "b"}};
 
+// A 7-rung ladder: two rails of 7 vertices, joined at every step. It gives long paths and many
+// equal-length alternatives, so an accepted path's deviation index reaches 10 here where it never
+// passes 3 on the graph above, and trie nodes collect several children each. No parallel edges and
+// no self-loops, because the brute-force oracle keys edges by (from, to) and could not match a
+// graph that had them.
+const std::vector<int> kLadderVertexLocations = {0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1};
+const std::vector<std::tuple<int, int, std::string>> kLadderEdges = {{0, 1, "a"},
+                                                                     {1, 2, "a"},
+                                                                     {2, 3, "a"},
+                                                                     {3, 4, "a"},
+                                                                     {4, 5, "a"},
+                                                                     {5, 6, "a"},  // one rail
+                                                                     {7, 8, "a"},
+                                                                     {8, 9, "a"},
+                                                                     {9, 10, "a"},
+                                                                     {10, 11, "a"},
+                                                                     {11, 12, "a"},
+                                                                     {12, 13, "a"},  // the other
+                                                                     {0, 7, "b"},
+                                                                     {1, 8, "b"},
+                                                                     {2, 9, "b"},
+                                                                     {3, 10, "b"},
+                                                                     {4, 11, "b"},
+                                                                     {5, 12, "b"},
+                                                                     {6, 13, "b"}};  // the rungs
+
 // Filters input edge list by edge type and direction and returns a list of
 // pairs representing valid directed edges.
 std::vector<std::pair<int, int>> GetEdgeList(const std::vector<std::tuple<int, int, std::string>> &edges,
@@ -287,8 +313,9 @@ auto GetProp(const TRecord &rec, std::string prop, memgraph::query::DbAccessor *
 std::vector<std::pair<int, int>> GetFilteredEdgeList(const memgraph::query::TypedValue &blocked,
                                                      memgraph::query::EdgeAtom::Direction direction,
                                                      const std::vector<std::string> &edge_types,
-                                                     memgraph::query::DbAccessor *dba) {
-  auto edges = kEdges;
+                                                     memgraph::query::DbAccessor *dba,
+                                                     const std::vector<std::tuple<int, int, std::string>> &all_edges) {
+  auto edges = all_edges;
   // An edge is blocked in both directions, so drop it before accounting for direction.
   if (blocked.IsEdge()) {
     int from = GetProp(blocked.ValueEdge(), "from", dba).ValueInt();
@@ -306,7 +333,9 @@ std::vector<std::pair<int, int>> GetFilteredEdgeList(const memgraph::query::Type
 }
 
 // Checks if the given path is actually a path from source to sink and if all
-// of its edges exist in the given edge list. Also ensures no edge is reused.
+// of its edges exist in the given edge list. Also ensures no edge is reused and
+// no vertex is revisited: KSHORTEST answers with loopless paths, and the
+// inner search's root-vertex blocking is what enforces that.
 template <class TPathAllocator>
 void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAccessor &source,
                const memgraph::query::VertexAccessor &sink,
@@ -315,6 +344,7 @@ void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAc
   if (path.empty()) return;
   memgraph::query::VertexAccessor curr = source;
   std::unordered_set<memgraph::storage::Gid> used_edges;
+  std::unordered_set<memgraph::storage::Gid> visited_vertices{source.Gid()};
 
   for (const auto &edge_tv : path) {
     ASSERT_TRUE(edge_tv.IsEdge());
@@ -325,6 +355,9 @@ void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAc
 
     ASSERT_TRUE(edge.From() == curr || edge.To() == curr);
     auto next = edge.From() == curr ? edge.To() : edge.From();
+
+    ASSERT_TRUE(visited_vertices.insert(next.Gid()).second)
+        << "Vertex " << next.Gid() << " is revisited in path, which is not loopless";
 
     int from = GetProp(curr, "id", dba).ValueInt();
     int to = GetProp(next, "id", dba).ValueInt();
@@ -388,9 +421,14 @@ class Database {
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
   virtual ~Database() = default;
 
+  // The fixture graph is a parameter so a case can reach deviation indices the default 6-vertex
+  // graph cannot; `vertex_locations` sizes the graph, so its length is the vertex count.
   void KShortestTest(Database *db, int lower_bound, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
                      std::vector<std::string> edge_types, int limit = -1,
-                     FilterLambdaType filter_lambda_type = FilterLambdaType::NONE) {
+                     FilterLambdaType filter_lambda_type = FilterLambdaType::NONE,
+                     const std::vector<int> &vertex_locations = kVertexLocations,
+                     const std::vector<std::tuple<int, int, std::string>> &graph_edges = kEdges) {
+    const int vertex_count = static_cast<int>(vertex_locations.size());
     spdlog::info("KShortestTest: lower_bound={}, upper_bound={}, direction={}, edge_types={}",
                  lower_bound,
                  upper_bound,
@@ -413,7 +451,7 @@ class Database {
     std::vector<memgraph::query::VertexAccessor> vertices;
     std::vector<memgraph::query::EdgeAccessor> edges;
 
-    std::tie(vertices, edges) = db->BuildGraph(&dba, kVertexLocations, kEdges);
+    std::tie(vertices, edges) = db->BuildGraph(&dba, vertex_locations, graph_edges);
     spdlog::info("KShortestTest: Built graph with {} vertices and {} edges", vertices.size(), edges.size());
 
     dba.AdvanceCommand();
@@ -513,14 +551,16 @@ class Database {
       spdlog::info("KShortestTest: Limit: {}", limit);
     }
 
-    if (upper_bound == -1) upper_bound = kVertexCount;
+    if (upper_bound == -1) upper_bound = vertex_count;
     const int effective_lower_bound = lower_bound != -1 ? lower_bound : 1;
     const int effective_upper_bound = upper_bound;
 
     // The paths Yen's algorithm finds in the subgraph the lambda leaves, within the length bounds.
     auto correct_paths_for = [&](const memgraph::query::TypedValue &blocked_entity, int source_id, int sink_id) {
-      auto paths = YenKShortestPaths(
-          kVertexCount, GetFilteredEdgeList(blocked_entity, direction, edge_types, &dba), source_id, sink_id);
+      auto paths = YenKShortestPaths(vertex_count,
+                                     GetFilteredEdgeList(blocked_entity, direction, edge_types, &dba, graph_edges),
+                                     source_id,
+                                     sink_id);
       // `paths` holds vertices, not edges, hence the -1 when comparing against the bounds.
       std::erase_if(paths, [&](const std::vector<int> &path) {
         return path.size() - 1 < static_cast<size_t>(effective_lower_bound) ||
@@ -534,8 +574,8 @@ class Database {
     {
       size_t expected_total = 0;
       for (const auto &blocked_entity : blocked_values) {
-        for (int source_id = 0; source_id < kVertexCount; ++source_id) {
-          for (int sink_id = 0; sink_id < kVertexCount; ++sink_id) {
+        for (int source_id = 0; source_id < vertex_count; ++source_id) {
+          for (int sink_id = 0; sink_id < vertex_count; ++sink_id) {
             if (source_id == sink_id) continue;
             const auto group = correct_paths_for(blocked_entity, source_id, sink_id).size();
             expected_total += limit == -1 ? group : std::min(group, static_cast<size_t>(limit));
@@ -574,7 +614,7 @@ class Database {
         continue;
       }
 
-      auto edges_filtered = GetFilteredEdgeList(blocked_entity, direction, edge_types, &dba);
+      auto edges_filtered = GetFilteredEdgeList(blocked_entity, direction, edge_types, &dba, graph_edges);
       auto correct_paths = correct_paths_for(blocked_entity, source_id, sink_id);
       spdlog::info("KShortestTest: Yen algorithm found {} paths", correct_paths.size());
 
