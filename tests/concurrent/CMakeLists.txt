@@ -26,6 +26,9 @@ target_link_libraries(${test_prefix}network_read_hang mg-communication)
 add_concurrent_test(network_server.cpp)
 target_link_libraries(${test_prefix}network_server mg-communication)
 
+add_concurrent_test(v2_response_batching.cpp)
+target_link_libraries(${test_prefix}v2_response_batching mg-communication mg-flags mg-metrics)
+
 add_concurrent_test(network_session_leak.cpp)
 target_link_libraries(${test_prefix}network_session_leak mg-communication)
 

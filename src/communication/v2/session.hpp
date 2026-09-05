@@ -24,6 +24,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 #include <boost/asio/bind_executor.hpp>
@@ -79,7 +80,21 @@ class OutputStream final {
   OutputStream &operator=(OutputStream &&) = delete;
   ~OutputStream() = default;
 
-  bool Write(const uint8_t *data, size_t len, bool have_more = false) { return write_function_(data, len, have_more); }
+  // Batch small control-plane responses (the Bolt SUCCESS acks are <= ~256 B each) so a pipelined
+  // request burst leaves as one send instead of one blocking send per message. Anything at/above
+  // kFlushThreshold — i.e. a result-record chunk — is pushed straight through the blocking send
+  // (backpressure preserved), after flushing any pending acks first so ordering holds. have_more is
+  // ignored: the batch subsumes MSG_MORE, and a pass-through pushes now (a lingering MSG_MORE tail
+  // would stall until the peer's delayed-ACK). The session flushes the batch when it waits again.
+  bool Write(const uint8_t *data, size_t len, bool /*have_more*/ = false) {
+    if (len >= kFlushThreshold) {
+      if (!buffer_.empty() && !Flush()) return false;
+      return write_function_(data, len, false);
+    }
+    buffer_.insert(buffer_.end(), data, data + len);
+    if (buffer_.size() >= kFlushThreshold) return Flush();
+    return true;
+  }
 
   bool Write(std::span<const uint8_t> data, bool have_more = false) {
     return Write(data.data(), data.size(), have_more);
@@ -89,8 +104,21 @@ class OutputStream final {
     return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more);
   }
 
+  // Send whatever is buffered. Moves the bytes out before sending so a re-entrant Flush (a failed
+  // send routes through OnError -> DoShutdown -> Flush) sees an empty buffer and stops.
+  bool Flush() {
+    if (buffer_.empty()) return true;
+    const std::vector<uint8_t> pending = std::move(buffer_);
+    buffer_.clear();
+    return write_function_(pending.data(), pending.size(), false);
+  }
+
  private:
+  // Small: it only batches the control-plane acks (<= ~256 B); result chunks are >= this and take
+  // the blocking send path. Sized to hold a full pipelined burst of acks with room to spare.
+  static constexpr size_t kFlushThreshold = size_t{8} * 1024;
   std::function<bool(const uint8_t *, size_t, bool)> write_function_;
+  std::vector<uint8_t> buffer_;
 };
 
 /**
@@ -136,6 +164,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return true;
   }
 
+  // Blocking write of a byte range straight to the underlying socket. Response batching lives in
+  // OutputStream (above); this is the socket send it flushes through.
   bool Write(const uint8_t *data, size_t len, bool have_more = false) {
     if (!IsConnected()) {
       return false;
@@ -259,6 +289,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoRead() {
+    output_stream_.Flush();  // send the burst's buffered responses before we wait for more input
     if (!IsConnected()) {
       return;
     }
@@ -271,6 +302,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoReadAsio() {
+    output_stream_.Flush();  // send the burst's buffered responses before we wait for more input
     if (!IsConnected()) {
       return;
     }
@@ -377,10 +409,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     input_buffer_.write_end()->Written(bytes_transferred);
 
     try {
-      // Execute until all data has been read
+      // Execute until all buffered data is processed, then wait for more. DoReadAsio flushes the
+      // burst's buffered responses before it blocks on the socket.
       while (session_.Execute()) {
       }
-      // Handled all data,  async wait for new incoming data
       DoReadAsio();
     } catch (const std::exception & /* unused */) {
       HandleException(std::current_exception());
@@ -395,12 +427,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
               if (shared_this->session_.Execute()) {
                 // Check if we can just steal this task (loop through)
                 if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
-                  // Task priority lower; reschedule
+                  // Task priority lower; reschedule. Buffered responses carry over on the session
+                  // and are flushed when the continuation reaches DoRead.
                   shared_this->DoWork();
                   return;
                 }
               } else {
-                // Handled all data,  async wait for new incoming data
+                // Handled all data, async wait for new incoming data (DoRead flushes first).
                 shared_this->DoRead();
                 return;
               }
@@ -435,6 +468,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return;
     }
+    output_stream_.Flush();  // best-effort: get a buffered FAILURE/response out before closing
     execution_active_ = false;
 
     std::visit(utils::Overloaded{[this](WebSocket &ws) {
