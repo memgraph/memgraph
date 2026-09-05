@@ -39,6 +39,10 @@ namespace memgraph::metrics {
 
 namespace {
 
+// Label that keys a per-database family entry. Internal: CollectForScrape replaces it with the
+// entry's current uuid, so it must never reach a scrape.
+constexpr auto kEntryLabel = "mgentry";
+
 bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
   static constexpr std::array<std::string_view, 26> kLegacyCoordinatorDeltaMetrics{
       "SuccessfulFailovers",
@@ -936,140 +940,149 @@ StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(utils::UUID const &uui
 
 PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
   std::lock_guard const lock{databases_.mutex};
-  if (name == dbms::kDefaultDB) {
-    default_db_uuid_ = uuid;
-  }
 
   auto const existing =
       r::find_if(databases_.entries, [&uuid, name](auto const &e) { return e.uuid == uuid && e.db_name == name; });
   if (existing != databases_.entries.end()) {
     ++existing->registrations;
+    if (name == dbms::kDefaultDB) {
+      default_db_uuid_ = uuid;
+    }
     return Registration{this, existing->id, existing->handles};
   }
 
-  prometheus::Labels const labels{{"database", std::string(name)}, {"uuid", std::string(uuid)}};
+  auto handles = AddDatabaseUnsafe(uuid, name);
+  return Registration{this, databases_.entries.back().id, handles};
+}
+
+// Unsafe variants assume the caller already holds databases_.mutex.
+DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, uint64_t entry_id) {
+  // Keyed on the entry id, not the uuid: a family entry's label set is its map key and so is fixed for
+  // the entry's life, whereas the default database's uuid changes on cluster join. CollectForScrape
+  // substitutes the current uuid, so the scrape output is unchanged.
+  prometheus::Labels const labels{{"database", std::string(name)}, {kEntryLabel, std::to_string(entry_id)}};
+  return DatabaseMetricHandles{
+      .vertex_count = {&vertex_count_family_.Add(labels)},
+      .edge_count = {&edge_count_family_.Add(labels)},
+      .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
+      .db_memory_tracked_bytes = {&db_memory_tracked_family_.Add(labels)},
+      .db_peak_memory_tracked_bytes = {&db_peak_memory_tracked_family_.Add(labels)},
+      .db_storage_memory_tracked_bytes = {&db_storage_memory_tracked_family_.Add(labels)},
+      .db_embedding_memory_tracked_bytes = {&db_embedding_memory_tracked_family_.Add(labels)},
+      .db_query_memory_tracked_bytes = {&db_query_memory_tracked_family_.Add(labels)},
+      .once_operator = {&once_operator_family_.Add(labels)},
+      .create_node_operator = {&create_node_operator_family_.Add(labels)},
+      .create_expand_operator = {&create_expand_operator_family_.Add(labels)},
+      .scan_all_operator = {&scan_all_operator_family_.Add(labels)},
+      .scan_all_by_label_operator = {&scan_all_by_label_operator_family_.Add(labels)},
+      .scan_all_by_label_properties_operator = {&scan_all_by_label_properties_operator_family_.Add(labels)},
+      .scan_all_by_id_operator = {&scan_all_by_id_operator_family_.Add(labels)},
+      .scan_all_by_edge_operator = {&scan_all_by_edge_operator_family_.Add(labels)},
+      .scan_all_by_edge_type_operator = {&scan_all_by_edge_type_operator_family_.Add(labels)},
+      .scan_all_by_edge_type_property_operator = {&scan_all_by_edge_type_property_operator_family_.Add(labels)},
+      .scan_all_by_edge_type_property_value_operator = {&scan_all_by_edge_type_property_value_operator_family_.Add(
+          labels)},
+      .scan_all_by_edge_type_property_range_operator = {&scan_all_by_edge_type_property_range_operator_family_.Add(
+          labels)},
+      .scan_all_by_edge_property_operator = {&scan_all_by_edge_property_operator_family_.Add(labels)},
+      .scan_all_by_edge_property_value_operator = {&scan_all_by_edge_property_value_operator_family_.Add(labels)},
+      .scan_all_by_edge_property_range_operator = {&scan_all_by_edge_property_range_operator_family_.Add(labels)},
+      .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
+      .scan_all_by_vertex_property_operator = {&scan_all_by_vertex_property_operator_family_.Add(labels)},
+      .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
+      .scan_all_by_point_withinbbox_operator = {&scan_all_by_point_withinbbox_operator_family_.Add(labels)},
+      .expand_operator = {&expand_operator_family_.Add(labels)},
+      .expand_variable_operator = {&expand_variable_operator_family_.Add(labels)},
+      .construct_named_path_operator = {&construct_named_path_operator_family_.Add(labels)},
+      .filter_operator = {&filter_operator_family_.Add(labels)},
+      .produce_operator = {&produce_operator_family_.Add(labels)},
+      .delete_operator = {&delete_operator_family_.Add(labels)},
+      .set_property_operator = {&set_property_operator_family_.Add(labels)},
+      .set_properties_operator = {&set_properties_operator_family_.Add(labels)},
+      .set_labels_operator = {&set_labels_operator_family_.Add(labels)},
+      .remove_property_operator = {&remove_property_operator_family_.Add(labels)},
+      .remove_labels_operator = {&remove_labels_operator_family_.Add(labels)},
+      .edge_uniqueness_filter_operator = {&edge_uniqueness_filter_operator_family_.Add(labels)},
+      .empty_result_operator = {&empty_result_operator_family_.Add(labels)},
+      .accumulate_operator = {&accumulate_operator_family_.Add(labels)},
+      .aggregate_operator = {&aggregate_operator_family_.Add(labels)},
+      .skip_operator = {&skip_operator_family_.Add(labels)},
+      .limit_operator = {&limit_operator_family_.Add(labels)},
+      .order_by_operator = {&order_by_operator_family_.Add(labels)},
+      .merge_operator = {&merge_operator_family_.Add(labels)},
+      .optional_operator = {&optional_operator_family_.Add(labels)},
+      .unwind_operator = {&unwind_operator_family_.Add(labels)},
+      .distinct_operator = {&distinct_operator_family_.Add(labels)},
+      .union_operator = {&union_operator_family_.Add(labels)},
+      .cartesian_operator = {&cartesian_operator_family_.Add(labels)},
+      .call_procedure_operator = {&call_procedure_operator_family_.Add(labels)},
+      .foreach_operator = {&foreach_operator_family_.Add(labels)},
+      .evaluate_pattern_filter_operator = {&evaluate_pattern_filter_operator_family_.Add(labels)},
+      .apply_operator = {&apply_operator_family_.Add(labels)},
+      .indexed_join_operator = {&indexed_join_operator_family_.Add(labels)},
+      .hash_join_operator = {&hash_join_operator_family_.Add(labels)},
+      .roll_up_apply_operator = {&roll_up_apply_operator_family_.Add(labels)},
+      .periodic_commit_operator = {&periodic_commit_operator_family_.Add(labels)},
+      .periodic_subquery_operator = {&periodic_subquery_operator_family_.Add(labels)},
+      .set_nested_property_operator = {&set_nested_property_operator_family_.Add(labels)},
+      .remove_nested_property_operator = {&remove_nested_property_operator_family_.Add(labels)},
+      .active_label_indices = {&active_label_indices_family_.Add(labels)},
+      .active_label_property_indices = {&active_label_property_indices_family_.Add(labels)},
+      .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
+      .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
+      .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
+      .active_vertex_property_indices = {&active_vertex_property_indices_family_.Add(labels)},
+      .active_point_indices = {&active_point_indices_family_.Add(labels)},
+      .active_text_indices = {&active_text_indices_family_.Add(labels)},
+      .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
+      .active_vector_indices = {&active_vector_indices_family_.Add(labels)},
+      .active_vector_edge_indices = {&active_vector_edge_indices_family_.Add(labels)},
+      .active_existence_constraints = {&active_existence_constraints_family_.Add(labels)},
+      .active_unique_constraints = {&active_unique_constraints_family_.Add(labels)},
+      .active_type_constraints = {&active_type_constraints_family_.Add(labels)},
+      .streams_created = {&streams_created_family_.Add(labels)},
+      .messages_consumed = {&messages_consumed_family_.Add(labels)},
+      .triggers_created = {&triggers_created_family_.Add(labels)},
+      .triggers_executed = {&triggers_executed_family_.Add(labels)},
+      .active_transactions = {&active_transactions_family_.Add(labels)},
+      .committed_transactions = {&committed_transactions_family_.Add(labels)},
+      .rolled_back_transactions = {&rolled_back_transactions_family_.Add(labels)},
+      .failed_query = {&failed_query_family_.Add(labels)},
+      .failed_prepare = {&failed_prepare_family_.Add(labels)},
+      .failed_pull = {&failed_pull_family_.Add(labels)},
+      .successful_query = {&successful_query_family_.Add(labels)},
+      .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
+      .transient_errors = {&transient_errors_family_.Add(labels)},
+      .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
+      .read_query = {&read_query_family_.Add(labels)},
+      .write_query = {&write_query_family_.Add(labels)},
+      .read_write_query = {&read_write_query_family_.Add(labels)},
+      .deleted_nodes = {&deleted_nodes_family_.Add(labels)},
+      .deleted_edges = {&deleted_edges_family_.Add(labels)},
+      .show_schema = {&show_schema_family_.Add(labels)},
+      .show_storage_info = {&show_storage_info_family_.Add(labels)},
+      .query_execution_latency_seconds = {&query_execution_latency_family_.Add(labels, kLatencyBuckets)},
+      .snapshot_creation_latency_seconds = {&snapshot_creation_latency_family_.Add(labels, kLatencyBuckets)},
+      .snapshot_recovery_latency_seconds = {&snapshot_recovery_latency_family_.Add(labels, kLatencyBuckets)},
+      .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
+      .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels, kLatencyBuckets)},
+      .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
+  };
+}
+
+DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name) {
   auto const entry_id = databases_.next_entry_id++;
-  databases_.entries.push_back(
-      {
-          .id = entry_id,
-          .uuid = uuid,
-          .db_name = std::string(name),
-          .handles =
-              DatabaseMetricHandles{
-                  .vertex_count = {&vertex_count_family_.Add(labels)},
-                  .edge_count = {&edge_count_family_.Add(labels)},
-                  .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
-                  .db_memory_tracked_bytes = {&db_memory_tracked_family_.Add(labels)},
-                  .db_peak_memory_tracked_bytes = {&db_peak_memory_tracked_family_.Add(labels)},
-                  .db_storage_memory_tracked_bytes = {&db_storage_memory_tracked_family_.Add(labels)},
-                  .db_embedding_memory_tracked_bytes = {&db_embedding_memory_tracked_family_.Add(labels)},
-                  .db_query_memory_tracked_bytes = {&db_query_memory_tracked_family_.Add(labels)},
-                  .once_operator = {&once_operator_family_.Add(labels)},
-                  .create_node_operator = {&create_node_operator_family_.Add(labels)},
-                  .create_expand_operator = {&create_expand_operator_family_.Add(labels)},
-                  .scan_all_operator = {&scan_all_operator_family_.Add(labels)},
-                  .scan_all_by_label_operator = {&scan_all_by_label_operator_family_.Add(labels)},
-                  .scan_all_by_label_properties_operator = {&scan_all_by_label_properties_operator_family_.Add(labels)},
-                  .scan_all_by_id_operator = {&scan_all_by_id_operator_family_.Add(labels)},
-                  .scan_all_by_edge_operator = {&scan_all_by_edge_operator_family_.Add(labels)},
-                  .scan_all_by_edge_type_operator = {&scan_all_by_edge_type_operator_family_.Add(labels)},
-                  .scan_all_by_edge_type_property_operator = {&scan_all_by_edge_type_property_operator_family_.Add(
-                      labels)},
-                  .scan_all_by_edge_type_property_value_operator =
-                      {&scan_all_by_edge_type_property_value_operator_family_.Add(labels)},
-                  .scan_all_by_edge_type_property_range_operator =
-                      {&scan_all_by_edge_type_property_range_operator_family_.Add(labels)},
-                  .scan_all_by_edge_property_operator = {&scan_all_by_edge_property_operator_family_.Add(labels)},
-                  .scan_all_by_edge_property_value_operator = {&scan_all_by_edge_property_value_operator_family_.Add(
-                      labels)},
-                  .scan_all_by_edge_property_range_operator = {&scan_all_by_edge_property_range_operator_family_.Add(
-                      labels)},
-                  .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
-                  .scan_all_by_vertex_property_operator = {&scan_all_by_vertex_property_operator_family_.Add(labels)},
-                  .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
-                  .scan_all_by_point_withinbbox_operator = {&scan_all_by_point_withinbbox_operator_family_.Add(labels)},
-                  .expand_operator = {&expand_operator_family_.Add(labels)},
-                  .expand_variable_operator = {&expand_variable_operator_family_.Add(labels)},
-                  .construct_named_path_operator = {&construct_named_path_operator_family_.Add(labels)},
-                  .filter_operator = {&filter_operator_family_.Add(labels)},
-                  .produce_operator = {&produce_operator_family_.Add(labels)},
-                  .delete_operator = {&delete_operator_family_.Add(labels)},
-                  .set_property_operator = {&set_property_operator_family_.Add(labels)},
-                  .set_properties_operator = {&set_properties_operator_family_.Add(labels)},
-                  .set_labels_operator = {&set_labels_operator_family_.Add(labels)},
-                  .remove_property_operator = {&remove_property_operator_family_.Add(labels)},
-                  .remove_labels_operator = {&remove_labels_operator_family_.Add(labels)},
-                  .edge_uniqueness_filter_operator = {&edge_uniqueness_filter_operator_family_.Add(labels)},
-                  .empty_result_operator = {&empty_result_operator_family_.Add(labels)},
-                  .accumulate_operator = {&accumulate_operator_family_.Add(labels)},
-                  .aggregate_operator = {&aggregate_operator_family_.Add(labels)},
-                  .skip_operator = {&skip_operator_family_.Add(labels)},
-                  .limit_operator = {&limit_operator_family_.Add(labels)},
-                  .order_by_operator = {&order_by_operator_family_.Add(labels)},
-                  .merge_operator = {&merge_operator_family_.Add(labels)},
-                  .optional_operator = {&optional_operator_family_.Add(labels)},
-                  .unwind_operator = {&unwind_operator_family_.Add(labels)},
-                  .distinct_operator = {&distinct_operator_family_.Add(labels)},
-                  .union_operator = {&union_operator_family_.Add(labels)},
-                  .cartesian_operator = {&cartesian_operator_family_.Add(labels)},
-                  .call_procedure_operator = {&call_procedure_operator_family_.Add(labels)},
-                  .foreach_operator = {&foreach_operator_family_.Add(labels)},
-                  .evaluate_pattern_filter_operator = {&evaluate_pattern_filter_operator_family_.Add(labels)},
-                  .apply_operator = {&apply_operator_family_.Add(labels)},
-                  .indexed_join_operator = {&indexed_join_operator_family_.Add(labels)},
-                  .hash_join_operator = {&hash_join_operator_family_.Add(labels)},
-                  .roll_up_apply_operator = {&roll_up_apply_operator_family_.Add(labels)},
-                  .periodic_commit_operator = {&periodic_commit_operator_family_.Add(labels)},
-                  .periodic_subquery_operator = {&periodic_subquery_operator_family_.Add(labels)},
-                  .set_nested_property_operator = {&set_nested_property_operator_family_.Add(labels)},
-                  .remove_nested_property_operator = {&remove_nested_property_operator_family_.Add(labels)},
-                  .active_label_indices = {&active_label_indices_family_.Add(labels)},
-                  .active_label_property_indices = {&active_label_property_indices_family_.Add(labels)},
-                  .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
-                  .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
-                  .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
-                  .active_vertex_property_indices = {&active_vertex_property_indices_family_.Add(labels)},
-                  .active_point_indices = {&active_point_indices_family_.Add(labels)},
-                  .active_text_indices = {&active_text_indices_family_.Add(labels)},
-                  .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
-                  .active_vector_indices = {&active_vector_indices_family_.Add(labels)},
-                  .active_vector_edge_indices = {&active_vector_edge_indices_family_.Add(labels)},
-                  .active_existence_constraints = {&active_existence_constraints_family_.Add(labels)},
-                  .active_unique_constraints = {&active_unique_constraints_family_.Add(labels)},
-                  .active_type_constraints = {&active_type_constraints_family_.Add(labels)},
-                  .streams_created = {&streams_created_family_.Add(labels)},
-                  .messages_consumed = {&messages_consumed_family_.Add(labels)},
-                  .triggers_created = {&triggers_created_family_.Add(labels)},
-                  .triggers_executed = {&triggers_executed_family_.Add(labels)},
-                  .active_transactions = {&active_transactions_family_.Add(labels)},
-                  .committed_transactions = {&committed_transactions_family_.Add(labels)},
-                  .rolled_back_transactions = {&rolled_back_transactions_family_.Add(labels)},
-                  .failed_query = {&failed_query_family_.Add(labels)},
-                  .failed_prepare = {&failed_prepare_family_.Add(labels)},
-                  .failed_pull = {&failed_pull_family_.Add(labels)},
-                  .successful_query = {&successful_query_family_.Add(labels)},
-                  .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
-                  .transient_errors = {&transient_errors_family_.Add(labels)},
-                  .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
-                  .read_query = {&read_query_family_.Add(labels)},
-                  .write_query = {&write_query_family_.Add(labels)},
-                  .read_write_query = {&read_write_query_family_.Add(labels)},
-                  .deleted_nodes = {&deleted_nodes_family_.Add(labels)},
-                  .deleted_edges = {&deleted_edges_family_.Add(labels)},
-                  .show_schema = {&show_schema_family_.Add(labels)},
-                  .show_storage_info = {&show_storage_info_family_.Add(labels)},
-                  .query_execution_latency_seconds = {&query_execution_latency_family_.Add(labels, kLatencyBuckets)},
-                  .snapshot_creation_latency_seconds = {&snapshot_creation_latency_family_.Add(labels,
-                                                                                               kLatencyBuckets)},
-                  .snapshot_recovery_latency_seconds = {&snapshot_recovery_latency_family_.Add(labels,
-                                                                                               kLatencyBuckets)},
-                  .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
-                  .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels,
-                                                                                                   kLatencyBuckets)},
-                  .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
-              },
-      });
-  return Registration{this, entry_id, databases_.entries.back().handles};
+  auto handles = CreateHandles(name, entry_id);
+  databases_.entries.push_back({
+      .id = entry_id,
+      .uuid = uuid,
+      .db_name = std::string(name),
+      .handles = handles,
+  });
+  if (name == dbms::kDefaultDB) {
+    default_db_uuid_ = uuid;
+  }
+  return handles;
 }
 
 PrometheusMetrics::Registration::~Registration() { Release(); }
@@ -1099,7 +1112,10 @@ void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
   auto it = r::find_if(databases_.entries, [entry_id](auto const &e) { return e.id == entry_id; });
   if (it == databases_.entries.end()) return;
   if (--it->registrations != 0) return;
-  auto &h = it->handles;
+  RemoveEntryAt(it);
+}
+
+void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h) {
   vertex_count_family_.Remove(h.vertex_count.get());
   edge_count_family_.Remove(h.edge_count.get());
   disk_usage_family_.Remove(h.disk_usage_bytes.get());
@@ -1203,20 +1219,55 @@ void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
   gc_index_sweeps_family_.Remove(h.gc_index_sweeps.get());
+}
+
+void PrometheusMetrics::RemoveEntryAt(std::list<DatabaseEntry>::iterator it) {
+  RemoveHandlesFromFamilies(it->handles);
   if (default_db_uuid_ && *default_db_uuid_ == it->uuid) {
     default_db_uuid_.reset();
   }
   databases_.entries.erase(it);
 }
 
-void PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
+DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
   std::lock_guard const lock{databases_.mutex};
-  if (!default_db_uuid_) return;  // metrics not registered for the default DB
-  auto const &old_uuid = *default_db_uuid_;
+  if (!default_db_uuid_) return {};
+  auto const old_uuid = *default_db_uuid_;
   auto it = r::find_if(databases_.entries, [&old_uuid](auto const &e) { return e.uuid == old_uuid; });
-  MG_ASSERT(it != databases_.entries.end(), "RebindDefaultDatabaseUUID: default UUID not found in metrics registry");
+  if (it == databases_.entries.end()) return {};
+  // Relabel, don't rebind: the metric objects stay put and only the presented uuid changes, so every
+  // outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
   it->uuid = new_uuid;
   default_db_uuid_ = new_uuid;
+  return it->handles;
+}
+
+std::vector<prometheus::MetricFamily> PrometheusMetrics::CollectForScrape() {
+  std::unordered_map<std::string, std::string> uuid_by_entry;
+  {
+    std::shared_lock const lock{databases_.mutex};
+    for (auto const &entry : databases_.entries) {
+      uuid_by_entry.emplace(std::to_string(entry.id), std::string(entry.uuid));
+    }
+  }
+  auto families = registry_.Collect();
+  for (auto &family : families) {
+    // An entry released since the snapshot has no uuid left to present. Drop the whole metric:
+    // blanking the label would collapse two such series onto one label set, and a scrape carrying
+    // a duplicate label set is rejected in its entirety.
+    std::erase_if(family.metric, [&](auto const &metric) {
+      auto const label = r::find(metric.label, kEntryLabel, &prometheus::ClientMetric::Label::name);
+      return label != metric.label.end() && !uuid_by_entry.contains(label->value);
+    });
+    for (auto &metric : family.metric) {
+      for (auto &label : metric.label) {
+        if (label.name != kEntryLabel) continue;
+        label.name = "uuid";
+        label.value = uuid_by_entry.at(label.value);
+      }
+    }
+  }
+  return families;
 }
 
 void PrometheusMetrics::UpdateGauges() {

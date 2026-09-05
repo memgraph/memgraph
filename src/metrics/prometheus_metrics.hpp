@@ -217,7 +217,13 @@ class PrometheusMetrics {
   };
 
   [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
-  void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Relabels the default database's entry onto @p new_uuid. The metric objects stay put, so
+  /// every outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
+  DatabaseMetricHandles RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Refresh any gauges whose values are pulled from current storage state,
+  /// rather than updated at point of use.
   void UpdateGauges();
 
   /// Thread-safe update of the global peak_memory_res_bytes gauge.
@@ -250,7 +256,10 @@ class PrometheusMetrics {
 
   nlohmann::json GetTelemetryCounters() const;
 
-  prometheus::Registry &registry() { return registry_; }
+  /// Collects every family for a scrape, substituting each per-database entry's current uuid for the
+  /// internal entry-id label. This is the only way out of the registry, because the entry-id label
+  /// keys the families internally and must never be exposed.
+  std::vector<prometheus::MetricFamily> CollectForScrape();
 
   GlobalMetricHandles global;
 
@@ -259,6 +268,10 @@ class PrometheusMetrics {
     // Identifies the entry for its whole life, unlike the uuid and the name, either of which can
     // change while registrations are outstanding.
     uint64_t id;
+    // Used for every lookup, and substituted into the scrape output by CollectForScrape. The
+    // default database's uuid changes when the instance joins a cluster, and the metric objects
+    // must outlive that change, so it is presented at collection time rather than baked into the
+    // family key.
     utils::UUID uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
@@ -269,6 +282,12 @@ class PrometheusMetrics {
 
   /// Drops one registration of the entry, and the metrics with the last of them.
   void ReleaseRegistration(uint64_t entry_id);
+
+  // Caller must hold databases_.mutex.
+  DatabaseMetricHandles CreateHandles(std::string_view name, uint64_t entry_id);
+  void RemoveHandlesFromFamilies(DatabaseMetricHandles const &h);
+  void RemoveEntryAt(std::list<DatabaseEntry>::iterator it);
+  DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
