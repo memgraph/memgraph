@@ -128,13 +128,8 @@ struct IndexHints {
 
   template <class TDbAccessor>
   bool HasLabelIndex(TDbAccessor *db, storage::LabelId label) const {
-    for (const auto &[index_type, label_hint, _] : label_index_hints_) {
-      auto label_id = db->NameToLabel(label_hint.name);
-      if (label_id == label) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(label_index_hints_,
+                               [&](auto const &hint) { return db->NameToLabel(hint.label_ix_.name) == label; });
   }
 
   template <class TDbAccessor>
@@ -158,24 +153,17 @@ struct IndexHints {
   // TODO: look into making index hints work for point indexes
   template <class TDbAccessor>
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
-    for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
-      auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint[0].path[0].name);
-      if (label_id == label && property_id == property) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(point_index_hints_, [&](auto const &hint) {
+      return db->NameToLabel(hint.label_ix_.name) == label &&
+             db->NameToProperty(hint.property_ixs_[0].path[0].name) == property;
+    });
   }
 
   template <class TDbAccessor>
   bool HasVertexPropertyIndex(TDbAccessor *db, storage::PropertyId property) const {
-    for (const auto &[index_type, label_hint, property_ixs] : vertex_property_index_hints_) {
-      if (db->NameToProperty(property_ixs[0].path[0].name) == property) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(vertex_property_index_hints_, [&](auto const &hint) {
+      return db->NameToProperty(hint.property_ixs_[0].path[0].name) == property;
+    });
   }
 
   std::vector<IndexHint> label_index_hints_{};
