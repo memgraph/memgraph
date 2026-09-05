@@ -82,6 +82,18 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     return;
   }
 
+  // Update() drops+recreates the tenant when the name exists under a DIFFERENT uuid. That drop's free is
+  // deferred, not synchronous: Update() keeps its own accessor alive across Delete_(), so DeferDelete's
+  // try_delete() sees count_ > 1 and hands the Gatekeeper to defer_pool_, which frees it on a background
+  // thread with no ordering against this RPC thread -- the actual reason to abort here, up front. The
+  // cached 2PC commit accessor is storage-level, not gatekeeper-counted, so nothing drains it before that
+  // free. Same-uuid Update is a no-op salient refresh, so *local != req.config.uuid avoids aborting an
+  // in-flight 2PC for the very tenant being created/updated. Defence-in-depth: reachability here is
+  // unproven.
+  if (const auto local = dbms_handler.GetHotUuid(*req.config.name.str_view()); local && *local != req.config.uuid) {
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+  }
+
   try {
     // Create new
     if (auto const new_db = dbms_handler.Update(req.config); new_db.has_value()) {

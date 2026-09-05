@@ -32,6 +32,7 @@
 #include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "flags/all.hpp"
 #include "flags/bolt.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -800,6 +801,12 @@ int main(int argc, char **argv) {
   }
 
 #endif
+
+  // Owns the process-wide 2PC commit-accessor slot. Declared BEFORE dbms_handler so it is destroyed
+  // AFTER it: ~DbmsHandler runs every ~Database, each draining its own tenant's cached 2PC while its
+  // storage is still alive, leaving an empty slot for this Owner to free. Unconditional: harmless on
+  // a coordinator, which never populates the replica-only slot.
+  const memgraph::dbms::TwoPCCommitCache::Owner two_pc_cache_owner;
 
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler;
   if (!is_coordinator_instance) {
