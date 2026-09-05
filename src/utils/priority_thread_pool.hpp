@@ -137,7 +137,7 @@ class PriorityThreadPool {
 
   void ShutDown();
 
-  void ScheduledAddTask(TaskSignature new_task, Priority priority);
+  void ScheduledAddTask(TaskSignature new_task, Priority priority, bool productive = true);
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
@@ -150,6 +150,11 @@ class PriorityThreadPool {
   uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
+
+  // True iff the pool has queued productive (non-admission) tasks. Reads productive_pending_ via
+  // relaxed atomic; used to gate admission reschedule — admission re-posts are non-productive and
+  // do not increment the counter, so a pure-admission storm cannot hold the gate open.
+  bool HasPendingWork() const noexcept;
 
   // Single worker implementation
   class Worker {
@@ -165,11 +170,12 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+      bool productive{true};       // false for admission retries; excluded from productive_pending_
 
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, TaskID id);
+    void push(TaskSignature new_task, TaskID id, bool productive = true);
 
     void stop();
 
@@ -188,6 +194,9 @@ class PriorityThreadPool {
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
 
+    // Pool-owned counter; set once after construction, never null at task time.
+    std::atomic<int64_t> *productive_pending_{nullptr};
+
     friend class PriorityThreadPool;
   };
 
@@ -204,6 +213,11 @@ class PriorityThreadPool {
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+
+  // Counts queued productive tasks (excludes admission retries). Increment in push, decrement at
+  // every pop that does not re-push. Balance: rebalance = pop(-1)+push(+1) = 0; run = push(+1)+pop(-1) = 0.
+  // May be positive at shutdown for unrun tasks — irrelevant to the gate.
+  alignas(64) std::atomic<int64_t> productive_pending_{0};
 };
 
 class CollectionScheduler {

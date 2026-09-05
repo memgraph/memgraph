@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -469,6 +469,81 @@ TEST(TaskCollection, LargeTaskSet) {
   // Wait for all tasks to complete
   collection.Wait();
   ASSERT_EQ(counter.load(), num_tasks);
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Verifies the NB-3 admission-gate contract for HasPendingWork():
+//   - productive=false tasks (admission re-posts) never increment productive_pending_,
+//     so they cannot hold the gate open even when queued.
+//   - productive=true tasks (real queries) immediately open the gate on submission.
+TEST(PriorityThreadPool, HasPendingWorkCountsProductiveNotAdmissionReposts) {
+  using namespace memgraph;
+
+  // 4 mixed workers, 1 HP worker.
+  constexpr int kN = 4;
+  utils::PriorityThreadPool pool{kN, 1};
+
+  std::atomic<int> occupied{0};
+  std::atomic<bool> release{false};
+
+  // Occupy all kN mixed workers with non-productive tasks (productive=false) so that
+  // productive_pending_ stays at zero throughout the occupancy phase.
+  // Submit ONE blocking occupier per worker, and wait (with real sleeps so the worker threads get
+  // a timeslice) for it to actually start before submitting the next. Because the already-started
+  // occupiers are blocked on `release`, a fresh occupier can only land on a still-free worker, so
+  // this deterministically fills all kN distinct mixed workers. Bounded so a broken pool fails fast.
+  for (int k = 1; k <= kN; ++k) {
+    pool.ScheduledAddTask(
+        [&](utils::Priority) {
+          occupied.fetch_add(1, std::memory_order_acq_rel);
+          while (!release.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          }
+        },
+        utils::Priority::LOW,
+        /*productive=*/false);
+    for (int waited = 0; occupied.load(std::memory_order_acquire) < k && waited < 5000; ++waited) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(occupied.load(std::memory_order_acquire), k) << "worker " << k << " did not start in time";
+  }
+
+  // All kN workers are now spinning on `release`.  No productive task has ever been
+  // submitted, so productive_pending_ must be zero and the gate must be closed.
+  ASSERT_FALSE(pool.HasPendingWork());
+
+  // Submit an admission re-post (productive=false).  It queues behind a busy worker
+  // but must NOT open the gate — push() skips the counter increment for non-productive
+  // tasks (priority_thread_pool.cpp Worker::push, guarded by `productive` flag).
+  pool.ScheduledAddTask([](utils::Priority) {}, utils::Priority::LOW, /*productive=*/false);
+  ASSERT_FALSE(pool.HasPendingWork());
+
+  // Submit a real productive task (productive=true).  push() increments productive_pending_
+  // before returning, so HasPendingWork() must be true immediately after this call.
+  std::atomic<bool> productive_ran{false};
+  pool.ScheduledAddTask([&](utils::Priority) { productive_ran.store(true, std::memory_order_release); },
+                        utils::Priority::LOW,
+                        /*productive=*/true);
+  ASSERT_TRUE(pool.HasPendingWork());
+
+  // Release all occupiers so the pool can drain.  With release==true, any extra
+  // non-productive occupiers still in queues will also exit immediately when picked up.
+  release.store(true, std::memory_order_release);
+
+  // Wait (bounded) for the productive task to complete.  The pop_task lambda in the
+  // worker decrements productive_pending_ BEFORE calling the task body, so by the
+  // time we observe productive_ran==true via acquire, the decrement is already visible
+  // (sequenced-before + release/acquire pairing).
+  constexpr int kMaxPollIter = 100'000;
+  for (int i = 0; i < kMaxPollIter && !productive_ran.load(std::memory_order_acquire); ++i) {
+    std::this_thread::yield();
+  }
+  ASSERT_TRUE(productive_ran.load(std::memory_order_acquire)) << "productive task never ran within poll bound";
+  // productive_pending_ was decremented at pop (before task body ran), so the gate
+  // must be closed again now that we have the acquire visibility on productive_ran.
+  ASSERT_FALSE(pool.HasPendingWork());
 
   pool.ShutDown();
   pool.AwaitShutdown();

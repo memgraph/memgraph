@@ -45,9 +45,9 @@ struct Context {
 #endif
   utils::PriorityThreadPool *worker_pool_;
 
-  auto AddTask(auto &&task, utils::Priority priority) {
+  auto AddTask(auto &&task, utils::Priority priority, bool productive = true) {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
-    return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority);
+    return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority, productive);
   }
 };
 }  // namespace memgraph::glue

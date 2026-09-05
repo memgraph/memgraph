@@ -17,6 +17,7 @@
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/access_type.hpp"
 
 namespace memgraph::glue {
 using bolt_value_t = memgraph::communication::bolt::Value;
@@ -69,7 +70,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void Configure(const bolt_map_t &run_time_info);
 
-  void BeginTransaction(const bolt_map_t &extra);
+  void BeginTransaction(const bolt_map_t &extra, storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
 
   bolt_map_t CommitTransaction();
 
@@ -77,7 +78,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra);
 
-  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare();
+  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare(
+      storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
                                                                     const bolt_map_t &extra) {
@@ -141,11 +143,28 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline bool Execute() { return Execute_(*this); }
 
+  inline memgraph::communication::bolt::PendingBeginOutcome FinishPendingBegin() { return FinishPendingBegin_(*this); }
+
+  inline memgraph::communication::bolt::PendingPrepareOutcome FinishPendingPrepare() {
+    return FinishPendingPrepare_(*this);
+  }
+
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 
   metrics::DatabaseMetricHandles *GetMetricHandles() {
     auto &db_acc = interpreter_.current_db_.db_acc_;
     return db_acc ? (*db_acc)->metric_handles() : nullptr;
+  }
+
+  // True iff the pool has other queued work a freed worker could run. Gates reschedule-vs-block.
+  bool PoolHasPendingWork() const noexcept { return worker_pool_ != nullptr && worker_pool_->HasPendingWork(); }
+
+  // Admission engine-lock mode: TryBounded (reschedule) only when there is work to yield to; else
+  // Blocking (behave like master — no wasted try/reschedule when nothing else can run).
+  // One-shot decision: once Blocking is chosen the worker commits to the acquire and does not
+  // re-evaluate if new work arrives mid-wait (bounded by the holding commit; the full fix is coroutines).
+  storage::EngineLockMode AdmissionEngineLockMode() const noexcept {
+    return PoolHasPendingWork() ? storage::EngineLockMode::TryBounded : storage::EngineLockMode::Blocking;
   }
 
  private:
@@ -161,8 +180,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::string GetCurrentUser() const;
 
-  memgraph::query::InterpreterContext *interpreter_context_;      // Global context used by all interpreters
-  memgraph::query::Interpreter interpreter_;                      // Session specific interpreter
+  memgraph::query::InterpreterContext *interpreter_context_;  // Global context used by all interpreters
+  memgraph::query::Interpreter interpreter_;                  // Session specific interpreter
+  memgraph::utils::PriorityThreadPool *worker_pool_{};  // Backing thread pool; gates TryBounded vs Blocking admission
   std::shared_ptr<query::QueryUserOrRole> session_user_or_role_;  // Connected user/role
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
