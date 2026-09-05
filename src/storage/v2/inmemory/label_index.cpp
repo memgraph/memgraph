@@ -10,16 +10,15 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_index.hpp"
-#include <range/v3/all.hpp>
+
+#include <algorithm>
 
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/all_indices_cleanup.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
-
-namespace r = ranges;
-namespace rv = r::views;
 
 namespace {
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex,
@@ -467,14 +466,7 @@ void InMemoryLabelIndex::DropGraphClearIndices() {
 }
 
 void InMemoryLabelIndex::CleanupAllIndices() {
-  // By cleanup, we mean just cleanup of the all_indexes_
-  // If all_indexes_ is the only thing holding onto an IndividualIndex, we remove it
-  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
-    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
-    if (!ranges::all_of(*indices, keep_condition)) {
-      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
-    }
-  });
+  storage::CleanupAllIndices(all_indices_, [](AllIndicesEntry const &e) { return e.index_.use_count(); });
 }
 
 void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {

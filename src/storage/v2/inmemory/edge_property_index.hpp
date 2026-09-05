@@ -292,7 +292,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
   bool InstallIndividualIndex_(PropertyId property, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
-  void CleanupAllIndicies();
+  void CleanupAllIndices();
 
   metrics::GaugeHandle gauge_{};
 
