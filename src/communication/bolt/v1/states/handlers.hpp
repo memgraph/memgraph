@@ -198,7 +198,11 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
   if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
     spdlog::trace("Error trace: {}", p->trace());
   }
-  session.encoder_buffer_.Clear();
+  // Complete any record already partially on the wire (64 KiB auto-flush split) before the summary.
+  if (!session.encoder_buffer_.FlushFinalized()) {
+    spdlog::trace("Couldn't flush finalized record chunks!");
+    return State::Close;
+  }
 
   auto code_message = ExceptionToErrorMessage(e, session.GetMetricHandles());
   bool fail_sent = session.encoder_.MessageFailure({{"code", code_message.first}, {"message", code_message.second}});

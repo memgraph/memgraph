@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -120,6 +120,19 @@ class ChunkedEncoderBuffer {
    *          false otherwise
    */
   bool HasData() const { return (pos_ - chunk_start_) > kChunkHeaderSize; }
+
+  /**
+   * Failure path: flush completed chunks buffered since the last write, drop the
+   * partial current chunk, so the caller can write the FAILURE summary without
+   * splicing it into a record the 64 KiB auto-flush already started delivering.
+   * A single field value ≥ 65535 bytes that auto-flushed mid-encode leaves
+   * chunk_start_ = 0; this cannot recover that (pre-existing) partial chunk.
+   */
+  [[nodiscard]] bool FlushFinalized() {
+    auto ret = chunk_start_ > 0 ? output_stream_.Write(chunk_.data(), chunk_start_, false) : true;
+    Clear();
+    return ret;
+  }
 
  private:
   // The output stream used.
