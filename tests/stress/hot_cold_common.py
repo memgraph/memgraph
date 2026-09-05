@@ -154,13 +154,16 @@ def resume_tenant_blocking(endpoint: str, username: str, password: str, name: st
     """
     deadline = time.monotonic() + timeout
     drv = make_driver(endpoint, username, password)
+    last_resume_error = None
     try:
         while time.monotonic() < deadline:
             try:
                 with drv.session() as sess:
                     run_query(sess, f"RESUME DATABASE {name}")
-            except Exception:
-                pass  # already HOT, or transient failure — detect below
+            except Exception as exc:
+                # Already HOT, or a transient failure; the USE probe below decides which. Kept so
+                # a timeout can report why RESUME was refused.
+                last_resume_error = exc
 
             try:
                 with drv.session() as sess:
@@ -172,7 +175,7 @@ def resume_tenant_blocking(endpoint: str, username: str, password: str, name: st
                     time.sleep(0.2)
                     continue
                 raise
-        raise RuntimeError(f"Tenant {name} did not come HOT within {timeout}s")
+        raise RuntimeError(f"Tenant {name} did not come HOT within {timeout}s; last RESUME error: {last_resume_error}")
     finally:
         drv.close()
 
