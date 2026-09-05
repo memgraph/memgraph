@@ -223,3 +223,28 @@ jobs:
       run_id: "${{ matrix.run_no }}"
       ref: ${{ github.sha }}
     secrets: inherit
+
+  # The repeats above are only useful if someone reads all of them together.
+  # This gathers every run's ctest results into one per-test failure count, so a
+  # flake rate is visible without opening any job log.
+  FlakeSummary:
+    needs: [Community, Coverage, Debug, Release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+      - name: Download ctest results from every run
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          pattern: ctest_results_*
+          path: ctest-results
+      - name: Summarise failures across the runs
+        run: |
+          # Without pipefail the step takes tee's status, so the summariser
+          # could fail and still leave the step green.
+          set -euo pipefail
+          python3 tools/ci/summarize_ctest_results.py ctest-results | tee -a "$GITHUB_STEP_SUMMARY"
