@@ -1,0 +1,240 @@
+name: "Experiment: parallel benchmark"
+
+# Experiment: can the diff_release.yaml `benchmark` workloads run side by side,
+# one per NUMA node, without disturbing each other's numbers? Builds a prod
+# docker image (steps copied from reusable_package.yaml), then a pool script
+# hands each workload a free NUMA node (nodes are detected on the runner).
+# Compare the uploaded results against a serial run with
+# `tools/ci/parallel_benchmark.py summarize <serial> <parallel>`.
+
+on:
+  push:
+    branches:
+      - experiment/parallelize-benchmarking
+  workflow_dispatch:
+    inputs:
+      repeat:
+        type: string
+        description: "Run the whole workload set this many times."
+        default: "1"
+      tasks:
+        type: string
+        description: "Comma-separated subset of the workloads (see tools/ci/parallel_benchmark.py), or 'all'."
+        default: "all"
+      ref:
+        type: string
+        description: "Git ref to benchmark. Default is the ref the workflow runs from."
+        default: ""
+
+env:
+  ARCH: amd
+  OS: ubuntu-24.04
+  TOOLCHAIN: v8
+  BUILD_TYPE: RelWithDebInfo
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  PACKAGE_ARTIFACT_DIR: build/output/package
+  DOCKER_PROD_ARTIFACT_DIR: build/output/docker-x86_64
+  CLIENT_BUILD_DIR: build/output/mgbench-client
+  RESULTS_DIR: build/output/parallel-benchmark
+  CLIENT_IMAGE: memgraph/mgbench-client:local
+  # Inputs are empty on `push`, so fall back to the dispatch defaults.
+  BENCH_TASKS: ${{ inputs.tasks || 'all' }}
+  BENCH_REPEAT: ${{ inputs.repeat || '1' }}
+
+jobs:
+  parallel_benchmark:
+    name: "Parallel benchmark"
+    runs-on: [self-hosted, Linux, benchmark]
+    timeout-minutes: 300
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Detect NUMA nodes
+        run: |
+          nodes=""
+          for node in /sys/devices/system/node/node[0-9]*; do
+            id="${node##*/node}"
+            echo "node${id}: cpus $(cat "$node/cpulist"), $(grep MemTotal "$node/meminfo" | awk '{print $4, $5}')"
+            nodes="${nodes:+$nodes,}$id"
+          done
+          if [[ -z "$nodes" ]]; then
+            echo "Error: no NUMA nodes found under /sys/devices/system/node" >&2
+            exit 1
+          fi
+          echo "Using NUMA nodes as slots: $nodes"
+          echo "NUMA_NODES=$nodes" >> $GITHUB_ENV
+
+      - name: Spin up mgbuild container
+        run: |
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run --custom-mirror $USE_CUSTOM_MIRROR
+
+      # Full build (tests included) so the mgbench bolt client is built from
+      # this checkout; the packaged image is built from the same binaries.
+      - name: Build release binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph \
+          --split-debug \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: Make package
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          package-memgraph --format deb
+
+      - name: Copy package
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy \
+          --package \
+          --dest-dir $PACKAGE_ARTIFACT_DIR
+
+      - name: Copy mgbench client binary and toolchain runtime libs
+        run: |
+          # The client links against the toolchain's libstdc++ (newer GLIBCXX
+          # than Ubuntu 24.04 ships), so bundle it like the memgraph package does.
+          mkdir -p "$CLIENT_BUILD_DIR/lib"
+          container="mgbuild_${TOOLCHAIN}_${OS}"
+          docker cp "$container:/home/mg/memgraph/build/tests/mgbench/client" "$CLIENT_BUILD_DIR/client"
+          for lib in libstdc++.so.6 libgcc_s.so.1; do
+            docker cp -L "$container:/opt/toolchain-${TOOLCHAIN}/lib64/$lib" "$CLIENT_BUILD_DIR/lib/$lib"
+          done
+          ls -l "$CLIENT_BUILD_DIR" "$CLIENT_BUILD_DIR/lib"
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+      - name: Fetch gssapi wheels
+        run: |
+          ./tools/ci/fetch-gssapi-wheels.sh \
+            --arch $ARCH \
+            --dest-dir release/docker/wheels
+
+      - name: Fetch OpenSSL packages
+        run: |
+          ./tools/ci/openssl/fetch-openssl-packages.sh \
+            --arch $ARCH \
+            --version "3.5.4" \
+            --dest-dir build
+
+      - name: Create docker image (prod)
+        run: |
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          package-docker \
+          --src-dir $PACKAGE_ARTIFACT_DIR \
+          --dest-dir $DOCKER_PROD_ARTIFACT_DIR \
+          --malloc false \
+          --custom-mirror $USE_CUSTOM_MIRROR \
+          --package-flavour prod \
+          --keep-image-loaded true
+
+          image_archive="$(ls -1t "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+          if [[ -z "$image_archive" ]]; then
+            echo "Error: Could not find prod docker image archive in '$DOCKER_PROD_ARTIFACT_DIR'."
+            exit 1
+          fi
+          image_tag="$(basename "$image_archive")"
+          image_tag="${image_tag#memgraph-}"
+          image_tag="${image_tag%-docker.tar.gz}"
+          echo "PROD_IMAGE=memgraph/memgraph:$image_tag" >> $GITHUB_ENV
+          echo "Resolved PROD_IMAGE=memgraph/memgraph:$image_tag"
+
+      - name: Build mgbench client image
+        run: |
+          docker build \
+            -f tests/mgbench/Dockerfile.mgbench_client_prebuilt \
+            -t "$CLIENT_IMAGE" \
+            "$CLIENT_BUILD_DIR"
+          # Fail here, not in a silent retry loop, if the binary cannot load.
+          ldd_out="$(docker run --rm --entrypoint ldd "$CLIENT_IMAGE" /bin/client)"
+          echo "$ldd_out"
+          if grep -q "not found" <<<"$ldd_out"; then
+            echo "Error: mgbench client has unresolved shared libraries" >&2
+            exit 1
+          fi
+
+      - name: Run benchmarks across NUMA nodes
+        run: |
+          python3 tools/ci/parallel_benchmark.py run \
+            --image "$PROD_IMAGE" \
+            --client-image "$CLIENT_IMAGE" \
+            --numa-nodes "$NUMA_NODES" \
+            --tasks "$BENCH_TASKS" \
+            --repeat "$BENCH_REPEAT" \
+            --results-dir "$RESULTS_DIR" \
+            --cache-root "$HOME/.cache/mgbench-parallel"
+
+      - name: Summarize
+        if: always()
+        run: |
+          if [[ -f "$RESULTS_DIR/manifest.json" ]]; then
+            python3 tools/ci/parallel_benchmark.py summarize --markdown "$RESULTS_DIR" | tee -a $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: parallel-benchmark-${{ github.run_id }}
+          path: ${{ env.RESULTS_DIR }}
+
+      - name: Remove benchmark containers
+        if: always()
+        continue-on-error: true
+        run: |
+          docker ps -aq --filter "name=memgraph_benchmark" --filter "name=mgbench-bolt-client" | xargs -r docker rm -f
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh

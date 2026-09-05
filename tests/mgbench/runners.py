@@ -290,8 +290,10 @@ class BoltClientDocker(BaseClient):
         self._bolt_port = (
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
-        self._container_name = "mgbench-bolt-client"
-        self._target_db_container = f"{benchmark_context.vendor_name}_benchmark"
+        self._docker_options = benchmark_context.docker_options
+        suffix = self._docker_options.name_suffix
+        self._container_name = f"mgbench-bolt-client{suffix}"
+        self._target_db_container = f"{benchmark_context.vendor_name}_benchmark{suffix}"
 
     def _remove_container(self):
         command = ["docker", "rm", "-f", self._container_name]
@@ -305,7 +307,8 @@ class BoltClientDocker(BaseClient):
             self._container_name,
             "--network",
             DOCKER_NETWORK_NAME,
-            "memgraph/mgbench-client",
+            *self._docker_options.resource_flags(),
+            self._docker_options.client_image,
             *args,
         ]
         run_command(command)
@@ -378,7 +381,9 @@ class BoltClientDocker(BaseClient):
         # Wait until the container is started
         time.sleep(2)
 
-        while True:
+        # A client that cannot run at all (e.g. missing shared libs) fails the
+        # same way as a database that is not up yet, so give up eventually.
+        for attempt in range(1, max_retries + 1):
             try:
                 run_command(command)
                 break
@@ -386,6 +391,11 @@ class BoltClientDocker(BaseClient):
                 log.log("Checking if database is up and running failed!")
                 log.warning("Reported errors from client:")
                 log.warning("Error: {}".format(e.stderr))
+                if attempt == max_retries:
+                    raise Exception(
+                        f"Client could not reach the database after {max_retries} attempts; "
+                        f"last client error: {e.stderr.strip() or e.stdout.strip()}"
+                    ) from e
                 log.warning("Database is not up yet, waiting 3 second")
                 time.sleep(3)
                 log.warning("Continuing execution...")
@@ -1474,16 +1484,24 @@ class MemgraphDocker(BaseRunner):
         super().__init__(benchmark_context=benchmark_context)
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
-        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
-        self._container_name = "memgraph_benchmark"
-        self._image_name = "memgraph/memgraph"
-        self._image_version = "3.2.1"
+        self._bolt_port = str(self._vendor_args["bolt-port"]) if "bolt-port" in self._vendor_args.keys() else "7687"
+        self._docker_options = benchmark_context.docker_options
+        self._container_name = f"memgraph_benchmark{self._docker_options.name_suffix}"
+        self._image = self._docker_options.image
         self._container_ip = None
         self._config_file = None
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)
+
+    def _license_env_flags(self):
+        # Bare `-e NAME` makes docker read the value from our environment, so it never hits the logs.
+        flags = []
+        for name in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME"):
+            if os.environ.get(name):
+                flags += ["-e", name]
+        return flags
 
     def start_db_init(self, message):
         log.init("Starting database for import...")
@@ -1499,7 +1517,10 @@ class MemgraphDocker(BaseRunner):
                 "-it",
                 "-p",
                 self._bolt_port + ":" + self._bolt_port,
-                f"{self._image_name}:{self._image_version}",
+                *self._docker_options.resource_flags(),
+                *self._docker_options.volume_flags(),
+                *self._license_env_flags(),
+                self._image,
                 "--storage_wal_enabled=false",
                 "--data_recovery_on_startup=true",
                 "--storage_snapshot_interval_sec=0",
@@ -1587,10 +1608,10 @@ class MemgraphDocker(BaseRunner):
             file.close()
 
     def _get_cpu_memory_usage(self):
+        # No -t: stdout is captured, so there is no TTY to allocate (docker exec -t fails in CI).
         command = [
             "docker",
             "exec",
-            "-it",
             self._container_name,
             "bash",
             "-c",
@@ -1604,7 +1625,6 @@ class MemgraphDocker(BaseRunner):
         command = [
             "docker",
             "exec",
-            "-it",
             self._container_name,
             "bash",
             "-c",
@@ -1615,7 +1635,6 @@ class MemgraphDocker(BaseRunner):
         command = [
             "docker",
             "exec",
-            "-it",
             self._container_name,
             "bash",
             "-c",
