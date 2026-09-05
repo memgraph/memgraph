@@ -62,7 +62,7 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     case Signature::Commit:
       return HandleCommit<TSession>(session, state, marker);
     case Signature::Goodbye:
-      return HandleGoodbye<TSession>();
+      return HandleGoodbye<TSession>(session);
     case Signature::Rollback:
       return HandleRollback<TSession>(session, state, marker);
     case Signature::Noop: {
@@ -103,7 +103,7 @@ State RunHandlerV5(Signature signature, TSession &session, State state, Marker m
     case Signature::Commit:
       return HandleCommit<TSession>(session, state, marker);
     case Signature::Goodbye:
-      return HandleGoodbye<TSession>();
+      return HandleGoodbye<TSession>(session);
     case Signature::Rollback:
       return HandleRollback<TSession>(session, state, marker);
     case Signature::Noop:

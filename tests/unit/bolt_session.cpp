@@ -34,6 +34,10 @@ static const char *kQueryReturn42 = "RETURN 42";
 static const char *kQueryReturnMultiple = "UNWIND [1,2,3] as n RETURN n";
 static const char *kQueryShowTx = "SHOW TRANSACTIONS";
 static const char *kQueryEmpty = "no results";
+static const char *kQueryReturnBigThenFail = "big result then fail";
+// 90 × 1 KiB exceeds the 64 KiB encoder auto-flush boundary; at least one record straddles it — the regression trigger.
+inline constexpr size_t kBigRecordSize = 1024;
+inline constexpr int kBigRecordCount = 90;
 
 class TestSessionContext {};
 
@@ -54,7 +58,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
     }
-    if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
+    if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple ||
+        query == kQueryReturnBigThenFail) {
       query_ = query;
       return;
     }
@@ -70,7 +75,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   }
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare() {
-    if (query_ == kQueryReturn42 || query_ == kQueryEmpty || query_ == kQueryReturnMultiple) {
+    if (query_ == kQueryReturn42 || query_ == kQueryEmpty || query_ == kQueryReturnMultiple ||
+        query_ == kQueryReturnBigThenFail) {
       return {{"result_name"}, {}};
     }
     if (query_ == kQueryShowTx) {
@@ -107,6 +113,13 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     } else if (query_ == kQueryShowTx) {
       encoder_.MessageRecord({"", 1'234'567'890, query_, md_});
       return {};
+    } else if (query_ == kQueryReturnBigThenFail) {
+      // Fail mid-pull after the auto-flush boundary — the exact condition that used to splice FAILURE into a
+      // half-delivered record.
+      for (int i = 0; i < kBigRecordCount; ++i) {
+        encoder_.MessageRecord(std::vector<Value>{Value(std::string(kBigRecordSize, 'A'))});
+      }
+      throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
     } else {
       throw ClientError("client sent invalid query");
     }
@@ -1325,4 +1338,147 @@ TEST(BoltSession, PartialStream) {
     auto const find_msg = std::search(cbegin(output), cend(output), cbegin(error_msg), cend(error_msg));
     EXPECT_NE(find_msg, cend(output));
   }
+}
+
+TEST(BoltSession, FailureAfterLargeResultIsNotCorrupted) {
+  // Regression: failure past the 64 KiB auto-flush boundary must not splice FAILURE into a half-delivered record.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  WriteRunRequest(input_stream, kQueryReturnBigThenFail, true);
+  session.Execute();
+  ASSERT_EQ(session.state_, State::Result);
+
+  output.clear();  // isolate the bytes produced by the failing pull
+  ExecuteCommand(input_stream, session, v4::pullall_req, sizeof(v4::pullall_req));
+
+  // Reassemble the Bolt chunked stream exactly as a client would: each message is
+  // a sequence of [u16 length][payload] chunks terminated by a zero-length chunk.
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<uint8_t> current;
+  size_t i = 0;
+  while (i + 2 <= output.size()) {
+    const uint16_t len = (static_cast<uint16_t>(output[i]) << 8) | output[i + 1];
+    i += 2;
+    if (len == 0) {  // end-of-message marker
+      messages.push_back(std::move(current));
+      current.clear();
+      continue;
+    }
+    ASSERT_LE(i + len, output.size()) << "chunk length runs past the buffer — corrupt framing";
+    current.insert(current.end(), output.begin() + i, output.begin() + i + len);
+    i += len;
+  }
+  ASSERT_EQ(i, output.size()) << "trailing bytes with no end marker — corrupt framing";
+
+  // Exactly kBigRecordCount RECORD messages followed by one FAILURE, nothing merged.
+  ASSERT_EQ(messages.size(), static_cast<size_t>(kBigRecordCount) + 1);
+  for (int m = 0; m < kBigRecordCount; ++m) {
+    ASSERT_GE(messages[m].size(), 2u);
+    EXPECT_EQ(messages[m][0], 0xB1) << "record " << m << " struct marker";  // TinyStruct1
+    EXPECT_EQ(messages[m][1], 0x71) << "record " << m << " signature";      // Record
+  }
+  ASSERT_GE(messages.back().size(), 2u);
+  EXPECT_EQ(messages.back()[0], 0xB1);
+  EXPECT_EQ(messages.back()[1], 0x7F);  // Failure signature
+}
+
+TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
+  // Response batching: a pipelined RUN+PULL auto-commit burst must reach the socket as a SINGLE
+  // write — the deferred SUCCESS acks, the record, and the PULL summary are drained together at
+  // end-of-input — instead of one write per message. This is what supersedes the v2-layer batching.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  output.clear();
+  output_stream.write_count = 0;
+
+  // Pipeline RUN + PULL into the input buffer, THEN drive Execute once (no execute in between,
+  // or the two would drain separately).
+  WriteRunRequest(input_stream, kQueryReturn42, true);
+  WriteChunkHeader(input_stream, sizeof(v4::pullall_req));
+  input_stream.Write(v4::pullall_req, sizeof(v4::pullall_req));
+  WriteChunkTail(input_stream);
+
+  session.Execute();
+
+  // The whole burst leaves as one write.
+  EXPECT_EQ(output_stream.write_count, 1u);
+
+  // Byte-transparency: that single write still carries all three complete messages —
+  // RUN SUCCESS header, one RECORD, PULL SUCCESS summary — in order, nothing merged or dropped.
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<uint8_t> current;
+  size_t i = 0;
+  while (i + 2 <= output.size()) {
+    const uint16_t len = (static_cast<uint16_t>(output[i]) << 8) | output[i + 1];
+    i += 2;
+    if (len == 0) {
+      messages.push_back(std::move(current));
+      current.clear();
+      continue;
+    }
+    ASSERT_LE(i + len, output.size());
+    current.insert(current.end(), output.begin() + i, output.begin() + i + len);
+    i += len;
+  }
+  ASSERT_EQ(messages.size(), 3u);
+  ASSERT_GE(messages[0].size(), 2u);
+  EXPECT_EQ(messages[0][1], 0x70);  // SUCCESS (RUN header)
+  ASSERT_GE(messages[1].size(), 2u);
+  EXPECT_EQ(messages[1][1], 0x71);  // RECORD
+  ASSERT_GE(messages[2].size(), 2u);
+  EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
+
+TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {
+  // With response-batching, a RUN+PULL response deferred earlier in a pipelined burst must still
+  // reach the client when the same burst ends with GOODBYE — GOODBYE closes the connection, but the
+  // handler flushes the deferred buffer first, matching the pre-batching per-message flush.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  output.clear();
+
+  // Pipeline RUN + PULL + GOODBYE into the input buffer, then drive once. GOODBYE throws.
+  WriteRunRequest(input_stream, kQueryReturn42, true);
+  WriteChunkHeader(input_stream, sizeof(v4::pullall_req));
+  input_stream.Write(v4::pullall_req, sizeof(v4::pullall_req));
+  WriteChunkTail(input_stream);
+  WriteChunkHeader(input_stream, sizeof(v4::goodbye));
+  input_stream.Write(v4::goodbye, sizeof(v4::goodbye));
+  WriteChunkTail(input_stream);
+
+  ASSERT_THROW(session.Execute(), memgraph::communication::SessionClosedException);
+
+  // The deferred RUN+PULL responses were flushed before the close: exactly the three framed
+  // messages RUN SUCCESS, RECORD, PULL SUCCESS — not dropped.
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<uint8_t> current;
+  size_t i = 0;
+  while (i + 2 <= output.size()) {
+    const uint16_t len = (static_cast<uint16_t>(output[i]) << 8) | output[i + 1];
+    i += 2;
+    if (len == 0) {
+      messages.push_back(std::move(current));
+      current.clear();
+      continue;
+    }
+    ASSERT_LE(i + len, output.size());
+    current.insert(current.end(), output.begin() + i, output.begin() + i + len);
+    i += len;
+  }
+  ASSERT_EQ(messages.size(), 3u);
+  ASSERT_GE(messages[0].size(), 2u);
+  EXPECT_EQ(messages[0][1], 0x70);  // SUCCESS (RUN header)
+  ASSERT_GE(messages[1].size(), 2u);
+  EXPECT_EQ(messages[1][1], 0x71);  // RECORD
+  ASSERT_GE(messages[2].size(), 2u);
+  EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
 }
