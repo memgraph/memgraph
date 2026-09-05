@@ -33,6 +33,9 @@ namespace details {
 
 template <typename TSession>
 void HandleAuthFailure(TSession &session, std::string const &message = "Authentication failure") {
+  // Deliver any responses deferred earlier in this burst (e.g. a HELLO ack before a failed LOGON)
+  // before the FAILURE, uniformly with the other failure-close paths.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
   if (!session.encoder_.MessageFailure(
           {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", message}})) {
     spdlog::trace("Couldn't send failure message to the client!");
@@ -44,6 +47,9 @@ void HandleAuthFailure(TSession &session, std::string const &message = "Authenti
 
 template <typename TSession>
 void HandleResourceFailure(TSession &session) {
+  // Deliver any responses deferred earlier in this burst before the FAILURE, uniformly with the
+  // other failure-close paths.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
   if (!session.encoder_.MessageFailure({{"code", "Memgraph.ClientError.Statement.SessionLimitReached"},
                                         {"message", "User reached the limit of concurent sessions"}})) {
     spdlog::trace("Couldn't send failure message to the client!");
