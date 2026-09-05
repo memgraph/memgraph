@@ -25,6 +25,7 @@ target_sources(mg-utils
     file.cpp
     file_locker.cpp
     file_owner.cpp
+    fips.cpp
     startup_failure.cpp
     memory.cpp
     memory_tracker.cpp

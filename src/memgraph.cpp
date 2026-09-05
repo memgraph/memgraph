@@ -24,7 +24,9 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "auth/crypto.hpp"
 #include "communication/cluster_tls.hpp"
+#include "communication/init.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -47,6 +49,7 @@
 #include "glue/auth_handler.hpp"
 #include "glue/run_id.hpp"
 #include "helpers.hpp"
+#include "license/license.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -78,6 +81,7 @@
 #include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/signals.hpp"
+#include "utils/startup_failure.hpp"
 #include "utils/stat.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
@@ -310,6 +314,15 @@ int main(int argc, char **argv) {
                  build_info.build_name);
   }
 
+#ifdef MG_ENTERPRISE
+  // Must run before anything builds an SSL context or hashes a password, and
+  // after logger init so a failure is actually delivered.
+  if (FLAGS_fips_mode) {
+    memgraph::auth::EnableFipsMode();
+    memgraph::communication::EnableFipsMode();
+  }
+#endif
+
   // Owns the thread that drops read-through snapshots from the page cache. Declared here so it
   // outlives every database that can hand it a file, and is joined before `main` returns rather
   // than during static destruction.
@@ -495,6 +508,20 @@ int main(int argc, char **argv) {
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
+
+#ifdef MG_ENTERPRISE
+  // FIPS mode engages much earlier (it has to precede the first SSL context and
+  // password hash), but the license cannot be evaluated until here — it may come
+  // from settings, which need the data directory. Both are still well before the
+  // Bolt server starts, so no traffic is ever served in approved mode without a
+  // valid licence.
+  if (FLAGS_fips_mode) {
+    if (auto const res = memgraph::license::global_license_checker.IsEnterpriseValid(*settings); !res.has_value()) {
+      memgraph::utils::FailStartup(memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
+                                   memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"));
+    }
+  }
+#endif
 
   // Has to be initialized after the storage and license startup
   memgraph::flags::run_time::Initialize(*settings);
@@ -722,6 +749,37 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   auth_glue(auth_.get(), auth_handler, auth_checker);
+
+#ifdef MG_ENTERPRISE
+  if (FLAGS_fips_mode) {
+    if (!FLAGS_auth_module_mappings.empty()) {
+      spdlog::warn(
+          "An external auth module is configured ({}); it authenticates in a separate process, which approved mode "
+          "cannot constrain. A module that uses OpenSSL inherits OPENSSL_CONF and so follows the same provider "
+          "configuration, but any other cryptography it performs is outside FIPS 140-3 approved mode.",
+          FLAGS_auth_module_mappings);
+    }
+
+    auto locked_out_count = 0U;
+    for (auto const &user : auth_->ReadLock()->AllUsers()) {
+      auto const algo = user.PasswordHashAlgo();
+      if (!algo || memgraph::auth::IsFipsApproved(*algo)) continue;
+      spdlog::warn("User '{}' cannot authenticate in FIPS mode: its password hash uses '{}', which is not approved.",
+                   user.username(),
+                   memgraph::auth::AsString(*algo));
+      ++locked_out_count;
+    }
+    if (locked_out_count != 0) {
+      spdlog::warn(
+          "{} user(s) cannot authenticate in FIPS mode. Their passwords must be reset, not migrated -- re-hashing "
+          "needs the plaintext, which Memgraph does not store. Reset them with 'SET PASSWORD FOR <user> TO "
+          "<password>', which does not read the old hash. To avoid the lockout entirely, do that on a non-FIPS "
+          "instance started with --password-encryption-algorithm=pbkdf2-sha256 before enabling --fips-mode; if this "
+          "instance is already locked out, use --init-file to reset an administrator first.",
+          locked_out_count);
+    }
+  }
+#endif
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 

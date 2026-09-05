@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,28 @@
 #pragma once
 
 namespace memgraph::communication {
+
+#ifdef MG_ENTERPRISE
+/**
+ * Puts the process into FIPS 140-3 approved mode: verifies that the validated
+ * OpenSSL FIPS provider is available and operational, then makes it the
+ * implementation OpenSSL hands out whenever code asks for an algorithm through
+ * its generic fetch API (the `EVP_*` functions — hashes, ciphers, KDFs). Exits
+ * with `ExitCode::FipsModeUnavailable` if either step fails — a
+ * half-configured FIPS deployment is worse than none, because it invites a
+ * compliance claim that isn't true.
+ *
+ * Call this only when `--fips-mode=true`, after the logger is initialized (so
+ * a failure is actually reported) and before anything creates an SSL context
+ * or hashes a password.
+ *
+ * NOTE: only crypto that goes through that API is redirected. Code calling an
+ * implementation directly is unaffected — bcrypt is a separate library that
+ * never touches OpenSSL — which is why the non-approved password hash
+ * algorithms need a check of their own.
+ */
+void EnableFipsMode();
+#endif
 
 /**
  * Create this object in each `main` file that uses the Communication stack. It

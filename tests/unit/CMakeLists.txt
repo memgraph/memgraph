@@ -966,6 +966,12 @@ add_unit_test(cluster_client_ssl
 )
 add_dependencies(${test_unit_prefix}cluster_client_ssl memgraph__unit__tls_certs_dir)
 
+add_unit_test(tls_min_version
+    SOURCES tls_min_version.cpp
+    LINK_TARGETS mg-communication mg::io mg::utils Boost::filesystem
+)
+add_dependencies(${test_unit_prefix}tls_min_version memgraph__unit__tls_certs_dir)
+
 if (MG_ENTERPRISE)
     add_unit_test(management_servers
         SOURCES management_servers.cpp

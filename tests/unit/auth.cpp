@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <optional>
 
@@ -24,6 +25,7 @@
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "utils/file.hpp"
+#include "utils/fips.hpp"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <nlohmann/json.hpp>
@@ -2828,6 +2830,18 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordDefault) {
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
+TEST_F(AuthWithVariousEncryptionAlgorithms, CorruptSaltFailsVerificationWithoutAborting) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+
+  for (auto const algo :
+       {PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE, PasswordHashAlgorithm::PBKDF2_SHA256}) {
+    auto hash = HashedPassword{algo, std::string(HashSize(algo).salted, 'z')};
+    // Exit 0 means it returned false, 1 means it wrongly accepted the password,
+    // and a signal means it aborted.
+    EXPECT_EXIT(std::exit(hash.VerifyPassword("hello") ? 1 : 0), ::testing::ExitedWithCode(0), "") << AsString(algo);
+  }
+}
+
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256) {
   SetHashAlgorithm("sha256");
   auto hash = HashPassword("hello");
@@ -2840,6 +2854,131 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
   auto hash = HashPassword("hello");
   ASSERT_TRUE(hash.VerifyPassword("hello"));
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
+}
+
+TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordPBKDF2SHA256) {
+  SetHashAlgorithm("pbkdf2-sha256");
+  auto hash = HashPassword("hello");
+  ASSERT_EQ(hash.HashAlgo(), PasswordHashAlgorithm::PBKDF2_SHA256);
+  ASSERT_TRUE(hash.VerifyPassword("hello"));
+  ASSERT_FALSE(hash.VerifyPassword("hello1"));
+}
+
+// Known-answer test. The expected value was produced independently of our
+// EVP_KDF wiring, so it catches a wrong digest, a swapped password/salt, or a
+// wrong iteration count -- the realistic parameter mistakes. Reproduce with:
+//
+//   python3 -c 'import hashlib; print(hashlib.pbkdf2_hmac(
+//       "sha256", b"hello", bytes(range(16)), 600000, 32).hex())'
+//
+// Formal CAVP coverage of PBKDF2 itself is the validated module's, not ours.
+TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256KnownAnswer) {
+  static constexpr auto kSaltHex = "000102030405060708090a0b0c0d0e0f";
+  static constexpr auto kDerivedHex = "0f2f8ea738901d7afee33ef32d3a4358619f9f6e24a1f1b6a6ca81310858fcd7";
+
+  auto hash = HashedPassword{PasswordHashAlgorithm::PBKDF2_SHA256, std::string{kSaltHex} + kDerivedHex};
+  ASSERT_TRUE(hash.VerifyPassword("hello"));
+  ASSERT_FALSE(hash.VerifyPassword("hellp"));
+}
+
+// The salt is 128-bit and comes from OpenSSL's DRBG, so hashing the same
+// password twice must not collide.
+TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256SaltIsRandomAndSized) {
+  SetHashAlgorithm("pbkdf2-sha256");
+  auto const first = HashPassword("hello");
+  auto const second = HashPassword("hello");
+  ASSERT_NE(first, second);
+  ASSERT_TRUE(first.IsSalted());
+
+  nlohmann::json j = first;
+  ASSERT_EQ(j.at("password_hash").get<std::string>().size(), 96);
+}
+
+// Unlike bcrypt/sha256, a pre-computed pbkdf2 hash is deliberately rejected:
+// it carries no iteration count, so accepting one would mean trusting an
+// unknown work factor. See the note on UserDefinedHash.
+TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256RejectsUserSuppliedHash) {
+  auto const supplied = std::string{"pbkdf2-sha256:000102030405060708090a0b0c0d0e0f"} +
+                        "0f2f8ea738901d7afee33ef32d3a4358619f9f6e24a1f1b6a6ca81310858fcd7";
+  ASSERT_FALSE(UserDefinedHash(supplied).has_value());
+}
+
+// FIPS policy is process-global, so it must be reset even when a test fails.
+class AuthFipsMode : public ::testing::Test {
+ protected:
+  void SetUp() override { SetHashAlgorithm("bcrypt"); }
+
+  void TearDown() override {
+    memgraph::utils::SetFipsStatus({});
+    SetHashAlgorithm("bcrypt");
+  }
+};
+
+TEST_F(AuthFipsMode, OnlyPBKDF2IsApproved) {
+  ASSERT_FALSE(IsFipsApproved(PasswordHashAlgorithm::BCRYPT));
+  ASSERT_FALSE(IsFipsApproved(PasswordHashAlgorithm::SHA256));
+  ASSERT_FALSE(IsFipsApproved(PasswordHashAlgorithm::SHA256_MULTIPLE));
+  ASSERT_TRUE(IsFipsApproved(PasswordHashAlgorithm::PBKDF2_SHA256));
+}
+
+// `EnableFipsMode` is enterprise-only, so these two are compiled out with it.
+#ifdef MG_ENTERPRISE
+TEST_F(AuthFipsMode, EnableSelectsApprovedAlgorithmWhenUnset) {
+  SetHashAlgorithm("bcrypt");
+
+  EnableFipsMode(/*algorithm_flag_is_default=*/true);
+
+  EXPECT_EQ(CurrentHashAlgorithm(), PasswordHashAlgorithm::PBKDF2_SHA256);
+
+  // FIPS mode overrides the flag itself, so it now reports the approved algorithm.
+  EXPECT_EQ(FLAGS_password_encryption_algorithm, "pbkdf2-sha256");
+}
+
+TEST_F(AuthFipsMode, EnableKeepsAnExplicitlyChosenApprovedAlgorithm) {
+  SetHashAlgorithm("pbkdf2-sha256");
+
+  EnableFipsMode(/*algorithm_flag_is_default=*/false);
+
+  EXPECT_EQ(CurrentHashAlgorithm(), PasswordHashAlgorithm::PBKDF2_SHA256);
+}
+#endif
+
+TEST_F(AuthFipsMode, HashingRefusesNonApprovedAlgorithms) {
+  memgraph::utils::SetFipsStatus({.enabled = true});
+  for (auto const algo :
+       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+    ASSERT_THROW(HashPassword("hello", algo), AuthException) << AsString(algo);
+  }
+  ASSERT_NO_THROW(HashPassword("hello", PasswordHashAlgorithm::PBKDF2_SHA256));
+}
+
+// bcrypt never calls OpenSSL, so an active FIPS provider does nothing to stop
+// it -- this gate is the only thing that does.
+TEST_F(AuthFipsMode, VerificationRefusesLegacyHashes) {
+  auto legacy = HashPassword("hello", PasswordHashAlgorithm::BCRYPT);
+  ASSERT_TRUE(legacy.VerifyPassword("hello"));
+
+  memgraph::utils::SetFipsStatus({.enabled = true});
+  ASSERT_THROW(legacy.VerifyPassword("hello"), AuthException);
+}
+
+TEST_F(AuthFipsMode, UserSuppliedLegacyHashIsRejected) {
+  auto const supplied = std::string{"bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"};
+  ASSERT_TRUE(UserDefinedHash(supplied).has_value());
+
+  memgraph::utils::SetFipsStatus({.enabled = true});
+  ASSERT_THROW(UserDefinedHash(supplied), AuthException);
+}
+
+// Everything must behave exactly as before when the flag is off.
+TEST_F(AuthFipsMode, LegacyAlgorithmsUnaffectedWhenDisabled) {
+  ASSERT_FALSE(memgraph::utils::FipsEnabled());
+  for (auto const *algo : {"bcrypt", "sha256", "sha256-multiple", "pbkdf2-sha256"}) {
+    SetHashAlgorithm(algo);
+    auto hash = HashPassword("hello");
+    ASSERT_TRUE(hash.VerifyPassword("hello")) << algo;
+    ASSERT_FALSE(hash.VerifyPassword("hello1")) << algo;
+  }
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, SetEncryptionAlgorithmNonsenseThrow) {
@@ -2886,9 +3025,20 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
   ASSERT_EQ(user->username(), "alice");
 }
 
+TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserPBKDF2Sha256) {
+  SetHashAlgorithm("pbkdf2-sha256");
+  auto user = auth.AddUser("Alice", "alice");
+  ASSERT_TRUE(user);
+  ASSERT_EQ(user->username(), "alice");
+  ASSERT_TRUE(auth.Authenticate("Alice", "alice"));
+  ASSERT_FALSE(auth.Authenticate("Alice", "bob"));
+}
+
 TEST(Serialize, HashedPassword) {
-  for (auto algo :
-       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+  for (auto algo : {PasswordHashAlgorithm::BCRYPT,
+                    PasswordHashAlgorithm::SHA256,
+                    PasswordHashAlgorithm::SHA256_MULTIPLE,
+                    PasswordHashAlgorithm::PBKDF2_SHA256}) {
     auto sut = HashPassword("password", algo);
     nlohmann::json j = sut;
     auto ret = j.get<HashedPassword>();

@@ -306,7 +306,14 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(co
   {
     auto locked_auth = auth_->Lock();
     if (locked_auth->AccessControlled()) {
-      const auto user_or_role = locked_auth->Authenticate(username, password);
+      auto const user_or_role = std::invoke([&]() -> std::optional<auth::UserOrRole> {
+        try {
+          return locked_auth->Authenticate(username, password);
+        } catch (const auth::AuthException &e) {
+          spdlog::warn("Couldn't authenticate user '{}': {}", username, e.what());
+          return std::nullopt;
+        }
+      });
       if (!user_or_role) return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
       DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");

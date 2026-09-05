@@ -51,6 +51,7 @@ MEMGRAPH_FULL_PROPERTIES_SET="{id:0, name:\"tester\", age:37, height:175.0, merr
 MEMGRAPH_PROPERTY_COMPRESSION_FLAGS="--storage-property-store-compression-enabled=true --storage-property-store-compression-level=mid"
 MEMGRAPH_SHOW_SCHEMA_INFO_FLAG="--schema-info-enabled=true"
 MEMGRAPH_SESSION_TRACE_FLAG="--query-log-directory=/var/log/memgraph/session_traces"
+MEMGRAPH_FIPS_FLAGS="${MEMGRAPH_FIPS_FLAGS:-}"
 MEMGRAPH_EXEC="${MEMGRAPH_EXEC:-docker exec -u memgraph memgraph_smoke}"
 MEMGRAPH_DEFAULT_HOST="localhost"
 MEMGRAPH_DEFAULT_PORT="7687"
@@ -162,7 +163,7 @@ run_memgraph_dockerhub_container() {
       $MEMGRAPH_DOCKER_LOCAL_DATA_MOUNT_VOLUME_FLAGS \
       --name memgraph_smoke \
       $MEMGRAPH_ENTERPRISE_DOCKER_ENVS $MEMGRAPH_DOCKERHUB_IMAGE $MEMGRAPH_GENERAL_FLAGS \
-      $MEMGRAPH_PROPERTY_COMPRESSION_FLAGS $MEMGRAPH_SHOW_SCHEMA_INFO_FLAG
+      $MEMGRAPH_PROPERTY_COMPRESSION_FLAGS $MEMGRAPH_SHOW_SCHEMA_INFO_FLAG $MEMGRAPH_FIPS_FLAGS
   fi
 }
 
