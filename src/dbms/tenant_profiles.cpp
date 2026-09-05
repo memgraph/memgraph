@@ -13,7 +13,10 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <iterator>
 #include <map>
+#include <set>
+
 #include <nlohmann/json.hpp>
 
 #include "spdlog/spdlog.h"
@@ -97,7 +100,7 @@ std::optional<TenantProfiles::Profile> TenantProfiles::Get(std::string_view name
   if (!stored) return std::nullopt;
   try {
     return FromJson(nlohmann::json::parse(*stored), name);
-  } catch (const nlohmann::json::parse_error &e) {
+  } catch (const nlohmann::json::exception &e) {
     spdlog::warn("Failed to parse tenant profile '{}': {}", name, e.what());
     return std::nullopt;
   }
@@ -111,7 +114,9 @@ std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
     auto name = key.substr(kPrefix.size());
     try {
       result.push_back(FromJson(nlohmann::json::parse(value), name));
-    } catch (const nlohmann::json::parse_error &e) {
+    } catch (const nlohmann::json::exception &e) {
+      // Base json::exception, not parse_error: a wrong-typed field makes FromJson's .get<int64_t>() throw
+      // sibling type_error, and GetAll runs on the boot path with no enclosing catch up to main().
       spdlog::warn("Failed to parse tenant profile '{}': {}", name, e.what());
     }
   }
@@ -142,7 +147,8 @@ std::expected<int64_t, TenantProfiles::AttachError> TenantProfiles::AttachToData
   return new_profile.memory_limit;
 }
 
-std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatabase(std::string_view db_name) {
+std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatabase(
+    std::string_view db_name, std::vector<std::string> extra_keys_to_delete) {
   const std::unique_lock lock{mutex_};
   auto profile_name = durability_->Get(DbMappingKey(db_name));
   if (!profile_name) return std::unexpected{DetachError::NOT_ATTACHED};
@@ -150,13 +156,71 @@ std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatab
   auto profile_stored = durability_->Get(ProfileKey(*profile_name));
   if (!profile_stored) return std::unexpected{DetachError::DURABILITY_ERROR};
 
-  Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
-  profile.databases.erase(std::string{db_name});
+  std::map<std::string, std::string> to_put;
+  try {
+    Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
+    profile.databases.erase(std::string{db_name});
+    to_put.emplace(ProfileKey(profile.name), ProfileToJson(profile).dump());
+  } catch (const nlohmann::json::exception &e) {
+    // Corrupt reads the same as unreadable to the caller, so reuse DURABILITY_ERROR; the mapping key is
+    // left behind on purpose -- the next boot's PruneDatabases collects it once the database key is gone.
+    spdlog::warn("Tenant profile '{}' durable entry is corrupt ({}); failed to detach database '{}'.",
+                 *profile_name,
+                 e.what(),
+                 db_name);
+    return std::unexpected{DetachError::DURABILITY_ERROR};
+  }
 
-  const std::map<std::string, std::string> to_put{{ProfileKey(profile.name), ProfileToJson(profile).dump()}};
-  const std::vector<std::string> to_delete{DbMappingKey(db_name)};
+  std::vector<std::string> to_delete{DbMappingKey(db_name)};
+  to_delete.insert(to_delete.end(),
+                   std::make_move_iterator(extra_keys_to_delete.begin()),
+                   std::make_move_iterator(extra_keys_to_delete.end()));
   if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{DetachError::DURABILITY_ERROR};
   return {};
+}
+
+std::size_t TenantProfiles::PruneDatabases(const std::set<std::string> &live_db_names) {
+  const std::unique_lock lock{mutex_};
+
+  std::vector<std::string> to_delete;
+  // Group stale db names by profile so a profile attached to two stale databases is read and rewritten
+  // once: to_put is keyed by ProfileKey, so a duplicate emplace is dropped and one erase would be lost.
+  std::map<std::string, std::set<std::string>> stale_by_profile;
+  const auto mapping_end = durability_->end(std::string{kDbMappingPrefix});
+  for (auto it = durability_->begin(std::string{kDbMappingPrefix}); it != mapping_end; ++it) {
+    const auto &[key, profile_name] = *it;
+    auto db_name = key.substr(kDbMappingPrefix.size());
+    if (live_db_names.contains(db_name)) continue;
+    to_delete.push_back(key);
+    stale_by_profile[profile_name].insert(std::move(db_name));
+  }
+  if (to_delete.empty()) return 0;
+
+  std::map<std::string, std::string> to_put;
+  for (const auto &[profile_name, stale_dbs] : stale_by_profile) {
+    auto stored = durability_->Get(ProfileKey(profile_name));
+    if (!stored) continue;
+    try {
+      Profile profile = FromJson(nlohmann::json::parse(*stored), profile_name);
+      for (const auto &db_name : stale_dbs) profile.databases.erase(db_name);
+      to_put.emplace(ProfileKey(profile.name), ProfileToJson(profile).dump());
+    } catch (const nlohmann::json::exception &e) {
+      // The mapping key is deleted regardless -- its database already failed the live_db_names check,
+      // so it is garbage either way. Catching only json::exception keeps std::bad_alloc propagating.
+      spdlog::warn("Tenant profile '{}' durable entry is corrupt ({}); pruning its stale database mapping(s) anyway.",
+                   profile_name,
+                   e.what());
+    }
+  }
+
+  if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) {
+    spdlog::error(
+        "Failed to durably prune {} stale tenant profile database attachment(s); they survive this boot and "
+        "reconciliation will be retried on the next one.",
+        to_delete.size());
+    return 0;
+  }
+  return to_delete.size();
 }
 
 std::expected<void, TenantProfiles::RenameError> TenantProfiles::RenameDatabase(std::string_view old_name,
@@ -168,14 +232,24 @@ std::expected<void, TenantProfiles::RenameError> TenantProfiles::RenameDatabase(
   auto profile_stored = durability_->Get(ProfileKey(*profile_name));
   if (!profile_stored) return std::unexpected{RenameError::DURABILITY_ERROR};
 
-  Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
-  profile.databases.erase(std::string{old_name});
-  profile.databases.insert(std::string{new_name});
+  std::map<std::string, std::string> to_put;
+  try {
+    Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
+    profile.databases.erase(std::string{old_name});
+    profile.databases.insert(std::string{new_name});
+    to_put.emplace(ProfileKey(profile.name), ProfileToJson(profile).dump());
+    to_put.emplace(DbMappingKey(new_name), *profile_name);
+  } catch (const nlohmann::json::exception &e) {
+    // Corrupt reads the same as unreadable to the caller, so reuse DURABILITY_ERROR. DbmsHandler::Rename
+    // still completes/replicates regardless; the old mapping key is left for PruneDatabases to collect.
+    spdlog::warn("Tenant profile '{}' durable entry is corrupt ({}); failed to rename database '{}' to '{}'.",
+                 *profile_name,
+                 e.what(),
+                 old_name,
+                 new_name);
+    return std::unexpected{RenameError::DURABILITY_ERROR};
+  }
 
-  const std::map<std::string, std::string> to_put{
-      {ProfileKey(profile.name), ProfileToJson(profile).dump()},
-      {DbMappingKey(new_name), *profile_name},
-  };
   const std::vector<std::string> to_delete{DbMappingKey(old_name)};
   if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{RenameError::DURABILITY_ERROR};
   return {};

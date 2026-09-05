@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <expected>
 #include <optional>
+#include <set>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -58,8 +59,28 @@ class TenantProfiles {
   std::vector<Profile> GetAll() const;
 
   std::expected<int64_t, AttachError> AttachToDatabase(std::string_view profile_name, std::string_view db_name);
-  std::expected<void, DetachError> DetachFromDatabase(std::string_view db_name);
+
+  /// Detaches `db_name` from whichever profile it is attached to. `extra_keys_to_delete` are folded into
+  /// the SAME atomic kvstore batch as the detach itself and are deleted if and only if the function
+  /// returns success; on ANY error -- including NOT_ATTACHED -- none of them are deleted and the caller
+  /// remains responsible for them. This exists so a DROP DATABASE can retire the tenant's own durability
+  /// key (`database:<name>`) together with its profile attachment in one write: without it, a crash
+  /// between two separate writes could leave the tenant key behind after its attachment is already gone,
+  /// resurrecting the tenant on the next boot with no attachment left to reconcile it.
+  std::expected<void, DetachError> DetachFromDatabase(std::string_view db_name,
+                                                      std::vector<std::string> extra_keys_to_delete = {});
   std::expected<void, RenameError> RenameDatabase(std::string_view old_name, std::string_view new_name);
+
+  /// Startup reconciliation. A DROP that retires the tenant's durability key without its detach -- the
+  /// detach refuses on a corrupt profile record and the caller retires the key anyway, and older
+  /// releases wrote the two non-atomically -- leaves a permanently stale kDbMappingPrefix entry (and a
+  /// dangling name inside the pointed-to Profile's `databases`) that nothing else ever reconciles. This
+  /// removes every persisted database->profile attachment whose database name is absent from
+  /// `live_db_names`: the mapping key is deleted and the name is dropped from its profile's `databases`,
+  /// atomically. Returns the number pruned; 0 is ambiguous between nothing-to-prune and a failed
+  /// durability batch (logged here at error level), so a caller must not read 0 as success.
+  std::size_t PruneDatabases(const std::set<std::string> &live_db_names);
+
   std::optional<std::string> GetProfileForDatabase(std::string_view db_name) const;
 
  private:

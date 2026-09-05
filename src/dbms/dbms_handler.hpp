@@ -964,6 +964,11 @@ class DbmsHandler {
   // Caller must hold lock_ (write).
   std::expected<utils::UUID, DeleteError> DeleteCold_(std::string_view name);
 
+  // Retire the tenant's own durability key together with its profile detach in one atomic kvstore batch
+  // when a profile is attached; otherwise delete the key on its own. Safe (no-op on the key) when the
+  // database has no attached profile. Caller must hold lock_.
+  void DetachProfileAndRetireDurabilityKey_(std::string_view db_name);
+
   // Cold-tenant fast path shared by every Delete/TryDelete overload: if `name` is currently in
   // suspended_, drop it via DeleteCold_ (bypassing the HOT gatekeeper path, which would otherwise
   // return NON_EXISTENT for a no-value shell) and return the DeleteResult. Records a DropDatabase
@@ -1063,7 +1068,14 @@ class DbmsHandler {
                 "Applied tenant profile '{}' (limit={}) to database '{}'", profile.name, profile.memory_limit, db_name);
           }
         } catch (const UnknownDatabaseException &) {
-          spdlog::warn("Tenant profile '{}' references unknown database '{}' — skipping", profile.name, db_name);
+          if (suspended_.contains(db_name)) {
+            // SuspendedDatabaseException derives from UnknownDatabaseException, so a COLD tenant lands here too.
+            spdlog::info("Tenant profile '{}' targets suspended database '{}' — limit will be applied on resume",
+                         profile.name,
+                         db_name);
+          } else {
+            spdlog::warn("Tenant profile '{}' references unknown database '{}' — skipping", profile.name, db_name);
+          }
         }
       }
     }

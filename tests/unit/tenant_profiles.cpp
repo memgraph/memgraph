@@ -11,6 +11,7 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <unordered_set>
@@ -126,4 +127,80 @@ TEST_F(TenantProfilesTest, AttachDetachDropLifecycle) {
 
   ASSERT_TRUE(profiles.Drop("p"));
   EXPECT_TRUE(profiles.GetAll().empty());
+}
+
+// Regression guard: before the fix, a corrupt profile record made RenameDatabase throw instead of
+// returning an error, after DbmsHandler::Rename had already committed the rename in memory and durably --
+// reporting failure for an operation that had, in fact, succeeded, and skipping the replication
+// AddAction, permanently diverging MAIN and its replica. Rows below are written directly through the
+// kvstore (bypassing Create/AttachToDatabase) to produce this malformed record.
+TEST_F(TenantProfilesTest, RenameDatabaseReportsErrorInsteadOfThrowingOnCorruptProfile) {
+  memgraph::kvstore::KVStore durability{test_folder_ / "rename_corrupt"};
+  memgraph::dbms::TenantProfiles profiles{durability};
+  const auto db_mapping_prefix = std::string{memgraph::dbms::TenantProfiles::kDbMappingPrefix};
+  const auto profile_prefix = std::string{memgraph::dbms::TenantProfiles::kPrefix};
+
+  ASSERT_TRUE(durability.Put(db_mapping_prefix + "db1", "p"));
+  ASSERT_TRUE(durability.Put(profile_prefix + "p", "{not json"));
+
+  std::expected<void, memgraph::dbms::TenantProfiles::RenameError> result;
+  ASSERT_NO_THROW(result = profiles.RenameDatabase("db1", "db2"));
+  ASSERT_FALSE(result);
+  EXPECT_EQ(result.error(), memgraph::dbms::TenantProfiles::RenameError::DURABILITY_ERROR);
+
+  // Deliberate, not an oversight: the caller (DbmsHandler::Rename) still completes and replicates the
+  // rename even when this profile-membership rewrite fails.
+  EXPECT_TRUE(durability.Get(db_mapping_prefix + "db1"))
+      << "old mapping must survive a failed rewrite -- PruneDatabases reconciles it on next boot";
+  // A failure must write neither the profile rewrite nor the new mapping, or "db2" would point at a
+  // profile that never agreed to it.
+  EXPECT_FALSE(durability.Get(db_mapping_prefix + "db2"));
+}
+
+// Regression guard: GetAll runs from the DbmsHandler ctor (RestoreTenantProfiles_) with no enclosing
+// try/catch up to main(), so an escaping exception crashes boot. Before the fix, Get/GetAll only caught
+// parse_error, but a wrong-typed field makes FromJson's .get<int64_t>() throw the sibling type_error
+// (both derive directly from nlohmann::detail::exception), which slipped past. The payload below is
+// syntactically valid JSON, so only the typed .get<int64_t>() throws -- exercising type_error, not
+// parse_error.
+TEST_F(TenantProfilesTest, WrongTypedProfileFieldDoesNotEscapeGetOrGetAll) {
+  memgraph::kvstore::KVStore durability{test_folder_ / "wrong_typed"};
+  memgraph::dbms::TenantProfiles profiles{durability};
+
+  ASSERT_TRUE(profiles.Create("good", 4096));
+  ASSERT_TRUE(durability.Put(std::string{memgraph::dbms::TenantProfiles::kPrefix} + "typed",
+                             R"({"memory_limit": "not-a-number", "databases": []})"));
+
+  std::optional<memgraph::dbms::TenantProfiles::Profile> get_result;
+  ASSERT_NO_THROW(get_result = profiles.Get("typed"));
+  EXPECT_EQ(get_result, std::nullopt);
+
+  std::vector<memgraph::dbms::TenantProfiles::Profile> all;
+  ASSERT_NO_THROW(all = profiles.GetAll());
+  EXPECT_TRUE(std::ranges::any_of(all, [](const auto &profile) { return profile.name == "good"; }));
+  EXPECT_FALSE(std::ranges::any_of(all, [](const auto &profile) { return profile.name == "typed"; }));
+}
+
+// Negative control paired with the corrupt-profile test above: a healthy rename must still succeed and
+// rewrite profile membership correctly after the try/catch restructuring in RenameDatabase.
+TEST_F(TenantProfilesTest, RenameDatabaseRewritesProfileMembershipOnHealthyRecord) {
+  memgraph::kvstore::KVStore durability{test_folder_ / "rename_healthy"};
+  memgraph::dbms::TenantProfiles profiles{durability};
+  const auto db_mapping_prefix = std::string{memgraph::dbms::TenantProfiles::kDbMappingPrefix};
+
+  ASSERT_TRUE(profiles.Create("p", 2048));
+  ASSERT_EQ(profiles.AttachToDatabase("p", "db1"), 2048);
+
+  ASSERT_TRUE(profiles.RenameDatabase("db1", "db2"));
+
+  const auto new_mapping = durability.Get(db_mapping_prefix + "db2");
+  ASSERT_TRUE(new_mapping);
+  EXPECT_EQ(*new_mapping, "p");
+  EXPECT_FALSE(durability.Get(db_mapping_prefix + "db1"));
+
+  const auto profile = profiles.Get("p");
+  ASSERT_TRUE(profile);
+  EXPECT_TRUE(profile->databases.contains("db2"));
+  EXPECT_FALSE(profile->databases.contains("db1"));
+  EXPECT_EQ(profile->memory_limit, 2048);
 }
