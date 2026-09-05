@@ -83,8 +83,10 @@ class Encoder : private BaseEncoder<Buffer> {
    *   }
    *
    * @param metadata the metadata map object that should be sent
-   * @returns true if the data was successfully sent to the client
-   *          when flushing, false otherwise
+   * @returns true if the SUCCESS was accepted into the encoder buffer; note the end marker is now
+   *          deferred (batched), so a small response returns true WITHOUT an immediate send — the
+   *          actual send (and any write-failure) happens at the session's end-of-input drain, or
+   *          earlier if the buffer fills.
    */
   bool MessageSuccess(const map_t &metadata) {
     WriteRAW(std::to_underlying(Marker::TinyStruct1));
@@ -94,7 +96,9 @@ class Encoder : private BaseEncoder<Buffer> {
     // send more data (the end of message chunk).
     if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Defer the end-of-message marker: SUCCESS acks are batched in the encoder buffer and drained
-    // once when the session runs out of input (Session::Execute_), so a pipelined burst is one send.
+    // once when the session runs out of input (Session::Execute_), coalescing a pipelined burst of
+    // small responses into a single drained send (a burst larger than the 64 KiB buffer still
+    // auto-flushes intermediate chunks).
     return buffer_.Flush(true);
   }
 

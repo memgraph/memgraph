@@ -60,6 +60,7 @@ class TestOutputStream {
     if (!write_success_) return false;
     output.insert(output.end(), data, data + len);
     ++write_count;
+    last_have_more = have_more;
     return true;
   }
 
@@ -70,7 +71,8 @@ class TestOutputStream {
   void SetWriteSuccess(bool success) { write_success_ = success; }
 
   std::vector<uint8_t> output;
-  size_t write_count = 0;  // number of successful Write() calls (batched sends)
+  size_t write_count = 0;       // number of successful Write() calls (batched sends)
+  bool last_have_more = false;  // have_more of the most recent successful Write (drain must be false)
 
  protected:
   bool write_success_{true};

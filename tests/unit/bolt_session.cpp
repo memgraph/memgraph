@@ -114,8 +114,9 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
       encoder_.MessageRecord({"", 1'234'567'890, query_, md_});
       return {};
     } else if (query_ == kQueryReturnBigThenFail) {
-      // Fail mid-pull after the auto-flush boundary — the exact condition that used to splice FAILURE into a
-      // half-delivered record.
+      // Emit all records (crossing the 64 KiB auto-flush boundary), then fail within the same pull —
+      // the failure lands after the records, when the straddling record is already half on the wire,
+      // the exact condition that used to splice FAILURE into that half-delivered record.
       for (int i = 0; i < kBigRecordCount; ++i) {
         encoder_.MessageRecord(std::vector<Value>{Value(std::string(kBigRecordSize, 'A'))});
       }
@@ -1408,6 +1409,8 @@ TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
 
   // The whole burst leaves as one write.
   EXPECT_EQ(output_stream.write_count, 1u);
+  // The single write is the end-of-input drain, which must actually send (have_more=false), not defer.
+  EXPECT_FALSE(output_stream.last_have_more);
 
   // Byte-transparency: that single write still carries all three complete messages —
   // RUN SUCCESS header, one RECORD, PULL SUCCESS summary — in order, nothing merged or dropped.
