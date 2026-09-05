@@ -222,8 +222,35 @@ struct Transaction {
 
   bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
 
+  // The single MVCC visibility boundary. Legacy: a delta is "before my snapshot" iff ts < start_timestamp.
+  // Lock-free-read-snapshot (SI only): iff ts <= snapshot_ts (inclusive; snapshot_ts is the highest
+  // fully-published commit at BEGIN). Used for both read visibility and write-conflict detection.
+  [[nodiscard]] bool CommittedBeforeSnapshot(uint64_t ts) const noexcept {
+    return lockfree_snapshot ? ts <= snapshot_ts : ts < start_timestamp;
+  }
+
+  // Exclusive upper-bound timestamp for schema-info delta reconstruction: a committed delta at `ts`
+  // is folded into this transaction's base snapshot iff `ts < bound`. Encodes CommittedBeforeSnapshot
+  // as a single value so it can be threaded into the schema-info reconstruction primitives (which key
+  // off a bare timestamp). Under the lock-free experiment this is snapshot_ts + 1 (so `ts < bound`
+  // means the inclusive `ts <= snapshot_ts`); OFF it is start_timestamp, making the OFF reconstruction
+  // byte-identical to the legacy `ts < start_timestamp`.
+  [[nodiscard]] uint64_t SchemaReconstructionBound() const noexcept {
+    return lockfree_snapshot ? snapshot_ts + 1 : start_timestamp;
+  }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
+  // EXPERIMENTAL (lock-free-read-snapshot): frozen last-committed-MVCC-ts captured at BEGIN.
+  // When the experiment is OFF this stays 0 and is never read. Distinct from start_timestamp,
+  // which remains the unique GC/commit-log slot; snapshot_ts (<= start_timestamp) will be the
+  // SI visibility + write-conflict boundary when ON.
+  uint64_t snapshot_ts{};
+  // EXPERIMENTAL (lock-free-read-snapshot): true only for SNAPSHOT_ISOLATION txns when the experiment
+  // is ON. Default false ⇒ the visibility predicate below uses the legacy `ts < start_timestamp`, so
+  // the OFF path (and every non-SNAPSHOT_ISOLATION txn, and any construction site that does not set
+  // this) is byte-identical to before.
+  bool lockfree_snapshot{false};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_info`

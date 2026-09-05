@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <atomic>
 #include <concepts>
 #include <cstdint>
+#include <limits>
 #include <list>
 #include <memory>
 #include <optional>
@@ -472,10 +474,13 @@ class InMemoryStorage final : public Storage {
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
 
     // Represents the 2nd phase of the 2PC protocol
-    // NOTE: Needs to be called while holding the engine lock
+    // NOTE: The engine lock must be held while this runs. Pass acquire_engine_lock=false when the caller
+    // already holds it (the default: legacy path and the replica FinalizeCommit handler); pass true only on
+    // the lock-free-read-snapshot path, where the caller released engine_lock after the mint and this method
+    // re-acquires it for the brief publish.
     // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
     // independently of PrepareForCommitPhase.
-    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp, bool acquire_engine_lock = false);
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -888,10 +893,22 @@ class InMemoryStorage final : public Storage {
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
 
+  // Observability/testing: the lock-free read-snapshot watermark (highest fully-published commit ts;
+  // the value a SNAPSHOT_ISOLATION reader freezes as its snapshot_ts at BEGIN under the experiment).
+  [[nodiscard]] uint64_t LastCommittedMvccTimestamp() const {
+    return last_committed_mvcc_ts_.load(std::memory_order_acquire);
+  }
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
+
+  // EXPERIMENTAL (lock-free-read-snapshot): compute the GC visibility horizon = min(active snapshot_ts).
+  // Takes the RAW OldestActive() (pre-schema-fold), which keys the visibility ring; the caller clamps the
+  // result to the (possibly lower) folded physical horizon. OFF (flag disabled): returns raw_oldest_active,
+  // byte-identical to today.
+  uint64_t GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns);
 
   // Objects leave storage only through these, and only from a collection pass. An index entry
   // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same
@@ -1120,6 +1137,20 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
+  // EXPERIMENTAL (lock-free-read-snapshot) GC visibility tracker: maps an active txn's start_timestamp
+  // to its frozen snapshot_ts, so GC can compute min(active snapshot_ts) = the OldestActive txn's snapshot.
+  // Tag-validated ring; any miss falls back to a monotone non-regressing floor (never OldestActive(start_ts)).
+  struct SnapshotSlot {
+    std::atomic<uint64_t> tag{std::numeric_limits<uint64_t>::max()};  // owning start_timestamp; max = empty
+    std::atomic<uint64_t> snap{0};                                    // that txn's snapshot_ts
+  };
+
+  static constexpr size_t kSnapshotSlots = 1ULL
+                                           << 16;  // ring; correctness is independent of size (tag-validated,
+                                                   // relies on the invalidate-first slot write in CreateTransaction)
+  std::unique_ptr<SnapshotSlot[]> snapshot_slots_;
+  std::atomic<uint64_t> gc_visibility_floor_{kTimestampInitialId};
+
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
@@ -1148,15 +1179,19 @@ class InMemoryStorage final : public Storage {
   struct SchemaUpdateData {
     LocalSchemaTracking schema_diff;
     SchemaInfoPostProcess post_process;
-    uint64_t start_ts;
+    // Exclusive upper-bound timestamp for deferred delta reconstruction (Transaction::
+    // SchemaReconstructionBound): start_timestamp with the lock-free experiment OFF, snapshot_ts + 1
+    // when ON. Captured at commit so the deferred ProcessTransaction reconstructs the same pre-state
+    // the committing transaction actually saw.
+    uint64_t snapshot_bound;
     uint64_t commit_ts;
     bool property_on_edges;
 
-    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t commit,
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t bound, uint64_t commit,
                      bool prop_on_edges)
         : schema_diff(std::move(diff)),
           post_process(std::move(post_proc)),
-          start_ts(start),
+          snapshot_bound(bound),
           commit_ts(commit),
           property_on_edges(prop_on_edges) {}
   };

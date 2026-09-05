@@ -49,9 +49,11 @@ namespace memgraph::flags {
 
 auto const mapping = std::map{
     std::pair{"planner-v2"sv, Experiments::PLANNER_V2},
+    std::pair{"lockfree-read-snapshot"sv, Experiments::LOCKFREE_READ_SNAPSHOT},
 };
 auto const reverse_mapping = std::map{
     std::pair{Experiments::PLANNER_V2, "planner-v2"sv},
+    std::pair{Experiments::LOCKFREE_READ_SNAPSHOT, "lockfree-read-snapshot"sv},
 };
 auto const config_mapping = std::map<std::string_view, Experiments>{};
 

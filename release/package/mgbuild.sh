@@ -63,7 +63,7 @@ SUPPORTED_ARCHS=(
 SUPPORTED_TESTS=(
     clang-tidy cppcheck-and-clang-format code-analysis
     code-coverage drivers drivers-high-availability durability e2e gql-behave
-    integration leftover-CTest macro-benchmark
+    integration leftover-CTest lockfree-read-snapshot-ab macro-benchmark
     mgbench stress-plain stress-ssl
     query_modules_e2e query_modules_unit
     unit unit-coverage upload-to-bench-graph
@@ -1976,6 +1976,15 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --parallel-execution"
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status_parallel.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status_parallel.html
+    ;;
+    lockfree-read-snapshot-ab)
+      # A/B smoke for the experimental lockfree-read-snapshot flag: launches the
+      # freshly built binary OFF vs ON across GOOD/BAD/NEUTRAL and asserts the run
+      # is operationally clean (--fail-on-error gates on crashes/worker-errors, not
+      # on perf direction). Toolchain is activated so the spawned memgraph finds its
+      # runtime libs; ve3 (with the neo4j driver from tests/requirements.txt) is
+      # created on demand if a prior test target has not already built it.
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && ([[ -d ve3 ]] || (python3 -m venv ve3 && source ve3/bin/activate && pip install --upgrade pip && pip install -r requirements.txt)) && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR "'&& python3 tests/benchmark_lockfree_read_snapshot/ab_bench.py --memgraph-binary build/memgraph --scenario all --duration 4 --warmup 1 --vertices 2000 --readers 4 --writers 2 --write-batch 500 --reps 1 --fail-on-error'
     ;;
     macro-benchmark)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QuerySuite MemgraphRunner --groups aggregation 1000_create unwind_create dense_expand match --no-strict'
