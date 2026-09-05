@@ -62,7 +62,7 @@ SUPPORTED_ARCHS=(
 )
 SUPPORTED_TESTS=(
     clang-tidy cppcheck-and-clang-format code-analysis
-    code-coverage drivers drivers-high-availability durability e2e gql-behave
+    code-coverage drivers drivers-high-availability durability e2e e2e-parallel gql-behave
     integration leftover-CTest macro-benchmark
     mgbench stress-plain stress-ssl
     query_modules_e2e query_modules_unit
@@ -2232,6 +2232,36 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run.sh"
+    ;;
+    e2e-parallel)
+      shift 1
+      local machine_nproc="$(nproc)"
+      local nprocesses="$machine_nproc"
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --nprocesses)
+            nprocesses="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for e2e-parallel" >&2
+            echo "Supported flags: --nprocesses" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      if [[ "$nprocesses" != "$machine_nproc" ]] && { ! [[ "$nprocesses" =~ ^[0-9]+$ ]] || [[ "$nprocesses" -lt 1 ]]; }; then
+        echo "Error: --nprocesses must be a positive integer." >&2
+        exit 1
+      fi
+
+      # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run_parallel.sh $nprocesses"
     ;;
     query_modules_e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.

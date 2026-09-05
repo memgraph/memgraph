@@ -773,7 +773,7 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph e2e \
+          test-memgraph e2e-parallel --nprocesses $(nproc) \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION}
 
       - name: Ensure localstack is down

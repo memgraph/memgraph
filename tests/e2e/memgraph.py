@@ -9,13 +9,19 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import atexit
+import contextlib
 import copy
+import ctypes
+import json
 import logging
 import os
+import re
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from typing import List, Optional
@@ -30,33 +36,218 @@ SIGNAL_SIGTERM = 15
 
 log = logging.getLogger("memgraph.tests.e2e")
 
+# Port remapping for parallel e2e runs. runner_parallel.py hands every test process a private port window through these
+# env vars. Ports hardcoded by tests (7687, 10011, ...) are mapped into the window when instances start and when clients
+# connect (see sitecustomize.py), and mapped back in query results, so tests keep asserting on the ports they were
+# written with. Without the env vars everything is a no-op.
+PORT_WINDOW_START_ENV = "MEMGRAPH_PORT_WINDOW_START"
+PORT_WINDOW_SIZE_ENV = "MEMGRAPH_PORT_WINDOW_SIZE"
+PORT_MAP_ENV = "MEMGRAPH_E2E_PORT_MAP"
+HA_INIT_QUERIES_ENV = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES"
+DEFAULT_MONITORING_PORT = 7444
+DEFAULT_METRICS_PORT = 9091
+PORT_FLAGS = {
+    "--bolt-port",
+    "--bolt_port",
+    "--management-port",
+    "--management_port",
+    "--coordinator-port",
+    "--coordinator_port",
+    "--replication-port",
+    "--replication_port",
+    "--monitoring-port",
+    "--monitoring_port",
+    "--metrics-port",
+    "--metrics_port",
+}
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "::"}
+# Only host:port endpoints and `WITH PORT n` are touched, so numbers in map literals or timestamps are left alone.
+ENDPOINT_RE = re.compile(r"(?<![\w.])(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(\d{4,5})\b")
+PORT_KEYWORD_RE = re.compile(r"(?i)(\bPORT\s+)(\d{4,5})\b")
+
+
+class PortRemap:
+    def __init__(self):
+        self.window_start = int(os.getenv(PORT_WINDOW_START_ENV, "0") or 0)
+        self.window_size = int(os.getenv(PORT_WINDOW_SIZE_ENV, "0") or 0)
+        self.active = self.window_start > 0 and self.window_size > 0
+        self.forward = {}
+        self.reverse = {}
+        # Clusters start their instances from a thread pool, so allocation and the env override must be serialized.
+        self.lock = threading.RLock()
+        if not self.active:
+            return
+        try:
+            seed = json.loads(os.getenv(PORT_MAP_ENV, "") or "{}")
+        except Exception:
+            seed = {}
+        for original, mapped in seed.items():
+            self.forward[int(original)] = int(mapped)
+            self.reverse[int(mapped)] = int(original)
+
+    def is_candidate(self, port):
+        return 1024 <= port < self.window_start
+
+    def map_port(self, port):
+        """Allocates a window port for `port` on first sight; later calls return the same one."""
+        if not self.active or not isinstance(port, int) or not self.is_candidate(port):
+            return port
+        with self.lock:
+            if port not in self.forward:
+                mapped = next(
+                    (
+                        p
+                        for p in range(self.window_start, self.window_start + self.window_size)
+                        if p not in self.reverse
+                    ),
+                    None,
+                )
+                if mapped is None:
+                    raise RuntimeError(
+                        f"Port window {self.window_start}-{self.window_start + self.window_size - 1} exhausted, "
+                        "increase --port-offset-step of runner_parallel.py."
+                    )
+                self.forward[port] = mapped
+                self.reverse[mapped] = port
+            return self.forward[port]
+
+    def lookup_port(self, port):
+        """Like map_port but never allocates: a port nothing was started on (e.g. a local Kafka) is left alone."""
+        if not self.active or not isinstance(port, int):
+            return port
+        with self.lock:
+            return self.forward.get(port, port)
+
+    def unmap_port(self, port):
+        return self.reverse.get(port, port) if self.active else port
+
+    def map_text(self, text):
+        if not self.active or not isinstance(text, str):
+            return text
+        text = ENDPOINT_RE.sub(lambda m: f"{m.group(1)}:{self.map_port(int(m.group(2)))}", text)
+        return PORT_KEYWORD_RE.sub(lambda m: f"{m.group(1)}{self.map_port(int(m.group(2)))}", text)
+
+    def unmap_text(self, text):
+        if not self.active or not isinstance(text, str):
+            return text
+        text = ENDPOINT_RE.sub(lambda m: f"{m.group(1)}:{self.unmap_port(int(m.group(2)))}", text)
+        return PORT_KEYWORD_RE.sub(lambda m: f"{m.group(1)}{self.unmap_port(int(m.group(2)))}", text)
+
+    def map_args(self, args):
+        if not self.active or not args:
+            return args
+        mapped = list(args)
+        for i, arg in enumerate(mapped):
+            if arg in PORT_FLAGS and i + 1 < len(mapped) and str(mapped[i + 1]).isdigit():
+                mapped[i + 1] = str(self.map_port(int(mapped[i + 1])))
+            elif (
+                isinstance(arg, str)
+                and "=" in arg
+                and arg.split("=", 1)[0] in PORT_FLAGS
+                and arg.split("=", 1)[1].isdigit()
+            ):
+                flag, value = arg.split("=", 1)
+                mapped[i] = f"{flag}={self.map_port(int(value))}"
+            else:
+                mapped[i] = self.map_text(arg)
+        return mapped
+
+    def unmap_value(self, value):
+        """Maps ports back in strings nested anywhere inside query results."""
+        if not self.active:
+            return value
+        if isinstance(value, str):
+            return self.unmap_text(value)
+        if isinstance(value, tuple):
+            return tuple(self.unmap_value(v) for v in value)
+        if isinstance(value, list):
+            return [self.unmap_value(v) for v in value]
+        if isinstance(value, dict):
+            return {k: self.unmap_value(v) for k, v in value.items()}
+        return value
+
+    @contextlib.contextmanager
+    def child_env(self):
+        """
+        While active, MEMGRAPH_*_PORT variables and the HA init queries file are remapped for a Memgraph child process.
+        Only the C-level environment is touched (os.putenv), so the child otherwise inherits exactly what it would have
+        without remapping. Tests use os.unsetenv, which os.environ does not reflect, so a dict copy would be wrong.
+        """
+        if not self.active:
+            yield
+            return
+        with self.lock:
+            saved = []
+            yield from self._override_child_env(saved)
+
+    def _override_child_env(self, saved):
+        for name in list(os.environ):
+            if not (name.startswith("MEMGRAPH_") and name.endswith("_PORT")):
+                continue
+            value = _c_getenv(name)
+            if value is None or not value.isdigit():
+                continue
+            mapped = str(self.map_port(int(value)))
+            if mapped != value:
+                os.putenv(name, mapped)
+                saved.append((name, value))
+        init_queries = _c_getenv(HA_INIT_QUERIES_ENV)
+        if init_queries and os.path.isfile(init_queries):
+            with open(init_queries) as f:
+                content = f.read()
+            remapped_path = f"{init_queries}.w{self.window_start}"
+            with open(remapped_path, "w") as f:
+                f.write(self.map_text(content))
+            atexit.register(lambda: os.path.exists(remapped_path) and os.remove(remapped_path))
+            os.putenv(HA_INIT_QUERIES_ENV, remapped_path)
+            saved.append((HA_INIT_QUERIES_ENV, init_queries))
+        try:
+            yield
+        finally:
+            for name, value in saved:
+                os.putenv(name, value)
+
+
+def _c_getenv(name):
+    """Current C-level value of an environment variable, which os.environ misses after os.putenv/os.unsetenv."""
+    try:
+        libc = ctypes.CDLL(None)
+        libc.getenv.restype = ctypes.c_char_p
+        value = libc.getenv(name.encode())
+        return None if value is None else value.decode()
+    except Exception:
+        return os.environ.get(name)
+
+
+PORT_REMAP = PortRemap()
+
 
 def extract_bolt_port(args):
     for arg_index, arg in enumerate(args):
-        if arg.startswith("--bolt-port="):
+        if arg.startswith("--bolt-port=") or arg.startswith("--bolt_port="):
             maybe_port = arg.split("=")[1]
             if not maybe_port.isdigit():
-                raise Exception("Unable to read Bolt port after --bolt-port=.")
+                raise Exception("Unable to read Bolt port after --bolt-port= / --bolt_port=.")
             return int(maybe_port)
-        elif arg == "--bolt-port":
+        elif arg in ("--bolt-port", "--bolt_port"):
             maybe_port = args[arg_index + 1]
             if not maybe_port.isdigit():
-                raise Exception("Unable to read Bolt port after --bolt-port.")
+                raise Exception("Unable to read Bolt port after --bolt-port / --bolt_port.")
             return int(maybe_port)
     return 7687
 
 
 def extract_management_port(args):
     for arg_index, arg in enumerate(args):
-        if arg.startswith("--management-port="):
+        if arg.startswith("--management-port=") or arg.startswith("--management_port="):
             maybe_port = arg.split("=")[1]
             if not maybe_port.isdigit():
-                raise Exception("Unable to read management port after --management-port=.")
+                raise Exception("Unable to read management port after --management-port= / --management_port=.")
             return int(maybe_port)
-        elif arg == "--management-port":
+        elif arg in ("--management-port", "--management_port"):
             maybe_port = args[arg_index + 1]
             if not maybe_port.isdigit():
-                raise Exception("Unable to read management port after --management-port.")
+                raise Exception("Unable to read management port after --management-port / --management_port.")
             return int(maybe_port)
     return None
 
@@ -255,12 +446,27 @@ class MemgraphInstanceRunner:
             "--storage-properties-on-edges",
             f"--storage-snapshot-on-exit={storage_snapshot_on_exit}",
         ]
-        args_mg = default_args + self.args
+        # Default the metrics endpoint to OpenMetrics unless the workload opts out
+        # (e.g. tests that exercise the deprecated JSON format set --metrics-format
+        # explicitly, in which case their value wins).
+        if not any(arg.startswith("--metrics-format") for arg in self.args):
+            default_args.append("--metrics-format=OpenMetrics")
+        if PORT_REMAP.active:
+            # Give the implicit listeners explicit ports so they get remapped away from other workers too.
+            if not any(arg.startswith("--bolt-port") or arg.startswith("--bolt_port") for arg in self.args):
+                default_args += ["--bolt-port", "7687"]
+            if not any(arg.startswith("--monitoring-port") or arg.startswith("--monitoring_port") for arg in self.args):
+                default_args += ["--monitoring-port", str(DEFAULT_MONITORING_PORT)]
+            if not any(arg.startswith("--metrics-port") or arg.startswith("--metrics_port") for arg in self.args):
+                default_args += ["--metrics-port", str(DEFAULT_METRICS_PORT)]
+        args_mg = PORT_REMAP.map_args(default_args + self.args)
 
         if bolt_port:
+            bolt_port = PORT_REMAP.map_port(bolt_port)
             self.bolt_port = bolt_port
         else:
             self.bolt_port = extract_bolt_port(args_mg)
+            bolt_port = self.bolt_port
 
         # If gdb_port is set, wrap with gdbserver
         if self.gdb_port:
@@ -273,13 +479,15 @@ class MemgraphInstanceRunner:
             print("=" * 80 + "\n")
 
         output = subprocess.DEVNULL if silence_output else None
-        self.proc_mg = subprocess.Popen(args_mg, stdout=output, stderr=output)
+        with PORT_REMAP.child_env():
+            self.proc_mg = subprocess.Popen(args_mg, stdout=output, stderr=output)
 
-        # Use much longer timeout when debugging with gdb
-        timeout = 3600 if self.gdb_port else 15
+        # Use much longer timeout when debugging with gdb. Startup can take well over 15s on a loaded machine (e.g. a
+        # parallel e2e run), so wait longer, but stop waiting as soon as the process is gone.
+        timeout = 3600 if self.gdb_port else 60
         delay = 0.1
         elapsed = 0
-        while connectable_port(bolt_port) is False and elapsed < timeout:
+        while connectable_port(bolt_port) is False and elapsed < timeout and self.is_running():
             time.sleep(delay)
             elapsed += delay
 
