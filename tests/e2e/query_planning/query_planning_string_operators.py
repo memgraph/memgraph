@@ -176,7 +176,7 @@ def edge_graph(memgraph):
 def test_edge_contains_uses_edge_type_property_range(memgraph, edge_graph):
     plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind CONTAINS 'lph' RETURN r.kind AS k")
     ops = operator_names(plan)
-    assert "ScanAllByEdgeTypePropertyRange" in ops, f"Expected ScanAllByEdgeTypePropertyRange, got: {plan}"
+    assert "ScanAllByEdgeTypeProperty" in ops, f"Expected ScanAllByEdgeTypeProperty, got: {plan}"
     result = list(memgraph.execute_and_fetch("MATCH (a)-[r:REL]->(b) WHERE r.kind CONTAINS 'lph' RETURN r.kind AS k"))
     assert [r["k"] for r in result] == ["alpha"]
 
@@ -184,7 +184,7 @@ def test_edge_contains_uses_edge_type_property_range(memgraph, edge_graph):
 def test_edge_starts_with_uses_edge_type_property_range(memgraph, edge_graph):
     plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH 'be' RETURN r.kind AS k")
     ops = operator_names(plan)
-    assert "ScanAllByEdgeTypePropertyRange" in ops, f"Expected ScanAllByEdgeTypePropertyRange, got: {plan}"
+    assert "ScanAllByEdgeTypeProperty" in ops, f"Expected ScanAllByEdgeTypeProperty, got: {plan}"
     result = list(memgraph.execute_and_fetch("MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH 'be' RETURN r.kind AS k"))
     assert [r["k"] for r in result] == ["beta"]
 
@@ -192,7 +192,7 @@ def test_edge_starts_with_uses_edge_type_property_range(memgraph, edge_graph):
 def test_edge_ends_with_uses_edge_type_property_range(memgraph, edge_graph):
     plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind ENDS WITH 'ma' RETURN r.kind AS k")
     ops = operator_names(plan)
-    assert "ScanAllByEdgeTypePropertyRange" in ops, f"Expected ScanAllByEdgeTypePropertyRange, got: {plan}"
+    assert "ScanAllByEdgeTypeProperty" in ops, f"Expected ScanAllByEdgeTypeProperty, got: {plan}"
     result = list(memgraph.execute_and_fetch("MATCH (a)-[r:REL]->(b) WHERE r.kind ENDS WITH 'ma' RETURN r.kind AS k"))
     assert [r["k"] for r in result] == ["gamma"]
 

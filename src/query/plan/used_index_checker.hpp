@@ -48,11 +48,7 @@ struct UsedIndexChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdge &) override;
   bool PreVisit(ScanAllByEdgeType &) override;
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeProperty &) override;
-  bool PreVisit(ScanAllByEdgePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
   bool PreVisit(ScanAllByVertexProperty &) override;
 

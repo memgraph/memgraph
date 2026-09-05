@@ -117,11 +117,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelProperties);
   PRE_VISIT(ScanAllByEdgeType);
   PRE_VISIT(ScanAllByEdgeTypeProperty);
-  PRE_VISIT(ScanAllByEdgeTypePropertyValue);
-  PRE_VISIT(ScanAllByEdgeTypePropertyRange);
   PRE_VISIT(ScanAllByEdgeProperty);
-  PRE_VISIT(ScanAllByEdgePropertyValue);
-  PRE_VISIT(ScanAllByEdgePropertyRange);
   PRE_VISIT(ScanAllByEdgeId);
   PRE_VISIT(ScanAllByVertexProperty);
   PRE_VISIT(ScanAllById);
@@ -222,11 +218,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanParallelByEdge);
   PRE_VISIT(ScanParallelByEdgeType);
   PRE_VISIT(ScanParallelByEdgeTypeProperty);
-  PRE_VISIT(ScanParallelByEdgeTypePropertyValue);
-  PRE_VISIT(ScanParallelByEdgeTypePropertyRange);
   PRE_VISIT(ScanParallelByEdgeProperty);
-  PRE_VISIT(ScanParallelByEdgePropertyValue);
-  PRE_VISIT(ScanParallelByEdgePropertyRange);
   PRE_VISIT(ScanParallelByVertexProperty);
   PRE_VISIT(ScanChunk);
   PRE_VISIT(ScanChunkByEdge);
@@ -355,11 +347,7 @@ using ExpectScanParallelByLabelProperties = OpChecker<ScanParallelByLabelPropert
 using ExpectScanParallelByEdge = OpChecker<ScanParallelByEdge>;
 using ExpectScanParallelByEdgeType = OpChecker<ScanParallelByEdgeType>;
 using ExpectScanParallelByEdgeTypeProperty = OpChecker<ScanParallelByEdgeTypeProperty>;
-using ExpectScanParallelByEdgeTypePropertyValue = OpChecker<ScanParallelByEdgeTypePropertyValue>;
-using ExpectScanParallelByEdgeTypePropertyRange = OpChecker<ScanParallelByEdgeTypePropertyRange>;
 using ExpectScanParallelByEdgeProperty = OpChecker<ScanParallelByEdgeProperty>;
-using ExpectScanParallelByEdgePropertyValue = OpChecker<ScanParallelByEdgePropertyValue>;
-using ExpectScanParallelByEdgePropertyRange = OpChecker<ScanParallelByEdgePropertyRange>;
 using ExpectScanParallelByVertexProperty = OpChecker<ScanParallelByVertexProperty>;
 using ExpectScanChunk = OpChecker<ScanChunk>;
 using ExpectScanChunkByEdge = OpChecker<ScanChunkByEdge>;
@@ -664,57 +652,6 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
   std::vector<ExpressionRange> expression_ranges_;
 };
 
-class ExpectScanAllByEdgeTypePropertyValue : public OpChecker<ScanAllByEdgeTypePropertyValue> {
- public:
-  ExpectScanAllByEdgeTypePropertyValue(memgraph::storage::EdgeTypeId edge_type,
-                                       const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                       memgraph::query::Expression *expression)
-      : edge_type_(edge_type), property_(prop_pair.second), expression_(expression) {}
-
-  void ExpectOp(ScanAllByEdgeTypePropertyValue &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
-    EXPECT_EQ(scan_all.property_, property_);
-    // TODO: Proper expression equality
-    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
-  }
-
- private:
-  memgraph::storage::EdgeTypeId edge_type_;
-  memgraph::storage::PropertyId property_;
-  memgraph::query::Expression *expression_;
-};
-
-class ExpectScanAllByEdgeTypePropertyRange : public OpChecker<ScanAllByEdgeTypePropertyRange> {
- public:
-  ExpectScanAllByEdgeTypePropertyRange(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property,
-                                       std::optional<ScanAllByEdgeTypePropertyRange::Bound> lower_bound,
-                                       std::optional<ScanAllByEdgeTypePropertyRange::Bound> upper_bound)
-      : edge_type_(edge_type), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
-
-  void ExpectOp(ScanAllByEdgeTypePropertyRange &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
-    EXPECT_EQ(scan_all.property_, property_);
-    if (lower_bound_) {
-      ASSERT_TRUE(scan_all.lower_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
-    }
-    if (upper_bound_) {
-      ASSERT_TRUE(scan_all.upper_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
-    }
-  }
-
- private:
-  memgraph::storage::EdgeTypeId edge_type_;
-  memgraph::storage::PropertyId property_;
-  std::optional<ScanAllByEdgeTypePropertyRange::Bound> lower_bound_;
-  std::optional<ScanAllByEdgeTypePropertyRange::Bound> upper_bound_;
-};
-
 class ExpectScanAllByEdgeTypeProperty : public OpChecker<ScanAllByEdgeTypeProperty> {
  public:
   ExpectScanAllByEdgeTypeProperty(memgraph::storage::EdgeTypeId edge_type,
@@ -731,21 +668,17 @@ class ExpectScanAllByEdgeTypeProperty : public OpChecker<ScanAllByEdgeTypeProper
   memgraph::storage::PropertyId property_;
 };
 
-class ExpectScanAllByEdgePropertyValue : public OpChecker<ScanAllByEdgePropertyValue> {
+class ExpectScanAllByEdgeProperty : public OpChecker<ScanAllByEdgeProperty> {
  public:
-  ExpectScanAllByEdgePropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                   memgraph::query::Expression *expression)
-      : property_(prop_pair.second), expression_(expression) {}
+  explicit ExpectScanAllByEdgeProperty(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
 
-  void ExpectOp(ScanAllByEdgePropertyValue &scan_all, const SymbolTable &) override {
+  void ExpectOp(ScanAllByEdgeProperty &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.property_, property_);
-    // TODO: Proper expression equality
-    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
   }
 
  private:
   memgraph::storage::PropertyId property_;
-  memgraph::query::Expression *expression_;
 };
 
 class ExpectScanAllByVertexProperty : public OpChecker<ScanAllByVertexProperty> {
