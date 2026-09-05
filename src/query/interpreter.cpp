@@ -6637,17 +6637,27 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   return exists_active_transaction;
 }
 
-std::vector<Interpreter::SessionInfo> GetActiveUsersInfo(InterpreterContext *interpreter_context) {
-  std::vector<Interpreter::SessionInfo> active_users =
-      interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-        std::vector<Interpreter::SessionInfo> info;
-        info.reserve(interpreters_.size());
-        for (const auto &interpreter : interpreters_) {
-          info.push_back(interpreter->session_info_);
-        }
+// foreign_db_view(), not name(), is required: this runs on a foreign thread with no verifier held.
+// db_marked_for_deletion is the authoritative Gatekeeper flag, not inferred from a handler-map lookup.
+struct ActiveUserInfo {
+  Interpreter::SessionInfo session_info;
+  std::string db_name;
+  bool db_marked_for_deletion{false};
+};
 
-        return info;
-      });
+std::vector<ActiveUserInfo> GetActiveUsersInfo(InterpreterContext *interpreter_context) {
+  std::vector<ActiveUserInfo> active_users = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
+    std::vector<ActiveUserInfo> info;
+    info.reserve(interpreters_.size());
+    for (const auto &interpreter : interpreters_) {
+      // Not an atomic snapshot: db and user come from separate locked reads, so they may skew -- ok here.
+      auto db_view = interpreter->current_db_.foreign_db_view();
+      auto session_info = interpreter->GetSessionInfoSnapshot();
+      info.push_back({std::move(session_info), std::move(db_view.name), db_view.marked_for_deletion});
+    }
+
+    return info;
+  });
 
   return active_users;
 }
@@ -7390,52 +7400,53 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-    auto get_interpreter_db_name = [&]() -> std::string {
-      return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
-    };
+    if (!transaction_id.has_value()) continue;
     auto same_user = [](const auto &lv, const auto &rv) {
       if (lv.get() == rv) return true;
       if (lv && rv) return *lv == *rv;
       return false;
     };
-    if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
-                                       privilege_checker(user_or_role, get_interpreter_db_name()))) {
-      auto const runtime_status = verifier->status();
-      if (!status_filter.empty()) {
-        auto const sf = ToStatusFilter(runtime_status);
-        if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
-      }
-      const auto &typed_queries = interpreter->GetQueries();
-      results.push_back(
-          {TypedValue(interpreter->user_or_role_
-                          ? (interpreter->user_or_role_->username() ? *interpreter->user_or_role_->username() : "")
-                          : ""),
-           TypedValue(std::to_string(transaction_id.value())),
-           TypedValue(typed_queries),
-           TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
-      // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
-      // cleanup paths spin-wait before modifying fields)
-      std::map<std::string, TypedValue> metadata_tv;
-      if (interpreter->metadata_) {
-        for (const auto &md : *(interpreter->metadata_)) {
-          metadata_tv.emplace(md.first, TypedValue(md.second));
-        }
-      }
-      results.back().emplace_back(metadata_tv);
-      auto [start_tv, elapsed_ms] =
-          StartTimeAndElapsedMs(interpreter->transaction_start_time_, interpreter->transaction_start_steady_);
-      results.back().emplace_back(std::move(start_tv));
-      results.back().emplace_back(elapsed_ms);
+    // Route through foreign_db_view(): this is a foreign thread. The verifier CAS above does NOT order
+    // against SetCurrentDB (the Pull path never consults transaction_status_), so an unlocked db_acc_ read
+    // could tear against a concurrent USE DATABASE. foreign_db_view() takes db_acc_mutex_ and returns the
+    // same name string CurrentDB::name() would ("" when the session holds no database).
+    auto db_name = interpreter->current_db_.foreign_db_view().name;
+    if (!same_user(interpreter->user_or_role_, user_or_role) && !privilege_checker(user_or_role, db_name)) continue;
+    auto const runtime_status = verifier->status();
+    if (!status_filter.empty()) {
+      auto const sf = ToStatusFilter(runtime_status);
+      if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
     }
+    const auto &typed_queries = interpreter->GetQueries();
+    results.push_back({TypedValue((interpreter->user_or_role_ && interpreter->user_or_role_->username())
+                                      ? *interpreter->user_or_role_->username()
+                                      : ""),
+                       TypedValue(std::to_string(transaction_id.value())),
+                       TypedValue(typed_queries),
+                       TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
+    // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
+    // cleanup paths spin-wait before modifying fields)
+    std::map<std::string, TypedValue> metadata_tv;
+    if (interpreter->metadata_) {
+      for (const auto &md : *(interpreter->metadata_)) {
+        metadata_tv.emplace(md.first, TypedValue(md.second));
+      }
+    }
+    results.back().emplace_back(metadata_tv);
+    auto [start_tv, elapsed_ms] =
+        StartTimeAndElapsedMs(interpreter->transaction_start_time_, interpreter->transaction_start_steady_);
+    results.back().emplace_back(std::move(start_tv));
+    results.back().emplace_back(elapsed_ms);
+    results.back().emplace_back(std::move(db_name));
   }
   return results;
 }
 
 // Synthetic SHOW TRANSACTIONS row for a background task (snapshot, GC): same
-// 7-column "running" shape, differing only in id, query text, and metadata.
+// 8-column "running" shape, differing only in id, query text, metadata, and db name.
 std::vector<TypedValue> BuildBackgroundTaskRow(std::string_view transaction_id, std::string_view query_text,
                                                std::map<std::string, TypedValue> metadata, int64_t start_time_us,
-                                               int64_t start_steady_ms) {
+                                               int64_t start_steady_ms, std::string_view db_name) {
   // start_time_us == 0 means "not started yet": leave start_time null, elapsed 0.
   auto [start_tv, elapsed_ms] = [&]() -> std::pair<TypedValue, int64_t> {
     if (start_time_us <= 0) return {TypedValue{}, 0};
@@ -7444,7 +7455,7 @@ std::vector<TypedValue> BuildBackgroundTaskRow(std::string_view transaction_id, 
     return StartTimeAndElapsedMs(start_tp, steady_start);
   }();
   std::vector<TypedValue> row;
-  row.reserve(7);
+  row.reserve(8);
   row.emplace_back("");
   row.emplace_back(transaction_id);
   row.emplace_back(std::vector<TypedValue>{TypedValue(query_text)});
@@ -7452,6 +7463,7 @@ std::vector<TypedValue> BuildBackgroundTaskRow(std::string_view transaction_id, 
   row.emplace_back(std::move(metadata));
   row.emplace_back(std::move(start_tv));
   row.emplace_back(elapsed_ms);
+  row.emplace_back(db_name);
   return row;
 }
 
@@ -7463,7 +7475,7 @@ std::vector<TypedValue> BuildSnapshotTransactionRow(storage::SnapshotProgressVie
   metadata.emplace("items_total", static_cast<int64_t>(progress.items_total));
   metadata.emplace("db_name", std::string{db_name});
   return BuildBackgroundTaskRow(
-      "snapshot", "CREATE SNAPSHOT", std::move(metadata), progress.start_time_us, progress.start_steady_ms);
+      "snapshot", "CREATE SNAPSHOT", std::move(metadata), progress.start_time_us, progress.start_steady_ms, db_name);
 }
 
 std::vector<TypedValue> BuildGcTransactionRow(storage::GcRunInfoView const &info, std::string_view db_name) {
@@ -7473,7 +7485,7 @@ std::vector<TypedValue> BuildGcTransactionRow(storage::GcRunInfoView const &info
   metadata.emplace("exclusive_lock", TypedValue(info.exclusive_lock));
   metadata.emplace("db_name", std::string{db_name});
   return BuildBackgroundTaskRow(
-      "gc", "GARBAGE COLLECTION", std::move(metadata), info.start_time_us, info.start_steady_ms);
+      "gc", "GARBAGE COLLECTION", std::move(metadata), info.start_time_us, info.start_steady_ms, db_name);
 }
 
 namespace {
@@ -7519,7 +7531,8 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                 status_filter = transaction_query->status_filter_](const auto &interpreters) {
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
-      callback.header = {"username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms"};
+      callback.header = {
+          "username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms", "database"};
       // Background-task rows are always "running"; skip them when a status filter
       // excludes RUNNING.
       const bool include_background_tasks =
@@ -8171,11 +8184,15 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       };
     } break;
     case SystemInfoQuery::InfoType::ACTIVE_USERS: {
-      header = {"username", "session uuid", "login timestamp"};
+      header = {"username", "session uuid", "login timestamp", "database", "database marked for deletion"};
       handler = [interpreter_context] {
         std::vector<std::vector<TypedValue>> results;
         for (const auto &result : GetActiveUsersInfo(interpreter_context)) {
-          results.push_back({TypedValue(result.username), TypedValue(result.uuid), TypedValue(result.login_timestamp)});
+          results.push_back({TypedValue(result.session_info.username),
+                             TypedValue(result.session_info.uuid),
+                             TypedValue(result.session_info.login_timestamp),
+                             TypedValue(result.db_name),
+                             TypedValue(result.db_marked_for_deletion)});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
@@ -11833,6 +11850,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
   session_log_ctx_.SetSessionUuid(uuid);
+  const std::scoped_lock lock{session_info_mutex_};
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
 }

@@ -101,7 +101,10 @@ bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
   };
   if (same_user(interpreter->user_or_role_, user_or_role)) return true;
 
-  auto const db_name = interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
+  // Foreign thread: route through foreign_db_view() (takes db_acc_mutex_). The VERIFYING CAS in
+  // TryTerminateInterpreter does NOT order against SetCurrentDB, so an unlocked name() could tear
+  // against a concurrent USE DATABASE -- a use-after-free of the swapped-out DatabaseAccess.
+  auto const db_name = interpreter->current_db_.foreign_db_view().name;
   return privilege_checker(user_or_role, db_name);
 }
 
@@ -187,8 +190,13 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
     if (!verifier) {
       continue;
     }
-    // Transaction is running, so cannot change the underlying db
-    if (interpreter->current_db_.db_acc_ && interpreter->current_db_.db_acc_->get()->name() != db_name) {
+    // Foreign thread: route through foreign_db_view() (takes db_acc_mutex_). The verifier CAS does NOT
+    // order against SetCurrentDB, so the unlocked db_acc_/name() read could tear against USE DATABASE.
+    // A no-DB interpreter (empty view name) deliberately passes this filter: the caller uses this list as a
+    // DROP DATABASE ... FORCE kill-list, and a no-DB interpreter must stay a termination candidate.
+    // db_name is always a real, non-empty database name, so an empty view name means "no current DB".
+    auto const view = interpreter->current_db_.foreign_db_view();
+    if (!view.name.empty() && view.name != db_name) {
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
