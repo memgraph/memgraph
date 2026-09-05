@@ -165,11 +165,13 @@ class Database {
   utils::ThreadPool *thread_pool() { return &after_commit_trigger_pool_; }
 
   /**
-   * @brief Add task to the after commit trigger thread pool
+   * @brief Add task to the after commit trigger thread pool.
+   *
+   * A task scheduled after StopAllBackgroundTasks() is dropped and logged, not run.
    *
    * @param new_task
    */
-  void AddTask(utils::ThreadPool::TaskSignature new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
+  void AddTask(utils::ThreadPool::TaskSignature new_task);
 
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 

@@ -32,9 +32,12 @@ class ThreadPool {
   // and may return a cleanup callback that runs when the worker exits.
   explicit ThreadPool(size_t pool_size, ThreadInitFn thread_init = {});
 
-  void AddTask(TaskSignature new_task);
+  // Returns false if the pool has already been shut down, in which case the task is dropped and never runs.
+  bool AddTask(TaskSignature new_task);
 
-  void ShutDown();
+  // Discards queued tasks rather than draining them (a task already popped by a worker still runs to
+  // completion), returning how many were discarded; draining is avoided since a queued task can block on external I/O.
+  size_t ShutDown();
 
   ~ThreadPool();
 
