@@ -70,8 +70,8 @@ struct CostModel {
     return CostResult::cartesian_product(
         *children[0], *children[1], [enode_id](DemandAlt const &l, DemandAlt const &r) {
           DemandSet req;
-          req.insert(l.required.begin(), l.required.end());
-          req.insert(r.required.begin(), r.required.end());
+          req.insert(boost::container::ordered_unique_range, l.required.begin(), l.required.end());
+          req.insert(boost::container::ordered_unique_range, r.required.begin(), r.required.end());
           return DemandAlt{.cost = 1.0 + l.cost + r.cost, .required = std::move(req), .enode_id = enode_id};
         });
   }
