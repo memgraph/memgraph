@@ -191,7 +191,7 @@ relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExp
 
 relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable ( ',' accumulated_path=variable )? ( ',' accumulated_weight=variable )? '|' expression ')';
 
-variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST | KSHORTEST)? ( expression )? ( '..' ( expression )? )? ( '|' k=expression )? ;
+variableExpansion : '*' (BFS | DFS | WSHORTEST | ALLSHORTEST | KSHORTEST)? ( expression )? ( '..' ( expression )? )? ( '|' k=expression )? ;
 
 properties : mapLiteral
            | parameter
@@ -406,6 +406,7 @@ cypherKeyword : ALL
               | DESCENDING
               | DETACH
               | DISTINCT
+              | DFS
               | DROP
               | ELSE
               | END

@@ -93,6 +93,7 @@ DESC           : D E S C ;
 DESCENDING     : D E S C E N D I N G ;
 DETACH         : D E T A C H ;
 DISTINCT       : D I S T I N C T ;
+DFS            : D F S ;
 DROP           : D R O P ;
 ELSE           : E L S E ;
 END            : E N D ;

@@ -1687,6 +1687,22 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternUnbounded) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, RelationshipPatternExplicitDfs) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r*dFs 2..4]->() RETURN r"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
+  ast_generator.CheckLiteral(edge->lower_bound_, 2);
+  ast_generator.CheckLiteral(edge->upper_bound_, 4);
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r*42..]->() RETURN r"));
