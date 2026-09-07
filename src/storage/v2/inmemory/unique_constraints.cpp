@@ -407,6 +407,19 @@ void InMemoryUniqueConstraints::ActiveConstraints::AbortEntries(
 
 bool InMemoryUniqueConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
+InMemoryUniqueConstraints::ActiveConstraints::ActiveConstraints(ContainerPtr snapshot)
+    : container_{std::move(snapshot)} {
+  for (const auto &[label, properties_constraints] : *container_) {
+    for (const auto &[properties, constraint] : properties_constraints) {
+      constrained_properties_.insert(properties.begin(), properties.end());
+    }
+  }
+}
+
+bool InMemoryUniqueConstraints::ActiveConstraints::MayInvolveProperty(PropertyId property) const {
+  return constrained_properties_.contains(property);
+}
+
 auto InMemoryUniqueConstraints::GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> {
   return std::make_shared<ActiveConstraints>(container_.ReadCopy());
 }
