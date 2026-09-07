@@ -9,11 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <fmt/format.h>
-
 #include <map>
 #include <string>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "parameters/parameters.hpp"
 #include "parameters/rpc.hpp"
@@ -21,6 +21,7 @@
 #include "replication/include/replication/state.hpp"
 #include "system/include/system/action.hpp"
 #include "system/include/system/transaction.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::parameters {
 
