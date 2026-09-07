@@ -478,7 +478,11 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   if (transaction_->constraint_verification_info) {
     if (!new_value.IsNull()) {
-      transaction_->constraint_verification_info->AddedProperty(vertex_);
+      // A property that takes part in no unique constraint cannot introduce a violation; skipping it keeps the
+      // vertex out of the commit-time verification set.
+      if (transaction_->active_constraints_->unique_->MayInvolveProperty(property)) {
+        transaction_->constraint_verification_info->AddedProperty(vertex_);
+      }
     } else {
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
@@ -525,7 +529,9 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
           transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
           if (transaction->constraint_verification_info) {
             if (!new_value.IsNull()) {
-              transaction->constraint_verification_info->AddedProperty(vertex);
+              if (transaction->active_constraints_->unique_->MayInvolveProperty(property)) {
+                transaction->constraint_verification_info->AddedProperty(vertex);
+              }
             } else {
               transaction->constraint_verification_info->RemovedProperty(vertex);
             }
@@ -602,7 +608,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
-          transaction->constraint_verification_info->AddedProperty(vertex);
+          if (transaction->active_constraints_->unique_->MayInvolveProperty(id)) {
+            transaction->constraint_verification_info->AddedProperty(vertex);
+          }
         } else {
           transaction->constraint_verification_info->RemovedProperty(vertex);
         }

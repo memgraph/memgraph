@@ -102,8 +102,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// Provides snapshot-based access for a transaction's lifetime.
   class ActiveConstraints final : public UniqueConstraints::ActiveConstraints {
    public:
-    explicit ActiveConstraints(ContainerPtr snapshot = std::make_shared<Container>())
-        : container_{std::move(snapshot)} {}
+    explicit ActiveConstraints(ContainerPtr snapshot = std::make_shared<Container>());
 
     auto ListConstraints(uint64_t start_timestamp) const
         -> std::vector<std::pair<LabelId, std::set<PropertyId>>> override;
@@ -112,6 +111,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
     void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
+    bool MayInvolveProperty(PropertyId property) const override;
 
     // Unique constraints are validated at commit time via UpdateBeforeCommit(),
     // so label changes don't require incremental updates during the transaction.
@@ -123,6 +123,9 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
    private:
     ContainerPtr container_;
+    // Union of the properties of every constraint in `container_`, regardless of label. Computed once per
+    // snapshot so that the per-write check in VertexAccessor does not scan the constraints.
+    std::set<PropertyId> constrained_properties_;
   };
 
   /// Creates an ActiveConstraints snapshot for transaction use.

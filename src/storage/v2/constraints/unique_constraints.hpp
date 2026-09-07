@@ -63,6 +63,11 @@ class UniqueConstraints {
     virtual void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) = 0;
     virtual bool empty() const = 0;
 
+    /// Whether a write to `property` can affect any of the active unique constraints. Implementations may
+    /// over-approximate (return true for a property that is not constrained) but must never return false for a
+    /// property that takes part in an active unique constraint on any label.
+    virtual bool MayInvolveProperty(PropertyId property) const = 0;
+
     virtual void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                                      uint64_t transaction_start_timestamp) = 0;
 
