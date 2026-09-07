@@ -105,9 +105,9 @@ TEST_F(ParametersTest, SnapshotRoundTrips) {
   EXPECT_EQ(target.GetParameter("d", kDbScope), R"("dv")");
 }
 
-// Recovering a snapshot the store already holds must leave every value in place. Deleting the
-// stale keys and writing the incoming ones share one batch, and RocksDB applies a batch in
-// insertion order, so a key in both sets must not end up on the delete side.
+// Recovering a snapshot the store already holds must leave every value in place. Only keys the
+// snapshot does not carry are deleted, so the incoming and stale sets are disjoint and no key is
+// ever both written and dropped.
 TEST_F(ParametersTest, RecoveryOfAnIdenticalSnapshotKeepsEveryValue) {
   auto parameters = MakeParameters("RecoveryOfAnIdenticalSnapshotKeepsEveryValue");
   ASSERT_EQ(parameters.SetParameter("g", R"("gv")", kGlobalScope), SetParameterResult::Success);
