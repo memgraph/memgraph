@@ -11,12 +11,15 @@
 
 #include <unistd.h>
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "parameters/parameters.hpp"
 #include "utils/file.hpp"
