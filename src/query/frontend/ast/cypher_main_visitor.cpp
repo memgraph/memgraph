@@ -1928,6 +1928,21 @@ antlrcpp::Any CypherMainVisitor::visitTransactionIdList(MemgraphCypher::Transact
   return transaction_ids;
 }
 
+antlrcpp::Any CypherMainVisitor::visitTerminateSessions(MemgraphCypher::TerminateSessionsContext *ctx) {
+  auto *terminator = storage_->Create<TransactionQueueQuery>();
+  terminator->action_ = TransactionQueueQuery::Action::TERMINATE_SESSIONS;
+  terminator->session_id_list_ = std::any_cast<std::vector<Expression *>>(ctx->sessionIdList()->accept(this));
+  return terminator;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSessionIdList(MemgraphCypher::SessionIdListContext *ctx) {
+  std::vector<Expression *> session_ids;
+  for (auto *session_id : ctx->sessionId()) {
+    session_ids.push_back(std::any_cast<Expression *>(session_id->accept(this)));
+  }
+  return session_ids;
+}
+
 antlrcpp::Any CypherMainVisitor::visitVersionQuery(MemgraphCypher::VersionQueryContext * /*ctx*/) {
   auto *version_query = storage_->Create<VersionQuery>();
   query_ = version_query;

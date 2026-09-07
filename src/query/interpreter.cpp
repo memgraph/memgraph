@@ -44,6 +44,7 @@
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "communication/cluster_tls.hpp"
+#include "communication/v2/session_registry.hpp"
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_cert_reloader.hpp"
 #include "coordination/coordinator_ops_status.hpp"
@@ -6643,7 +6644,15 @@ std::vector<Interpreter::SessionInfo> GetActiveUsersInfo(InterpreterContext *int
         std::vector<Interpreter::SessionInfo> info;
         info.reserve(interpreters_.size());
         for (const auto &interpreter : interpreters_) {
-          info.push_back(interpreter->session_info_);
+          // interpreter->session_info_ is owning-thread state; interpreter's own thread can
+          // concurrently rewrite it via SetSessionInfo. foreign_session_view_ is the published
+          // snapshot. A null snapshot means SetSessionInfo has not run yet for this session (still
+          // mid-login, before even a no-auth/anonymous identity is recorded), so there is no row to
+          // report yet -- skip it rather than push a default-constructed SessionInfo{} that would
+          // render as a spurious blank row.
+          auto const session_snapshot = interpreter->foreign_session_view_.load();
+          if (!session_snapshot) continue;
+          info.push_back(*session_snapshot);
         }
 
         return info;
@@ -7398,21 +7407,24 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       if (lv && rv) return *lv == *rv;
       return false;
     };
-    if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
-                                       privilege_checker(user_or_role, get_interpreter_db_name()))) {
+    // interpreter->user_or_role_ is owning-thread state; interpreter's own thread can concurrently
+    // rewrite it via SetUser/ResetUser. Load foreign_user_view_ once and reuse it for both the
+    // identity check and the username column below -- reading the live field twice would let the
+    // two reads disagree (e.g. observe a user for the check, then a reset user_or_role_ for the
+    // column).
+    auto const user_snapshot = interpreter->foreign_user_view_.load();
+    if (transaction_id.has_value() &&
+        (same_user(user_snapshot, user_or_role) || privilege_checker(user_or_role, get_interpreter_db_name()))) {
       auto const runtime_status = verifier->status();
       if (!status_filter.empty()) {
         auto const sf = ToStatusFilter(runtime_status);
         if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
       }
       const auto &typed_queries = interpreter->GetQueries();
-      results.push_back(
-          {TypedValue(interpreter->user_or_role_
-                          ? (interpreter->user_or_role_->username() ? *interpreter->user_or_role_->username() : "")
-                          : ""),
-           TypedValue(std::to_string(transaction_id.value())),
-           TypedValue(typed_queries),
-           TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
+      results.push_back({TypedValue(user_snapshot ? user_snapshot->username().value_or("") : ""),
+                         TypedValue(std::to_string(transaction_id.value())),
+                         TypedValue(typed_queries),
+                         TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
       // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
       // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
@@ -7504,7 +7516,8 @@ uint64_t ParseTransactionId(TypedValue const &value) {
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      std::shared_ptr<QueryUserOrRole> user_or_role, const Parameters &parameters,
-                                     InterpreterContext *interpreter_context, Interpreter const *self) {
+                                     InterpreterContext *interpreter_context, Interpreter const *self,
+                                     std::string caller_session_uuid) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
     return user_or_role &&
            user_or_role->IsAuthorized(
@@ -7586,17 +7599,57 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       };
       break;
     }
+    case TransactionQueueQuery::Action::TERMINATE_SESSIONS: {
+      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      std::vector<std::string> session_ids;
+      std::ranges::transform(transaction_query->session_id_list_,
+                             std::back_inserter(session_ids),
+                             [&evaluator](Expression *expression) -> std::string {
+                               try {
+                                 auto value = expression->Accept(evaluator);
+                                 return std::string{value.ValueString()};
+                               } catch (std::exception & /* unused */) {
+                                 return std::string{};
+                               }
+                             });
+      callback.header = {"session_id", "killed"};
+      callback.fn = [interpreter_context,
+                     session_ids = std::move(session_ids),
+                     user_or_role = std::move(user_or_role),
+                     privilege_checker = std::move(privilege_checker),
+                     caller_session_uuid = std::move(caller_session_uuid)]() mutable {
+        auto result = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
+          return InterpreterContext::TerminateSessions(
+              interpreters, session_ids, user_or_role.get(), privilege_checker, caller_session_uuid);
+        });
+        // Closing a connection runs that session's destructor chain, which re-enters
+        // InterpreterContext::interpreters -- so it must happen only after the lock above is released.
+        for (auto const &uuid : result.to_close) {
+          if (auto session = communication::v2::SessionRegistry::Instance().Find(uuid)) {
+            session->RequestTermination();
+          }
+        }
+        return std::move(result.rows);
+      };
+      break;
+    }
   }
 
   return callback;
 }
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared_ptr<QueryUserOrRole> user_or_role,
-                                           InterpreterContext *interpreter_context, Interpreter const *self) {
+                                           InterpreterContext *interpreter_context, Interpreter const *self,
+                                           std::string caller_session_uuid) {
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
-  auto callback = HandleTransactionQueueQuery(
-      transaction_queue_query, std::move(user_or_role), parsed_query.parameters, interpreter_context, self);
+  auto callback = HandleTransactionQueueQuery(transaction_queue_query,
+                                              std::move(user_or_role),
+                                              parsed_query.parameters,
+                                              interpreter_context,
+                                              self,
+                                              std::move(caller_session_uuid));
 
   return PreparedQuery{
       .header = std::move(callback.header),
@@ -11046,7 +11099,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw TransactionQueueInMulticommandTxException();
       }
-      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), user_or_role_, interpreter_context_, this);
+      prepared_query = PrepareTransactionQueueQuery(
+          std::move(parsed_query), user_or_role_, interpreter_context_, this, session_info_.uuid);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw MultiDatabaseQueryInMulticommandTxException();
@@ -11807,6 +11861,10 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
+  // Foreign threads observe this session's identity only through foreign_user_view_ (see its
+  // declaration in interpreter.hpp), so publish right after the assignment above -- before the
+  // session-limit throw below -- so the snapshot can never disagree with user_or_role_.
+  foreign_user_view_.store(user_or_role_);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
   // Pre-existsing user resource; decrement session (since it is not being used anymore)
@@ -11826,6 +11884,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
+  foreign_user_view_.store(user_or_role_);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
 }
@@ -11835,10 +11894,12 @@ void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::st
   session_log_ctx_.SetSessionUuid(uuid);
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
+  foreign_session_view_.store(std::make_shared<const SessionInfo>(session_info_));
 }
 
 void Interpreter::ResetUser() {
   user_or_role_.reset();
+  foreign_user_view_.store(nullptr);
   session_log_ctx_.ClearUser();
 #ifdef MG_ENTERPRISE
   if (user_resource_) {

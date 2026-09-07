@@ -47,6 +47,7 @@
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
 #include "communication/fmt.hpp"
+#include "communication/v2/session_registry.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priority_thread_pool.hpp"
@@ -98,7 +99,8 @@ class OutputStream final {
  * Sessions. It handles socket ownership and protocol wrapping.
  */
 template <typename TSession, typename TSessionContext>
-class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>> {
+class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>>,
+                      public TerminableSession {
   using TCPSocket = tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
   using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
@@ -110,7 +112,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::shared_ptr<Session>(new Session(std::forward<Args>(args)...));
   }
 
-  ~Session() = default;
+  ~Session() override {
+    if constexpr (requires { session_.UUID(); }) {
+      SessionRegistry::Instance().Deregister(session_.UUID(), this);
+    }
+  }
 
   Session(const Session &) = delete;
   Session(Session &&) = delete;
@@ -125,6 +131,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     metrics::Metrics().global.active_sessions->Increment();
 
     execution_active_ = true;
+
+    if constexpr (requires { session_.UUID(); }) {
+      SessionRegistry::Instance().Register(session_.UUID(), std::weak_ptr<TerminableSession>{shared_from_this()});
+    }
 
     if (std::holds_alternative<SSLSocket>(socket_)) {
       utils::OnScopeExit increment_counter([] { metrics::Metrics().global.active_ssl_sessions->Increment(); });
@@ -193,6 +203,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                       socket_);
   }
 
+  // Callable from any thread. post, not dispatch: the caller here is foreign to the session (an
+  // admin command thread), so it must never run session code inline on its own stack.
+  void RequestTermination() override {
+    terminate_requested_.store(true, std::memory_order_release);
+    boost::asio::post(strand_, [shared_this = shared_from_this()] { shared_this->TerminateIfIdle_(); });
+  }
+
  private:
   explicit Session(tcp::socket &&socket, TSessionContext *session_context, ServerContext &server_context,
                    std::string_view service_name)
@@ -240,7 +257,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     ws.binary(true);
 
     // Accept the websocket handshake
+    read_armed_ = true;
     ws.async_accept(req, boost::asio::bind_executor(strand_, [self = shared_from_this()](boost::beast::error_code ec) {
+                      self->read_armed_ = false;
+                      if (self->terminate_requested_.load(std::memory_order_acquire)) {
+                        self->DoShutdown();
+                        return;
+                      }
                       if (ec) {
                         return self->OnError(ec);
                       }
@@ -258,40 +281,40 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                     }));
   }
 
-  void DoRead() {
+  // Must run on strand_: the sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here),
+  // so honouring terminate_requested_ instead of arming the read keeps the socket single-owner.
+  template <typename OnReadFn>
+  void ArmRead_(OnReadFn on_read) {
     if (!IsConnected()) {
       return;
     }
-    ExecuteForSocket([this](auto &socket) {
+    if (terminate_requested_.load(std::memory_order_acquire)) {
+      DoShutdown();
+      return;
+    }
+    read_armed_ = true;
+    ExecuteForSocket([&](auto &socket) {
       auto buffer = input_buffer_.write_end()->GetBuffer();
-      socket.async_read_some(
-          boost::asio::buffer(buffer.data, buffer.len),
-          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
+      socket.async_read_some(boost::asio::buffer(buffer.data, buffer.len),
+                             boost::asio::bind_executor(strand_, std::move(on_read)));
     });
+  }
+
+  void DoRead() {
+    // dispatch, not post: DoRead runs on a priority worker thread (after Execute()/Write()), so this
+    // moves async_read_some's arming onto the strand; the other two call sites are already on it.
+    boost::asio::dispatch(strand_,
+                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnRead, self)); });
   }
 
   void DoReadAsio() {
-    if (!IsConnected()) {
-      return;
-    }
-    ExecuteForSocket([this](auto &socket) {
-      auto buffer = input_buffer_.write_end()->GetBuffer();
-      socket.async_read_some(
-          boost::asio::buffer(buffer.data, buffer.len),
-          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnReadAsio, shared_from_this())));
-    });
+    boost::asio::dispatch(strand_,
+                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnReadAsio, self)); });
   }
 
   void DoFirstRead() {
-    if (!IsConnected()) {
-      return;
-    }
-    ExecuteForSocket([this](auto &socket) {
-      auto buffer = input_buffer_.write_end()->GetBuffer();
-      socket.async_read_some(
-          boost::asio::buffer(buffer.data, buffer.len),
-          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnFirstRead, shared_from_this())));
-    });
+    boost::asio::dispatch(
+        strand_, [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnFirstRead, self)); });
   }
 
   std::optional<boost::beast::http::request<boost::beast::http::string_body>> IsWebsocketUpgrade(uint8_t *data,
@@ -308,6 +331,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnFirstRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
+    read_armed_ = false;
     if (ec) {
       session_.HandleError();
       return OnError(ec);
@@ -357,6 +381,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
+    read_armed_ = false;
     if (ec) {
       spdlog::trace("OnRead error: {}", ec.message());
       session_.HandleError();
@@ -368,6 +393,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnReadAsio(const boost::system::error_code &ec, const size_t bytes_transferred) {
+    read_armed_ = false;
     if (ec) {
       spdlog::trace("OnRead error: {}", ec.message());
       session_.HandleError();
@@ -431,6 +457,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     DoShutdown();
   }
 
+  // Runs on strand_.
+  void TerminateIfIdle_() {
+    // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
+    // terminate_requested_ set and let ArmRead_ close it on the next read-arm instead of racing here.
+    if (!read_armed_) {
+      return;
+    }
+    read_armed_ = false;
+    DoShutdown();
+  }
+
   void DoShutdown() {
     if (!IsConnected()) {
       return;
@@ -476,6 +513,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
+      read_armed_ = true;
       socket->async_handshake(
           boost::asio::ssl::stream_base::server,
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnSSLHandshake, shared_from_this())));
@@ -483,6 +521,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnSSLHandshake(const boost::system::error_code &ec) {
+    read_armed_ = false;
+    if (terminate_requested_.load(std::memory_order_acquire)) {
+      DoShutdown();
+      return;
+    }
     if (ec) {
       return OnError(ec);
     }
@@ -529,5 +572,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
+  // Set by any thread via RequestTermination; only ever set, never cleared. Checked on the strand
+  // at every read-arm (ArmRead_), so a request made while a worker owns the socket can't be lost.
+  std::atomic_bool terminate_requested_{false};
+  // STRAND-CONFINED. true: an async op (handshake/upgrade/read) is pending and the strand solely
+  // owns the socket; false: a worker may be inside Execute()/Write(), so don't touch it elsewhere.
+  bool read_armed_{false};
 };
 }  // namespace memgraph::communication::v2
