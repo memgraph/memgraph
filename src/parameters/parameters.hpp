@@ -91,6 +91,12 @@ struct Parameters {
   bool DeleteAllParameters(system::Transaction *txn = nullptr);
 
   /**
+   * @brief Delete every parameter in one scope, leaving all other scopes untouched.
+   * @param scope kGlobalScope for global; database UUID for database-scoped.
+   */
+  bool DeleteScope(std::string_view scope);
+
+  /**
    * @brief Apply parameter recovery snapshot from main (used by SystemRecoveryHandler).
    * Replaces local state: parameters absent from the snapshot are dropped. The write is a single
    * batch, so a storage failure leaves the store untouched.

@@ -144,6 +144,8 @@ bool Parameters::DeleteAllParameters(system::Transaction *txn) {
   return true;
 }
 
+bool Parameters::DeleteScope(std::string_view scope) { return storage_.DeletePrefix(fmt::format("{}/", scope)); }
+
 bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
   std::map<std::string, std::string> items;
   for (const auto &p : params) {

@@ -143,3 +143,42 @@ TEST_F(ParametersTest, RecoveryDiscardsPreExistingParameters) {
   EXPECT_FALSE(replica.GetParameter("db_on_replica", kOtherDbScope).has_value());
   EXPECT_EQ(replica.GetParameter("shared", kGlobalScope), R"("from-MAIN")");
 }
+
+// Dropping a database, or rebinding its uuid, must take that scope's parameters with it. Only the
+// named scope goes: global parameters and every other database's are untouched.
+TEST_F(ParametersTest, DeleteScopeRemovesOnlyThatScope) {
+  auto parameters = MakeParameters("DeleteScopeRemovesOnlyThatScope");
+  ASSERT_EQ(parameters.SetParameter("keep", R"("g")", kGlobalScope), SetParameterResult::Success);
+  ASSERT_EQ(parameters.SetParameter("drop", R"("mine")", kDbScope), SetParameterResult::Success);
+  ASSERT_EQ(parameters.SetParameter("keep", R"("theirs")", kOtherDbScope), SetParameterResult::Success);
+
+  ASSERT_TRUE(parameters.DeleteScope(kDbScope));
+
+  EXPECT_FALSE(parameters.GetParameter("drop", kDbScope).has_value());
+  EXPECT_EQ(parameters.GetParameter("keep", kGlobalScope), R"("g")");
+  EXPECT_EQ(parameters.GetParameter("keep", kOtherDbScope), R"("theirs")");
+  EXPECT_EQ(parameters.CountParameters(), 2);
+}
+
+// A scope whose name is a prefix of another must not take the longer one with it: keys are
+// "<scope>/<name>", so the separator has to be part of the match.
+TEST_F(ParametersTest, DeleteScopeDoesNotMatchOnPrefix) {
+  auto parameters = MakeParameters("DeleteScopeDoesNotMatchOnPrefix");
+  ASSERT_EQ(parameters.SetParameter("p", "1", "db"), SetParameterResult::Success);
+  ASSERT_EQ(parameters.SetParameter("p", "2", "db2"), SetParameterResult::Success);
+
+  ASSERT_TRUE(parameters.DeleteScope("db"));
+
+  EXPECT_FALSE(parameters.GetParameter("p", "db").has_value());
+  EXPECT_EQ(parameters.GetParameter("p", "db2"), "2");
+}
+
+// Purging a scope that holds nothing is a no-op, not an error: the rebind and drop paths call this
+// unconditionally without first checking whether the database had any parameters.
+TEST_F(ParametersTest, DeleteScopeOfEmptyScopeSucceeds) {
+  auto parameters = MakeParameters("DeleteScopeOfEmptyScopeSucceeds");
+  ASSERT_EQ(parameters.SetParameter("g", "1", kGlobalScope), SetParameterResult::Success);
+
+  EXPECT_TRUE(parameters.DeleteScope(kDbScope));
+  EXPECT_EQ(parameters.CountParameters(), 1);
+}
