@@ -46,12 +46,20 @@ class LibbcryptConan(ConanFile):
         crypt_blowfish_makefile = os.path.join(self.source_folder, "crypt_blowfish", "Makefile")
         replace_in_file(self, crypt_blowfish_makefile, "-Wcast-align", "")
 
-        # The upstream Makefile hardcodes its own CFLAGS, so AutotoolsToolchain env vars
-        # (including sanitizer flags) don't reach the compilation. This is acceptable:
-        # libbcrypt is a static library, and when linked into an ASAN binary the ASAN
-        # runtime handles interception at the process level.
+        if self.settings.os == "FreeBSD":
+            replace_in_file(self, crypt_blowfish_makefile,
+                            "-funroll-loops", "-funroll-loops -D__SKIP_GNU")
+            top_makefile = os.path.join(self.source_folder, "Makefile")
+            replace_in_file(self, top_makefile,
+                            "$(CC) $(CFLAGS) -c bcrypt.c",
+                            "$(CC) $(CFLAGS) -D__SKIP_GNU -c bcrypt.c")
+            replace_in_file(self, top_makefile,
+                            "$(CC) $(CFLAGS) -DTEST_BCRYPT -c bcrypt.c",
+                            "$(CC) $(CFLAGS) -D__SKIP_GNU -DTEST_BCRYPT -c bcrypt.c")
+
+        make = self.conf.get("tools.gnu:make_program", default="make")
         cc = self.conf.get("tools.build:compiler_executables", default={}).get("c", "cc")
-        self.run(f"make -C {self.source_folder} CC={cc}")
+        self.run(f"{make} -C {self.source_folder} CC={cc}")
 
     def package(self):
         copy(self, "COPYING", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))

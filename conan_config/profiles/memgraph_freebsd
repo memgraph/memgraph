@@ -1,0 +1,27 @@
+{% set target_arch = {"amd64": "x86_64", "aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
+
+[settings]
+arch={{ target_arch }}
+build_type=Release
+compiler=clang
+compiler.cppstd=gnu23
+compiler.libcxx=libc++
+compiler.version=21
+os=FreeBSD
+
+[options]
+&:bundled_toolchain=False
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.cmake.cmaketoolchain:user_toolchain=["{{ os.path.join(os.getcwd(), 'environment', 'toolchain', 'v7', 'toolchain-freebsd.cmake') }}"]
+tools.build:compiler_executables={"c": "/usr/bin/cc", "cpp": "/usr/bin/c++"}
+jemalloc/*:tools.gnu:make_program=gmake
+libbcrypt/*:tools.gnu:make_program=gmake
+
+[platform_tool_requires]
+cmake/*
+ninja/*
+flex/*
+antlr4/*
+openjdk/*
