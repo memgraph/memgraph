@@ -36,7 +36,10 @@ COPY install_python_requirements.sh /tmp/install_python_requirements.sh
 COPY ./wheels /tmp/wheels
 RUN pip install --no-cache-dir --find-links=/tmp/wheels --only-binary=gssapi gssapi==1.11.1 --break-system-packages && \
     chmod +x /tmp/install_python_requirements.sh && \
-    /tmp/install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda ${CUDA} --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
+    /tmp/install_python_requirements.sh \
+      --arch "${TARGETARCH}" --ci --cuda "${CUDA}" \
+      --cache-present "${CACHE_PRESENT}" \
+      --wheel-cache-dir /tmp/wheels && \
     rm /tmp/install_python_requirements.sh && \
     rm -rf /tmp/wheels
 
