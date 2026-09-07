@@ -258,13 +258,17 @@ struct Gatekeeper {
       return std::addressof(*owner_->value_);
     }
 
+    // Invokes func with this accessor as the sole one, waiting up to timeout for the other accessors
+    // to drop. Most accessors are short-lived, so sampling the count once refuses work that was about
+    // to become legal. The wait does not keep new accessors out: access() takes the same mutex that
+    // wait_for releases, so a steady stream of them starves the wait until the timeout.
     template <typename Func>
-    [[nodiscard]] auto try_exclusively(Func &&func) -> EvalResult<std::invoke_result_t<Func, T &>> {
+    [[nodiscard]] auto try_exclusively(Func &&func, std::chrono::milliseconds timeout = std::chrono::milliseconds(100))
+        -> EvalResult<std::invoke_result_t<Func, T &>> {
       if (!owner_) return {not_run_t{}};
-      // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
-      // Only invoke if we have exclusive access
-      if (owner_->count_ != 1) {
+      if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
+        spdlog::trace("Exclusive access denied after {}ms, {} accessors still live.", timeout.count(), owner_->count_);
         return {not_run_t{}};
       }
       // Invoke and hold result in wrapper type
