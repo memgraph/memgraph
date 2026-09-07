@@ -101,16 +101,19 @@ def make_batches(ids, rng):
 
 
 def writer(args, batches, results):
-    """Runs its share of `batches` on its own connection and reports each latency, or an error."""
-    connection = connect(args)
-    for batch in batches:
-        started = time.perf_counter()
-        try:
-            execute(connection, UPDATE, {"rows": batch})
-        except Exception as error:  # noqa: BLE001 - report every failure, whatever its type
-            results.put(("error", str(error)))
-            return
-        results.put(("latency", time.perf_counter() - started))
+    """Runs its share of `batches` on its own connection, reports each latency or the first error, then signals completion."""
+    try:
+        connection = connect(args)
+        for batch in batches:
+            started = time.perf_counter()
+            try:
+                execute(connection, UPDATE, {"rows": batch})
+            except Exception as error:  # noqa: BLE001 - report every failure, whatever its type
+                results.put(("error", str(error)))
+                return
+            results.put(("latency", time.perf_counter() - started))
+    finally:
+        results.put(("done", None))
 
 
 def trial(args, ids, rng, writers):
@@ -126,15 +129,24 @@ def trial(args, ids, rng, writers):
     wall_started = time.perf_counter()
     for process in processes:
         process.start()
+
+    # Every writer ends with a completion message, so blocking reads until all of them have arrived
+    # drain the queue deterministically; Queue.empty() is not reliable for that.
+    latencies, errors = [], []
+    remaining = writers
+    while remaining:
+        kind, value = results.get()
+        if kind == "done":
+            remaining -= 1
+        elif kind == "latency":
+            latencies.append(value)
+        else:
+            errors.append(value)
+    wall = time.perf_counter() - wall_started
     for process in processes:
         process.join()
-    wall = time.perf_counter() - wall_started
     cpu = process_cpu_seconds(args.pid) - cpu_before
 
-    latencies, errors = [], []
-    while not results.empty():
-        kind, value = results.get()
-        (latencies if kind == "latency" else errors).append(value)
     assert not errors and len(latencies) == BATCHES, (errors, len(latencies))
     return wall, cpu, statistics.median(latencies) * 1000
 
