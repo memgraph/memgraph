@@ -44,9 +44,10 @@ class ConstraintsTest : public testing::Test {
  public:
   const std::string testSuite = "storage_v2_constraints";
 
-  ConstraintsTest() {
+  explicit ConstraintsTest(bool delta_on_identical_property_update = true) {
     /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    config_.salient.items.delta_on_identical_property_update = delta_on_identical_property_update;
     config_.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>;
     db_gk_.emplace(config_);
     auto db_acc_opt = db_gk_->access();
@@ -2345,3 +2346,237 @@ TYPED_TEST(ConstraintsTest, DropTypeConstraintAbortRestoresConstraint) {
     acc->Abort();
   }
 }
+
+// Exercise both settings, and inspect bookkeeping before commit so label creation
+// cannot accidentally hide a missing AddedProperty call.
+class UniquePropertyTrackingTest : public ConstraintsTest<InMemoryStorage>, public testing::WithParamInterface<bool> {
+ public:
+  UniquePropertyTrackingTest() : ConstraintsTest(GetParam()) {}
+
+  void SetUp() override {
+    auto acc = CreateConstraintAccessor();
+    ASSERT_NO_ERROR(acc->CreateUniqueConstraint(label1, {prop1}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  Gid Seed(PropertyValue value, bool labelled = true) {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    if (labelled) EXPECT_TRUE(vertex.AddLabel(label1).has_value());
+    EXPECT_TRUE(vertex.SetProperty(prop1, value).has_value());
+    auto gid = vertex.Gid();
+    EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    return gid;
+  }
+
+  void Write(VertexAccessor &vertex, PropertyId property, PropertyValue value, int method) {
+    std::map<PropertyId, PropertyValue> properties{{property, value}};
+    if (method == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(property, value));
+    } else if (method == 1) {
+      auto result = vertex.InitProperties(properties);
+      ASSERT_NO_ERROR(result);
+      ASSERT_TRUE(*result);
+    } else {
+      ASSERT_NO_ERROR(vertex.UpdateProperties(properties));
+    }
+  }
+
+  void ExpectUniqueFailure(Storage::Accessor &acc, std::set<PropertyId> properties) {
+    auto result = acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    ASSERT_FALSE(result.has_value());
+    ASSERT_TRUE(std::holds_alternative<ConstraintViolation>(result.error()));
+    EXPECT_EQ(std::get<ConstraintViolation>(result.error()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::move(properties)}));
+  }
+};
+
+TEST_P(UniquePropertyTrackingTest, UnconstrainedWritesLeaveVerificationEmpty) {
+  for (int method = 0; method != 3; ++method) {
+    SCOPED_TRACE(method);
+    std::vector<Gid> gids;
+    {
+      auto acc = storage->Access(WRITE);
+      for (int i = 0; i != 128; ++i) {
+        auto vertex = acc->CreateVertex();
+        ASSERT_NO_ERROR(vertex.AddLabel(label1));
+        // InitProperties requires an empty property store.
+        if (method != 1) ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(method * 128 + i)));
+        gids.push_back(vertex.Gid());
+      }
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    auto acc = storage->Access(WRITE);
+    auto &info = acc->GetTransaction()->constraint_verification_info;
+    ASSERT_TRUE(info);
+    EXPECT_FALSE(info->NeedsUniqueConstraintVerification());
+    for (auto gid : gids) {
+      auto vertex = acc->FindVertex(gid, View::NEW);
+      ASSERT_TRUE(vertex);
+      ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop2, PropertyValue(42), method));
+      // Repeat an identical write, including the bulk update path.
+      if (method != 1) ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop2, PropertyValue(42), method));
+    }
+    EXPECT_TRUE(info->GetVerticesForUniqueConstraintChecking().empty());
+    EXPECT_FALSE(info->NeedsUniqueConstraintVerification());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TEST_P(UniquePropertyTrackingTest, ConstrainedWritesAreRecordedAndRejected) {
+  Seed(PropertyValue(1));
+  for (int method = 0; method != 3; ++method) {
+    SCOPED_TRACE(method);
+    auto gid = Seed(PropertyValue());
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::NEW);
+    ASSERT_TRUE(vertex);
+    ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop1, PropertyValue(1), method));
+    ASSERT_TRUE(acc->GetTransaction()->constraint_verification_info);
+    EXPECT_EQ(acc->GetTransaction()->constraint_verification_info->GetVerticesForUniqueConstraintChecking().size(), 1);
+    ASSERT_NO_FATAL_FAILURE(ExpectUniqueFailure(*acc, {prop1}));
+  }
+}
+
+TEST_P(UniquePropertyTrackingTest, AddedLabelRejectsDuplicateInEitherOrder) {
+  Seed(PropertyValue(1));
+  for (int order = 0; order != 3; ++order) {
+    SCOPED_TRACE(order);
+    auto gid = Seed(order == 2 ? PropertyValue(1) : PropertyValue(), false);
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::NEW);
+    ASSERT_TRUE(vertex);
+    if (order == 0) ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex->AddLabel(label1));
+    if (order == 1) ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(99)));
+    EXPECT_TRUE(acc->GetTransaction()->constraint_verification_info->NeedsUniqueConstraintVerification());
+    ASSERT_NO_FATAL_FAILURE(ExpectUniqueFailure(*acc, {prop1}));
+  }
+}
+
+TEST_P(UniquePropertyTrackingTest, CompositeConstraintChecksOneChangedProperty) {
+  {
+    auto acc = DropConstraintAccessor();
+    ASSERT_EQ(acc->DropUniqueConstraint(label1, {prop1}), UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(acc->CreateUniqueConstraint(label1, {prop1, prop2}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  Gid candidate;
+  {
+    auto acc = storage->Access(WRITE);
+    auto a = acc->CreateVertex();
+    auto b = acc->CreateVertex();
+    ASSERT_NO_ERROR(a.AddLabel(label1));
+    ASSERT_NO_ERROR(b.AddLabel(label1));
+    ASSERT_NO_ERROR(a.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(a.SetProperty(prop2, PropertyValue(7)));
+    ASSERT_NO_ERROR(b.SetProperty(prop2, PropertyValue(7)));
+    candidate = b.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  for (int method : {0, 2}) {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(candidate, View::NEW);
+    ASSERT_TRUE(vertex);
+    ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop1, PropertyValue(1), method));
+    EXPECT_EQ(acc->GetTransaction()->constraint_verification_info->GetVerticesForUniqueConstraintChecking().size(), 1);
+    ASSERT_NO_FATAL_FAILURE(ExpectUniqueFailure(*acc, {prop1, prop2}));
+  }
+}
+
+TEST_P(UniquePropertyTrackingTest, NullAndClearThenRestoreStillVerify) {
+  Seed(PropertyValue(1));
+  auto gid = Seed(PropertyValue(2));
+  for (int method = 0; method != 3; ++method) {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::NEW);
+    ASSERT_TRUE(vertex);
+    if (method == 0) {
+      ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue()));
+    } else {
+      ASSERT_NO_ERROR(vertex->ClearProperties());
+    }
+    auto &info = acc->GetTransaction()->constraint_verification_info;
+    EXPECT_FALSE(info->NeedsUniqueConstraintVerification());
+    EXPECT_TRUE(info->NeedsExistenceConstraintVerification());
+    ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop1, PropertyValue(1), method));
+    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(99)));
+    EXPECT_TRUE(info->NeedsUniqueConstraintVerification());
+    ASSERT_NO_FATAL_FAILURE(ExpectUniqueFailure(*acc, {prop1}));
+  }
+}
+
+TEST_P(UniquePropertyTrackingTest, CreatedVerticesAndAbortKeepConstraintEntriesCorrect) {
+  Seed(PropertyValue(1));
+  for (int method = 0; method != 3; ++method) {
+    {
+      auto acc = storage->Access(WRITE);
+      auto vertex = acc->CreateVertex();
+      ASSERT_NO_FATAL_FAILURE(Write(vertex, prop1, PropertyValue(1), method));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
+      ASSERT_NO_FATAL_FAILURE(ExpectUniqueFailure(*acc, {prop1}));
+    }
+    {
+      auto acc = storage->Access(WRITE);
+      auto vertex = acc->CreateVertex();
+      ASSERT_NO_FATAL_FAILURE(Write(vertex, prop1, PropertyValue(100 + method), method));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
+      acc->Abort();
+    }
+    auto gid = Seed(PropertyValue(100 + method));
+    {
+      auto acc = storage->Access(WRITE);
+      auto vertex = acc->FindVertex(gid, View::NEW);
+      ASSERT_TRUE(vertex);
+      ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(99)));
+      EXPECT_FALSE(acc->GetTransaction()->constraint_verification_info->NeedsUniqueConstraintVerification());
+      acc->Abort();
+    }
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(100 + method)));
+    ASSERT_NO_FATAL_FAILURE(ExpectUniqueFailure(*acc, {prop1}));
+  }
+}
+
+TEST_P(UniquePropertyTrackingTest, IdenticalConstrainedWritesKeepExistingFlagSemantics) {
+  auto gid = Seed(PropertyValue(7));
+  for (int method : {0, 2}) {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::NEW);
+    ASSERT_TRUE(vertex);
+    ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop1, PropertyValue(7), method));
+    // UpdateProperties currently uses the opposite flag polarity to SetProperty.
+    EXPECT_EQ(acc->GetTransaction()->constraint_verification_info->NeedsUniqueConstraintVerification(),
+              method == 0 ? GetParam() : !GetParam());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TEST_P(UniquePropertyTrackingTest, SkippedWritesPreserveEntriesAcrossAbortAndGc) {
+  auto gid = Seed(PropertyValue(7));
+  for (bool commit : {false, true}) {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::NEW);
+    ASSERT_TRUE(vertex);
+    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(99)));
+    EXPECT_FALSE(acc->GetTransaction()->constraint_verification_info->NeedsUniqueConstraintVerification());
+    if (commit) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+  // No active transaction remains; an old entry still representing the current
+  // constrained tuple must survive the obsolete-entry sweep.
+  storage->FreeMemory();
+  auto acc = storage->Access(WRITE);
+  auto vertex = acc->CreateVertex();
+  ASSERT_NO_ERROR(vertex.AddLabel(label1));
+  ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(7)));
+  ASSERT_NO_FATAL_FAILURE(ExpectUniqueFailure(*acc, {prop1}));
+}
+
+INSTANTIATE_TEST_SUITE_P(DeltaOnIdenticalUpdate, UniquePropertyTrackingTest, testing::Bool());
