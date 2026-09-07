@@ -1014,6 +1014,17 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
+  // Parameters are keyed by database uuid, so a uuid this handler retires takes its parameters with it.
+  // Enterprise-only because both events that retire one are: DROP DATABASE, and the in-place rebind
+  // Update performs on the default database.
+  if (dbms_handler.has_value()) {
+    dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
+      [[maybe_unused]] auto purged = parameters->DeleteScope(std::string{uuid});
+    });
+  }
+#endif
+
+#ifdef MG_ENTERPRISE
   // Hot/cold suspend/resume arms (multi-tenant). Wired unconditionally (not gated on recover_on_startup):
   //  - on_suspend_: before the freeze, stop the per-db stream consumers (each pins the tenant HOT via a
   //    captured DatabaseAccess), preserving their durable metadata so resume rebuilds them;

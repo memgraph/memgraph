@@ -225,8 +225,10 @@ class DbmsHandler {
       }
       spdlog::debug("Updated default db's UUID");
       // Default db cannot be deleted and remade, have to just update the UUID
+      auto const retired_uuid = storage->config_.salient.uuid;
       storage->config_.salient.uuid = config.uuid;
       metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
+      if (on_uuid_retired_) on_uuid_retired_(retired_uuid);
       UpdateDurability(storage->config_, ".");
       return db;
     }
@@ -376,6 +378,14 @@ class DbmsHandler {
    *        running/stopped state. Triggers are NOT restored here (suspend never stops them). Default empty.
    */
   void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
+
+  /**
+   * @brief Set the arm that discards a database's server-side parameters. Those are keyed by database
+   *        uuid in a store this handler does not own, so every event that retires a uuid must announce
+   *        it or the rows outlive the database, unreachable and durable. Fired by DROP DATABASE (HOT and
+   *        COLD) and by the in-place rebind Update performs on the default database. Default empty.
+   */
+  void SetOnUuidRetired(std::function<void(utils::UUID const &)> cb) { on_uuid_retired_ = std::move(cb); }
 
   /**
    * @brief Resume (move COLD -> HOT) the named tenant, recovering its in-memory storage inline.
@@ -1101,7 +1111,8 @@ class DbmsHandler {
   std::function<void(DatabaseAccess)> on_resume_;    //!< pre-publish resume arm (triggers/streams/TTL); empty default
   std::function<void(DatabaseAccess)> on_suspend_;   //!< pre-teardown suspend arm (stop streams); empty default
   std::function<void(DatabaseAccess)>
-      restore_streams_;                      //!< streams-only restore (undo a stopped suspend); empty default
+      restore_streams_;  //!< streams-only restore (undo a stopped suspend); empty default
+  std::function<void(utils::UUID const &)> on_uuid_retired_;  //!< discards a retired uuid's parameters; empty default
   ResumeRetryPolicy resume_retry_policy_{};  //!< Resume_ retry/timeout knobs; test-overridable, production defaults
 #endif
 #ifndef MG_ENTERPRISE
