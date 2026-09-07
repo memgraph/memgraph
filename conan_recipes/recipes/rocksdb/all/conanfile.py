@@ -68,7 +68,7 @@ class RocksDBConan(ConanFile):
             self.options.use_rtti = True  # Rtti are used in asserts for debug mode...
         # liburing is a Linux-only kernel io_uring wrapper; upstream auto-detects
         # it on Linux and leaves it undefined elsewhere.
-        if self.settings.os not in ["Linux", "FreeBSD"]:
+        if self.settings.os != "Linux":
             del self.options.with_liburing
 
     def configure(self):

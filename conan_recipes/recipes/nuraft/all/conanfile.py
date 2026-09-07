@@ -2,7 +2,7 @@ from conan import ConanFile
 from conan.errors import ConanInvalidConfiguration
 from conan.tools.build import check_min_cppstd
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, patch, rm, rmdir, trim_conandata
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, patch, replace_in_file, rm, rmdir, trim_conandata
 from conan.tools.scm import Version
 import os
 
@@ -86,8 +86,26 @@ class NuRaftConan(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
 
-    def build(self):
+    def _patch_sources(self):
         apply_conandata_patches(self)
+        if self.settings.os == "FreeBSD":
+            # FreeBSD supports __attribute__((unused)) like Linux/macOS
+            replace_in_file(self, os.path.join(self.source_folder, "include", "libnuraft", "attr_unused.hxx"),
+                            "#if defined(__linux__) || defined(__APPLE__)",
+                            "#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)")
+            # libc++ doesn't transitively include <cstddef> - crc32.hxx uses
+            # size_t without the proper include.  Also add FreeBSD to the
+            # unistd.h guard.
+            crc32_hxx = os.path.join(self.source_folder, "src", "crc32.hxx")
+            replace_in_file(self, crc32_hxx,
+                            "#include <stdint.h>",
+                            "#include <stdint.h>\n#include <stddef.h>")
+            replace_in_file(self, crc32_hxx,
+                            '#if defined(__linux__) || defined(__APPLE__)',
+                            '#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)')
+
+    def build(self):
+        self._patch_sources()
         if Version(self.version) < 3:
             if self.options.asio == "standalone":
                 self.run("bash prepare.sh", cwd=self.source_folder)

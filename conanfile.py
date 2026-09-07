@@ -118,7 +118,9 @@ class Memgraph(ConanFile):
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.14.2")
         self.requires("librdtsc/0.3-memgraph")
-        self.requires("libseccomp/2.6.0", options={"shared": True})
+        if self.settings.os == "Linux":
+            # seccomp is a Linux kernel interface; gated in code by MG_HAS_SECCOMP
+            self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.8.0")
         self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
@@ -161,9 +163,8 @@ class Memgraph(ConanFile):
 
     def validate(self):
         """Validate configuration before generation"""
-        # Memgraph only supports Linux
-        if self.settings.os != "Linux":
-            raise ConanInvalidConfiguration("Memgraph only supports Linux")
+        if self.settings.os not in ("Linux", "FreeBSD"):
+            raise ConanInvalidConfiguration(f"Unsupported OS: {self.settings.os}. Only Linux and FreeBSD are supported.")
 
         user_toolchain = self.conf.get("tools.cmake.cmaketoolchain:user_toolchain")
         if user_toolchain:
