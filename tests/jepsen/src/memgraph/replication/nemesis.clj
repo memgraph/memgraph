@@ -28,7 +28,7 @@
   "Construct nemesis generator."
   []
   (gen/phases
-   (gen/sleep 5)
+   (gen/sleep 15)
    (cycle [(gen/sleep 5)
            {:type :info, :f :kill-node}
            (gen/sleep 5)
