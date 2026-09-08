@@ -31,6 +31,8 @@ class DiskEdgeTypePropertyIndex : public EdgeTypePropertyIndex {
 
     bool IndexReady(EdgeTypeId edge_type, PropertyId property) const override;
 
+    bool IndexExists(EdgeTypeId edge_type, PropertyId property) const override;
+
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;

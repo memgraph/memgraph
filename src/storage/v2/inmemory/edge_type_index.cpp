@@ -164,14 +164,13 @@ auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipListD
   return {};
 }
 
-bool InMemoryEdgeTypeIndex::InstallIndividualIndex_(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> entry,
-                                                    ActiveIndicesUpdater const &updater, bool register_in_all_indices) {
+bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) {
   return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     if (indices_container->indices_.find(edge_type) != indices_container->indices_.cend()) return false;
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
-    auto [new_it, _] = new_container->indices_.emplace(edge_type, std::move(entry));
+    auto [new_it, _] = new_container->indices_.emplace(edge_type, std::make_shared<IndividualIndex>());
 
-    if (register_in_all_indices) {
+    {
       const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
       all_indices_.WithLock([&](auto &all_indices) {
@@ -185,13 +184,6 @@ bool InMemoryEdgeTypeIndex::InstallIndividualIndex_(EdgeTypeId edge_type, std::s
     updater(std::make_shared<ActiveIndices>(indices_container));
     return true;
   });
-}
-
-bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) {
-  return InstallIndividualIndex_(edge_type,
-                                 std::make_shared<IndividualIndex>(),
-                                 updater,
-                                 /*register_in_all_indices=*/true);
 }
 
 bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp) {
@@ -218,20 +210,12 @@ auto InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater
 
         auto new_container = std::make_shared<IndicesContainer>(*indices_container);
         new_container->indices_.erase(edge_type);
-        indices_container = new_container;
-        updater(std::make_shared<ActiveIndices>(indices_container));
+        updater(std::make_shared<ActiveIndices>(new_container));
+        indices_container = std::move(new_container);
         return evicted_entry;
       });
   CleanupAllIndices();
   return evicted;
-}
-
-void InMemoryEdgeTypeIndex::RestoreIndex(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> evicted,
-                                         ActiveIndicesUpdater const &updater) {
-  if (!evicted) return;
-  // register_in_all_indices=false: captured shared_ptr already kept the entry alive
-  // through CleanupAllIndices; re-appending would create an unreapable duplicate.
-  (void)InstallIndividualIndex_(edge_type, std::move(evicted), updater, /*register_in_all_indices=*/false);
 }
 
 bool InMemoryEdgeTypeIndex::ActiveIndices::IndexReady(memgraph::storage::EdgeTypeId edge_type) const {
@@ -241,7 +225,7 @@ bool InMemoryEdgeTypeIndex::ActiveIndices::IndexReady(memgraph::storage::EdgeTyp
   return it->second->status_.IsReady();
 }
 
-bool InMemoryEdgeTypeIndex::ActiveIndices::IndexRegistered(EdgeTypeId edge_type) const {
+bool InMemoryEdgeTypeIndex::ActiveIndices::IndexExists(EdgeTypeId edge_type) const {
   return index_container_->indices_.contains(edge_type);
 }
 

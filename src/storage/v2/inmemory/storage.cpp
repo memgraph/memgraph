@@ -1108,6 +1108,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // Replica can log only the write transaction received from main
   // so the wal files are consistent
   auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
+  // Asserted where the two are derived, so that separating them fails here rather than at whichever
+  // comparison notices first.
+  DMG_ASSERT(!commit_args.replication_allowed() || durability_commit_timestamp == *commit_timestamp_,
+             "on a main the durable commit timestamp must be the local one");
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
@@ -1208,7 +1212,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
         SchemaUpdateData(std::move(transaction_.schema_diff_),
                          std::move(transaction_.post_process_),
                          transaction_.start_timestamp,
-                         durability_commit_timestamp,
+                         *commit_timestamp_,
                          mem_storage->config_.salient.items.properties_on_edges));
   }
 
@@ -1286,9 +1290,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   // Mark transaction as finished for commit ordering and MVCC visibility.
-  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers
-  // to vertices. GC protects these by using last_processed_commit_ts_ as a safety horizon
-  // (see CollectGarbage implementation).
+  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
+  // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
+  // requires that nothing at or above that boundary is unlinked while it waits.
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
 
   if (config_.enable_schema_info) {
@@ -1838,7 +1842,7 @@ void InMemoryStorage::ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts) {
 
   for (auto &update : to_process) {
     schema_info_.ProcessTransaction(
-        update.schema_diff, update.post_process, update.start_ts, update.commit_ts, update.property_on_edges);
+        update.schema_diff, update.post_process, update.start_ts, update.local_commit_ts, update.property_on_edges);
   }
 }
 
@@ -2061,28 +2065,57 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   return {};
 }
 
-std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
+namespace {
+
+/// Sequences an index drop. Two things about the order carry the correctness.
+///
+/// Existence is settled here and never asked again, because the caller writes its log records
+/// against this answer. Re-asking the catalogue from the commit callback would let an index created
+/// in between be evicted with no record, and recovery would bring back a dropped index.
+///
+/// Evicting and publishing stay in the one call that does both under the catalogue lock, and it
+/// waits for the commit. Evicting earlier leaves the catalogue without an entry that any other
+/// publisher then hands out, and a writer admitted after that maintains nothing for the index, so
+/// an abort restores it short of that writer's rows.
+///
+/// The commit runs the callback after clearing the abort list, so nothing is left to undo an
+/// eviction that got halfway. Every DropIndex implementation therefore allocates everything it
+/// needs before it writes anything, and an allocation that throws leaves the catalogue, the
+/// published indices and the statistics all as they were. Publishing before the catalogue entry
+/// goes is not observable: a transaction reads the published indices only when it begins, and the
+/// committing transaction holds engine_lock_ across the callback, while the catalogue is read
+/// under the lock the callback itself holds.
+///
+/// Answers whether the index was there. That settles whether an eviction is scheduled, and it is
+/// what the caller weighs its AbsentIndex against. Callers record their own metadata deltas, which
+/// is what differs between kinds.
+template <typename TIndex, typename... TArgs>
+[[nodiscard]] bool DropIndexOnCommit(Transaction &transaction, PlanInvalidator &invalidator, TIndex *index,
+                                     ActiveIndicesUpdater const &updater, TArgs... args) {
+  if (!index->GetActiveIndices()->IndexExists(args...)) {
+    return false;
+  }
+  auto publisher = invalidator.invalidate_for_timestamp_wrapper([index, updater, args...](uint64_t /*commit_ts*/) {
+    return static_cast<bool>(index->DropIndex(args..., updater));
+  });
+  transaction.commit_callbacks_.Add(std::move(publisher));
+  return true;
+}
+
+}  // namespace
+
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping label index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  // Capture the evicted entry so an aborted DROP (e.g. STRICT_SYNC commit failure)
-  // can re-install it instead of leaving the index permanently gone on main.
-  std::shared_ptr<InMemoryLabelIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_label_index->DropIndex(label, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present = DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_label_index, updater, label);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_label_index, label, updater, evicted]() mutable {
-    mem_label_index->RestoreIndex(label, std::move(evicted), updater);
-  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -2090,7 +2123,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order,
+    AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping label-property index requires a unique, read-only or read access to the storage!");
@@ -2099,31 +2133,24 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
 
-  LabelPropertyIndex::DropResult drop_result;
-  std::optional<InMemoryLabelPropertyIndex::AscIndexPtrVariant> asc_evicted;
-  std::optional<InMemoryLabelPropertyIndex::DescIndexPtrVariant> desc_evicted;
-  std::optional<InMemoryLabelPropertyIndex::PropertiesIndicesStats> stats_evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    auto captured = mem_label_property_index->DropIndex(label, properties, updater, order);
-    drop_result = captured.result;
-    asc_evicted = std::move(captured.asc_evicted);
-    desc_evicted = std::move(captured.desc_evicted);
-    stats_evicted = std::move(captured.stats_evicted);
-    return static_cast<bool>(drop_result);
-  });
+  // Spelled out rather than going through DropIndexOnCommit, whose comment gives the sequence and
+  // its reasons, because this statement settles which ORDERS it will evict and emits a record per
+  // order. Settling them here is the same requirement that function states about existence.
+  auto const drop_result = mem_label_property_index->OrdersPresent(label, properties, order);
   if (!drop_result) {
-    return std::unexpected{IndexDefinitionError{}};
+    if (absent == AbsentIndex::kFails) {
+      return std::unexpected{IndexDefinitionError{}};
+    }
+    // There is nothing to evict, and the record still has to be written. A caller that records an
+    // absent index replays one record at a time, so `order` is the one order this record covers.
+    MG_ASSERT(order, "A recorded drop of an absent index has to name the order it drops");
+    transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties), *order);
+    return {};
   }
-  transaction_.abort_callbacks_.Add(
-      [mem_label_property_index, label, properties, updater, asc_evicted, desc_evicted, stats_evicted]() mutable {
-        mem_label_property_index->RestoreIndex(label,
-                                               std::move(properties),
-                                               std::move(asc_evicted),
-                                               std::move(desc_evicted),
-                                               std::move(stats_evicted),
-                                               updater);
-      });
-
+  auto const settled_order = [&]() -> std::optional<IndexOrder> {
+    if (drop_result.dropped_asc && drop_result.dropped_desc) return std::nullopt;
+    return drop_result.dropped_asc ? IndexOrder::ASC : IndexOrder::DESC;
+  }();
   if (drop_result.dropped_asc) {
     transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
                                         label,
@@ -2136,36 +2163,38 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
                                         std::vector<storage::PropertyPath>(properties),
                                         IndexOrder::DESC);
   }
+
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_label_property_index, label, properties = std::move(properties), updater, settled_order](
+          uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_label_property_index->DropIndex(label, properties, updater, settled_order));
+      });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
   // We don't care if there is a replication error because on main node the change will go through
 
   return {};
 }
 
-std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type) {
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping edge-type index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  std::shared_ptr<InMemoryEdgeTypeIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_type_index->DropIndex(edge_type, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_edge_type_index, updater, edge_type);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_type_index, edge_type, updater, evicted]() mutable {
-    mem_edge_type_index->RestoreIndex(edge_type, std::move(evicted), updater);
-  });
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
-                                                                                              PropertyId property) {
+                                                                                              PropertyId property,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping edge-type property index requires a unique, read-only or read access to the storage!");
@@ -2177,24 +2206,17 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  std::shared_ptr<InMemoryEdgeTypePropertyIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_type_property_index->DropIndex(edge_type, property, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present = DropIndexOnCommit(
+      transaction_, *storage_->invalidator_, mem_edge_type_property_index, updater, edge_type, property);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_type_property_index, edge_type, property, updater, evicted]() mutable {
-    mem_edge_type_property_index->RestoreIndex(edge_type, property, std::move(evicted), updater);
-  });
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
-    PropertyId property) {
+    PropertyId property, AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping global edge property index requires unique, read-only or read access to the storage!");
@@ -2207,41 +2229,29 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  std::shared_ptr<InMemoryEdgePropertyIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_property_index->DropIndex(property, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_edge_property_index, updater, property);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_property_index, property, updater, evicted]() mutable {
-    mem_edge_property_index->RestoreIndex(property, std::move(evicted), updater);
-  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalVertexIndex(
-    PropertyId property) {
+    PropertyId property, AbsentIndex absent) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping global vertex property index requires unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_vertex_property_index =
       static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  std::shared_ptr<InMemoryVertexPropertyIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_vertex_property_index->DropIndex(property, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_vertex_property_index, updater, property);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_vertex_property_index, property, updater, evicted]() mutable {
-    mem_vertex_property_index->RestoreIndex(property, std::move(evicted), updater);
-  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_drop, property);
   return {};

@@ -228,6 +228,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
     bool IndexReady(EdgeTypeId edge_type, PropertyId property) const override;
 
+    bool IndexExists(EdgeTypeId edge_type, PropertyId property) const override;
+
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     Iterable Edges(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
@@ -259,12 +261,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                           ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
-  /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
-  /// the entry alive in all_indices_, so RestoreIndex must not re-append there.
   [[nodiscard]] auto DropIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater)
       -> std::shared_ptr<IndividualIndex>;
-  void RestoreIndex(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> evicted,
-                    ActiveIndicesUpdater const &updater);
 
   /// Sweeps only the indexes whose property `arming` names, and returns how many that was.
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
@@ -286,11 +284,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
  private:
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(EdgeTypeId edge_type, PropertyId property) const -> std::shared_ptr<IndividualIndex>;
-
-  // Atomic install into index_ + (optional) all_indices_. Returns false if the slot
-  // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
-  bool InstallIndividualIndex_(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> entry,
-                               ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
   metrics::GaugeHandle gauge_{};
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{

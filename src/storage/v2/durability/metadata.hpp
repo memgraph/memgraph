@@ -97,6 +97,25 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const cha
   }
 }
 
+// Removes an index that a replayed drop refers to, tolerating its absence.
+//
+// The log can legitimately hold two drops of one index: a drop settles that the index exists when
+// its statement runs and evicts when it commits, so two transactions can both record one. Older
+// snapshots reach the same place from the other side, recording the index as gone under a durable
+// timestamp below the drop's.
+//
+// Applying a drop to something already absent is idempotent, so tolerating it hides no corruption.
+// It does give up a canary for an index that vanished for another reason, which is why the strict
+// RemoveRecoveredIndexConstraint stays in use everywhere else.
+template <typename TObj>
+void RemoveRecoveredIndexIfPresent(std::vector<TObj> *list, TObj obj) {
+  auto it = std::find(list->begin(), list->end(), obj);
+  if (it != list->end()) {
+    std::swap(*it, list->back());
+    list->pop_back();
+  }
+}
+
 // Helper function used to remove indices stats from the recovered
 // indices/constraints object.
 // @note multiple stats can be pushed one after the other; when removing, remove from the back

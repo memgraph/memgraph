@@ -2257,7 +2257,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(LabelId label,
+                                                                                      AbsentIndex /*absent*/) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -2277,7 +2278,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 }
 
 std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order,
+    AbsentIndex /*absent*/) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2310,19 +2312,21 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
   return {};
 }
 
-std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/) {
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
+                                                                                      AbsentIndex /*absent*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
-                                                                                      PropertyId /*property*/) {
+                                                                                      PropertyId /*property*/,
+                                                                                      AbsentIndex /*absent*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropGlobalEdgeIndex(
-    PropertyId /*property*/) {
+    PropertyId /*property*/, AbsentIndex /*absent*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }

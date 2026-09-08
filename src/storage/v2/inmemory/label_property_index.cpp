@@ -878,97 +878,41 @@ void InMemoryLabelPropertyIndex::CleanupStatsForDrop(IndexContainer const &new_i
   }
 }
 
+auto InMemoryLabelPropertyIndex::OrdersPresent(LabelId label, std::vector<PropertyPath> const &properties,
+                                               std::optional<IndexOrder> order) const -> DropResult {
+  return index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &index) -> DropResult {
+    bool const try_asc = !order || *order == IndexOrder::ASC;
+    bool const try_desc = !order || *order == IndexOrder::DESC;
+    auto const present = [&](auto const &per_label) {
+      auto const lit = per_label.find(label);
+      return lit != per_label.end() && lit->second.find(properties) != lit->second.end();
+    };
+    return {.dropped_asc = try_asc && present(index->asc_indices_),
+            .dropped_desc = try_desc && present(index->desc_indices_)};
+  });
+}
+
 auto InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                                            ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order)
-    -> DropCapture {
-  std::optional<AscIndexPtrVariant> asc_evicted;
-  std::optional<DescIndexPtrVariant> desc_evicted;
-  std::optional<PropertiesIndicesStats> stats_evicted;
+    -> DropResult {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> DropResult {
     bool const try_asc = !order || *order == IndexOrder::ASC;
     bool const try_desc = !order || *order == IndexOrder::DESC;
-
-    // Capture the per-key shared_ptrs *before* the drop. They survive
-    // CleanupAllIndices via the captured ref and let us re-insert just our keys
-    // on abort without clobbering concurrent drops/creates of other keys.
-    if (try_asc) {
-      if (auto lit = index->asc_indices_.find(label); lit != index->asc_indices_.end()) {
-        if (auto pit = lit->second.find(properties); pit != lit->second.end()) asc_evicted = pit->second;
-      }
-    }
-    if (try_desc) {
-      if (auto lit = index->desc_indices_.find(label); lit != index->desc_indices_.end()) {
-        if (auto pit = lit->second.find(properties); pit != lit->second.end()) desc_evicted = pit->second;
-      }
-    }
 
     auto new_index = std::make_shared<IndexContainer>(*index);
     bool const dropped_asc =
         try_asc && DropFromOrder(new_index->asc_indices_, new_index->asc_reverse_lookup_, label, properties);
     bool const dropped_desc =
         try_desc && DropFromOrder(new_index->desc_indices_, new_index->desc_reverse_lookup_, label, properties);
-    if (!dropped_asc && !dropped_desc) {
-      asc_evicted.reset();
-      desc_evicted.reset();
-      return {};
-    }
-    if (!dropped_asc) asc_evicted.reset();
-    if (!dropped_desc) desc_evicted.reset();
+    if (!dropped_asc && !dropped_desc) return {};
 
-    // Capture the per-label stats slice before CleanupStatsForDrop erases it,
-    // so an aborted drop can re-emplace any keys it removed.
-    {
-      auto stats_ptr = stats_.Lock();
-      if (auto sit = stats_ptr->find(label); sit != stats_ptr->end()) {
-        stats_evicted = sit->second;
-      }
-    }
+    updater(std::make_shared<ActiveIndices>(new_index));
     CleanupStatsForDrop(*new_index, label, properties);
     index = std::move(new_index);
-    updater(std::make_shared<ActiveIndices>(index));
     return {.dropped_asc = dropped_asc, .dropped_desc = dropped_desc};
   });
   CleanupAllIndices();
-  return {.result = result,
-          .asc_evicted = std::move(asc_evicted),
-          .desc_evicted = std::move(desc_evicted),
-          .stats_evicted = std::move(stats_evicted)};
-}
-
-void InMemoryLabelPropertyIndex::RestoreIndex(LabelId label, std::vector<PropertyPath> properties,
-                                              std::optional<AscIndexPtrVariant> asc_evicted,
-                                              std::optional<DescIndexPtrVariant> desc_evicted,
-                                              std::optional<PropertiesIndicesStats> stats_evicted,
-                                              ActiveIndicesUpdater const &updater) {
-  if (!asc_evicted && !desc_evicted) return;
-  index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
-    auto already_present = [&](auto const &indices_map) -> bool {
-      auto lit = indices_map.find(label);
-      return lit != indices_map.end() && lit->second.contains(properties);
-    };
-    bool const skip_asc = !asc_evicted || already_present(index->asc_indices_);
-    bool const skip_desc = !desc_evicted || already_present(index->desc_indices_);
-    if (skip_asc && skip_desc) return;  // concurrent re-create won for both orders
-
-    // Two copies: first to mutate the per-order maps, second to rebuild the
-    // reverse_lookup (the IndexContainer copy ctor calls BuildReverseLookup).
-    IndexContainer mutated{*index};
-    if (!skip_asc) mutated.asc_indices_[label].emplace(properties, std::move(*asc_evicted));
-    if (!skip_desc) mutated.desc_indices_[label].emplace(properties, std::move(*desc_evicted));
-    auto new_index = std::make_shared<IndexContainer>(std::move(mutated));
-    index = std::move(new_index);
-    updater(std::make_shared<ActiveIndices>(index));
-  });
-
-  // Re-emplace any stats keys that were erased on drop, leaving any concurrent
-  // SetIndexStats writes to other keys untouched (emplace is a no-op on conflict).
-  if (stats_evicted) {
-    auto stats_ptr = stats_.Lock();
-    auto &dst = (*stats_ptr)[label];
-    for (auto const &[key, value] : *stats_evicted) {
-      dst.emplace(key, value);
-    }
-  }
+  return result;
 }
 
 bool InMemoryLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label,

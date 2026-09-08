@@ -372,19 +372,25 @@ class DiskStorage final : public Storage {
       return std::unexpected{IndexDefinitionError{}};
     }
 
-    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                               AbsentIndex absent = AbsentIndex::kFails) override;
 
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
                                                                std::vector<storage::PropertyPath> &&properties,
-                                                               std::optional<IndexOrder> order = std::nullopt) override;
+                                                               std::optional<IndexOrder> order = std::nullopt,
+                                                               AbsentIndex absent = AbsentIndex::kFails) override;
 
-    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type,
+                                                               AbsentIndex absent = AbsentIndex::kFails) override;
 
-    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property,
+                                                               AbsentIndex absent = AbsentIndex::kFails) override;
 
-    std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(
+        PropertyId property, AbsentIndex absent = AbsentIndex::kFails) override;
 
-    std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId /*property*/) override {
+    std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(
+        PropertyId /*property*/, AbsentIndex /*absent*/ = AbsentIndex::kFails) override {
       return std::unexpected{IndexDefinitionError{}};
     }
 

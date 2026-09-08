@@ -276,6 +276,16 @@ using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 
 class Accessor;
 
+/// What a drop does when the index it names is not there.
+///
+/// A statement reports it, because the user asked to drop something that does not exist. A replica
+/// applies what its main durably decided instead, and the durable order can hold two drops of one
+/// index, so the second one arrives against an index the first already evicted. Recording that drop
+/// anyway keeps the transaction non-empty, and an empty one carries no commit timestamp, so the
+/// replica would stop acknowledging its main. It also leaves the replica's own log holding the same
+/// records its main's does, which is what its recovery and any cascading replica replay.
+enum class AbsentIndex : uint8_t { kFails, kIsRecorded };
+
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
@@ -890,19 +900,25 @@ class Accessor {
     return CreateGlobalVertexIndex(property, neverCancel);
   }
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(
-      LabelId label, std::vector<storage::PropertyPath> &&properties,
-      std::optional<IndexOrder> order = std::nullopt) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                                     std::vector<storage::PropertyPath> &&properties,
+                                                                     std::optional<IndexOrder> order = std::nullopt,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(
+      PropertyId property, AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId property) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(
+      PropertyId property, AbsentIndex absent = AbsentIndex::kFails) = 0;
 
   virtual std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(
       storage::LabelId label, storage::PropertyId property, ProgressCallback const &on_progress) = 0;

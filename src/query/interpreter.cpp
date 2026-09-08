@@ -10510,9 +10510,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
       accessor_type_ = (index_query.action_ == IndexQuery::Action::CREATE) ? READ_ONLY : READ;
     } else if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
       // Read-only either way, so reads run alongside: creation needs writers out for the whole
-      // population (see DowngradeToReadIfValid), and a drop takes effect at once but is undone by
-      // restoring the index exactly as captured, so a writer admitted before the commit would leave
-      // the restored index missing whatever it wrote.
+      // population (see DowngradeToReadIfValid), and a drop is held to the same access.
       accessor_type_ = READ_ONLY;
     } else {
       // ON_DISK_TRANSACTIONAL requires unique access

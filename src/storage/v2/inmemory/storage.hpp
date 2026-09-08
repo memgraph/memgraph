@@ -545,36 +545,42 @@ class InMemoryStorage final : public Storage {
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `IndexDefinitionError`: the index does not exist.
-    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
+    /// * `IndexDefinitionError`: the index does not exist and `absent` is AbsentIndex::kFails.
+    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                               AbsentIndex absent = AbsentIndex::kFails) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `IndexDefinitionError`: the index does not exist.
+    /// * `IndexDefinitionError`: the index does not exist and `absent` is AbsentIndex::kFails.
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
                                                                std::vector<storage::PropertyPath> &&properties,
-                                                               std::optional<IndexOrder> order = std::nullopt) override;
+                                                               std::optional<IndexOrder> order = std::nullopt,
+                                                               AbsentIndex absent = AbsentIndex::kFails) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `IndexDefinitionError`: the index does not exist.
-    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) override;
+    /// * `IndexDefinitionError`: the index does not exist and `absent` is AbsentIndex::kFails.
+    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type,
+                                                               AbsentIndex absent = AbsentIndex::kFails) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `IndexDefinitionError`: the index does not exist.
-    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+    /// * `IndexDefinitionError`: the index does not exist and `absent` is AbsentIndex::kFails.
+    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property,
+                                                               AbsentIndex absent = AbsentIndex::kFails) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `IndexDefinitionError`: the index does not exist.
-    std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
+    /// * `IndexDefinitionError`: the index does not exist and `absent` is AbsentIndex::kFails.
+    std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(
+        PropertyId property, AbsentIndex absent = AbsentIndex::kFails) override;
 
-    std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(
+        PropertyId property, AbsentIndex absent = AbsentIndex::kFails) override;
 
     std::expected<void, StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
                                                                       storage::PropertyId property,
@@ -1149,18 +1155,22 @@ class InMemoryStorage final : public Storage {
     LocalSchemaTracking schema_diff;
     SchemaInfoPostProcess post_process;
     uint64_t start_ts;
-    uint64_t commit_ts;
+    // The local mint, which is what identifies this transaction's own deltas. Not the durable
+    // timestamp, for the reason GetState gives.
+    uint64_t local_commit_ts;
     bool property_on_edges;
 
-    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t commit,
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t local_commit,
                      bool prop_on_edges)
         : schema_diff(std::move(diff)),
           post_process(std::move(post_proc)),
           start_ts(start),
-          commit_ts(commit),
+          local_commit_ts(local_commit),
           property_on_edges(prop_on_edges) {}
   };
 
+  // Keyed on the durable commit timestamp, which orders the queue on a replica as well, since a
+  // replica applies transactions in its main's order.
   std::map<uint64_t, SchemaUpdateData, std::less<uint64_t>,
            memory::DbAwareAllocator<std::pair<const uint64_t, SchemaUpdateData>>>
       pending_schema_updates_;

@@ -198,7 +198,7 @@ bool DiskLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &update
   return true;
 }
 
-bool DiskLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const { return index_.contains(label); }
+bool DiskLabelIndex::ActiveIndices::IndexExists(LabelId label) const { return index_.contains(label); }
 
 bool DiskLabelIndex::ActiveIndices::IndexReady(LabelId label) const { return index_.contains(label); }
 

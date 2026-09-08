@@ -46,6 +46,7 @@
 #include "tests/unit/storage_test_utils.hpp"
 #include "utils/exceptions.hpp"
 
+using testing::IsEmpty;
 using testing::UnorderedElementsAre;
 
 using memgraph::io::network::Endpoint;
@@ -1957,6 +1958,181 @@ TEST_F(ReplicationTest, SchemaReplication) {
   main.emplace(conf);  // Important to have a snapshot to recover from
   start_replica();
   EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+}
+
+// Schema info is reconstructed after a transaction commits, and the reconstruction has to tell the
+// transaction's own deltas apart from another transaction's. It compares the timestamp it was
+// queued under against the one each delta carries, which is the local mint. A main mints the
+// timestamp it makes durable, so the two agree there; a replica is handed its main's and mints its
+// own, so they do not, and the replica reads its own writes as another transaction's.
+//
+// This asserts that a replica reconstructs its main's schema across a transaction that writes both
+// endpoints of one edge, with the replica's counter moved off the main's first so the comparison is
+// made on numbers that differ. It does not fail if the queue is changed back to passing the durable
+// timestamp: the reconstruction then runs the four-way edge reconciliation instead of skipping it,
+// and with both endpoints in the same state that reconciliation adds and subtracts the same two
+// shape buckets and nets to zero. Only endpoints in differing states part the two, and a replica
+// does not reach that, applying transactions one at a time and draining the queue at each commit.
+TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
+  memgraph::storage::Config conf{
+      .durability =
+          {
+              .root_data_directory = storage_directory,
+              .recover_on_startup = false,
+              .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+              .snapshot_retention_count = 1,
+              .restore_replication_state_on_startup = true,
+          },
+      .salient.items =
+          {
+              .properties_on_edges = true,
+              .enable_schema_info = true,
+          },
+      .register_metrics = false,
+  };
+
+  auto repl_conf = conf;
+  UpdatePaths(conf, storage_directory);
+  std::optional<MinMemgraph> main(conf);
+
+  UpdatePaths(repl_conf, repl_storage_directory);
+  std::optional<MinMemgraph> replica(repl_conf);
+
+  replica->repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  const auto &reg = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
+
+  auto get_schema = [](auto &instance) {
+    return instance.db.storage()->schema_info_.ToJson(*instance.db.storage()->name_id_mapper_,
+                                                      instance.db.storage()->enum_store_);
+  };
+
+  // Only a transaction begun on the replica advances the replica's own timestamp counter, and a
+  // read is enough. Without this the two counters tick in lockstep, the replica's local mint equals
+  // the main's durable timestamp, and the reconstruction's identity check is never put on the
+  // differing stamps this test is about.
+  {
+    const memgraph::memory::DbArenaScope replica_scope{&replica->db.Arena()};
+    for (int i = 0; i != 3; ++i) {
+      auto read = replica->db.Access(memgraph::storage::READ);
+    }
+  }
+
+  std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main->db.Arena()};
+
+  auto l1 = main->db.storage()->NameToLabel("L1");
+  auto l2 = main->db.storage()->NameToLabel("L2");
+  auto e1 = main->db.storage()->NameToEdgeType("E1");
+
+  memgraph::storage::Gid v1_gid;
+  memgraph::storage::Gid v2_gid;
+
+  // Two vertices with an edge between them, all in one transaction.
+  {
+    auto acc = main->db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+  }
+
+  ASSERT_NE(main->db.storage()->timestamp_, replica->db.storage()->timestamp_)
+      << "the two counters have to differ for the transaction below to mint a local commit "
+         "timestamp that is not the main's durable one";
+
+  // Now label BOTH endpoints of that edge in a single transaction. This is the case where the
+  // reconstruction must recognise the deltas as its own.
+  {
+    auto acc = main->db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::NEW);
+    auto v2 = acc->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(v2->AddLabel(l2).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+  }
+
+  const auto main_schema = get_schema(*main);
+  const auto replica_schema = get_schema(*replica);
+
+  // The main's own answer is the reference, and is asserted first so a change that broke both sides
+  // in the same direction could not pass as agreement.
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],)"
+      R"("nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(main_schema, expected))
+      << "the main's own schema is already wrong, so this test is not measuring replication. Actual: "
+      << main_schema.dump(2);
+
+  EXPECT_TRUE(ConfrontJSON(replica_schema, main_schema))
+      << "the replica's schema diverged from the main's. Main: " << main_schema.dump(2)
+      << " Replica: " << replica_schema.dump(2);
+}
+
+// Two transactions can each settle a drop's existence check and commit, because a drop evicts when
+// it commits, so the stream carries two drops of one index. The second reaches a replica that has
+// already evicted it, and applying it has to leave the stream running rather than fail the delta.
+TEST_F(ReplicationTest, ConcurrentDropsOfOneIndexKeepTheStreamRunning) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  const auto &reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
+
+  std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main.db.Arena()};
+  auto const label = main.db.storage()->NameToLabel("L");
+
+  {
+    auto unique_acc = main.db.UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto first = main.db.Access(memgraph::storage::READ);
+    auto second = main.db.Access(memgraph::storage::READ);
+    ASSERT_TRUE(first->DropIndex(label).has_value());
+    ASSERT_TRUE(second->DropIndex(label).has_value());
+    ASSERT_TRUE(first->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(second->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // A refused delta stops the replica applying anything after it, so this vertex is what says the
+  // second drop was taken rather than merely leaving the index already gone.
+  memgraph::storage::Gid gid;
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value())
+        << "the main could not commit, which is what a replica that stopped acknowledging looks "
+           "like from here";
+  }
+
+  main_scope.reset();
+
+  {
+    const memgraph::memory::DbArenaScope replica_scope{&replica.db.Arena()};
+    auto racc = replica.db.Access(memgraph::storage::WRITE);
+    EXPECT_TRUE(racc->FindVertex(gid, View::OLD).has_value())
+        << "the replica stopped applying the stream, which is what refusing the second drop does";
+    EXPECT_THAT(racc->ListAllIndices().label, IsEmpty());
+  }
 }
 
 TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {

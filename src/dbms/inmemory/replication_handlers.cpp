@@ -1672,7 +1672,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalLabelIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label index on :{}", current_delta_idx, data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropIndex(storage->NameToLabel(data.label)))
+          if (!transaction->DropIndex(storage->NameToLabel(data.label), storage::AbsentIndex::kIsRecorded))
             throw utils::BasicException("Failed to drop label index on :{}.", data.label);
         },
         [&](WalLabelIndexStatsSet const &data) {
@@ -1716,7 +1716,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
 
-          if (!transaction->DropIndex(storage->NameToLabel(data.label), std::move(property_paths))) {
+          // A WAL written before the order was recorded means the only order there was, ASC.
+          if (!transaction->DropIndex(storage->NameToLabel(data.label),
+                                      std::move(property_paths),
+                                      data.order.value_or(storage::IndexOrder::ASC),
+                                      storage::AbsentIndex::kIsRecorded)) {
             throw utils::BasicException(
                 "Failed to drop label+property index on :{} ({}).", data.label, data.composite_property_paths);
           }
@@ -1749,7 +1753,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgeTypeIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop edge index on :{}", current_delta_idx, data.edge_type);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type))) {
+          if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type), storage::AbsentIndex::kIsRecorded)) {
             throw utils::BasicException("Failed to drop edge index on :{}.", data.edge_type);
           }
         },
@@ -1767,8 +1771,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgeTypePropertyIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
-                   .has_value()) {
+          if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type),
+                                      storage->NameToProperty(data.property),
+                                      storage::AbsentIndex::kIsRecorded)) {
             throw utils::BasicException(
                 "Failed to drop edge property index on :{}({}).", data.edge_type, data.property);
           }
@@ -1783,7 +1788,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgePropertyIndexDrop const &data) {
           spdlog::trace("       Drop global edge index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropGlobalEdgeIndex(storage->NameToProperty(data.property))) {
+          if (!transaction->DropGlobalEdgeIndex(storage->NameToProperty(data.property),
+                                                storage::AbsentIndex::kIsRecorded)) {
             throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
           }
         },
@@ -1797,7 +1803,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalVertexPropertyIndexDrop const &data) {
           spdlog::trace("       Drop global vertex property index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropGlobalVertexIndex(storage->NameToProperty(data.property))) {
+          if (!transaction->DropGlobalVertexIndex(storage->NameToProperty(data.property),
+                                                  storage::AbsentIndex::kIsRecorded)) {
             throw utils::BasicException("Failed to drop global vertex property index on ({}).", data.property);
           }
         },

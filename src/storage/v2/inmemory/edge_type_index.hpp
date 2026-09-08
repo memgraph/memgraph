@@ -202,7 +202,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
     bool IndexReady(EdgeTypeId edge_type) const override;
 
-    bool IndexRegistered(EdgeTypeId edge_type) const override;
+    bool IndexExists(EdgeTypeId edge_type) const override;
 
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> override;
 
@@ -240,12 +240,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
-  /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
-  /// the entry alive in all_indices_, so RestoreIndex must not re-append there.
   [[nodiscard]] auto DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater)
       -> std::shared_ptr<IndividualIndex>;
-  void RestoreIndex(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> evicted,
-                    ActiveIndicesUpdater const &updater);
 
   /// Sweeps nothing unless `arming` says an edge was created or removed, and returns how many
   /// indexes that was.
@@ -261,11 +257,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
  private:
   void CleanupAllIndices();
   auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
-
-  // Atomic install into index_ + (optional) all_indices_. Returns false if the slot
-  // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
-  bool InstallIndividualIndex_(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> entry,
-                               ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
   metrics::GaugeHandle gauge_{};
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
