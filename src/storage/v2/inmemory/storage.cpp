@@ -1212,7 +1212,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
         SchemaUpdateData(std::move(transaction_.schema_diff_),
                          std::move(transaction_.post_process_),
                          transaction_.start_timestamp,
-                         durability_commit_timestamp,
                          *commit_timestamp_,
                          mem_storage->config_.salient.items.properties_on_edges));
   }

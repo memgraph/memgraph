@@ -1149,24 +1149,22 @@ class InMemoryStorage final : public Storage {
     LocalSchemaTracking schema_diff;
     SchemaInfoPostProcess post_process;
     uint64_t start_ts;
-    // Orders the queue, on a replica as well, since a replica applies transactions in its main's
-    // order.
-    uint64_t commit_ts;
     // The local mint, which is what identifies this transaction's own deltas. Not the durable
     // timestamp, for the reason GetState gives.
     uint64_t local_commit_ts;
     bool property_on_edges;
 
-    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t commit,
-                     uint64_t local_commit, bool prop_on_edges)
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t local_commit,
+                     bool prop_on_edges)
         : schema_diff(std::move(diff)),
           post_process(std::move(post_proc)),
           start_ts(start),
-          commit_ts(commit),
           local_commit_ts(local_commit),
           property_on_edges(prop_on_edges) {}
   };
 
+  // Keyed on the durable commit timestamp, which orders the queue on a replica as well, since a
+  // replica applies transactions in its main's order.
   std::map<uint64_t, SchemaUpdateData, std::less<uint64_t>,
            memory::DbAwareAllocator<std::pair<const uint64_t, SchemaUpdateData>>>
       pending_schema_updates_;
