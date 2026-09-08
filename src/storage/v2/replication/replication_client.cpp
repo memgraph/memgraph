@@ -243,7 +243,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
   // EXPERIMENTAL (commit-lock-narrowing): under the flag, ldt advances at publish (fresh engine_lock_ hold
   // after post-mint release); hold commit_mutex_ first (committer: commit_mutex_ → engine_lock_).
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  std::optional<CommitLock> commit_serializer;
   if (static_cast<InMemoryStorage *>(main_storage)->config_.experimental_commit_lock_narrowing) {
     commit_serializer.emplace(static_cast<InMemoryStorage *>(main_storage)->commit_mutex_);
   }
@@ -892,7 +892,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
                 // EXPERIMENTAL (commit-lock-narrowing): committer holds commit_mutex_ (not engine_lock_) across
                 // the WAL window; acquire commit_mutex_ then engine_lock_ to serialize the WAL read and flush-toggle.
-                std::optional<std::unique_lock<std::mutex>> commit_serializer;
+                std::optional<CommitLock> commit_serializer;
                 if (main_mem_storage->config_.experimental_commit_lock_narrowing) {
                   commit_serializer.emplace(main_mem_storage->commit_mutex_);
                 }
@@ -986,7 +986,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   //
   // EXPERIMENTAL (commit-lock-narrowing): under the flag, ldt advances at publish (fresh engine_lock_ hold
   // after post-mint release); hold commit_mutex_ first (committer: commit_mutex_ → engine_lock_).
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  std::optional<CommitLock> commit_serializer;
   if (main_mem_storage->config_.experimental_commit_lock_narrowing) {
     commit_serializer.emplace(main_mem_storage->commit_mutex_);
   }

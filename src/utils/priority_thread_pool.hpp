@@ -58,6 +58,10 @@ class HotMask {
   // GetHotElement to avoid consuming a hot slot for a park-vs-continue decision.
   bool AnySet() const noexcept;
 
+  // Non-destructive count of idle workers (set bits across all group atomics).
+  // Uses relaxed loads — caller treats result as a soft pressure signal, not an exact snapshot.
+  uint16_t Count() const noexcept;
+
  private:
   static constexpr auto kGroupSize = sizeof(uint64_t) * 8;  // bits
   static constexpr auto kGroupMask = kGroupSize - 1;
@@ -181,6 +185,22 @@ class PriorityThreadPool {
   // admission re-posts carry productive=false so an admission storm cannot hold this gate open.
   bool HasPendingWork() const noexcept;
 
+  // Number of queued productive (non-admission-retry) tasks. Clamped to 0 for negative transients
+  // caused by the relaxed-decrement / relaxed-increment ordering gap during a fast pop.
+  uint64_t QueuedProductiveTasks() const noexcept {
+    const auto v = productive_pending_.load(std::memory_order_relaxed);
+    return v > 0 ? static_cast<uint64_t>(v) : 0;
+  }
+
+  // Number of currently idle workers (hot-mask set bits). Soft signal: caller must tolerate races.
+  uint16_t FreeWorkers() const noexcept { return hot_threads_.Count(); }
+
+  // Returns a pressure-scaled timed-wait budget for an admission that would otherwise block.
+  // No-pressure (free workers available, empty backlog) → kTryBudgetMax (long sleep is fine).
+  // High-pressure (backlog growing or workers scarce) → down to kTryBudgetMin.
+  // Call sites: would-block lock acquire paths (commit_mutex_, main_lock_). See AdmissionTryBudget().
+  std::chrono::microseconds AdmissionTryBudget() const noexcept;
+
   // PRECONDITION: must not be called while holding any Worker::mtx_.
   // The session continuation that calls this runs outside any worker lock.
   void ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline, WaitTag tag);
@@ -242,6 +262,11 @@ class PriorityThreadPool {
   };
 
  private:
+  // Pressure-to-budget range for AdmissionTryBudget(). Both values are provisional and must be
+  // re-validated against real workload profiles before hardening (perf-tunable).
+  static constexpr std::chrono::microseconds kTryBudgetMin{2};        // tightest budget under max pressure
+  static constexpr std::chrono::microseconds kTryBudgetMax{100'000};  // 100 ms: no-pressure long wait
+
   struct ParkedAdmission {
     TaskID id;
     mutable TaskSignature task;  // mutable: moved out of the deque even via const ref
