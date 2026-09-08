@@ -855,6 +855,7 @@ void Collections::Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_res
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::IndexOf(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
