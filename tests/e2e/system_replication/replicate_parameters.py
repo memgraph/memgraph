@@ -292,10 +292,6 @@ def test_parameters_set_before_registration_do_not_survive_recovery(connection, 
     # standalone must not survive the join. A parameter that did survive would stay reachable: an
     # unbound $placeholder resolves against the server-side parameters, so a name held only by the
     # replica would resolve there to a value present nowhere else in the cluster.
-    # 0/ Start all three with no replica setup_queries, so parameters can be set before registration.
-    # 1/ Set parameters on main and different ones on each replica while all are standalone.
-    # 2/ Make the replicas replicas, then register them, which triggers recovery.
-    # 3/ Assert each replica holds exactly main's parameters and the local-only ones are unreachable.
     instances = _instances_with_recovery(test_name)
     interactive_mg_runner.start_all(instances, keep_directories=False)
 
