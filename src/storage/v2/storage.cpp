@@ -39,7 +39,6 @@
 namespace memgraph::storage {
 class InMemoryStorage;
 
-namespace {
 [[noreturn]] void ThrowAccessTimeout(StorageAccessType rw_type) {
   switch (rw_type) {
     using enum StorageAccessType;
@@ -56,8 +55,6 @@ namespace {
       LOG_FATAL("NO_ACCESS names the absence of a hold; there is nothing to time out acquiring");
   }
 }
-
-}  // namespace
 
 utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
                                              std::optional<std::chrono::milliseconds> timeout) {
@@ -162,6 +159,20 @@ std::vector<EdgeTypeId> Storage::ListAllPossiblyPresentEdgeTypes() const { retur
 std::vector<LabelId> Storage::ListAllPossiblyPresentVertexLabels() const { return stored_node_labels_.vectorize(); }
 
 StorageMode Storage::Accessor::GetPinnedStorageMode() const noexcept { return transaction_.storage_mode; }
+
+// Out-of-line default: defined here (not in the header) because Accessor is only forward-declared at the
+// header declaration point, so instantiating unique_ptr<Accessor>'s destructor there is ill-formed.
+// Default (DiskStorage / no timed-wait backend): fall back to the one-probe variant.
+std::unique_ptr<Storage::Accessor> Storage::PendingAccess::TryAcquireFor(
+    std::optional<IsolationLevel> override_isolation_level, std::chrono::microseconds /*budget*/) {
+  return TryAcquire(override_isolation_level);
+}
+
+std::unique_ptr<Storage::Accessor> Storage::TryAccessFor(StorageAccessType rw_type,
+                                                         std::optional<IsolationLevel> override_isolation_level,
+                                                         std::chrono::microseconds /*budget*/) {
+  return TryAccess(rw_type, override_isolation_level);
+}
 
 std::optional<uint64_t> Storage::Accessor::GetStartTimestamp() const {
   if (is_transaction_active_) {

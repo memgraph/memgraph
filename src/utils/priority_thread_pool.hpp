@@ -12,8 +12,10 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -25,6 +27,7 @@
 #include "utils/scheduler.hpp"
 
 namespace memgraph::utils {
+
 // Thread-safe mask that returns the position of first set bit
 class HotMask {
  public:
@@ -51,6 +54,14 @@ class HotMask {
   // Returns the position of the first set bit and resets it
   std::optional<uint16_t> GetHotElement();
 
+  // Non-destructive: true iff any worker is idle. Used by ShouldParkAdmission instead of
+  // GetHotElement to avoid consuming a hot slot for a park-vs-continue decision.
+  bool AnySet() const noexcept;
+
+  // Non-destructive count of idle workers (set bits across all group atomics).
+  // Uses relaxed loads — caller treats result as a soft pressure signal, not an exact snapshot.
+  uint16_t Count() const noexcept;
+
  private:
   static constexpr auto kGroupSize = sizeof(uint64_t) * 8;  // bits
   static constexpr auto kGroupMask = kGroupSize - 1;
@@ -69,6 +80,21 @@ class HotMask {
   const uint16_t n_elements_;
 #endif
   const uint16_t n_groups_;
+};
+
+enum class WaitResource : uint8_t { MainLock, CommitLock };
+
+// Access mode carried with a park tag for future per-mode narrowing; not consulted by wake yet.
+enum class AccessMode : uint8_t { READ, WRITE, READ_ONLY, UNIQUE };
+
+struct WaitTag {
+  WaitResource resource;
+  AccessMode mode;
+};
+
+struct FreedTag {
+  WaitResource resource;
+  AccessMode freed;
 };
 
 using TaskSignature = std::move_only_function<void(utils::Priority)>;
@@ -137,7 +163,11 @@ class PriorityThreadPool {
 
   void ShutDown();
 
-  void ScheduledAddTask(TaskSignature new_task, Priority priority);
+  TaskID ScheduledAddTask(TaskSignature new_task, Priority priority, bool productive = true);
+
+  // Place-keeping re-post: reuses the original id to preserve FIFO order.
+  // productive=false so admission retries do not feed the reschedule gate.
+  TaskID ScheduledReAddTask(TaskSignature task, TaskID id, Priority priority, bool productive = false);
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
@@ -150,6 +180,50 @@ class PriorityThreadPool {
   uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
+
+  // True iff queued productive (non-admission) tasks exist. Reads productive_pending_ relaxed;
+  // admission re-posts carry productive=false so an admission storm cannot hold this gate open.
+  bool HasPendingWork() const noexcept;
+
+  // Number of queued productive (non-admission-retry) tasks. Clamped to 0 for negative transients
+  // caused by the relaxed-decrement / relaxed-increment ordering gap during a fast pop.
+  uint64_t QueuedProductiveTasks() const noexcept {
+    const auto v = productive_pending_.load(std::memory_order_relaxed);
+    return v > 0 ? static_cast<uint64_t>(v) : 0;
+  }
+
+  // Number of currently idle workers (hot-mask set bits). Soft signal: caller must tolerate races.
+  uint16_t FreeWorkers() const noexcept { return hot_threads_.Count(); }
+
+  // Returns a pressure-scaled timed-wait budget for an admission that would otherwise block.
+  // No-pressure (free workers available, empty backlog) → kTryBudgetMax (long sleep is fine).
+  // High-pressure (backlog growing or workers scarce) → down to kTryBudgetMin.
+  // Call sites: would-block lock acquire paths (commit_mutex_, main_lock_). See AdmissionTryBudget().
+  std::chrono::microseconds AdmissionTryBudget() const noexcept;
+
+  // Returns a pressure-scaled reschedule cap N(P): the number of times an admission re-posts
+  // (via AddTask) before parking (via ParkAdmission).  Scales inversely with pressure:
+  //   - high pressure (scarce workers or large backlog) → small N → park sooner (core is precious).
+  //   - light/moderate pressure → larger N → a cheap re-post is preferred over a park CV round-trip
+  //     when the held lock is expected to free quickly.
+  // PROVISIONAL: kRescheduleCapMin/Max are perf-tunable — re-validate against real workload profiles.
+  uint32_t AdmissionRescheduleCap() const noexcept;
+
+  // PRECONDITION: must not be called while holding any Worker::mtx_.
+  // The session continuation that calls this runs outside any worker lock.
+  void ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline, WaitTag tag);
+
+  // True iff parking the calling admission would let real work run. Yields the core only when
+  // there is productive work queued AND no idle worker to take it.
+  bool ShouldParkAdmission() const noexcept;
+
+  // Conservative per-resource wake: mode is not consulted (extension point for future narrowing).
+  // Lock order: parked_mtx_ released BEFORE ScheduledReAddTask (which takes Worker::mtx_).
+  void WakeMatching(FreedTag freed);
+
+  // True while ShutDown drains parks; session driver reads this to terminate woken admissions with a shutdown error
+  // instead of re-parking.
+  bool IsDrainingAdmissions() const noexcept { return draining_admissions_.load(std::memory_order_acquire); }
 
   // Single worker implementation
   class Worker {
@@ -165,11 +239,12 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+      bool productive{true};       // false for admission retries; excluded from productive_pending_
 
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, TaskID id);
+    void push(TaskSignature new_task, TaskID id, bool productive = true);
 
     void stop();
 
@@ -188,10 +263,36 @@ class PriorityThreadPool {
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
 
+    // Pool-owned counter; set once after construction, never null at task time.
+    std::atomic<int64_t> *productive_pending_{nullptr};
+
     friend class PriorityThreadPool;
   };
 
  private:
+  // Pressure-to-budget range for AdmissionTryBudget(). Both values are provisional and must be
+  // re-validated against real workload profiles before hardening (perf-tunable).
+  static constexpr std::chrono::microseconds kTryBudgetMin{2};        // tightest budget under max pressure
+  static constexpr std::chrono::microseconds kTryBudgetMax{100'000};  // 100 ms: no-pressure long wait
+
+  // Reschedule-cap range for AdmissionRescheduleCap(). Provisional/perf-tunable.
+  static constexpr uint32_t kRescheduleCapMin{1};  // park after 1 reschedule under high pressure
+  static constexpr uint32_t kRescheduleCapMax{4};  // park after 4 reschedules under light pressure
+
+  struct ParkedAdmission {
+    TaskID id;
+    mutable TaskSignature task;  // mutable: moved out of the deque even via const ref
+    std::chrono::steady_clock::time_point deadline;
+    WaitTag tag;
+  };
+
+  std::mutex parked_mtx_;
+  std::deque<ParkedAdmission> parked_admissions_;  // FIFO: push_back to park, front = oldest
+  std::atomic_bool draining_admissions_{false};    // true while ShutDown drains → drop new parks
+  // Written under parked_mtx_ (release); true iff deque is non-empty.
+  // WakeMatching reads relaxed: a false-negative is safe — the monitor sweep backstop covers it.
+  std::atomic<bool> has_parked_{false};
+
   std::stop_source pool_stop_source_;
 
   std::vector<std::unique_ptr<Worker>> workers_;  // Mixed work threads
@@ -204,6 +305,10 @@ class PriorityThreadPool {
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+
+  // Counts queued productive tasks (excludes admission retries). Incremented in push, decremented
+  // at every pop. May be positive at shutdown for unrun tasks — irrelevant to the gate.
+  alignas(64) std::atomic<int64_t> productive_pending_{0};
 };
 
 class CollectionScheduler {

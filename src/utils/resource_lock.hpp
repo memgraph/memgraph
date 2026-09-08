@@ -10,8 +10,11 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -130,7 +133,12 @@ struct ResourceLock {
 
   void maybe_notify(std::unique_lock<std::mutex> &lock, NotifyKind kind) {
     lock.unlock();
-    if (kind == NotifyKind::All) cv.notify_all();
+    if (kind == NotifyKind::All) {
+      cv.notify_all();
+      // Fired off `mtx` (already unlocked above) so the hook may take an unrelated lock without a
+      // lock-order inversion. acquire pairs with the release in SetNotifyHook: storage_ is visible.
+      if (auto *h = on_notify_all_.load(std::memory_order_acquire)) (*h)();
+    }
   }
 
   /// Acquires in mode `Req`, `wait` supplying the wait strategy. Requires `lock` to own mtx; leaves
@@ -220,6 +228,17 @@ struct ResourceLock {
     return true;
   }
 
+  /// Timeout: returns false, pending count stays intact for retry. On failure, no maybe_notify —
+  /// ~PendingScope calls unregister_pending which fires the wake when the campaign ends.
+  template <LockReq Req, typename Rep, typename Period>
+  bool try_acquire_pending_for(std::chrono::duration<Rep, Period> const &time) {
+    auto guard = std::unique_lock{mtx};
+    if (!cv.wait_for(guard, time, [this] { return can_acquire<Req>(); })) return false;
+    commit_state<Req>();
+    pending_sub<Req>();
+    return true;
+  }
+
  public:
   void lock() {
     auto lock = std::unique_lock{mtx};
@@ -238,6 +257,18 @@ struct ResourceLock {
   }
 
   void unlock() { release<LockReq::UNIQUE>(); }
+
+  /// Installs a callback fired after the internal mtx is released on every NotifyKind::All, intended
+  /// to wake parked schedulers. Install at most once per lifetime (exchange-guarded at the Storage
+  /// level); clear before pool destruction. release/acquire makes the callable visible off-mtx.
+  void SetNotifyHook(std::move_only_function<void()> hook) {
+    on_notify_all_storage_ = std::move(hook);
+    on_notify_all_.store(on_notify_all_storage_ ? &on_notify_all_storage_ : nullptr, std::memory_order_release);
+  }
+
+  /// Disarms the hook: in-flight maybe_notify readers that loaded the old pointer still dereference
+  /// valid storage_ (never freed until ~ResourceLock, which runs after all lock activity has ceased).
+  void ClearNotifyHook() { on_notify_all_.store(nullptr, std::memory_order_release); }
 
   template <LockReq Req = LockReq::WRITE>
     requires(Req != LockReq::UNIQUE)
@@ -294,6 +325,10 @@ struct ResourceLock {
   // Callers waiting to acquire UNIQUE (blocking lock()/try_lock_for(), or a UniquePendingScope
   // campaign). Gates new shared acquisitions for writer-preference; see can_acquire.
   uint32_t unique_pending_count = 0;
+  // release/acquire so maybe_notify can load the pointer off-mtx without a data race; storage_
+  // survives ClearNotifyHook so in-flight readers that hold the old pointer stay safe.
+  std::move_only_function<void()> on_notify_all_storage_;
+  std::atomic<std::move_only_function<void()> *> on_notify_all_{nullptr};
 };
 
 struct SharedResourceLockGuard {
@@ -662,6 +697,16 @@ class PendingScope {
   std::optional<ResourceLockGuard> try_acquire() {
     if (lock_ == nullptr) return std::nullopt;  // already consumed by a prior successful call
     if (!lock_->template try_acquire_pending<Req>()) return std::nullopt;
+    Lock *acquired_lock = std::exchange(lock_, nullptr);
+    return ResourceLockGuard{*acquired_lock, ToGuardType(Req), std::adopt_lock};
+  }
+
+  /// Timed variant of try_acquire: waits up to `time` for the lock to admit `Req`. On timeout
+  /// returns nullopt and leaves the pending registration intact.
+  template <typename Rep, typename Period>
+  std::optional<ResourceLockGuard> try_acquire_for(std::chrono::duration<Rep, Period> const &time) {
+    if (lock_ == nullptr) return std::nullopt;
+    if (!lock_->template try_acquire_pending_for<Req>(time)) return std::nullopt;
     Lock *acquired_lock = std::exchange(lock_, nullptr);
     return ResourceLockGuard{*acquired_lock, ToGuardType(Req), std::adopt_lock};
   }

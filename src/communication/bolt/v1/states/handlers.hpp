@@ -27,6 +27,7 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -125,6 +126,11 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
     }
 
     return State::Idle;
+  } catch (const memgraph::query::CommitWouldBlockException &) {
+    // Commit() throws before any state change — stash n/qid so PostFinishPendingCommit can retry on wake.
+    // Both PULL and DISCARD call Commit(), so this catch is outside the if-constexpr.
+    session.StashPendingCommit(n, qid);
+    return State::PendingCommit;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -232,6 +238,11 @@ State HandlePrepare(TSession &session) {
       return State::Close;
     }
     return State::Result;
+  } catch (const memgraph::query::BeginWouldBlockException &e) {
+    // main_lock_ is contended; SetupDatabaseTransaction throws before any storage mutation,
+    // so re-running InterpretPrepare on wake is safe.
+    session.StashPendingBeginPrepare(e.deadline());
+    return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -442,6 +453,11 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
       return State::Close;
     }
     return State::Idle;
+  } catch (const memgraph::query::BeginWouldBlockException &e) {
+    // main_lock_ is contended; Configure() has already run. Stash the extra map so the pool
+    // driver can retry BeginTransaction(extra) + MessageSuccess({}) on wake without re-decoding.
+    session.StashPendingBeginMessage(extra.ValueMap(), e.deadline());
+    return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -468,6 +484,11 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
       return State::Close;
     }
     return State::Idle;
+  } catch (const memgraph::query::CommitWouldBlockException &) {
+    // commit_mutex_ contended: park this write and retry the COMMIT message on wake, instead of
+    // failing the client. The explicit txn stays staged (Commit throws before mutating).
+    session.StashPendingCommitMessage();
+    return State::PendingCommit;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

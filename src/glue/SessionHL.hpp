@@ -141,6 +141,16 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline bool Execute() { return Execute_(*this); }
 
+  // Pool-side commit retry; forwards *this so FinishPendingCommit_ can call impl.Pull() and
+  // impl.GetLogContext().
+  memgraph::communication::bolt::PendingCommitOutcome FinishPendingCommit() {
+    return this->FinishPendingCommit_(*this);
+  }
+
+  // Pool-side BEGIN retry; forwards *this so FinishPendingBegin_ can call impl.BeginTransaction()
+  // and impl.GetLogContext().
+  memgraph::communication::bolt::PendingBeginOutcome FinishPendingBegin() { return this->FinishPendingBegin_(*this); }
+
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 
   metrics::DatabaseMetricHandles *GetMetricHandles() {

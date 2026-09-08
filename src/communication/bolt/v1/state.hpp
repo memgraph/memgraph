@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,5 +60,23 @@ enum class State : uint8_t {
    * session should be closed.
    */
   Close,
+
+  /**
+   * PULL/DISCARD autocommit whose Commit() threw CommitWouldBlockException (commit_mutex_ contended);
+   * parks under WaitResource::CommitLock and retries on wake — nothing sent to client until commit settles.
+   */
+  PendingCommit,
+
+  /**
+   * BEGIN/RUN-as-first-query whose SetupDatabaseTransaction() threw BeginWouldBlockException (main_lock_ contended);
+   * parks under WaitResource::MainLock and retries on wake — deadline expiry calls storage::ThrowAccessTimeout.
+   */
+  PendingBegin,
 };
+
+// Lives here (not session.hpp) so the v2 driver can name it without pulling in the bolt Session header.
+enum class PendingCommitOutcome : uint8_t { Reschedule, Done, ClientError };
+
+// Lives here (not session.hpp) so the v2 driver can name it without pulling in the bolt Session header.
+enum class PendingBeginOutcome : uint8_t { Reschedule, Done, ClientError };
 }  // namespace memgraph::communication::bolt

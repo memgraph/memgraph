@@ -14,6 +14,7 @@
 #include "utils/exceptions.hpp"
 
 #include <fmt/format.h>
+#include <chrono>
 
 namespace memgraph::query {
 
@@ -614,6 +615,31 @@ class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
  public:
   ShowSchemaInfoInMulticommandTxException() : MulticommandTxException("Show schema info query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
+};
+
+/// Thrown inside Interpreter::Commit() (first action, pre-mutation) when commit_mutex_ is
+/// contended (experimental_lockfree_read_snapshot ON). Never a client Bolt error; the Bolt
+/// driver (U4b) catches, parks under WaitResource::CommitLock, and retries — re-entry is safe.
+class CommitWouldBlockException final : public std::exception {
+ public:
+  CommitWouldBlockException() = default;
+
+  const char *what() const noexcept override { return "commit_mutex_ held by another committer; park and retry"; }
+};
+
+/// Thrown inside CurrentDB::SetupDatabaseTransaction() when main_lock_ is contended and the
+/// storage-access deadline has NOT yet passed (experimental_lockfree_read_snapshot ON). Never a
+/// client Bolt error; Bolt driver (U3b) catches, parks under WaitResource::MainLock, then retries.
+class BeginWouldBlockException final : public std::exception {
+ public:
+  explicit BeginWouldBlockException(std::chrono::steady_clock::time_point deadline) : deadline_{deadline} {}
+
+  const char *what() const noexcept override { return "main_lock_ contended; park and retry BEGIN"; }
+
+  std::chrono::steady_clock::time_point deadline() const noexcept { return deadline_; }
+
+ private:
+  std::chrono::steady_clock::time_point deadline_;
 };
 
 }  // namespace memgraph::query

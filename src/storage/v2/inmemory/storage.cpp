@@ -24,6 +24,7 @@
 #include <system_error>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
@@ -1079,7 +1080,7 @@ void InMemoryStorage::InMemoryAccessor::PublishIndexArming() {
 }
 
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
-    CommitArgs const commit_args) {
+    CommitArgs const commit_args, CommitLock preheld_commit_lock) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
@@ -1127,8 +1128,17 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   //    commit_mutex_ provides exactly this guarantee.  Releasing commit_mutex_ earlier (e.g. after
   //    the WAL append) would break unique-constraint validation even if watermark ordering were
   //    re-established through another mechanism.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
-  if (lockfree) commit_serializer.emplace(mem_storage->commit_mutex_);
+  std::optional<CommitLock> commit_serializer;
+  if (lockfree) {
+    if (preheld_commit_lock.owns_lock()) {
+      // Caller (Interpreter::Commit) already acquired commit_mutex_ via try_lock.
+      // Adopt the existing hold so we do not re-acquire (which would deadlock).
+      commit_serializer.emplace(std::move(preheld_commit_lock));
+    } else {
+      // No pre-held guard (PeriodicCommit, replica paths): acquire blocking.
+      commit_serializer.emplace(mem_storage->commit_mutex_);
+    }
+  }
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
@@ -5029,7 +5039,7 @@ uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 void InMemoryStorage::PrepareForNewEpoch() {
   // EXPERIMENTAL (lock-free-read-snapshot): take commit_mutex_ before engine_lock_ (committer order) so this
   // WAL reset cannot race a committer's WAL append under the flag.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  std::optional<CommitLock> commit_serializer;
   if (config_.experimental_lockfree_read_snapshot) {
     commit_serializer.emplace(commit_mutex_);
   }
@@ -5086,11 +5096,83 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
       this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
 }
 
+std::unique_ptr<Storage::Accessor> InMemoryStorage::AccessorFromGuard(
+    utils::ResourceLockGuard guard, std::optional<IsolationLevel> override_isolation_level) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+}
+
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
                                                               std::optional<IsolationLevel> override_isolation_level) {
   utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
   if (!guard.owns_lock()) return nullptr;
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+  return AccessorFromGuard(std::move(guard), override_isolation_level);
+}
+
+std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessFor(StorageAccessType rw_type,
+                                                                 std::optional<IsolationLevel> override_isolation_level,
+                                                                 std::chrono::microseconds budget) {
+  utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::defer_lock};
+  if (!guard.try_lock_for(budget)) return nullptr;
+  return AccessorFromGuard(std::move(guard), override_isolation_level);
+}
+
+namespace {
+class InMemoryPendingAccess final : public Storage::PendingAccess {
+ public:
+  InMemoryPendingAccess(InMemoryStorage *storage, utils::ResourceLock &main_lock, StorageAccessType rw_type)
+      : storage_{storage}, rw_type_{rw_type} {
+    switch (rw_type) {  // register pending up front for the gating modes only
+      case StorageAccessType::UNIQUE:
+        scope_.emplace<utils::UniquePendingScope>(main_lock);
+        break;
+      case StorageAccessType::READ_ONLY:
+        scope_.emplace<utils::ReadOnlyPendingScope>(main_lock);
+        break;
+      default:
+        break;  // READ / WRITE gate nobody → no scope
+    }
+  }
+
+  std::unique_ptr<Storage::Accessor> TryAcquire(std::optional<IsolationLevel> iso) override {
+    switch (rw_type_) {
+      case StorageAccessType::UNIQUE: {
+        auto g = std::get<utils::UniquePendingScope>(scope_).try_acquire();
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      case StorageAccessType::READ_ONLY: {
+        auto g = std::get<utils::ReadOnlyPendingScope>(scope_).try_acquire();
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      default:
+        return storage_->TryAccess(rw_type_, iso);  // READ/WRITE: plain one-probe
+    }
+  }
+
+  std::unique_ptr<Storage::Accessor> TryAcquireFor(std::optional<IsolationLevel> iso,
+                                                   std::chrono::microseconds budget) override {
+    switch (rw_type_) {
+      case StorageAccessType::UNIQUE: {
+        auto g = std::get<utils::UniquePendingScope>(scope_).try_acquire_for(budget);
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      case StorageAccessType::READ_ONLY: {
+        auto g = std::get<utils::ReadOnlyPendingScope>(scope_).try_acquire_for(budget);
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      default:
+        return storage_->TryAccessFor(rw_type_, iso, budget);  // READ/WRITE: timed probe
+    }
+  }
+
+ private:
+  InMemoryStorage *storage_;
+  StorageAccessType rw_type_;
+  std::variant<std::monostate, utils::UniquePendingScope, utils::ReadOnlyPendingScope> scope_;
+};
+}  // namespace
+
+std::unique_ptr<Storage::PendingAccess> InMemoryStorage::MakePendingAccess(StorageAccessType rw_type) {
+  return std::make_unique<InMemoryPendingAccess>(this, main_lock_, rw_type);
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

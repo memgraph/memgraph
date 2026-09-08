@@ -41,6 +41,10 @@
 #include "utils/resource_monitoring.hpp"
 #endif
 
+namespace memgraph::utils {
+class PriorityThreadPool;
+}  // namespace memgraph::utils
+
 namespace memgraph::query {
 
 class FineGrainedAuthChecker;
@@ -263,7 +267,8 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
+                                utils::PriorityThreadPool *pool = nullptr);
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
@@ -277,6 +282,8 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    pending_access_.reset();
+    pending_begin_deadline_.reset();
   }
 
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
@@ -290,6 +297,10 @@ struct CurrentDB {
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
   metrics::ScopedGauge transaction_gauge_;
+  // unique_ptr: teardown (CleanupDBTransaction/ResetDB/~CurrentDB) deregisters the PendingScope on
+  // abandonment — a leaked scope blocks all new main_lock acquisitions on this storage.
+  std::unique_ptr<storage::Storage::PendingAccess> pending_access_;
+  std::optional<std::chrono::steady_clock::time_point> pending_begin_deadline_;
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
@@ -392,6 +403,14 @@ class Interpreter final {
   Interpreter::ParseRes Parse(const std::string &query, UserParameters_fn params_getter, QueryExtras const &extras);
 
   Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
+
+  // True while an autocommit (RUN-first-query) BEGIN is parked on main_lock_ with its parse stashed.
+  bool HasParkedPrepare() const { return parked_prepare_.has_value(); }
+
+  // Re-drive a parked autocommit Prepare from the stashed parse (pool wake). Re-attempts only the
+  // storage-access acquire; on a further would-block it re-stashes and rethrows (park again). This is
+  // the implicit-transaction analogue of retrying an explicit BEGIN via BeginTransaction().
+  Interpreter::PrepareResult ResumeParkedPrepare();
 
   /**
    * Prepare a query for execution.
@@ -671,6 +690,19 @@ class Interpreter final {
   // TODO Figure out how this would work for multi-database
   // SubqueryExpression only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
+
+  // Stash for a parked autocommit BEGIN. When Prepare's storage-access acquire would block, the
+  // still-intact parse inputs are moved here (Prepare throws before consuming them) so the pool wake
+  // can re-drive via ResumeParkedPrepare instead of failing "not parsed". pending_access_ lives on
+  // CurrentDB and survives ResetInterpreter, so the retained scope keeps writer-preference across the
+  // park. Cleared on the first successful/failed re-drive.
+  struct ParkedPrepare {
+    ParseRes parse_res;
+    UserParameters_fn params_getter;
+    QueryExtras extras;
+  };
+
+  std::optional<ParkedPrepare> parked_prepare_;
 
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;

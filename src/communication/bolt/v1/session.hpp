@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <concepts>
 #include <optional>
 
@@ -32,6 +33,9 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
+
+// PendingCommitOutcome lives in state.hpp (so the v2 session driver can name it).
+
 /**
  * Bolt Session Exception
  *
@@ -117,6 +121,12 @@ class Session {
       if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
       }
+      // RUN-first-query parked on main_lock_: return before the dechunk loop below. Otherwise its first
+      // GetChunk() consumes a pipelined PULL out of input_stream_ into the decoder (the in-loop
+      // PendingBegin guard is one GetChunk() too late — it stops dispatch, not consumption), leaving
+      // input_stream_ empty so the park-resolution's HasBufferedData() picks DoRead() and the PULL is
+      // stranded. Leaving it in input_stream_ lets resolution (HasBufferedData -> DoWork) dispatch it.
+      if (state_ == State::PendingBegin) return true;  // more data to process
       // We are here, so the query will have the correct priority; just fall down to execute any other requests
     }
 
@@ -157,6 +167,20 @@ class Session {
         return true;  // more data to process
       }
 
+      if (state_ == State::PendingCommit) {
+        // PULL/DISCARD's Commit() step would block on commit_mutex_; the pool driver
+        // (PostFinishPendingCommit) parks this worker under CommitLock and retries on wake.
+        // Stop the dechunk loop so a pipelined message can't run before the commit finishes.
+        return true;  // more data to process
+      }
+
+      if (state_ == State::PendingBegin) {
+        // BEGIN (or RUN-as-first-query) would block on main_lock_; the pool driver
+        // (PostFinishPendingBegin) parks this worker under MainLock and retries on wake.
+        // Stop the dechunk loop so a pipelined message can't run before the accessor is acquired.
+        return true;  // more data to process
+      }
+
       if (state_ == State::Close) [[unlikely]] {
         // State::Close is handled here because we always want to check for
         // it after the above select. If any of the states above return a
@@ -170,6 +194,163 @@ class Session {
   void HandleError() {
     if (!at_least_one_run_) {
       spdlog::info("Sudden connection loss. Make sure the client supports Memgraph.");
+    }
+  }
+
+  // True while a PULL/DISCARD commit is parked waiting for commit_mutex_.
+  bool HasPendingCommit() const { return pending_commit_; }
+
+  // Whether the input buffer still has unprocessed bytes; used by PostFinishPendingCommit to
+  // decide DoWork vs DoRead after the commit completes.
+  bool HasBufferedData() const { return input_stream_.size() > 0; }
+
+  // Record the PULL arguments so FinishPendingCommit_ can retry via the PULL path without re-decoding.
+  // Called from HandlePullDiscard on a CommitWouldBlockException catch (autocommit / COMMIT-as-query).
+  void StashPendingCommit(std::optional<int> n, std::optional<int> qid) {
+    pending_commit_ = true;
+    pending_commit_from_message_ = false;
+    pending_commit_n_ = n;
+    pending_commit_qid_ = qid;
+  }
+
+  // Record that an explicit-transaction COMMIT *message* would-blocked, so FinishPendingCommit_ retries
+  // via CommitTransaction() (not the PULL path). Called from HandleCommit on a CommitWouldBlockException.
+  void StashPendingCommitMessage() {
+    pending_commit_ = true;
+    pending_commit_from_message_ = true;
+  }
+
+  // Pool-side retry of a Commit() that threw CommitWouldBlockException.
+  // FLAG (re-Pull safety): try-lock is Commit()'s first action before any mutation; an
+  // exhausted cursor's second Pull() streams 0 rows so only Commit() re-runs.
+  template <typename TImpl>
+    requires requires(TImpl &impl) {
+      { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
+    }
+  PendingCommitOutcome FinishPendingCommit_(TImpl &impl) {
+    MG_ASSERT(pending_commit_, "FinishPendingCommit_ called without a stashed pending commit");
+    memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
+
+    if (pending_commit_from_message_) {
+      // Explicit-transaction COMMIT message retry — mirrors HandleCommit's body. The staged txn is
+      // intact (Commit throws before mutating), so re-running CommitTransaction() is safe.
+      try {
+        if (!encoder_.MessageSuccess(impl.CommitTransaction())) {
+          state_ = State::Close;
+          pending_commit_ = false;
+          return PendingCommitOutcome::ClientError;
+        }
+        state_ = State::Idle;
+        pending_commit_ = false;
+        return PendingCommitOutcome::Done;
+      } catch (const memgraph::query::CommitWouldBlockException &) {
+        StashPendingCommitMessage();  // still contended → park again
+        return PendingCommitOutcome::Reschedule;
+      } catch (const std::exception &e) {
+        state_ = HandleFailure(impl, e);
+        pending_commit_ = false;
+        return PendingCommitOutcome::ClientError;
+      }
+    }
+
+    const auto n = pending_commit_n_;
+    const auto qid = pending_commit_qid_;
+
+    // Re-invoke the Pull path; HandlePullDiscard's CommitWouldBlockException catch re-stashes
+    // n/qid so State::PendingCommit below means pending_commit_ is already re-set.
+    state_ = details::HandlePullDiscard</*is_pull=*/true>(impl, n, qid);
+
+    switch (state_) {
+      case State::PendingCommit:
+        // CommitWouldBlockException thrown again; StashPendingCommit already re-set pending_commit_.
+        return PendingCommitOutcome::Reschedule;
+      case State::Idle:
+      case State::Result:
+        // Commit succeeded; HandlePullDiscard already sent SUCCESS to the client.
+        pending_commit_ = false;
+        return PendingCommitOutcome::Done;
+      default:
+        // State::Error or State::Close: HandleFailure sent the bolt error response.
+        pending_commit_ = false;
+        return PendingCommitOutcome::ClientError;
+    }
+  }
+
+  // True while a BEGIN / RUN-as-first-query is parked waiting for main_lock_.
+  bool HasPendingBegin() const { return pending_begin_; }
+
+  // Record that HandlePrepare (RUN-first-query) threw BeginWouldBlockException; the pool driver
+  // retries via HandlePrepare on wake (which re-runs InterpretPrepare and sends the header).
+  void StashPendingBeginPrepare(std::chrono::steady_clock::time_point deadline) {
+    pending_begin_ = true;
+    pending_begin_from_message_ = false;
+    pending_begin_deadline_ = deadline;
+  }
+
+  // Record that HandleBegin threw BeginWouldBlockException; Configure() already ran, so the pool
+  // driver retries only BeginTransaction(pending_begin_extra_) + MessageSuccess({}) on wake.
+  void StashPendingBeginMessage(map_t extra, std::chrono::steady_clock::time_point deadline) {
+    pending_begin_ = true;
+    pending_begin_from_message_ = true;
+    pending_begin_extra_ = std::move(extra);
+    pending_begin_deadline_ = deadline;
+  }
+
+  // Finite deadline carried from BeginWouldBlockException; used by PostFinishPendingBegin to
+  // pass to ParkAdmission (MUST NOT be time_point::max — that would bypass the BEGIN timeout).
+  std::chrono::steady_clock::time_point PendingBeginDeadline() const { return pending_begin_deadline_; }
+
+  // Pool-side retry of a BEGIN / RUN-as-first-query that threw BeginWouldBlockException.
+  // FLAG (re-Prepare safety): BeginWouldBlockException is thrown in SetupDatabaseTransaction
+  // before any storage txn opens, so nothing non-idempotent has run; retry is safe.
+  template <typename TImpl>
+    requires requires(TImpl &impl) {
+      { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
+    }
+  PendingBeginOutcome FinishPendingBegin_(TImpl &impl) {
+    MG_ASSERT(pending_begin_, "FinishPendingBegin_ called without a stashed pending begin");
+    memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
+
+    if (pending_begin_from_message_) {
+      // Explicit-transaction BEGIN message retry: Configure already ran, only BeginTransaction is
+      // repeated. On success send MessageSuccess({}) and transition to Idle (no cursor needed).
+      try {
+        impl.BeginTransaction(pending_begin_extra_);
+        if (!encoder_.MessageSuccess({})) {
+          state_ = State::Close;
+          pending_begin_ = false;
+          return PendingBeginOutcome::ClientError;
+        }
+        state_ = State::Idle;
+        pending_begin_ = false;
+        return PendingBeginOutcome::Done;
+      } catch (const memgraph::query::BeginWouldBlockException &) {
+        // main_lock_ still contended; deadline is retained in pending_begin_deadline_.
+        // Do NOT re-stash: pending_begin_ is already true and pending_begin_extra_ must be kept.
+        return PendingBeginOutcome::Reschedule;
+      } catch (const std::exception &e) {
+        // Deadline expired (access-timeout) or other unrecoverable error; send bolt FAILURE.
+        state_ = HandleFailure(impl, e);
+        pending_begin_ = false;
+        return PendingBeginOutcome::ClientError;
+      }
+    }
+
+    // RUN origin: re-run HandlePrepare. On BeginWouldBlockException, HandlePrepare's catch
+    // calls StashPendingBeginPrepare and returns State::PendingBegin → Reschedule here.
+    state_ = HandlePrepare(impl);
+    switch (state_) {
+      case State::PendingBegin:
+        // BeginWouldBlockException thrown again; HandlePrepare re-stashed pending_begin_.
+        return PendingBeginOutcome::Reschedule;
+      case State::Result:
+        // InterpretPrepare succeeded; header sent by HandlePrepare.
+        pending_begin_ = false;
+        return PendingBeginOutcome::Done;
+      default:
+        // State::Error or State::Close: HandleFailure sent the bolt error response.
+        pending_begin_ = false;
+        return PendingBeginOutcome::ClientError;
     }
   }
 
@@ -216,6 +397,28 @@ class Session {
   }
 
  private:
+  // Set when HandlePullDiscard catches CommitWouldBlockException; cleared when the pool-side
+  // retry completes (Done) or fails unrecoverably (ClientError).
+  bool pending_commit_{false};
+  bool pending_commit_from_message_{false};  // true = retry via CommitTransaction(); false = via PULL path
+
+  // Arguments from the original PULL stashed so FinishPendingCommit_ can retry without re-decoding.
+  std::optional<int> pending_commit_n_{};
+  std::optional<int> pending_commit_qid_{};
+
+  // Set when HandlePrepare or HandleBegin catches BeginWouldBlockException; cleared when the
+  // pool-side retry completes (Done) or fails unrecoverably (ClientError / deadline expired).
+  bool pending_begin_{false};
+  bool pending_begin_from_message_{false};  // true = retry via BeginTransaction(); false = via HandlePrepare
+
+  // Extra map from the original BEGIN message (needed to re-run BeginTransaction on wake).
+  // Only meaningful when pending_begin_from_message_ == true.
+  map_t pending_begin_extra_{};
+
+  // Finite deadline carried from BeginWouldBlockException; passed to ParkAdmission so the park
+  // respects the user-configured storage-access timeout.
+  std::chrono::steady_clock::time_point pending_begin_deadline_{};
+
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
   const std::string login_timestamp_;
