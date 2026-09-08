@@ -11561,14 +11561,24 @@ void Interpreter::Commit() {
   // Try commit_mutex_ as the first action so that if another write is in WAL+replication, we throw
   // CommitWouldBlockException before any non-idempotent work runs, making park-and-retry safe.
   // Gate on write deltas: reads bypass the serializer entirely (the stall is writers-only, not readers).
-  std::unique_lock<std::mutex> preheld_commit_lock;  // non-owning by default
+  memgraph::storage::CommitLock preheld_commit_lock;  // non-owning by default
   if (current_db_.db_transactional_accessor_ && current_db_.db_transactional_accessor_->IsCommitSerialised()) {
     auto const *commit_txn = current_db_.db_transactional_accessor_->GetTransaction();
     bool const is_write = commit_txn && (!commit_txn->deltas.empty() || !commit_txn->md_deltas.empty());
     if (is_write) {
-      preheld_commit_lock = current_db_.db_transactional_accessor_->TryLockCommit();
+      // Layer-1: pressure-scaled timed wait. AdmissionTryBudget() returns a duration proportional
+      // to pool idle capacity — longer when workers are free, shorter under pressure.
+      auto *pool = interpreter_context_->worker_pool;
+      auto const budget =
+          pool ? pool->AdmissionTryBudget() : std::chrono::microseconds{std::numeric_limits<int64_t>::max()};
+      preheld_commit_lock = current_db_.db_transactional_accessor_->TryLockCommitFor(budget);
       if (!preheld_commit_lock.owns_lock()) {
-        throw CommitWouldBlockException{};
+        if (pool != nullptr && pool->ShouldParkAdmission()) {
+          // Productive workers are available to absorb this commit after rescheduling.
+          throw CommitWouldBlockException{};
+        }
+        // No idle workers (P==0) or no pool: fall back to blocking sleep so we do not stall forever.
+        preheld_commit_lock = current_db_.db_transactional_accessor_->LockCommitBlocking();
       }
     }
   }

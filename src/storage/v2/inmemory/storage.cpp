@@ -1089,7 +1089,7 @@ void InMemoryStorage::InMemoryAccessor::PublishIndexArming() {
 }
 
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
-    CommitArgs const commit_args, std::unique_lock<std::mutex> preheld_commit_lock) {
+    CommitArgs const commit_args, CommitLock preheld_commit_lock) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
@@ -1137,7 +1137,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   //    commit_mutex_ provides exactly this guarantee.  Releasing commit_mutex_ earlier (e.g. after
   //    the WAL append) would break unique-constraint validation even if watermark ordering were
   //    re-established through another mechanism.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  std::optional<CommitLock> commit_serializer;
   if (lockfree) {
     if (preheld_commit_lock.owns_lock()) {
       // Caller (Interpreter::Commit) already acquired commit_mutex_ via try_lock.
@@ -5030,7 +5030,7 @@ uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 void InMemoryStorage::PrepareForNewEpoch() {
   // EXPERIMENTAL (lock-free-read-snapshot): take commit_mutex_ before engine_lock_ (committer order) so this
   // WAL reset cannot race a committer's WAL append under the flag.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  std::optional<CommitLock> commit_serializer;
   if (config_.experimental_lockfree_read_snapshot) {
     commit_serializer.emplace(commit_mutex_);
   }

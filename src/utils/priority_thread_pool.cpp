@@ -12,6 +12,7 @@
 #include "utils/priority_thread_pool.hpp"
 
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -75,6 +76,18 @@ bool HotMask::AnySet() const noexcept {
     if (hot_masks_[g].load(std::memory_order_acquire) != 0) return true;
   }
   return false;
+}
+
+uint16_t HotMask::Count() const noexcept {
+  // Relaxed loads are intentional: Count() is a soft pressure signal, not a synchronisation point.
+  // Stale bits (worker just transitioned hot→cold or vice versa) are tolerable; callers treat the
+  // result as an approximate snapshot.
+  uint32_t total = 0;
+  for (size_t g = 0; g < n_groups_; ++g) {
+    total += std::popcount(hot_masks_[g].load(std::memory_order_relaxed));
+  }
+  // total ≤ n_groups_ * 64 ≤ 1024, safe to narrow to uint16_t.
+  return static_cast<uint16_t>(total);
 }
 
 PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
@@ -278,6 +291,35 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature 
 
 bool PriorityThreadPool::HasPendingWork() const noexcept {
   return productive_pending_.load(std::memory_order_relaxed) > 0;
+}
+
+std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcept {
+  // All reads are relaxed: this is a heuristic pressure signal, not a synchronisation barrier.
+  const uint64_t pool = GetNumWorkers();
+  const uint64_t free = FreeWorkers();
+  const uint64_t backlog = QueuedProductiveTasks();
+
+  // No-pressure fast path: ≥10% workers idle and backlog empty → caller can afford to sleep long.
+  if (free * 10 >= pool && backlog == 0) return kTryBudgetMax;
+
+  // Linear interpolation from kTryBudgetMax toward kTryBudgetMin as backlog fills the pool.
+  // fraction = min(backlog, pool) / pool  — clamped to [0, 1] using integer arithmetic only.
+  // safe_pool guards the division; pool >= 1 is guaranteed by the constructor MG_ASSERT.
+  // PROVISIONAL: the exact slope and threshold constants below are perf-tunable.
+  const uint64_t safe_pool = pool > 0 ? pool : 1;
+  const uint64_t clamped_backlog = backlog < safe_pool ? backlog : safe_pool;
+  const uint64_t range = static_cast<uint64_t>(kTryBudgetMax.count() - kTryBudgetMin.count());
+  const int64_t budget_us =
+      static_cast<int64_t>(kTryBudgetMax.count()) - static_cast<int64_t>((clamped_backlog * range) / safe_pool);
+
+  // Scarce-worker clamp: fewer than 10% free → collapse immediately to minimum regardless of backlog.
+  if (free * 10 < pool) return kTryBudgetMin;
+
+  // Final bounds: protect against any arithmetic edge case.
+  const int64_t clamped = budget_us < kTryBudgetMin.count()   ? kTryBudgetMin.count()
+                          : budget_us > kTryBudgetMax.count() ? kTryBudgetMax.count()
+                                                              : budget_us;
+  return std::chrono::microseconds{clamped};
 }
 
 void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline,
