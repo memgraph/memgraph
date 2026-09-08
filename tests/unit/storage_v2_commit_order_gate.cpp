@@ -129,6 +129,8 @@ TEST(CommitOrderGate, WaitIdleBlocksUntilAllRetired) {
 
 namespace {
 
+// The assertion message itself goes to the logger, not to stderr, so the death matcher checks the std::terminate
+// call MG_ASSERT ends in rather than the message text.
 void RetireWithoutMark() {
   CommitOrderGate gate;
   CommitTicket ticket{gate, 1};
@@ -172,13 +174,13 @@ TEST(CommitOrderGate, RetireRequiresTerminalMark) {
     EXPECT_TRUE(ticket.retired());
     EXPECT_EQ(gate.Pending(), 0);
   }
-  EXPECT_DEATH(RetireWithoutMark(), "");
-  EXPECT_DEATH(RetireTwice(), "");
+  EXPECT_DEATH(RetireWithoutMark(), "terminate called");
+  EXPECT_DEATH(RetireTwice(), "terminate called");
 }
 
 TEST(CommitOrderGate, DestructorTerminatesOnUnretiredTicket) {
-  EXPECT_DEATH(DestroyRegisteredTicket(), "");
-  EXPECT_DEATH(DestroyPublishedUnretiredTicket(), "");
+  EXPECT_DEATH(DestroyRegisteredTicket(), "terminate called");
+  EXPECT_DEATH(DestroyPublishedUnretiredTicket(), "terminate called");
 }
 
 TEST(CommitOrderGate, RecordStateAndIrreversibleMarks) {

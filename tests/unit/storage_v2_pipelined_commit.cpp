@@ -29,6 +29,7 @@
 #include <thread>
 #include <vector>
 
+#include <sys/resource.h>
 #include <unistd.h>
 
 #include "flags/experimental.hpp"
@@ -83,6 +84,14 @@ void ArmWatchdog(unsigned seconds) {
   sigemptyset(&action.sa_mask);
   sigaction(SIGALRM, &action, nullptr);
   alarm(seconds);
+}
+
+// A death child aborts on purpose; it must not leave a core file behind.
+void DisableCoreDumps() {
+  struct rlimit limit{};
+  limit.rlim_cur = 0;
+  limit.rlim_max = 0;
+  setrlimit(RLIMIT_CORE, &limit);
 }
 
 // Enumerates the WAL files under `dir`, decodes each with the durability decoder, returns the timestamp of every
@@ -1004,6 +1013,7 @@ class PipelinedCommitDeathTest : public ::testing::Test {
 
   // The child: warm-up commits, then the faulting one; never returns normally when the fault fires.
   void RunChild(std::function<void(CommitProbe &)> arm, bool wal_disabled = false) {
+    DisableCoreDumps();
     ArmWatchdog(60);
     auto config = MakeConfig(dir_);
     if (wal_disabled) config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
@@ -1098,6 +1108,7 @@ TEST_F(PipelinedCommitDeathTest, WalDisabledAfterPublishThrowsTerminates) {
 TEST_F(PipelinedCommitDeathTest, FailedAbortTerminates) {
   EXPECT_EXIT(
       {
+        DisableCoreDumps();
         ArmWatchdog(60);
         auto config = MakeConfig(dir_);
         InMemoryStorage storage{config};

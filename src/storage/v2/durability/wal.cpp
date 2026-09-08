@@ -2437,6 +2437,8 @@ WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
 }
 
 auto WalFile::AppendEncodedTransaction(TxnWalBuffer const &buffer) -> WalTxnDataPos {
+  // The caller fills both after encoding; a forgotten timestamp would silently summarize the file as from/to 0.
+  MG_ASSERT(buffer.timestamp != 0 && buffer.result.frame_count >= 2, "Appending an incomplete transaction buffer");
   auto const base = wal_.GetPosition();
   auto const bytes = buffer.encoder.bytes();
   wal_.WriteRaw(bytes.data(), bytes.size());

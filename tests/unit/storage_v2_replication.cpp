@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -2421,6 +2422,55 @@ std::optional<int64_t> ReadIntProperty(MinMemgraph &instance, Gid gid, std::stri
 // shutdown-while-locked rule rather than left on the connection.
 std::string LargePayload() { return std::string(2 * memgraph::slk::kSegmentMaxDataSize, 'x'); }
 
+// Installs test hooks and a probe on a storage and clears them on every exit, so a fatal assertion cannot leave a
+// heartbeat or a scheduled task pointing at destroyed stack objects. Declared before any worker or wait.
+class HookGuard {
+ public:
+  HookGuard(InMemoryStorage *storage, ReplicationTestHooks *hooks, CommitProbe *probe = nullptr) : storage_{storage} {
+    if (hooks != nullptr) storage_->SetReplicationTestHooks(hooks);
+    if (probe != nullptr) storage_->SetCommitProbe(probe);
+  }
+
+  HookGuard(HookGuard const &) = delete;
+  HookGuard &operator=(HookGuard const &) = delete;
+
+  ~HookGuard() {
+    storage_->SetCommitProbe(nullptr);
+    storage_->SetReplicationTestHooks(nullptr);
+  }
+
+ private:
+  InMemoryStorage *storage_;
+};
+
+auto ReplicaStorage(MinMemgraph &replica) -> InMemoryStorage * {
+  return static_cast<InMemoryStorage *>(replica.db.storage());
+}
+
+// Runs `f` on a thread and always releases `release` and joins on destruction, so an assertion that returns from
+// the test body cannot destroy a joinable thread or the state the worker still references.
+class JoinedThread {
+ public:
+  template <class F, class R>
+  JoinedThread(F f, R release) : release_{std::move(release)}, thread_{std::move(f)} {}
+
+  JoinedThread(JoinedThread const &) = delete;
+  JoinedThread &operator=(JoinedThread const &) = delete;
+
+  void Join() {
+    if (thread_.joinable()) thread_.join();
+  }
+
+  ~JoinedThread() {
+    release_();
+    Join();
+  }
+
+ private:
+  std::function<void()> release_;
+  std::thread thread_;
+};
+
 }  // namespace
 
 class PipelinedReplicationTest : public ReplicationTest {
@@ -2514,7 +2564,7 @@ TEST_F(PipelinedReplicationTest, FailedPrepareVoteAbortsInOrder) {
     std::atomic<int> aborts_applied{0};
     replica_hooks.refuse_next_prepare = [&](uint64_t) { return refusals.fetch_add(1) == 0; };
     replica_hooks.on_abort_applied = [&](uint64_t) { ++aborts_applied; };
-    static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(&replica_hooks);
+    HookGuard replica_guard{ReplicaStorage(replica), &replica_hooks};
     ReplicationTestHooks main_hooks;
     std::atomic<int> decision_results{0};
     std::atomic<bool> last_decision_ok{false};
@@ -2522,7 +2572,7 @@ TEST_F(PipelinedReplicationTest, FailedPrepareVoteAbortsInOrder) {
       last_decision_ok = ok;
       ++decision_results;
     };
-    MainStorage(main)->SetReplicationTestHooks(&main_hooks);
+    HookGuard main_guard{MainStorage(main), &main_hooks};
 
     auto const watermark_before = MainStorage(main)->LastCommittedMvccTimestamp();
     auto const ldt_before = LastDurableTimestamp(main);
@@ -2542,8 +2592,6 @@ TEST_F(PipelinedReplicationTest, FailedPrepareVoteAbortsInOrder) {
     EXPECT_TRUE(Update(main, seeded, 3, /*large=*/false).has_value());
     EXPECT_TRUE(WaitForReplicaToCatchUp(main, replica));
     EXPECT_EQ(ReadIntProperty(replica, seeded, "p"), 3);
-    static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(nullptr);
-    MainStorage(main)->SetReplicationTestHooks(nullptr);
     gid = seeded;
   }
   ASSERT_TRUE(gid.has_value());
@@ -2570,11 +2618,11 @@ TEST_F(PipelinedReplicationTest, ExceptionAfterCompletePrepareRecordAbortsInOrde
     if (prepared_count.fetch_add(1) == 0) prepared.count_down();
   };
   replica_hooks.on_abort_applied = [&](uint64_t) { ++aborts_applied; };
-  static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(&replica_hooks);
+  HookGuard replica_guard{ReplicaStorage(replica), &replica_hooks};
   ReplicationTestHooks main_hooks;
   std::atomic<int> decision_results{0};
   main_hooks.on_abort_decision_result = [&](uint64_t, bool) { ++decision_results; };
-  MainStorage(main)->SetReplicationTestHooks(&main_hooks);
+  HookGuard main_guard{MainStorage(main), &main_hooks};
   CommitProbe probe;
   std::atomic<bool> armed{true};
   probe.after_prepare_record = [&] {
@@ -2601,8 +2649,6 @@ TEST_F(PipelinedReplicationTest, ExceptionAfterCompletePrepareRecordAbortsInOrde
   EXPECT_TRUE(Update(main, gid, 3, /*large=*/false).has_value());
   EXPECT_TRUE(WaitForReplicaToCatchUp(main, replica));
   EXPECT_EQ(ReadIntProperty(replica, gid, "p"), 3);
-  static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(nullptr);
-  MainStorage(main)->SetReplicationTestHooks(nullptr);
 }
 
 // Nondeath returned-false abort decision, failed-vote caller: the replica answers the abort decision with failure.
@@ -2619,7 +2665,7 @@ TEST_F(PipelinedReplicationTest, RefusedAbortDecisionAfterFailedVoteIsNotFatal) 
   std::atomic<int> decision_refusals{0};
   replica_hooks.refuse_next_prepare = [&](uint64_t) { return refusals.fetch_add(1) == 0; };
   replica_hooks.refuse_next_abort_decision = [&](uint64_t) { return decision_refusals.fetch_add(1) == 0; };
-  static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(&replica_hooks);
+  HookGuard replica_guard{ReplicaStorage(replica), &replica_hooks};
   ReplicationTestHooks main_hooks;
   std::atomic<int> decision_results{0};
   std::atomic<bool> last_decision_ok{true};
@@ -2627,7 +2673,7 @@ TEST_F(PipelinedReplicationTest, RefusedAbortDecisionAfterFailedVoteIsNotFatal) 
     last_decision_ok = ok;
     ++decision_results;
   };
-  MainStorage(main)->SetReplicationTestHooks(&main_hooks);
+  HookGuard main_guard{MainStorage(main), &main_hooks};
 
   auto const watermark_before = MainStorage(main)->LastCommittedMvccTimestamp();
   auto const ldt_before = LastDurableTimestamp(main);
@@ -2643,8 +2689,6 @@ TEST_F(PipelinedReplicationTest, RefusedAbortDecisionAfterFailedVoteIsNotFatal) 
   EXPECT_TRUE(Update(main, gid, 3, /*large=*/false).has_value());
   EXPECT_TRUE(WaitForReplicaToCatchUp(main, replica));
   EXPECT_EQ(ReadIntProperty(replica, gid, "p"), 3);
-  static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(nullptr);
-  MainStorage(main)->SetReplicationTestHooks(nullptr);
 }
 
 // Nondeath returned-false abort decision, unwind caller (after_prepare_record exception).
@@ -2663,7 +2707,7 @@ TEST_F(PipelinedReplicationTest, RefusedAbortDecisionAfterUnwindIsNotFatal) {
     if (prepared_count.fetch_add(1) == 0) prepared.count_down();
   };
   replica_hooks.refuse_next_abort_decision = [&](uint64_t) { return decision_refusals.fetch_add(1) == 0; };
-  static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(&replica_hooks);
+  HookGuard replica_guard{ReplicaStorage(replica), &replica_hooks};
   ReplicationTestHooks main_hooks;
   std::atomic<int> decision_results{0};
   std::atomic<bool> last_decision_ok{true};
@@ -2671,7 +2715,7 @@ TEST_F(PipelinedReplicationTest, RefusedAbortDecisionAfterUnwindIsNotFatal) {
     last_decision_ok = ok;
     ++decision_results;
   };
-  MainStorage(main)->SetReplicationTestHooks(&main_hooks);
+  HookGuard main_guard{MainStorage(main), &main_hooks};
   CommitProbe probe;
   std::atomic<bool> armed{true};
   probe.after_prepare_record = [&] {
@@ -2696,8 +2740,6 @@ TEST_F(PipelinedReplicationTest, RefusedAbortDecisionAfterUnwindIsNotFatal) {
   EXPECT_TRUE(Update(main, gid, 3, /*large=*/false).has_value());
   EXPECT_TRUE(WaitForReplicaToCatchUp(main, replica));
   EXPECT_EQ(ReadIntProperty(replica, gid, "p"), 3);
-  static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(nullptr);
-  MainStorage(main)->SetReplicationTestHooks(nullptr);
 }
 
 // 3b: live-borrower abort. A real replica task waits on the WAL promise while after_schedule_ship throws. The abort is
@@ -2721,18 +2763,21 @@ class PipelinedLiveBorrowerTest : public PipelinedReplicationTest {
 
     ReplicationTestHooks hooks;
     std::latch borrower_waiting{1};
+    std::atomic<int> borrower_waits{0};
     std::atomic<int> tasks_done{0};
     std::atomic<int> tasks_done_at_release{-1};
     std::atomic<int> commands_released{0};
     std::string const expected_scope = variant == Variant::kDirectSyncPipeline ? "pipeline" : "legacy";
-    hooks.before_wal_result_wait = [&](std::string const &, uint64_t) { borrower_waiting.count_down(); };
+    hooks.before_wal_result_wait = [&](std::string const &, uint64_t) {
+      if (borrower_waits.fetch_add(1) == 0) borrower_waiting.count_down();  // once; the successor fires it too
+    };
     hooks.on_task_done = [&](std::string const &, uint64_t) { ++tasks_done; };
     hooks.on_commands_released = [&](std::string_view scope, uint64_t) {
       if (scope != expected_scope) return;
       tasks_done_at_release = tasks_done.load();
       ++commands_released;
     };
-    storage->SetReplicationTestHooks(&hooks);
+    HookGuard hook_guard{storage, &hooks};
     CommitProbe probe;
     std::atomic<bool> armed{true};
     probe.after_schedule_ship = [&] {
@@ -2770,7 +2815,6 @@ class PipelinedLiveBorrowerTest : public PipelinedReplicationTest {
     EXPECT_TRUE(Update(main, gid, 3, /*large=*/false).has_value());
     EXPECT_TRUE(WaitForReplicaToCatchUp(main, replica));
     EXPECT_EQ(ReadIntProperty(replica, gid, "p"), 3);
-    storage->SetReplicationTestHooks(nullptr);
   }
 };
 
@@ -2876,7 +2920,7 @@ TEST_F(PipelinedReplicationTest, PartialReplicationConstructionRollsBackTheOpene
   hooks.throw_on_open_for = [&](std::string const &name, uint64_t) {
     return name == "REPLICA2" && armed.exchange(false);
   };
-  storage->SetReplicationTestHooks(&hooks);
+  HookGuard hook_guard{storage, &hooks};
 
   auto const watermark_before = storage->LastCommittedMvccTimestamp();
   auto const ldt_before = LastDurableTimestamp(main);
@@ -2889,7 +2933,6 @@ TEST_F(PipelinedReplicationTest, PartialReplicationConstructionRollsBackTheOpene
   storage->repl_storage_state_.replication_storage_clients_.WithReadLock(
       [&](auto const &clients) { aborts_after = clients.front()->abort_rpc_client_calls(); });
   EXPECT_EQ(aborts_after - aborts_before, 1);
-  storage->SetReplicationTestHooks(nullptr);
 
   ASSERT_TRUE(WaitForReplicaState(main, "REPLICA1", ReplicaState::READY));
   ASSERT_TRUE(WaitForReplicaState(main, "REPLICA2", ReplicaState::READY));
@@ -2952,7 +2995,7 @@ TEST_F(PipelinedReplicationTest, ConcurrentWritersReplicateInOrderWithConsistent
     auto guard = std::lock_guard{prepared_mutex};
     prepared_timestamps.push_back(ts);
   };
-  static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(&replica_hooks);
+  HookGuard replica_guard{ReplicaStorage(replica), &replica_hooks};
 
   std::atomic<bool> stop{false};
   std::atomic<bool> bad_state_seen{false};
@@ -2991,7 +3034,6 @@ TEST_F(PipelinedReplicationTest, ConcurrentWritersReplicateInOrderWithConsistent
       [&](auto const &clients) { replica_cached = clients.front()->GetNumCommittedTxns(); });
   EXPECT_EQ(replica_cached, NumCommittedTxns(main));
   EXPECT_EQ(MainStorage(main)->commit_order_gate_for_tests().Pending(), 0);
-  static_cast<InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(nullptr);
 }
 
 // ---- Process-isolated multi-replica cases ----------------------------------------------------------------------
@@ -3013,6 +3055,11 @@ void ArmReplicationWatchdog(unsigned seconds) {
   sigemptyset(&action.sa_mask);
   sigaction(SIGALRM, &action, nullptr);
   alarm(seconds);
+  // A death child aborts on purpose; it must not leave a core file behind.
+  struct rlimit limit{};
+  limit.rlim_cur = 0;
+  limit.rlim_max = 0;
+  setrlimit(RLIMIT_CORE, &limit);
 }
 
 size_t CountLines(std::filesystem::path const &path) {
@@ -3197,7 +3244,7 @@ TEST_F(PipelinedMixedAbortTest, HeldAsyncBorrowerDelaysTheAbortContinuation) {
     tasks_done_at_cleanup = tasks_done.load();
     ++async_cleanups;
   };
-  storage->SetReplicationTestHooks(&hooks);
+  HookGuard hook_guard{storage, &hooks};
   CommitProbe probe;
   std::atomic<bool> armed{true};
   probe.after_prepare_record = [&] {
@@ -3212,33 +3259,30 @@ TEST_F(PipelinedMixedAbortTest, HeldAsyncBorrowerDelaysTheAbortContinuation) {
   auto const committed_before = NumCommittedTxns(main);
   std::atomic<bool> threw{false};
   std::atomic<bool> commit_returned{false};
-  std::thread committer{[&] {
-    bool local_threw = false;
-    static_cast<void>(Update(main, gid, 2, /*large=*/false, &local_threw));
-    threw = local_threw;
-    commit_returned = true;
-  }};
-  if (!WaitFor([&] { return borrower_held.load(); }, std::chrono::seconds(10))) {
-    // Release everything before failing so the committer thread can be joined.
+  auto const release = [&] {
     {
       std::lock_guard lock{hold_mutex};
       release_borrower = true;
     }
     hold_cv.notify_all();
-    committer.join();
-    FAIL() << "the ASYNC borrower was never held (WAL waits seen: " << wal_waits_seen.load() << ")";
-  }
+  };
+  // Released and joined on every exit, so an assertion cannot return over a live committer.
+  JoinedThread committer{[&] {
+                           bool local_threw = false;
+                           static_cast<void>(Update(main, gid, 2, /*large=*/false, &local_threw));
+                           threw = local_threw;
+                           commit_returned = true;
+                         },
+                         release};
+  ASSERT_TRUE(WaitFor([&] { return borrower_held.load(); }, std::chrono::seconds(10)))
+      << "the ASYNC borrower was never held (WAL waits seen: " << wal_waits_seen.load() << ")";
   // The STRICT_SYNC prepare completes while the ASYNC borrower is held.
   ASSERT_TRUE(strict_->WaitEvent("prepared", std::chrono::seconds(10)).has_value());
   EXPECT_FALSE(WaitFor([&] { return commit_returned.load(); }, std::chrono::milliseconds(500)));
   EXPECT_EQ(storage->pipeline_test_counters().decision_calls.load(), decisions_before);  // no decision yet
   EXPECT_EQ(async_cleanups.load(), 0);                                                   // no ASYNC cleanup yet
-  {
-    std::lock_guard lock{hold_mutex};
-    release_borrower = true;
-  }
-  hold_cv.notify_all();
-  committer.join();
+  release();
+  committer.Join();
   EXPECT_TRUE(threw.load());
   EXPECT_EQ(storage->pipeline_test_counters().decision_calls.load() - decisions_before, 1);
   EXPECT_EQ(async_cleanups.load(), 1);
@@ -3253,7 +3297,6 @@ TEST_F(PipelinedMixedAbortTest, HeldAsyncBorrowerDelaysTheAbortContinuation) {
   EXPECT_TRUE(Update(main, gid, 3, /*large=*/false).has_value());
   ASSERT_TRUE(strict_->WaitEvent("prepared", std::chrono::seconds(10)).has_value());
   ASSERT_TRUE(WaitForReplicaState(main, "ASYNC", ReplicaState::READY));
-  storage->SetReplicationTestHooks(nullptr);
 }
 
 // Interleaving 2: the abort is parked at after_async_abort_cleanup while a heartbeat enqueues reconciliation for the
@@ -3284,7 +3327,7 @@ TEST_F(PipelinedMixedAbortTest, ReconciliationWaitsForTheParkedAbortToRetire) {
   hooks.before_reconcile_quiesce = [&](std::string const &name) {
     if (name == "ASYNC") ++async_reconcile_arrivals;  // the STRICT client also goes MAYBE_BEHIND; select by name
   };
-  storage->SetReplicationTestHooks(&hooks);
+  HookGuard hook_guard{storage, &hooks};
   ASSERT_TRUE(strict_->Send("refuse_prepare"));
 
   auto const watermark_before = storage->LastCommittedMvccTimestamp();
@@ -3292,10 +3335,18 @@ TEST_F(PipelinedMixedAbortTest, ReconciliationWaitsForTheParkedAbortToRetire) {
   auto const committed_before = NumCommittedTxns(main);
   std::atomic<bool> commit_returned{false};
   std::expected<void, memgraph::storage::StorageManipulationError> result;
-  std::thread committer{[&] {
-    result = Update(main, gid, 2, /*large=*/false);
-    commit_returned = true;
-  }};
+  auto const release = [&] {
+    {
+      std::lock_guard lock{park_mutex};
+      release_abort = true;
+    }
+    park_cv.notify_all();
+  };
+  JoinedThread committer{[&] {
+                           result = Update(main, gid, 2, /*large=*/false);
+                           commit_returned = true;
+                         },
+                         release};
   ASSERT_TRUE(WaitFor([&] { return abort_parked.load(); }, std::chrono::seconds(10)));
   // A frequent heartbeat enqueues reconciliation for the MAYBE_BEHIND ASYNC client; it arrives at its quiescence
   // point but cannot complete while the abort still holds the ticket.
@@ -3303,12 +3354,8 @@ TEST_F(PipelinedMixedAbortTest, ReconciliationWaitsForTheParkedAbortToRetire) {
   EXPECT_FALSE(WaitFor([&] { return main.db.storage()->GetReplicaState("ASYNC") == ReplicaState::READY; },
                        std::chrono::milliseconds(500)));
   EXPECT_FALSE(commit_returned.load());
-  {
-    std::lock_guard lock{park_mutex};
-    release_abort = true;
-  }
-  park_cv.notify_all();
-  committer.join();
+  release();
+  committer.Join();
   ASSERT_FALSE(result.has_value());
   ExpectNothingCommitted(main, watermark_before, ldt_before, committed_before);
   EXPECT_EQ(tasks_done.load(), 2);
@@ -3320,7 +3367,132 @@ TEST_F(PipelinedMixedAbortTest, ReconciliationWaitsForTheParkedAbortToRetire) {
   EXPECT_TRUE(Update(main, gid, 3, /*large=*/false).has_value());
   ASSERT_TRUE(strict_->WaitEvent("prepared", std::chrono::seconds(10)).has_value());
   ASSERT_TRUE(WaitForReplicaState(main, "ASYNC", ReplicaState::READY));
-  storage->SetReplicationTestHooks(nullptr);
+}
+
+// 3b, second variant: two replicas and a scheduling failure part-way through ScheduleEncodeAndShip. The first
+// task is already parked on the WAL gate when the second enqueue throws; the mixed case must drain the scheduled
+// task (which poisons its own stream) and discard the never-scheduled stream, in both the direct pipeline and the
+// locally owned legacy scope.
+class PipelinedPartialSchedulingTest : public PipelinedReplicationTest {
+ protected:
+  void Run(bool legacy_scope) {
+    MinMemgraph main(main_conf);
+    MinMemgraph replica1(repl_conf);
+    MinMemgraph replica2(repl2_conf);
+    Register(main, replica1, ReplicationMode::SYNC, "REPLICA1", ports[0]);
+    Register(main, replica2, ReplicationMode::SYNC, "REPLICA2", ports[1]);
+    auto const gid = Seed(main, 1);
+    ASSERT_TRUE(WaitForReplicaToCatchUp(main, replica1));
+    ASSERT_TRUE(WaitForReplicaToCatchUp(main, replica2));
+    auto *storage = MainStorage(main);
+    auto const finalizations_before = storage->pipeline_test_counters().finalize_wal_calls.load();
+    std::array<uint64_t, 2> aborts_before{};
+    storage->repl_storage_state_.replication_storage_clients_.WithReadLock([&](auto const &clients) {
+      for (size_t i = 0; i < 2; ++i) aborts_before[i] = clients[i]->abort_rpc_client_calls();
+    });
+
+    ReplicationTestHooks hooks;
+    std::latch first_waiting{1};
+    std::atomic<int> first_waits{0};
+    std::atomic<int> tasks_done{0};
+    std::atomic<int> tasks_done_at_release{-1};
+    std::atomic<int> commands_released{0};
+    std::atomic<bool> armed{true};
+    std::string const expected_scope = legacy_scope ? "legacy" : "pipeline";
+    hooks.before_wal_result_wait = [&](std::string const &name, uint64_t) {
+      if (name == "REPLICA1" && first_waits.fetch_add(1) == 0) first_waiting.count_down();
+    };
+    hooks.on_task_done = [&](std::string const &, uint64_t) { ++tasks_done; };
+    hooks.on_commands_released = [&](std::string_view scope, uint64_t) {
+      if (scope != expected_scope) return;
+      tasks_done_at_release = tasks_done.load();
+      ++commands_released;
+    };
+    hooks.throw_before_enqueue_for = [&](std::string const &name, uint64_t) {
+      if (name != "REPLICA2" || !armed.exchange(false)) return false;
+      first_waiting.wait();  // the first task holds a partially transmitted request on the WAL gate
+      return true;
+    };
+    HookGuard hook_guard{storage, &hooks};
+    CommitProbe probe;
+    if (legacy_scope) {
+      probe.budget_refuse.site = memgraph::storage::BudgetRefuse::kMaterializer;
+      probe.after_mint = [&probe] {
+        if (probe.budget_refuse.ticket.load() == 0) probe.budget_refuse.ticket = probe.minted_ticket.load();
+      };
+      storage->SetCommitProbe(&probe);
+    }
+
+    auto const watermark_before = storage->LastCommittedMvccTimestamp();
+    auto const ldt_before = LastDurableTimestamp(main);
+    auto const committed_before = NumCommittedTxns(main);
+    bool threw = false;
+    static_cast<void>(Update(main, gid, 2, /*large=*/true, &threw));
+    EXPECT_TRUE(threw);
+    ExpectNothingCommitted(main, watermark_before, ldt_before, committed_before);
+    EXPECT_EQ(storage->pipeline_test_counters().finalize_wal_calls.load(), finalizations_before);
+    EXPECT_EQ(commands_released.load(), 1);
+    EXPECT_EQ(tasks_done_at_release.load(), 1);  // exactly the one successfully scheduled task, finished first
+    std::array<uint64_t, 2> aborts_after{};
+    storage->repl_storage_state_.replication_storage_clients_.WithReadLock([&](auto const &clients) {
+      for (size_t i = 0; i < 2; ++i) aborts_after[i] = clients[i]->abort_rpc_client_calls();
+    });
+    EXPECT_EQ(aborts_after[0] - aborts_before[0], 1);  // the scheduled task poisoned its own stream
+    EXPECT_EQ(aborts_after[1] - aborts_before[1], 1);  // the never-scheduled stream was discarded by the owner
+    storage->SetCommitProbe(nullptr);
+
+    ASSERT_TRUE(WaitForReplicaState(main, "REPLICA1", ReplicaState::READY));
+    ASSERT_TRUE(WaitForReplicaState(main, "REPLICA2", ReplicaState::READY));
+    EXPECT_TRUE(Update(main, gid, 3, /*large=*/false).has_value());
+    EXPECT_TRUE(WaitForReplicaToCatchUp(main, replica1));
+    EXPECT_TRUE(WaitForReplicaToCatchUp(main, replica2));
+    EXPECT_EQ(ReadIntProperty(replica1, gid, "p"), 3);
+    EXPECT_EQ(ReadIntProperty(replica2, gid, "p"), 3);
+  }
+};
+
+TEST_F(PipelinedPartialSchedulingTest, DirectPipeline) { Run(/*legacy_scope=*/false); }
+
+TEST_F(PipelinedPartialSchedulingTest, LocallyOwnedLegacyScope) { Run(/*legacy_scope=*/true); }
+
+// 9: an exception between the frames of a legacy STRICT_SYNC prepare record leaves an incomplete record on disk,
+// which is fatal. The replica runs in its own process so the death child owns nothing but the main.
+class PipelinedBetweenFramesDeathTest : public PipelinedReplicationTest {
+ protected:
+  void SetUp() override {
+    PipelinedReplicationTest::SetUp();
+    if (::testing::internal::InDeathTestChild()) return;
+    replica_ = std::make_unique<ReplicaProcess>(ports[0], ProcessReplicaDir(0));
+    ASSERT_TRUE(replica_->WaitReady());
+  }
+
+  void TearDown() override {
+    if (!::testing::internal::InDeathTestChild()) replica_.reset();
+    PipelinedReplicationTest::TearDown();
+  }
+
+  void RunMain() {
+    ArmReplicationWatchdog(120);
+    MinMemgraph main(main_conf);
+    auto const reg = main.repl_handler.TryRegisterReplica(
+        ReplicationClientConfig{.name = "REPLICA1",
+                                .mode = ReplicationMode::STRICT_SYNC,
+                                .repl_server_endpoint = Endpoint(local_host, ports[0])});
+    if (!reg.has_value()) _exit(3);
+    if (!WaitForReplicaState(main, "REPLICA1", ReplicaState::READY)) _exit(3);
+    auto const gid = Seed(main, 1);
+    CommitProbe probe;
+    probe.between_frames = [] { throw std::runtime_error("injected between frames"); };
+    MainStorage(main)->SetCommitProbe(&probe);
+    static_cast<void>(Update(main, gid, 2, /*large=*/false));
+    _exit(5);  // the incomplete record did not terminate
+  }
+
+  std::unique_ptr<ReplicaProcess> replica_;
+};
+
+TEST_F(PipelinedBetweenFramesDeathTest, ExceptionWithAnIncompleteRecordIsFatal) {
+  EXPECT_EXIT(RunMain(), ::testing::KilledBySignal(SIGABRT), "");
 }
 
 int main(int argc, char **argv) {

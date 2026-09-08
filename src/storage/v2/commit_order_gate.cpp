@@ -29,8 +29,6 @@ void CommitOrderGate::Issue(Node &node) noexcept {
   ++pending_;
 }
 
-auto CommitOrderGate::HeadTicket() const -> uint64_t { return head_ != nullptr ? head_->ticket : 0; }
-
 void CommitOrderGate::Enter(uint64_t ticket) {
   auto guard = std::unique_lock{mutex_};
   cv_.wait(guard, [&] { return head_ != nullptr && head_->ticket == ticket; });

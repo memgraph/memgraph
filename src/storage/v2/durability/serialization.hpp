@@ -59,7 +59,7 @@ class Encoder final : public BaseEncoder {
   bool OpenExisting(const std::filesystem::path &path);
 
   void Close();
-  // Main write function, the only one that is allowed to write to the `file_`
+  // Main write function; together with WriteRaw the only ones that are allowed to write to the `file_`
   // directly.
   void Write(const uint8_t *data, uint64_t size);
 

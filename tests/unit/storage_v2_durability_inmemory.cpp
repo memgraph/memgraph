@@ -3450,7 +3450,8 @@ TEST_P(DurabilityTest, PipelinedWalDeathResilience) {
   constexpr int kWriters = 6;
   pid_t pid = fork();
   if (pid == 0) {
-    {
+    // The child never returns into gtest: it runs until it is killed, and any failure exits explicitly.
+    try {
       memgraph::storage::Config config{
           .durability = {.storage_directory = storage_directory,
                          .snapshot_wal_mode =
@@ -3494,7 +3495,10 @@ TEST_P(DurabilityTest, PipelinedWalDeathResilience) {
         });
       }
       for (auto &t : writers) t.join();
+    } catch (...) {
+      _exit(1);
     }
+    _exit(0);
   } else if (pid > 0) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1500 + (std::random_device{}() % 1000)));
     int status;
@@ -3510,6 +3514,7 @@ TEST_P(DurabilityTest, PipelinedWalDeathResilience) {
 
   // Every complete transaction in every WAL file is strictly ordered by commit timestamp with a valid CRC; only the
   // last file may end in an unfinished tail.
+  size_t complete_transactions = 0;
   {
     using namespace memgraph::storage::durability;
     auto wal_files = GetWalFiles(storage_directory / kWalDirectory);
@@ -3547,10 +3552,12 @@ TEST_P(DurabilityTest, PipelinedWalDeathResilience) {
     ASSERT_GT(complete, kWriters);
     EXPECT_TRUE(std::ranges::is_sorted(starts));
     EXPECT_TRUE(std::ranges::adjacent_find(starts) == starts.end());
+    complete_transactions = complete;
   }
 
-  // Recovered values: every writer's counter is a valid round and the writers' rounds differ by no more than the
-  // number of in-flight transactions the pipeline allows before publication (bounded by the writer count).
+  // Recovered values form a prefix-consistent state: each writer's transactions are sequential and transaction r
+  // sets p = r, so a writer's recovered p equals its number of recovered transactions minus one, and the sum over
+  // writers of (p + 1) must equal the number of complete non-seed transactions found in the WAL.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(),
@@ -3562,14 +3569,17 @@ TEST_P(DurabilityTest, PipelinedWalDeathResilience) {
   auto acc = db.Access(memgraph::storage::WRITE);
   auto const prop = db.storage()->NameToProperty("p");
   size_t vertices = 0;
+  int64_t recovered_rounds = 0;
   for (auto v : acc->Vertices(memgraph::storage::View::OLD)) {
     ++vertices;
     auto const value = v.GetProperty(prop, memgraph::storage::View::OLD);
     ASSERT_TRUE(value.has_value());
     ASSERT_TRUE(value->IsInt());
-    EXPECT_GE(value->ValueInt(), -1);
+    ASSERT_GE(value->ValueInt(), -1);
+    recovered_rounds += value->ValueInt() + 1;
   }
   EXPECT_EQ(vertices, kWriters);
+  EXPECT_EQ(recovered_rounds, static_cast<int64_t>(complete_transactions) - kWriters);
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 

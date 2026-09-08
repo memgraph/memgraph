@@ -176,8 +176,9 @@ class TransactionReplication {
   std::unordered_set<std::string> failed_replicas_;
   // last_durable_ts this transaction commits at; paired with commit_num_committed_txns_ when advancing replica caches.
   uint64_t durability_commit_timestamp_;
-  // Absolute num_committed_txns_ this transaction advances every up-to-date replica to. Captured once at construction
-  // (under engine_lock_, before main bumps its own counter) so replica caches converge to a single authoritative
+  // Absolute num_committed_txns_ this transaction advances every up-to-date replica to. Captured once at construction,
+  // before FinalizeCommitPhase bumps main's counter and ordered against other committers by the commit serializer
+  // (or, on a ticketed execution, by the commit-order gate), so replica caches converge to a single authoritative
   // value via Max instead of being blindly incremented, which would double-count against the heartbeat merge.
   uint64_t commit_num_committed_txns_;
 };

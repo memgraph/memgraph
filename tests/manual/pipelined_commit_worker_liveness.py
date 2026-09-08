@@ -76,8 +76,9 @@ def writer(port, index, started, results):
 
 def reader(port, results):
     try:
-        connection = connect(port)
+        # The clock starts before the connection: the accept and handshake wait is part of the admission delay.
         read_started = time.perf_counter()
+        connection = connect(port)
         execute(connection, "MATCH (n:Node) RETURN count(n)")
         results.put(("reader", 0, time.perf_counter() - read_started))
     except Exception as error:  # noqa: BLE001
@@ -157,14 +158,19 @@ def main():
                 read_result["admission_s"] = value
             else:
                 errors.append(f"{kind} {key}: {value}")
-        for process in writers:
+        for process in writers + [reader_process]:
             process.join(timeout=5)
-        reader_process.join(timeout=5)
+            if process.is_alive():
+                process.terminate()
         assert not errors, errors
         assert len(finished) == WRITERS, f"only {len(finished)} writers finished within {args.bound}s"
         assert "admission_s" in read_result, f"the reader did not finish within {args.bound}s"
         last = max(finished.values())
+        first = min(finished.values())
         print(f"head released at {release_at * 1000:.0f} ms; last writer finished at {last * 1000:.0f} ms")
+        # Every writer waited for the parked head (at the gate or on the commit lock): none finished before the
+        # release, which is what proves a committer actually parked.
+        assert first >= release_at - 0.05, f"a writer finished at {first * 1000:.0f} ms, before the release"
         print(f"reader admission delay during saturation: {read_result['admission_s'] * 1000:.0f} ms")
         assert last - release_at < args.bound, "writers did not complete in bound after the release"
 

@@ -27,6 +27,9 @@ namespace memgraph::storage {
 /// Per-database byte budget for the memory a pipelined commit retains outside the commit serializer (its
 /// materialized commands and its private WAL buffer). Charging never blocks: a charge that would exceed the
 /// maximum is refused, and the committer converts itself into the ordered legacy path instead of waiting.
+/// Charges are taken per allocation, so a container's growth holds the old and the new allocation at once: the
+/// accounted peak of one buffer is up to three times its final size, and the maximum bounds that peak, not the
+/// steady-state size.
 class PipelineBudget {
  public:
   explicit PipelineBudget(uint64_t max_bytes) noexcept : max_bytes_{max_bytes} {}

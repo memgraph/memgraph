@@ -45,8 +45,6 @@ class CommitOrderGate {
   auto Pending() const -> size_t;
 
  private:
-  auto HeadTicket() const -> uint64_t;
-
   mutable std::mutex mutex_;
   mutable std::condition_variable cv_;
   mutable Node *head_{nullptr};
@@ -95,8 +93,6 @@ class CommitTicket {
   auto entered() const noexcept -> bool { return entered_; }
 
   auto terminal() const noexcept -> bool { return outcome_ != Outcome::none; }
-
-  auto published() const noexcept -> bool { return outcome_ == Outcome::published; }
 
   auto irreversible() const noexcept -> bool { return irreversible_; }
 

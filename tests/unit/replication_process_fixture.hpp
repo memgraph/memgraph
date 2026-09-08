@@ -22,11 +22,15 @@
 //   replica -> controller: "ready" once the replication server listens; "prepared <ts>" after a prepare response was
 //   sent; "abort_applied <ts>" after an abort decision was applied.
 
+#include <fcntl.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <gtest/gtest.h>
+
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <cstring>
@@ -38,6 +42,7 @@
 #include <thread>
 #include <vector>
 
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication/config.hpp"
 #include "storage/v2/commit_probe.hpp"
@@ -49,20 +54,32 @@ namespace memgraph::tests {
 constexpr char kReplicaRoleFlag[] = "--mg-replica-role";
 
 // The replica role: runs until "quit" on stdin. Arguments: <port> <data-directory>.
+// Writes the whole buffer, retrying on EINTR; false when the peer is gone.
+inline bool WriteAll(int fd, std::string const &data) {
+  size_t written = 0;
+  while (written < data.size()) {
+    auto const n = write(fd, data.data() + written, data.size() - written);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) return false;
+    written += static_cast<size_t>(n);
+  }
+  return true;
+}
+
 inline int RunReplicaRole(int argc, char **argv) {
   if (argc < 4) return 2;
+  // The IPC channel is the inherited stdout; point fd 1 at stderr so nothing the logger prints can be parsed as an
+  // event.
+  int const ipc_fd = dup(STDOUT_FILENO);
+  dup2(STDERR_FILENO, STDOUT_FILENO);
+  signal(SIGPIPE, SIG_IGN);
   auto const port = static_cast<uint16_t>(std::stoi(argv[2]));
   std::filesystem::path const data_dir{argv[3]};
   std::filesystem::remove_all(data_dir);
   std::filesystem::create_directories(data_dir);
-  auto const emit = [](std::string line) {
+  auto const emit = [ipc_fd](std::string line) {
     line.push_back('\n');
-    size_t written = 0;
-    while (written < line.size()) {
-      auto const n = write(STDOUT_FILENO, line.data() + written, line.size() - written);
-      if (n <= 0) return;
-      written += static_cast<size_t>(n);
-    }
+    static_cast<void>(WriteAll(ipc_fd, line));
   };
 
   storage::Config config{
@@ -92,6 +109,7 @@ inline int RunReplicaRole(int argc, char **argv) {
   char chunk[256];
   while (true) {
     auto const n = read(STDIN_FILENO, chunk, sizeof(chunk));
+    if (n < 0 && errno == EINTR) continue;
     if (n <= 0) break;  // the controller went away
     buffer.append(chunk, static_cast<size_t>(n));
     size_t newline = 0;
@@ -107,6 +125,9 @@ inline int RunReplicaRole(int argc, char **argv) {
       } else if (command == "quit") {
         emit("ok");
         static_cast<storage::InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(nullptr);
+        // A prepared transaction the main never decided on (it was killed by a death test) lives in the static 2PC
+        // cache and would be destroyed after the storage; abort it while the storage is still alive.
+        dbms::InMemoryReplicationHandlers::AbortTwoPCForTenant(replica.db.storage()->uuid());
         return 0;
       } else {
         emit("unknown");
@@ -121,15 +142,21 @@ inline int RunReplicaRole(int argc, char **argv) {
 class ReplicaProcess {
  public:
   ReplicaProcess(uint16_t port, std::filesystem::path data_dir) : port_{port}, data_dir_{std::move(data_dir)} {
+    signal(SIGPIPE, SIG_IGN);  // a dead replica must not take the controller down on the next Send
     int to_child[2];
     int from_child[2];
-    if (pipe(to_child) != 0 || pipe(from_child) != 0) throw std::runtime_error("pipe failed");
+    // Close-on-exec so a later spawn does not inherit an earlier replica's pipe ends (which would defeat the
+    // "controller went away" EOF); the dup2 file actions clear the flag on the child's own ends.
+    if (pipe2(to_child, O_CLOEXEC) != 0) throw std::runtime_error("pipe failed");
+    if (pipe2(from_child, O_CLOEXEC) != 0) {
+      close(to_child[0]);
+      close(to_child[1]);
+      throw std::runtime_error("pipe failed");
+    }
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_adddup2(&actions, to_child[0], STDIN_FILENO);
     posix_spawn_file_actions_adddup2(&actions, from_child[1], STDOUT_FILENO);
-    posix_spawn_file_actions_addclose(&actions, to_child[1]);
-    posix_spawn_file_actions_addclose(&actions, from_child[0]);
     auto const port_arg = std::to_string(port_);
     auto const dir_arg = data_dir_.string();
     std::vector<char *> argv{const_cast<char *>("/proc/self/exe"),
@@ -141,7 +168,12 @@ class ReplicaProcess {
     posix_spawn_file_actions_destroy(&actions);
     close(to_child[0]);
     close(from_child[1]);
-    if (rc != 0) throw std::runtime_error("posix_spawn failed");
+    if (rc != 0) {
+      close(to_child[1]);
+      close(from_child[0]);
+      pid_ = -1;
+      throw std::runtime_error("posix_spawn failed");
+    }
     stdin_fd_ = to_child[1];
     stdout_fd_ = from_child[0];
     reader_ = std::thread{[this] { ReadLoop(); }};
@@ -150,17 +182,25 @@ class ReplicaProcess {
   ReplicaProcess(ReplicaProcess const &) = delete;
   ReplicaProcess &operator=(ReplicaProcess const &) = delete;
 
+  // Asks the replica to quit, reaps it (SIGKILL after 10 s) and records how it ended; a replica that crashed
+  // rather than exited is reported as a test failure.
   ~ReplicaProcess() {
     if (pid_ > 0) {
       static_cast<void>(Send("quit"));
       int status = 0;
+      pid_t reaped = 0;
       auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-      while (waitpid(pid_, &status, WNOHANG) == 0 && std::chrono::steady_clock::now() < deadline) {
+      while ((reaped = waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
       }
-      if (waitpid(pid_, &status, WNOHANG) == 0) {
+      if (reaped == 0) {
         kill(pid_, SIGKILL);
-        waitpid(pid_, &status, 0);
+        reaped = waitpid(pid_, &status, 0);
+        ADD_FAILURE() << "replica process on port " << port_ << " did not quit and was killed";
+      } else if (reaped == pid_ && WIFSIGNALED(status)) {
+        ADD_FAILURE() << "replica process on port " << port_ << " died with signal " << WTERMSIG(status);
+      } else if (reaped == pid_ && WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+        ADD_FAILURE() << "replica process on port " << port_ << " exited with status " << WEXITSTATUS(status);
       }
     }
     if (stdin_fd_ >= 0) close(stdin_fd_);
@@ -180,13 +220,7 @@ class ReplicaProcess {
 
   // Sends one command and waits for its acknowledgement.
   bool Send(std::string const &command, std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
-    auto line = command + "\n";
-    size_t written = 0;
-    while (written < line.size()) {
-      auto const n = write(stdin_fd_, line.data() + written, line.size() - written);
-      if (n <= 0) return false;
-      written += static_cast<size_t>(n);
-    }
+    if (!WriteAll(stdin_fd_, command + "\n")) return false;
     return WaitEvent("ok", timeout).has_value();
   }
 
@@ -225,6 +259,7 @@ class ReplicaProcess {
     char chunk[256];
     while (true) {
       auto const n = read(stdout_fd_, chunk, sizeof(chunk));
+      if (n < 0 && errno == EINTR) continue;
       if (n <= 0) return;
       buffer.append(chunk, static_cast<size_t>(n));
       size_t newline = 0;

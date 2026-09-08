@@ -977,21 +977,26 @@ class InMemoryStorage final : public Storage {
     return last_committed_mvcc_ts_.load(std::memory_order_acquire);
   }
 
-  // EXPERIMENTAL (pipelined-commit).
+  /// EXPERIMENTAL (pipelined-commit).
   [[nodiscard]] bool IsPipelinedCommit() const noexcept { return config_.experimental_pipelined_commit; }
 
-  // Excludes every in-flight main-side committer: takes commit_mutex_ (no new mint, hence no new ticket) and then
-  // waits until every issued ticket has retired. The returned guard keeps the serializer until the caller is done.
-  // const so a const caller (recovery-step selection) can quiesce; the gate and the serializer are mutable.
+  /// Excludes every in-flight main-side committer: takes commit_mutex_ (no new mint, hence no new ticket) and then
+  /// waits until every issued ticket has retired. The returned guard keeps the serializer until the caller is done.
+  /// const so a const caller (recovery-step selection) can quiesce; the gate and the serializer are mutable.
+  /// The wait is for ticket retirement, which includes the committer's replication: a caller must not hold
+  /// engine_lock_ or a replica's RPC lock, and must not run on a replica client's worker pool, or it deadlocks
+  /// with the committer it waits for.
   auto QuiesceCommits() const -> CommitLock;
 
   [[nodiscard]] auto GetPipelineStats() const -> PipelineStatsSnapshot;
 
-  // Test-only.
-  void SetReplicationTestHooks(ReplicationTestHooks *hooks) noexcept { replication_test_hooks_ = hooks; }
+  /// Test-only.
+  void SetReplicationTestHooks(ReplicationTestHooks *hooks) noexcept {
+    replication_test_hooks_.store(hooks, std::memory_order_release);
+  }
 
   [[nodiscard]] auto replication_test_hooks() const noexcept -> ReplicationTestHooks * {
-    return replication_test_hooks_;
+    return replication_test_hooks_.load(std::memory_order_acquire);
   }
 
   auto commit_order_gate_for_tests() -> CommitOrderGate & { return commit_order_gate_; }
@@ -1163,7 +1168,8 @@ class InMemoryStorage final : public Storage {
   PipelineBudget pipeline_budget_;
   PipelineStats pipeline_stats_;
   PipelineTestCounters pipeline_test_counters_;
-  ReplicationTestHooks *replication_test_hooks_{nullptr};
+  // Written by a test thread, read by commit, replica-worker and heartbeat threads.
+  std::atomic<ReplicationTestHooks *> replication_test_hooks_{nullptr};
   // Test-only, from the MG_TEST_PIPELINED_S2_PARK_FIFO environment variable: the first eligible committer parks
   // after its encode stage until this path exists, polling with a 10 ms sleep so nothing goes through the worker
   // pool. Lets an end-to-end test saturate the pool with committers waiting behind a slow head.
