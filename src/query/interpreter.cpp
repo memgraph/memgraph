@@ -204,32 +204,46 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
 
   if (db_acc->storage()->IsCommitSerialised()) {
-    // Layer-1 budget: AdmissionTryBudget() shrinks under backlog and scarce idle workers.
-    const auto budget =
-        pool ? pool->AdmissionTryBudget() : std::chrono::microseconds{std::numeric_limits<int64_t>::max()};
+    // Arm the storage-access deadline before the first probe so every timed wait is charged against it
+    // and no probe can push the total wait past it (NB2). Persists across park-retries.
+    if (!pending_begin_deadline_) pending_begin_deadline_ = std::chrono::steady_clock::now() + timeout;
     if (!pending_access_) {
-      if (auto acc = db_acc->storage()->TryAccessFor(acc_type, override_isolation_level, budget)) {
+      // Alloc-free one-probe TryAccess on the hot path; allocate a PendingAccess only on a miss (NB7).
+      if (auto acc = db_acc->storage()->TryAccess(acc_type, override_isolation_level)) {
         db_transactional_accessor_ = std::move(acc);
+        pending_begin_deadline_.reset();
       } else {
         pending_access_ = db_acc->storage()->MakePendingAccess(acc_type);  // nullptr on Disk
       }
     }
     if (pending_access_) {
-      if (!pending_begin_deadline_) pending_begin_deadline_ = std::chrono::steady_clock::now() + timeout;
-      if (auto acc = pending_access_->TryAcquireFor(override_isolation_level, budget)) {
-        db_transactional_accessor_ = std::move(acc);
-        pending_access_.reset();
-        pending_begin_deadline_.reset();
-      } else if (std::chrono::steady_clock::now() >= *pending_begin_deadline_) {
+      auto const now = std::chrono::steady_clock::now();
+      if (now >= *pending_begin_deadline_) {
         pending_access_.reset();
         pending_begin_deadline_.reset();
         storage::ThrowAccessTimeout(acc_type);
-      } else if (pool != nullptr && pool->ShouldParkAdmission()) {
-        throw BeginWouldBlockException{*pending_begin_deadline_};
       } else {
-        // !ShouldParkAdmission: P==0 (no waker) or idle spinners present (blocking is immediate) — skip park.
-        pending_access_.reset();
-        pending_begin_deadline_.reset();
+        // Per-attempt budget clamped to the time left so a timed probe can't overshoot the deadline (NB2).
+        // Null pool: a finite cap, never microseconds{int64 max} (µs->ns overflow wraps negative — NB3).
+        auto const base = pool ? pool->AdmissionTryBudget()
+                               : std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{24});
+        auto const budget =
+            std::min(base, std::chrono::duration_cast<std::chrono::microseconds>(*pending_begin_deadline_ - now));
+        if (auto acc = pending_access_->TryAcquireFor(override_isolation_level, budget)) {
+          db_transactional_accessor_ = std::move(acc);
+          pending_access_.reset();
+          pending_begin_deadline_.reset();
+        } else if (std::chrono::steady_clock::now() >= *pending_begin_deadline_) {
+          pending_access_.reset();
+          pending_begin_deadline_.reset();
+          storage::ThrowAccessTimeout(acc_type);
+        } else if (pool != nullptr && pool->ShouldParkAdmission()) {
+          throw BeginWouldBlockException{*pending_begin_deadline_};
+        } else {
+          // !ShouldParkAdmission: P==0 (no waker) or idle spinners present (blocking is immediate) — skip park.
+          pending_access_.reset();
+          pending_begin_deadline_.reset();
+        }
       }
     }
   }
@@ -11569,15 +11583,24 @@ void Interpreter::Commit() {
   // Try commit_mutex_ as the first action so that if another write is in WAL+replication, we throw
   // CommitWouldBlockException before any non-idempotent work runs, making park-and-retry safe.
   // Gate on write deltas: reads bypass the serializer entirely (the stall is writers-only, not readers).
+  // Acquire repl_state_ ReadLock BEFORE commit_mutex_ so this thread's order (repl_state_ -> commit_mutex_)
+  // matches DoToMainPromotion's (repl_state_ WRITE -> commit_mutex_ in PrepareForNewEpoch); the two orders
+  // would otherwise form an ABBA deadlock under the flag (B2). Held only for write txns here (the sole path
+  // that pre-takes commit_mutex_); other commits fill it at the is_main site below, reads never take it.
+  decltype(std::optional{interpreter_context_->repl_state->ReadLock()}) locked_repl_state{std::nullopt};
   memgraph::storage::CommitLock preheld_commit_lock;
   if (current_db_.db_transactional_accessor_ && current_db_.db_transactional_accessor_->IsCommitSerialised()) {
     auto const *commit_txn = current_db_.db_transactional_accessor_->GetTransaction();
     bool const is_write = commit_txn && (!commit_txn->deltas.empty() || !commit_txn->md_deltas.empty());
     if (is_write) {
+      locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
       // Layer-1 budget: AdmissionTryBudget() shrinks under backlog and scarce idle workers.
       auto *pool = interpreter_context_->worker_pool;
-      auto const budget =
-          pool ? pool->AdmissionTryBudget() : std::chrono::microseconds{std::numeric_limits<int64_t>::max()};
+      // Null pool: no pressure signal, so an effectively-infinite budget — but a finite cap, never
+      // microseconds{int64 max}, whose µs→ns conversion overflows steady_clock and wraps negative (NB3).
+      // The blocking fallback below governs in the null-pool case regardless.
+      auto const budget = pool ? pool->AdmissionTryBudget()
+                               : std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{24});
       preheld_commit_lock = current_db_.db_transactional_accessor_->TryLockCommitFor(budget);
       if (!preheld_commit_lock.owns_lock()) {
         if (pool != nullptr && pool->ShouldParkAdmission()) {
@@ -11730,7 +11753,11 @@ void Interpreter::Commit() {
       QueryAllocator execution_memory{db->DbQueryMemoryTracker()};
       AdvanceCommand();
       try {
-        auto is_main = interpreter_context_->repl_state->ReadLock()->IsMain();
+        // Reuse the commit's held ReadLock (write txns) so this is NOT a nested read — a nested read would
+        // deadlock against a concurrent system-transaction's blocking repl_state_ WRITE under the writer-
+        // preferring RWSpinLock (B2). Non-write commits hold nothing here and take a standalone read.
+        bool const is_main =
+            locked_repl_state ? (*locked_repl_state)->IsMain() : interpreter_context_->repl_state->ReadLock()->IsMain();
         trigger.Execute(&*current_db_.execution_db_accessor_,
                         *current_db_.db_acc_,
                         execution_memory.resource(),
@@ -11757,7 +11784,10 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit const reset_members(reset_necessary_members);
 
-  auto locked_repl_state = std::optional{interpreter_context_->repl_state->ReadLock()};
+  // Reuse the ReadLock hoisted above commit_mutex_ (write txns); otherwise acquire it now (B2).
+  if (!locked_repl_state) {
+    locked_repl_state = interpreter_context_->repl_state->ReadLock();
+  }
   bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.

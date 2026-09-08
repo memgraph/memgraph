@@ -381,12 +381,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       // Execute until all data has been read
       while (session_.Execute()) {
         // WebSocket runs Bolt inline on the strand; the pool-path (DoWork/DoRead) would exit the
-        // WS read loop, so busy-wait here instead — acceptable: WebSocket is not the hot transport.
+        // WS read loop, so poll here instead — acceptable: WebSocket is not the hot transport. Sleep
+        // between attempts so a contended commit_mutex_/main_lock_ does not spin a core (NB5).
         while (session_.HasPendingCommit()) {
           session_.FinishPendingCommit();
+          if (session_.HasPendingCommit()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         while (session_.HasPendingBegin()) {
           session_.FinishPendingBegin();
+          if (session_.HasPendingBegin()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
       }
       // Handled all data,  async wait for new incoming data
