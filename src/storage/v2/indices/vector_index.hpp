@@ -357,14 +357,7 @@ class VectorIndex {
   utils::small_vector<float> GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name,
                                                         NameIdMapper *name_id_mapper) const;
 
-  /// PROTOTYPE (Variant 1): reconstruct a vertex's indexed vector into a caller-provided buffer with
-  /// ZERO allocation, so callers can materialize an embedding transiently — inside a comparator/hash
-  /// or at the serialization boundary — without ever owning a PropertyValue. Returns false if the
-  /// vertex is not in the index or the buffer is smaller than the index dimension.
-  bool GetVectorInto(Vertex *vertex, std::string_view index_name, NameIdMapper *name_id_mapper,
-                     std::span<float> out) const;
-
-  /// Resizable variant of GetVectorInto: resizes `out` to the index dimension and fills it.
+  /// Reconstruct a vertex's indexed vector into `out` (resized to the index dimension); false if absent. Zero owning PropertyValue — used to materialize an embedding transiently.
   bool GetVectorInto(Vertex *vertex, std::string_view index_name, NameIdMapper *name_id_mapper,
                      std::vector<float> &out) const;
 

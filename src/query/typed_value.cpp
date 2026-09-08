@@ -2035,10 +2035,7 @@ size_t Hash(const TypedValue &value) {
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported hash function for VirtualGraph");
     case TypedValue::Type::VectorRef: {
-      // Hash the reconstructed embedding from a REUSED thread-local float buffer rather than a
-      // materialized pmr List, so DISTINCT / GROUP BY over embeddings never grows the query arena and
-      // allocates the scratch buffer once per thread. Consistent with operator==, which compares the
-      // same float sequence.
+      // Thread-local float buffer avoids pmr arena growth on DISTINCT/GROUP BY; must stay consistent with operator== (same float sequence).
       thread_local std::vector<float> tmp;
       value.MaterializeVectorRefInto(tmp);
       size_t h = 0;

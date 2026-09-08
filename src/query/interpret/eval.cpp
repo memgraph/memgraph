@@ -466,8 +466,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       } else {
         auto raw_prop = GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_);
         if (raw_prop.IsVectorIndexId()) {
-          // Return a lazy handle: floats are not reconstructed here.
-          // Materialization happens only on compare, hash, or Bolt serialize.
+          // Materialization happens only on compare, hash, or serialize.
           const auto prop_id = ctx_->properties[property_lookup.property_.ix];
           return TypedValue(LazyVectorRef{expression_result_ptr->ValueVertex().impl_, prop_id}, ctx_->memory);
         }

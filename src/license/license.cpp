@@ -137,10 +137,8 @@ LicenseChecker global_license_checker;
 LicenseChecker::~LicenseChecker() { Finalize(); }
 
 namespace {
-// Routes a license memory limit to the correct tracker(s), de-duped against the last applied state.
-// AI_PLATFORM caps graph memory only (embeddings/total fall back to --memory-limit); every other
-// tier caps total memory and clears the graph limit. Shared by RevalidateLicense and EnableTesting
-// so tests exercise the real routing without a signed key.
+// Routes memory_limit to graph_memory_tracker (AI_PLATFORM) or total_memory_tracker (all other tiers).
+// Shared with EnableTesting so tests exercise the real routing without a signed key.
 void ApplyLicenseMemoryLimit(int64_t memory_limit, std::optional<LicenseType> license_type) {
   // Passing 0 to SetHardLimit restores the limit to maximum_hard_limit_ (the --memory-limit flag value)
   // if --memory-limit was configured. If it was not (maximum_hard_limit_ == 0), this is a no-op.
@@ -280,8 +278,7 @@ void LicenseChecker::EnableTesting(const LicenseType license_type) {
 
 void LicenseChecker::EnableTesting(const LicenseType license_type, const int64_t memory_limit) {
   EnableTesting(license_type);
-  // EnableTesting does not run RevalidateLicense, so route the limit through the same logic the
-  // real license path uses. Lets a test define e.g. AI_PLATFORM + graph limit without a signed key.
+  // EnableTesting skips RevalidateLicense; call here so tests can install e.g. an AI graph cap without a signed key.
   ApplyLicenseMemoryLimit(memory_limit, license_type);
 }
 

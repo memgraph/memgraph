@@ -10,16 +10,8 @@
 // licenses/APL.txt.
 
 // Grounds the AI_PLATFORM license memory accounting for vector embeddings.
-//
-// Facts under test:
-//   1. Embeddings live ONLY in the usearch index; the vertex property is replaced by a compact
-//      VectorIndexId reference. Reading it reconstructs the full vector from the index.
-//   2. That reconstruction is a plain operator-new allocation -> default arena -> graph_memory_tracker
-//      (the AI_PLATFORM license limit), NOT the exempt vector_index_memory_tracker, and NOT the
-//      per-DB query PMR tracker.
-//   3. Under an AI_PLATFORM graph limit, retaining a whole result set of embeddings (RETURN n)
-//      aborts, while reconstructing-and-discarding one at a time (count(n.emb)) stays under the cap,
-//      even though the embedding index itself is far larger than the cap (it is exempt).
+// Indexing replaces the vertex property with a compact VectorIndexId reference; reads reconstruct
+// via operator-new -> graph_memory_tracker (AI limit), NOT the exempt vector_index domain.
 
 #include <gtest/gtest.h>
 
@@ -54,9 +46,8 @@ namespace {
 // Small scale for the storage-model / query-semantics tests (fast).
 constexpr int kDim = 256;
 constexpr int kNumVertices = 1024;
-// graph_memory_tracker is fed by jemalloc EXTENT-COMMIT hooks, so it moves only when committed arena
-// memory grows past jemalloc's retained (dirty-page) slack. The accounting tests therefore use a
-// working set large enough to force new extent commits after a purge.
+// graph_memory_tracker moves only when jemalloc commits new arena extents past its dirty-page slack.
+// The accounting tests need a working set large enough to force fresh commits after a purge.
 constexpr int kDimBig = 512;
 constexpr int kNumVerticesBig = 6000;
 constexpr int64_t kOneMiB = 1 << 20;
@@ -109,9 +100,8 @@ class AiLicenseEmbeddingMemoryTest : public ::testing::Test {
 
   void SetUp() override {
     std::filesystem::create_directories(data_dir_);
-    // Install the global graph arena hooks so plain operator-new allocations (the reconstructed
-    // embedding small_vector, the retained result set) are attributed to graph_memory_tracker,
-    // exactly as they are in a running server.
+    // Install the global graph arena hooks so operator-new allocations (reconstructed embeddings,
+    // retained result sets) are attributed to graph_memory_tracker, as in a running server.
     memgraph::memory::SetHooks();
   }
 
@@ -148,10 +138,8 @@ class AiLicenseEmbeddingMemoryTest : public ::testing::Test {
   }
 };
 
-// ---------------------------------------------------------------------------
-// 1. Storage model: after indexing, the embedding is gone from the property store (replaced by a
-//    compact reference) and lives in the vector index. Reading reconstructs the full vector.
-// ---------------------------------------------------------------------------
+// Storage model: after indexing, the vertex property is a compact VectorIndexId reference; the
+// embedding lives in the vector index. Reading it reconstructs the full vector.
 TEST_F(AiLicenseEmbeddingMemoryTest, StorageModel_EmbeddingLivesOnlyInIndex) {
   auto gk = MakeDb("t1");
   auto acc_opt = gk->access();
@@ -171,10 +159,8 @@ TEST_F(AiLicenseEmbeddingMemoryTest, StorageModel_EmbeddingLivesOnlyInIndex) {
   EXPECT_GT(emb_after - emb_before, static_cast<int64_t>(kNumVertices) * kDim * 2)
       << "Vector index must now hold the embeddings (db_embedding_memory_tracker -> vector_index domain)";
 
-  // After indexing, the property is no longer a raw list: it is a compact VectorIndexId reference,
-  // and reading it reconstructs the full vector out of the index. (The property-store shrink is real
-  // but not observable via DbStorageMemoryUsage, which tracks committed arena extents, not logical
-  // property bytes.)
+  // After indexing, the property is a compact VectorIndexId reference, not a raw list; reading it
+  // reconstructs the full vector from the index.
   auto racc = db->Access();
   int seen = 0;
   for (auto v : racc->Vertices(View::OLD)) {
@@ -188,11 +174,8 @@ TEST_F(AiLicenseEmbeddingMemoryTest, StorageModel_EmbeddingLivesOnlyInIndex) {
   EXPECT_EQ(seen, 4);
 }
 
-// ---------------------------------------------------------------------------
-// 2. Materialization accounting: reconstructing embeddings on read charges graph_memory_tracker
-//    (the AI limit), leaves the exempt vector_index_memory_tracker untouched, and does NOT touch
-//    the per-DB query PMR tracker. (Answers: is it missed? no. which tracker? graph.)
-// ---------------------------------------------------------------------------
+// Materialization accounting: reconstructing embeddings charges graph_memory_tracker (the AI limit),
+// leaves the exempt vector_index domain untouched, and does not touch the per-DB query PMR tracker.
 TEST_F(AiLicenseEmbeddingMemoryTest, Materialization_ChargesGraphNotVectorIndexNotQuery) {
   auto gk = MakeDb("t2");
   auto acc_opt = gk->access();
@@ -229,9 +212,6 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Materialization_ChargesGraphNotVectorIndexN
   // graph must grow by a large fraction of the retained embedding bytes (extent-commit granular).
   EXPECT_GT(graph_delta, retained_bytes / 2)
       << "Reconstructed embeddings are charged to graph_memory_tracker (the AI_PLATFORM limit)";
-  // The exempt vector_index domain is not re-charged by reading, and the per-DB query PMR tracker
-  // sees nothing: the reconstruction is a plain operator-new, not a PMR allocation. So "removing
-  // query-runtime tracking from the AI limit" (the db_query PMR path) would NOT exempt it.
   EXPECT_LT(vidx_delta, retained_bytes / 8) << "The exempt vector_index domain is not re-charged by reading";
   EXPECT_LT(dbq_delta, retained_bytes / 8) << "Reconstruction is not query PMR memory";
   EXPECT_GT(graph_delta, vidx_delta * 4);
@@ -240,11 +220,8 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Materialization_ChargesGraphNotVectorIndexN
   held.clear();
 }
 
-// ---------------------------------------------------------------------------
-// 3. AI limit behaviour: with a graph limit far below the embedding index size, the index/embeddings
-//    are fine (exempt), reconstruct-and-discard (count(n.emb)) survives, but retaining the whole set
-//    (RETURN n) throws OutOfMemory. This is the customer symptom, reproduced.
-// ---------------------------------------------------------------------------
+// AI limit: with the graph cap below the embedding index size (exempt), count(n.emb) survives
+// (reconstruct-and-discard stays bounded), but RETURN n throws OutOfMemory (customer symptom).
 TEST_F(AiLicenseEmbeddingMemoryTest, AiGraphLimit_RetainAbortsDiscardSurvives) {
   auto gk = MakeDb("t3");
   auto acc_opt = gk->access();
@@ -264,7 +241,6 @@ TEST_F(AiLicenseEmbeddingMemoryTest, AiGraphLimit_RetainAbortsDiscardSurvives) {
   const int64_t limit = Graph() + headroom;
   ASSERT_GT(retained_bytes, 2 * headroom) << "test must retain far more than the headroom";
 
-  // Simulate an AI_PLATFORM license with this graph limit, through the real routing.
   memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::AI_PLATFORM, limit);
 
   EXPECT_GT(embeddings_in_index, headroom)
@@ -301,12 +277,8 @@ TEST_F(AiLicenseEmbeddingMemoryTest, AiGraphLimit_RetainAbortsDiscardSurvives) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 4. Query semantics: confirm the real interpreter reproduces the accessor-level model.
-//    MATCH (n) RETURN n retains all rows (graph elevated while the stream is alive);
-//    MATCH (n) RETURN count(n.emb) folds to one scalar (graph returns to baseline) yet still
-//    reconstructs each embedding (count == kNumVertices proves every n.emb was evaluated non-null).
-// ---------------------------------------------------------------------------
+// Query semantics via real interpreter: RETURN n retains all rows in graph memory;
+// count(n.emb) folds to one scalar (count == kNumVerticesBig proves every n.emb was evaluated).
 TEST_F(AiLicenseEmbeddingMemoryTest, QuerySemantics_ReturnNVsCountEmb) {
   auto gk = MakeDb("t4");
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -369,13 +341,8 @@ TEST_F(AiLicenseEmbeddingMemoryTest, QuerySemantics_ReturnNVsCountEmb) {
       << " held_count=" << held_count;
 }
 
-// ---------------------------------------------------------------------------
-// 5. Double-charge: at rest the embedding lives in the exempt vector_index domain (counted in
-//    total via vector_index). Materializing it adds a SECOND copy in the graph domain (also
-//    counted in total). So total_memory_tracker carries the same logical embedding TWICE while a
-//    result set is alive. Also refutes the earlier "reads route through the DB arena" hypothesis:
-//    reconstruction is std::allocator -> default arena, so DbStorageMemoryUsage does NOT grow.
-// ---------------------------------------------------------------------------
+// Double-charge: the index copy (exempt, in total) + the materialized copy (graph domain, in total)
+// means total_memory_tracker carries the same embedding twice while a result set is live.
 TEST_F(AiLicenseEmbeddingMemoryTest, DoubleCharge_IndexCopyPlusMaterializedCopyBothInTotal) {
   auto gk = MakeDb("t5");
   auto acc_opt = gk->access();
@@ -418,20 +385,14 @@ TEST_F(AiLicenseEmbeddingMemoryTest, DoubleCharge_IndexCopyPlusMaterializedCopyB
   EXPECT_GT(graph_delta, retained_bytes / 2) << "materialized copy lands in the graph domain";
   // ...so total grew by that second copy, on top of the index copy it already carried: double count.
   EXPECT_GT(total_delta, retained_bytes / 2) << "total_memory_tracker now carries the embedding twice";
-  // Reads use std::allocator -> default arena, NOT the DB arena: storage tracker stays flat.
-  // (Refutes the 'query reads route through db_memory_tracker' double-count hypothesis.)
+  // Reads use std::allocator -> default arena, not the DB arena: storage tracker stays flat.
   EXPECT_LT(storage_delta, retained_bytes / 8) << "reconstruction does not touch the per-DB storage arena";
 
   held.clear();
 }
 
-// ---------------------------------------------------------------------------
-// 6. Variant 1 (lazy value): an accumulating operator (sort / ORDER BY) can stay bounded if it holds
-//    cheap references and materializes the embedding transiently inside the comparator. Here we sort
-//    N vertices by their embedding using VertexAccessor::GetVectorInto — which reconstructs into a
-//    REUSED scratch buffer with zero per-comparison allocation — and show the sort's peak graph
-//    footprint is O(dim), not O(N*dim), while producing the same order as an eager sort.
-// ---------------------------------------------------------------------------
+// Lazy sort: GetVectorInto reconstructs into a REUSED scratch buffer (zero per-comparison allocation),
+// so the sort's peak graph footprint is O(dim), not O(N*dim); result matches an eager sort.
 TEST_F(AiLicenseEmbeddingMemoryTest, Variant1_LazySortBoundedVsEagerSort) {
   auto gk = MakeDb("t6");
   auto acc_opt = gk->access();
@@ -491,18 +452,8 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1_LazySortBoundedVsEagerSort) {
   EXPECT_EQ(lazy_sorted, eager_sorted) << "lazy comparator must produce the same order as an eager sort";
 }
 
-// ---------------------------------------------------------------------------
-// 7. Variant 1 end-to-end through the real interpreter. With the lazy embedding TypedValue (VectorRef)
-//    flowing out of PropertyLookup, an accumulating operator that would blow the AI_PLATFORM graph cap
-//    if it materialised every embedding stays bounded: it buffers only cheap references and materialises
-//    O(dim) transiently inside its comparator / hasher. Under a graph limit far below the total
-//    embedding footprint, driven through the real query engine:
-//      (a) ORDER BY n.emb  -> lazy sort keys + transient compare  -> SUCCEEDS (bounded).
-//      (b) DISTINCT n.emb  -> lazy set keys + transient hash/==    -> SUCCEEDS (bounded).
-//      (c) RETURN n.emb    -> result stream retains every materialised embedding -> ABORTS.
-//    (c) is the customer symptom, and it anchors that the cap is genuinely below O(N*dim), so (a)/(b)
-//    passing under the same cap is a real boundedness result, not a slack cap.
-// ---------------------------------------------------------------------------
+// Lazy-value interpreter end-to-end: ORDER BY and DISTINCT stay within the AI graph cap (bounded
+// O(dim) transient per step); RETURN n.emb blows the cap (anchors that the cap is genuinely tight).
 TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThroughInterpreter) {
   auto gk = MakeDb("t7");
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -534,9 +485,8 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThrou
   InterpreterFaker faker{&interpreter_context, db};
 
   const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
-  // Headroom sits ABOVE the O(N) reference caches an ORDER BY / DISTINCT over kNumVerticesBig rows
-  // holds (~a few MiB of cheap VectorRef / vertex handles) but well BELOW the O(N*dim) cost of
-  // materialising every embedding (retained_bytes). That gap is exactly the lazy-value win.
+  // Headroom: above the O(N) reference cache (~few MiB of VectorRef/vertex handles) but well below
+  // the O(N*dim) cost of materialising every embedding — that gap is the lazy-value win.
   const int64_t headroom = 8 * kOneMiB;
   Stabilize(db.get());
   const int64_t limit = Graph() + headroom;
@@ -572,13 +522,8 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThrou
   EXPECT_THROW(faker.Interpret("MATCH (n) RETURN n.emb"), memgraph::utils::OutOfMemoryException);
 }
 
-// ---------------------------------------------------------------------------
-// 8. Variant 1 map-projection round-trip: `n{.*}` reads properties WITHOUT reconstructing embeddings
-//    (they stay compact VectorIndexId references) and wraps each as a lazy VectorRef inside the map.
-//    Serialising the map must still yield the full embedding — this proves the no-decoder read + the
-//    VectorRef wrap + Bolt materialisation are correct end-to-end (a broken lazy path would surface an
-//    empty list here). Small/fast dataset; correctness only, no memory cap.
-// ---------------------------------------------------------------------------
+// Map-projection round-trip: `n{.*}` wraps the compact VectorIndexId as a lazy VectorRef;
+// Bolt serialisation must materialise the full embedding (a broken lazy path returns an empty list).
 TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_MapProjectionMaterialisesFullEmbedding) {
   auto gk = MakeDb("t8");
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{

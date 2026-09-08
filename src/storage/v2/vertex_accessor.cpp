@@ -715,7 +715,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
       // Don't cache a reconstructed embedding: it would pin O(dim) floats per vertex on the graph
-      // tracker for the whole transaction. A later read re-applies the (short) delta chain instead.
+      // tracker for the whole transaction. A later read re-applies the delta chain instead.
       if (!value.IsVectorIndexId()) cache.StoreProperty(view, vertex_, property, value);
     }
   }
@@ -723,21 +723,6 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(value);
-}
-
-bool VertexAccessor::GetVectorInto(PropertyId property, std::span<float> out) const {
-  // Read the stored reference form (VectorIndexId) WITHOUT the decoder, so nothing is reconstructed
-  // into an owning PropertyValue. Committed base state only (prototype).
-  const auto ref = std::invoke([&] {
-    VertexReadLock read_lock{vertex_};
-    auto const guard = read_lock.AcquireLock();
-    return vertex_->properties.GetProperty(property);
-  });
-  if (!ref.IsVectorIndexId()) return false;
-  const auto &ids = ref.ValueVectorIndexIds();
-  if (ids.empty()) return false;
-  const auto index_name = storage_->name_id_mapper_->IdToName(ids[0]);
-  return storage_->indices_.vector_index_.GetVectorInto(vertex_, index_name, storage_->name_id_mapper_.get(), out);
 }
 
 bool VertexAccessor::GetVectorInto(PropertyId property, std::vector<float> &out) const {
@@ -820,9 +805,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
-      // Skip caching the whole map if it holds a reconstructed embedding: caching only the non-embedding
-      // subset would serve an incomplete map on a later cache hit, and caching the floats would pin
-      // O(dim) per vertex for the transaction. A later read re-applies the delta chain instead.
+      // VectorIndexId in map: skip cache — pins O(dim) floats under reconstruction; mode-mismatch without.
       bool has_embedding = false;
       for (auto const &kv : properties) {
         if (kv.second.IsVectorIndexId()) {

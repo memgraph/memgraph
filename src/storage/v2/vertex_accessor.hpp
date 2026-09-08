@@ -91,15 +91,8 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
-  /// PROTOTYPE (Variant 1): if `property` is a vector-index-backed embedding, reconstruct it into
-  /// the caller buffer `out` with zero allocation and return true; otherwise return false (the caller
-  /// falls back to GetProperty). Lets operators/serialization materialize the embedding transiently
-  /// without ever holding an owning PropertyValue. Reads committed base state (no delta resolution).
-  bool GetVectorInto(PropertyId property, std::span<float> out) const;
-
-  /// Resizable variant: reconstructs the indexed embedding into `out`, resizing it to the index
-  /// dimension. Returns false if `property` is not a vector-index embedding. Used by the lazy
-  /// TypedValue to materialize into a reused buffer (compare/hash/serialize) or a result list.
+  /// Reconstruct a vertex's indexed vector into `out` (resized to the index dimension); false if absent.
+  /// Zero owning PropertyValue — used to materialize an embedding transiently.
   bool GetVectorInto(PropertyId property, std::vector<float> &out) const;
 
   /// Returns the size of the encoded vertex property in bytes.
