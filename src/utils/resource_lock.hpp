@@ -11,6 +11,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -223,6 +224,20 @@ struct ResourceLock {
   bool try_acquire_pending() {
     auto guard = std::unique_lock{mtx};
     if (!try_acquire<Req>()) return false;
+    pending_sub<Req>();
+    return true;
+  }
+
+  /// Timed variant of try_acquire_pending: waits up to `time` for can_acquire<Req>(), then
+  /// transitions from pending to held on success (deregisters the pending count). On timeout
+  /// returns false and leaves the pending registration intact so the caller can retry. Never
+  /// calls maybe_notify on failure — the caller's PendingScope destructor handles that via
+  /// unregister_pending when the campaign is finally abandoned.
+  template <LockReq Req, typename Rep, typename Period>
+  bool try_acquire_pending_for(std::chrono::duration<Rep, Period> const &time) {
+    auto guard = std::unique_lock{mtx};
+    if (!cv.wait_for(guard, time, [this] { return can_acquire<Req>(); })) return false;
+    commit_state<Req>();
     pending_sub<Req>();
     return true;
   }
@@ -685,6 +700,16 @@ class PendingScope {
   std::optional<ResourceLockGuard> try_acquire() {
     if (lock_ == nullptr) return std::nullopt;  // already consumed by a prior successful call
     if (!lock_->template try_acquire_pending<Req>()) return std::nullopt;
+    Lock *acquired_lock = std::exchange(lock_, nullptr);
+    return ResourceLockGuard{*acquired_lock, ToGuardType(Req), std::adopt_lock};
+  }
+
+  /// Timed variant of try_acquire: waits up to `time` for the lock to admit `Req`, then returns
+  /// the guard on success. On timeout returns nullopt and leaves the pending registration intact.
+  template <typename Rep, typename Period>
+  std::optional<ResourceLockGuard> try_acquire_for(std::chrono::duration<Rep, Period> const &time) {
+    if (lock_ == nullptr) return std::nullopt;
+    if (!lock_->template try_acquire_pending_for<Req>(time)) return std::nullopt;
     Lock *acquired_lock = std::exchange(lock_, nullptr);
     return ResourceLockGuard{*acquired_lock, ToGuardType(Req), std::adopt_lock};
   }

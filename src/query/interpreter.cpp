@@ -195,7 +195,7 @@ TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expres
 // access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-    storage::StorageAccessType acc_type) {
+    storage::StorageAccessType acc_type, utils::PriorityThreadPool *pool) {
   if (!db_acc_) {
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
@@ -204,8 +204,12 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
 
   if (db_acc->storage()->IsCommitSerialised()) {
+    // Layer-1: pressure-scaled timed wait. AdmissionTryBudget() returns a duration proportional
+    // to pool idle capacity — longer when workers are free, shorter under pressure.
+    const auto budget =
+        pool ? pool->AdmissionTryBudget() : std::chrono::microseconds{std::numeric_limits<int64_t>::max()};
     if (!pending_access_) {
-      if (auto acc = db_acc->storage()->TryAccess(acc_type, override_isolation_level)) {  // uncontended: no alloc
+      if (auto acc = db_acc->storage()->TryAccessFor(acc_type, override_isolation_level, budget)) {
         db_transactional_accessor_ = std::move(acc);
       } else {
         pending_access_ = db_acc->storage()->MakePendingAccess(acc_type);  // nullptr on Disk
@@ -213,7 +217,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     }
     if (pending_access_) {
       if (!pending_begin_deadline_) pending_begin_deadline_ = std::chrono::steady_clock::now() + timeout;
-      if (auto acc = pending_access_->TryAcquire(override_isolation_level)) {
+      if (auto acc = pending_access_->TryAcquireFor(override_isolation_level, budget)) {
         db_transactional_accessor_ = std::move(acc);
         pending_access_.reset();
         pending_begin_deadline_.reset();
@@ -221,8 +225,14 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
         pending_access_.reset();
         pending_begin_deadline_.reset();
         storage::ThrowAccessTimeout(acc_type);
-      } else {
+      } else if (pool != nullptr && pool->ShouldParkAdmission()) {
+        // Productive workers are available to absorb this BEGIN after rescheduling.
         throw BeginWouldBlockException{*pending_begin_deadline_};
+      } else {
+        // P==0 or no pool: do not park — fall through to the blocking Access() switch so
+        // this thread does not stall forever on an idle strand with no one to reschedule it.
+        pending_access_.reset();
+        pending_begin_deadline_.reset();
       }
     }
   }
@@ -11301,7 +11311,8 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
       });
     }
   }
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
+  current_db_.SetupDatabaseTransaction(
+      GetIsolationLevelOverride(), couldCommit, acc_type, interpreter_context_->worker_pool);
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
