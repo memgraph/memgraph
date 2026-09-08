@@ -41,6 +41,10 @@
 #include "utils/resource_monitoring.hpp"
 #endif
 
+namespace memgraph::utils {
+class PriorityThreadPool;
+}  // namespace memgraph::utils
+
 namespace memgraph::query {
 
 class FineGrainedAuthChecker;
@@ -263,7 +267,8 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
+                                utils::PriorityThreadPool *pool = nullptr);
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {

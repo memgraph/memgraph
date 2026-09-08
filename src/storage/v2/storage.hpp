@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -391,6 +392,11 @@ class Storage {
     /// Returns the built accessor if main_lock_ now admits the requested mode, else nullptr
     /// (still registered pending — call again on the next wake). Never blocks, never throws.
     virtual std::unique_ptr<Accessor> TryAcquire(std::optional<IsolationLevel> override_isolation_level) = 0;
+    /// Timed variant: waits up to `budget` for main_lock_ to admit the mode. Returns the accessor
+    /// on success, nullptr on timeout (pending registration stays for the next probe).
+    /// Default falls back to the one-probe TryAcquire for backends without timed-wait support.
+    virtual std::unique_ptr<Accessor> TryAcquireFor(std::optional<IsolationLevel> override_isolation_level,
+                                                    std::chrono::microseconds budget);
   };
 
   /// Returns a PendingAccess for non-blocking BEGIN retry, or nullptr when the storage backend does
@@ -404,6 +410,13 @@ class Storage {
                                               std::optional<IsolationLevel> /*override_isolation_level*/ = {}) {
     return nullptr;
   }
+
+  /// Timed variant of TryAccess: waits up to `budget` for main_lock_ to admit the requested mode.
+  /// Returns the accessor on success, nullptr on timeout. Default falls back to one-probe TryAccess
+  /// for backends (DiskStorage) that have no timed-probe path.
+  virtual std::unique_ptr<Accessor> TryAccessFor(StorageAccessType rw_type,
+                                                 std::optional<IsolationLevel> override_isolation_level,
+                                                 std::chrono::microseconds budget);
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 

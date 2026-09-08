@@ -5099,6 +5099,14 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType 
   return AccessorFromGuard(std::move(guard), override_isolation_level);
 }
 
+std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessFor(StorageAccessType rw_type,
+                                                                 std::optional<IsolationLevel> override_isolation_level,
+                                                                 std::chrono::microseconds budget) {
+  utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::defer_lock};
+  if (!guard.try_lock_for(budget)) return nullptr;
+  return AccessorFromGuard(std::move(guard), override_isolation_level);
+}
+
 namespace {
 class InMemoryPendingAccess final : public Storage::PendingAccess {
  public:
@@ -5128,6 +5136,22 @@ class InMemoryPendingAccess final : public Storage::PendingAccess {
       }
       default:
         return storage_->TryAccess(rw_type_, iso);  // READ/WRITE: plain one-probe
+    }
+  }
+
+  std::unique_ptr<Storage::Accessor> TryAcquireFor(std::optional<IsolationLevel> iso,
+                                                   std::chrono::microseconds budget) override {
+    switch (rw_type_) {
+      case StorageAccessType::UNIQUE: {
+        auto g = std::get<utils::UniquePendingScope>(scope_).try_acquire_for(budget);
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      case StorageAccessType::READ_ONLY: {
+        auto g = std::get<utils::ReadOnlyPendingScope>(scope_).try_acquire_for(budget);
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      default:
+        return storage_->TryAccessFor(rw_type_, iso, budget);  // READ/WRITE: timed probe
     }
   }
 
