@@ -28,14 +28,17 @@
 #include "memory/db_arena.hpp"
 #include "memory/global_memory_control.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/typed_value.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "system/system.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 
 using memgraph::storage::PropertyValue;
@@ -564,6 +567,88 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_MapProjectionMaterialisesFullE
     // A broken lazy path would hand back an empty (un-reconstructed) list; the full vector must survive.
     EXPECT_EQ(emb.size(), static_cast<size_t>(kDim)) << "lazy map embedding must materialise to full dimension";
   }
+}
+
+// A lazy VectorRef must behave exactly like the List<Double> it materialises to. Two consequences the
+// value-level code must guarantee: (1) equal values hash identically, or a DISTINCT/GROUP BY hash set
+// keeps a lazy ref and its materialised twin as separate rows; (2) the write-path conversion produces
+// that same list instead of throwing, so SET/CREATE can copy an embedding.
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_HashConsistentAndWritePathMaterialises) {
+  auto gk = MakeDb("t9");
+  memgraph::dbms::DatabaseAccess db = [&]() {
+    auto a = gk->access();
+    MG_ASSERT(a, "db access");
+    return *a;
+  }();
+  auto label = db->storage()->NameToLabel("Doc");
+  auto prop = db->storage()->NameToProperty("emb");
+  Populate(db.get(), label, prop, kNumVertices, kDim);
+  CreateIndex(db.get(), label, prop, kDim, kNumVertices);
+
+  auto acc = db->Access();
+  auto vertices = acc->Vertices(View::NEW);
+  auto it = vertices.begin();
+  ASSERT_NE(it, vertices.end());
+  const memgraph::storage::VertexAccessor sva = *it;
+
+  auto *mem = memgraph::utils::NewDeleteResource();
+  const memgraph::query::TypedValue vref{memgraph::query::LazyVectorRef{sva, prop}, mem};
+  ASSERT_TRUE(vref.IsVectorRef());
+
+  const memgraph::query::TypedValue materialised = vref.MaterializeVectorRef(mem);
+  ASSERT_TRUE(materialised.IsList());
+  ASSERT_EQ(materialised.ValueList().size(), static_cast<size_t>(kDim));
+
+  // (1) equal => same hash. A float-vs-double hash mismatch would silently keep both under DISTINCT.
+  EXPECT_TRUE((vref == materialised).ValueBool());
+  EXPECT_EQ(memgraph::query::TypedValue::Hash{}(vref), memgraph::query::TypedValue::Hash{}(materialised));
+
+  // (2) the ref converts to the same double list a literal assignment would store, not a throw.
+  memgraph::storage::PropertyValue pv;
+  EXPECT_NO_THROW(pv = vref.ToPropertyValue(nullptr));
+  // Storage keeps typed double-lists distinct from generic lists; assert on the query-layer list the
+  // stored value round-trips to (the shape a reader actually sees).
+  const memgraph::query::TypedValue back{pv, nullptr, mem};
+  ASSERT_TRUE(back.IsList());
+  EXPECT_EQ(back.ValueList().size(), static_cast<size_t>(kDim));
+}
+
+// The user-facing write path: SET copying an embedding to another property runs the ref through
+// ToPropertyValue and must store the full vector rather than throwing "Unsupported conversion".
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_SetCopiesEmbeddingProperty) {
+  auto gk = MakeDb("t10");
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(MakeConfig(data_dir_ / "t10"))};
+  memgraph::dbms::DatabaseAccess db = [&]() {
+    auto a = gk->access();
+    MG_ASSERT(a, "db access");
+    return *a;
+  }();
+  auto label = db->storage()->NameToLabel("Doc");
+  auto prop = db->storage()->NameToProperty("emb");
+  Populate(db.get(), label, prop, kNumVertices, kDim);
+  CreateIndex(db.get(), label, prop, kDim, kNumVertices);
+
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          kNoHandler,
+                                                          &repl_state,
+                                                          system_state,
+                                                          nullptr
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr,
+                                                          nullptr
+#endif
+  };
+  InterpreterFaker faker{&interpreter_context, db};
+
+  auto stream = faker.Interpret("MATCH (n) WITH n LIMIT 1 SET n.copy = n.emb RETURN size(n.copy) AS s");
+  ASSERT_EQ(stream.GetResults().size(), 1u);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim))
+      << "SET n.copy = n.emb must persist the full embedding as a list";
 }
 
 #endif  // USE_JEMALLOC

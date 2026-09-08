@@ -13,6 +13,7 @@
 
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
@@ -117,6 +118,14 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
           os, value.ValueList(), ", ", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
       os << "]";
       break;
+    case memgraph::query::TypedValue::Type::VectorRef: {
+      std::vector<float> vec;
+      value.MaterializeVectorRefInto(vec);
+      os << "[";
+      memgraph::utils::PrintIterable(os, vec, ", ", [](auto &stream, const auto &item) { stream << item; });
+      os << "]";
+      break;
+    }
     case memgraph::query::TypedValue::Type::Map:
       os << "{";
       memgraph::utils::PrintIterable(os, value.ValueMap(), ", ", [&](auto &stream, const auto &pair) {

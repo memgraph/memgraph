@@ -695,6 +695,15 @@ TypedValue::operator storage::ExternalPropertyValue() const {
       return storage::ExternalPropertyValue(point_2d_v);
     case TypedValue::Type::Point3d:
       return storage::ExternalPropertyValue(point_3d_v);
+    case Type::VectorRef: {
+      // Materialize the lazy embedding ref into a plain list of doubles, matching the List case above.
+      std::vector<float> tmp;
+      MaterializeVectorRefInto(tmp);
+      std::vector<storage::ExternalPropertyValue> list;
+      list.reserve(tmp.size());
+      for (float f : tmp) list.emplace_back(static_cast<double>(f));
+      return storage::ExternalPropertyValue(std::move(list));
+    }
     case Type::Vertex:
     case Type::Edge:
     case Type::VirtualEdge:
@@ -703,7 +712,6 @@ TypedValue::operator storage::ExternalPropertyValue() const {
     case Type::Graph:
     case Type::VirtualGraph:
     case Type::Function:
-    case Type::VectorRef:
       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
 }
@@ -970,6 +978,16 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(point_2d_v);
     case TypedValue::Type::Point3d:
       return storage::PropertyValue(point_3d_v);
+    case Type::VectorRef: {
+      // A lazy embedding ref materializes to the same DoubleList a literal `SET n.emb = [...]` stores,
+      // so a persisted copy is re-indexed by the vector index exactly like any other double list.
+      std::vector<float> tmp;
+      MaterializeVectorRefInto(tmp);
+      storage::PropertyValue::list_t list;
+      list.reserve(tmp.size());
+      for (float f : tmp) list.emplace_back(static_cast<double>(f));
+      return storage::PropertyValue(storage::DoubleListTag{}, std::move(list));
+    }
     case Type::Vertex:
     case Type::Edge:
     case Type::VirtualEdge:
@@ -978,7 +996,6 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
     case Type::Graph:
     case Type::VirtualGraph:
     case Type::Function:
-    case Type::VectorRef:
       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
 }
@@ -1052,7 +1069,11 @@ TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
 
 void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRefInto called on non-VectorRef TypedValue");
-  std::visit([&](auto const &acc) { acc.GetVectorInto(vector_ref_v.prop, out); }, vector_ref_v.entity);
+  const bool ok =
+      std::visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, out); }, vector_ref_v.entity);
+  // On any miss GetVectorInto leaves `out` untouched (or resized but unfilled); clear the reused
+  // thread-local scratch so a failed lookup never compares/hashes against a prior entity's floats.
+  if (!ok) out.clear();
 }
 
 bool TypedValue::ContainsDeleted() const {
@@ -2035,14 +2056,18 @@ size_t Hash(const TypedValue &value) {
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported hash function for VirtualGraph");
     case TypedValue::Type::VectorRef: {
-      // Thread-local float buffer avoids pmr arena growth on DISTINCT/GROUP BY; must stay consistent with operator== (same float sequence).
+      // A VectorRef is equal to the List<Double> that MaterializeVectorRef produces, so it must hash
+      // identically or DISTINCT/GROUP BY would keep duplicates. Fold the same FnvCollection hash over
+      // a reused thread-local float buffer (no List allocated in the monotonic query arena), hashing
+      // each float exactly as its materialized Double element would be.
       thread_local std::vector<float> tmp;
       value.MaterializeVectorRefInto(tmp);
-      size_t h = 0;
-      for (float f : tmp) {
-        h ^= std::hash<float>{}(f) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-      }
-      return h;
+
+      struct FloatAsDoubleHash {
+        size_t operator()(float f) const { return Hash(TypedValue(static_cast<double>(f))); }
+      };
+
+      return utils::FnvCollection<std::vector<float>, float, FloatAsDoubleHash>{}(tmp);
     }
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");

@@ -652,9 +652,13 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
+      // A lazy vector-index embedding maps to LIST but has no ValueList(); materialize it first.
+      const memgraph::query::TypedValue materialized =
+          tv.IsVectorRef() ? tv.MaterializeVectorRef(tv.get_allocator()) : memgraph::query::TypedValue{};
+      const memgraph::query::TypedValue &list_tv = tv.IsVectorRef() ? materialized : tv;
       memgraph::utils::pmr::vector<mgp_value> elems(alloc);
-      elems.reserve(tv.ValueList().size());
-      for (const auto &elem : tv.ValueList()) {
+      elems.reserve(list_tv.ValueList().size());
+      for (const auto &elem : list_tv.ValueList()) {
         elems.emplace_back(elem, graph);
       }
       memgraph::utils::Allocator<mgp_list> allocator(alloc);
