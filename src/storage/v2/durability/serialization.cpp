@@ -82,6 +82,13 @@ void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
 }
 
 template <typename FileType>
+void Encoder<FileType>::WriteRaw(const uint8_t *data, uint64_t size) {
+  file_.Write(data, size);
+  logical_position_ += size;
+  logical_size_ = std::max(logical_size_, logical_position_);
+}
+
+template <typename FileType>
 void Encoder<FileType>::WriteMarker(Marker marker) {
   auto value = static_cast<uint8_t>(marker);
   Write(&value, sizeof(value));

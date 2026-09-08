@@ -20,6 +20,7 @@
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/description_store.hpp"
+#include "storage/v2/durability/buffer_encoder.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
@@ -544,6 +545,26 @@ struct WalTxnEndPos {
   uint32_t stored_crc_{0};   // the CRC value written at crc_wal_pos_
 };
 
+/// What encoding a whole transaction through one encoder produced. Positions are the encoder's native positions:
+/// absolute file offsets on a file encoder, buffer-relative on a fresh buffer that starts at zero.
+struct TxnEncodeResult {
+  uint64_t commit_flag_position{0};  // where the commit flag of the transaction-start frame was written
+  uint64_t crc_position{0};          // where the transaction-end CRC value was written
+  uint32_t stored_crc{0};            // the CRC value written at crc_position
+  uint64_t frame_count{0};           // start + metadata + data + end, one per UpdateStats call on the file path
+};
+
+/// A transaction encoded, CRC included, into a private buffer, ready to be appended verbatim to a WAL file.
+struct TxnWalBuffer {
+  BufferEncoder encoder;
+  TxnEncodeResult result{};
+  uint64_t timestamp{0};
+
+  explicit TxnWalBuffer(TxnAllocPolicy policy) : encoder{policy} {}
+
+  explicit TxnWalBuffer(PipelineBudget &budget) : TxnWalBuffer(TxnAllocPolicy{&budget, 0}) {}
+};
+
 /// Function used to encode the transaction start
 /// Returns the position where the flag 'commit' is about to be written
 uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
@@ -633,6 +654,11 @@ class WalFile {
 
   WalTxnEndPos AppendTransactionEnd(uint64_t timestamp);
 
+  /// Appends a complete buffered transaction verbatim, updates count_/from_/to_timestamp_ once per frame and
+  /// num_deltas_ to the completed-transaction boundary, and returns absolute positions for 2PC patching. The caller
+  /// holds the WAL ordering (CommitOrderGate).
+  auto AppendEncodedTransaction(TxnWalBuffer const &buffer) -> WalTxnDataPos;
+
   void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
                        LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
@@ -674,6 +700,11 @@ class WalFile {
  private:
   /// Fills in the summary of what was actually written, over the placeholders the constructor reserved.
   void WriteSummary();
+
+  /// The per-frame bookkeeping the inline append path performs as it goes, applied at once for a transaction that
+  /// was appended whole from a private buffer. Only correct for a fully appended transaction, which is also what a
+  /// complete `commit=false` prepare record is.
+  void CompleteTransactionBookkeeping(TxnEncodeResult const &result, uint64_t timestamp);
 
   /// Bytes the summary region occupies: three values plus its own CRC trailer, each a marker and a uint64.
   static constexpr uint64_t kSummaryBytes = 4 * (sizeof(Marker) + sizeof(uint64_t));

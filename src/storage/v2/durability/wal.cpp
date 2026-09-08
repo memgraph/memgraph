@@ -2436,6 +2436,24 @@ WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
   return txn_end_pos;
 }
 
+auto WalFile::AppendEncodedTransaction(TxnWalBuffer const &buffer) -> WalTxnDataPos {
+  auto const base = wal_.GetPosition();
+  auto const bytes = buffer.encoder.bytes();
+  wal_.WriteRaw(bytes.data(), bytes.size());
+  CompleteTransactionBookkeeping(buffer.result, buffer.timestamp);
+  return {.commit_flag_wal_position_ = base + buffer.result.commit_flag_position,
+          .crc_wal_pos_ = base + buffer.result.crc_position,
+          .stored_crc_ = buffer.result.stored_crc};
+}
+
+void WalFile::CompleteTransactionBookkeeping(TxnEncodeResult const &result, uint64_t timestamp) {
+  for (uint64_t frame = 0; frame < result.frame_count; ++frame) {
+    UpdateStats(timestamp);
+  }
+  // Everything appended so far now belongs to a completed transaction.
+  num_deltas_ = count_;
+}
+
 void WalFile::Sync() { wal_.Sync(); }
 
 uint64_t WalFile::GetSize() { return wal_.GetSize(); }

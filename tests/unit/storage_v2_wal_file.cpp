@@ -31,10 +31,12 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/txn_commands.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/pipeline_budget.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage_test_utils.hpp"
 #include "utils/file.hpp"
@@ -250,6 +252,61 @@ class DeltaGenerator final {
       }
     }
 
+    // Emits exactly what the storage engine's inline WAL path emits for this transaction: one start frame (which
+    // resets the CRC accumulator), then the deltas, then the end frame. Deltas are visited in the order Commands()
+    // returns them, so an encoded-and-appended copy of Commands() is byte-identical to this.
+    void FinalizeEngineFormat(uint64_t timestamp, bool commit, memgraph::storage::StorageAccessType access_type) {
+      auto const commit_flag_position = gen_->wal_file_.AppendTransactionStart(timestamp, commit, access_type);
+      auto const commands = Commands();
+      for (auto const &cmd : commands.data) {
+        if (cmd.edge != nullptr) {
+          gen_->wal_file_.AppendDelta(
+              *cmd.delta, cmd.edge, timestamp, gen_->storage_.get(), cmd.in_vertex_gid, cmd.edge_type_id);
+        } else {
+          gen_->wal_file_.AppendDelta(*cmd.delta, cmd.vertex, timestamp, gen_->storage_.get());
+        }
+      }
+      auto const txn_end_pos = gen_->wal_file_.AppendTransactionEnd(timestamp);
+      gen_->last_txn_positions_ = {.commit_flag_wal_position_ = commit_flag_position,
+                                   .crc_wal_pos_ = txn_end_pos.crc_wal_pos_,
+                                   .stored_crc_ = txn_end_pos.stored_crc_};
+      gen_->txn_end_marker_positions_.push_back(txn_end_pos.crc_wal_pos_ - 1);
+      gen_->UpdateStats(timestamp, commands.data.size() + 2);
+    }
+
+    // The generator-owned deltas as encode-ordered commands, resolved the way Finalize resolves their owners.
+    memgraph::storage::TxnCommands Commands() {
+      memgraph::storage::TxnCommands commands{memgraph::storage::TxnAllocPolicy{}};
+      for (const auto &delta : transaction_.deltas) {
+        if (delta.action == memgraph::storage::Delta::Action::ADD_IN_EDGE ||
+            delta.action == memgraph::storage::Delta::Action::REMOVE_IN_EDGE) {
+          continue;
+        }
+        auto owner = delta.prev.Get();
+        while (owner.type == memgraph::storage::PreviousPtr::Type::DELTA) {
+          owner = owner.delta->prev.Get();
+        }
+        if (owner.type == memgraph::storage::PreviousPtr::Type::VERTEX) {
+          commands.data.push_back({.delta = &delta, .vertex = owner.vertex, .edge = nullptr});
+        } else if (owner.type == memgraph::storage::PreviousPtr::Type::EDGE) {
+          if (delta.action != memgraph::storage::Delta::Action::SET_PROPERTY) continue;
+          auto it = gen_->edge_metadata_.find(owner.edge->gid.AsUint());
+          auto in_vertex_gid =
+              (it != gen_->edge_metadata_.end()) ? it->second.to_vertex->gid : memgraph::storage::kInvalidGid;
+          auto edge_type_id =
+              (it != gen_->edge_metadata_.end()) ? it->second.edge_type_id : memgraph::storage::kInvalidEdgeTypeId;
+          commands.data.push_back({.delta = &delta,
+                                   .vertex = nullptr,
+                                   .edge = owner.edge,
+                                   .in_vertex_gid = in_vertex_gid,
+                                   .edge_type_id = edge_type_id});
+        } else {
+          LOG_FATAL("Invalid delta owner!");
+        }
+      }
+      return commands;
+    }
+
     void StartTx() {
       auto timestamp = gen_->timestamp_;
       constexpr bool commit{true};
@@ -286,14 +343,41 @@ class DeltaGenerator final {
 
   DeltaGenerator(const std::filesystem::path &data_directory, bool properties_on_edges, uint64_t seq_num,
                  memgraph::storage::StorageMode storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
-      : epoch_id_(memgraph::utils::GenerateUUID()),
+      : DeltaGenerator(data_directory, properties_on_edges, seq_num, memgraph::utils::UUID{},
+                       memgraph::utils::GenerateUUID(), storage_mode) {}
+
+  // Fixed UUID and epoch, so two generators can produce byte-identical files (the header CRC covers both).
+  DeltaGenerator(const std::filesystem::path &data_directory, bool properties_on_edges, uint64_t seq_num,
+                 memgraph::utils::UUID uuid, std::string epoch_id,
+                 memgraph::storage::StorageMode storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
+      : uuid_(uuid),
+        epoch_id_(std::move(epoch_id)),
         seq_num_(seq_num),
         storage_(std::make_unique<memgraph::storage::InMemoryStorage>()),
-        wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges},
-                  storage_->name_id_mapper_.get(), seq_num, &file_retainer_),
+        items_{.properties_on_edges = properties_on_edges},
+        wal_file_(data_directory, uuid_, epoch_id_, items_, storage_->name_id_mapper_.get(), seq_num, &file_retainer_),
         storage_mode_(storage_mode) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
+
+  auto Path() const -> std::filesystem::path const & { return wal_file_.Path(); }
+
+  auto wal() -> memgraph::storage::durability::WalFile & { return wal_file_; }
+
+  auto LastTxnPositions() const -> memgraph::storage::durability::WalTxnDataPos const & { return last_txn_positions_; }
+
+  auto storage() -> memgraph::storage::InMemoryStorage * { return storage_.get(); }
+
+  // The items the generator passed to its own WAL (the test's edge-property mode), not the storage's defaults.
+  auto items() const -> memgraph::storage::SalientConfig::Items const & { return items_; }
+
+  // Bookkeeping for a transaction appended whole from a private buffer, mirroring FinalizeEngineFormat.
+  void RecordEncodedAppend(memgraph::storage::durability::WalTxnDataPos positions, uint64_t timestamp,
+                           uint64_t frame_count) {
+    last_txn_positions_ = positions;
+    txn_end_marker_positions_.push_back(positions.crc_wal_pos_ - 1);
+    UpdateStats(timestamp, frame_count);
+  }
 
   void EraseEdgeMetadata(memgraph::storage::Gid edge_gid) { edge_metadata_.erase(edge_gid.AsUint()); }
 
@@ -713,7 +797,9 @@ class DeltaGenerator final {
   std::unique_ptr<memgraph::storage::InMemoryStorage> storage_;
   memgraph::storage::EnumStore enum_store_;
 
+  memgraph::storage::SalientConfig::Items items_;
   memgraph::storage::durability::WalFile wal_file_;
+  memgraph::storage::durability::WalTxnDataPos last_txn_positions_;
 
   memgraph::storage::NameIdMapper &mapper() { return *storage_->name_id_mapper_; }
 
@@ -1690,6 +1776,219 @@ TEST_P(WalFileTest, FinalizedFileEndingMidTransactionFailsRecovery) {
   // the phantom vertex the flipped marker decodes into.
   ASSERT_TRUE(memgraph::storage::durability::ReadWalHeader(wal_file).summary.has_value());
   EXPECT_THROW(ReplayWal(wal_file, GetParam()), memgraph::storage::durability::RecoveryFailure);
+}
+
+// ---- Pipelined commit: encode-to-buffer and verbatim append -------------------------------------------------------
+
+std::vector<uint8_t> ReadFileBytes(std::filesystem::path const &path) {
+  memgraph::utils::InputFile file;
+  EXPECT_TRUE(file.Open(path)) << path;
+  std::vector<uint8_t> bytes(file.GetSize());
+  EXPECT_TRUE(file.Read(bytes.data(), bytes.size()));
+  return bytes;
+}
+
+// The summary as ReadWalContents/LoadWal trust it, without scanning the deltas.
+memgraph::storage::durability::WalSummary HeaderSummary(std::filesystem::path const &path) {
+  auto const header = memgraph::storage::durability::ReadWalHeader(path);
+  EXPECT_TRUE(header.summary.has_value()) << "a finalized WAL file must carry its summary";
+  return header.summary.value_or(memgraph::storage::durability::WalSummary{});
+}
+
+// Replays a WAL file the way recovery does and counts the vertices that survived it.
+size_t RecoverAndCountVisibleVertices(std::filesystem::path const &path, bool properties_on_edges) {
+  memgraph::storage::durability::RecoveredIndicesAndConstraints indices_constraints;
+  memgraph::utils::SkipListDb<memgraph::storage::Vertex> vertices;
+  memgraph::utils::SkipListDb<memgraph::storage::Edge> edges;
+  memgraph::storage::NameIdMapper name_id_mapper;
+  std::atomic<uint64_t> edge_count{0};
+  memgraph::storage::EnumStore enum_store;
+  auto find_edge = [](memgraph::storage::Gid) -> std::optional<std::tuple<memgraph::storage::EdgeRef,
+                                                                          memgraph::storage::EdgeTypeId,
+                                                                          memgraph::storage::Vertex *,
+                                                                          memgraph::storage::Vertex *>> {
+    return std::nullopt;
+  };
+  static_cast<void>(memgraph::storage::durability::LoadWal(
+      path,
+      &indices_constraints,
+      std::nullopt,
+      &vertices,
+      &edges,
+      &name_id_mapper,
+      &edge_count,
+      memgraph::storage::SalientConfig::Items{.properties_on_edges = properties_on_edges},
+      &enum_store,
+      nullptr,
+      find_edge,
+      nullptr,
+      nullptr));
+  size_t visible = 0;
+  auto acc = vertices.access();
+  for (auto const &vertex : acc) {
+    if (!vertex.deleted()) ++visible;
+  }
+  return visible;
+}
+
+// Decodes every transaction in the file and checks each one's CRC (the pattern of WalTransactionOrdering).
+bool VerifyAllTransactionCrcs(std::filesystem::path const &path) {
+  auto const info = memgraph::storage::durability::ReadWalInfo(path);
+  memgraph::storage::durability::Decoder wal;
+  wal.Initialize(path, memgraph::storage::durability::kWalMagic);
+  wal.SetPosition(info.offset_deltas);
+  wal.ResetCrcAcc();
+  bool all_ok = true;
+  for (uint64_t i = 0; i < info.num_deltas; ++i) {
+    static_cast<void>(memgraph::storage::durability::ReadWalDeltaHeader(&wal));
+    auto delta_data = memgraph::storage::durability::ReadWalDeltaData(&wal);
+    if (std::get_if<memgraph::storage::durability::WalTransactionEnd>(&delta_data.data_) != nullptr) {
+      all_ok &= memgraph::utils::CrcAccumulator::Verify(wal.CrcAccValue());
+      wal.ResetCrcAcc();
+    }
+  }
+  return all_ok;
+}
+
+// Encodes the generator-owned transaction into a private buffer and appends it verbatim, the way a pipelined commit
+// does; returns the absolute positions the WAL file reported.
+memgraph::storage::durability::WalTxnDataPos AppendEncoded(DeltaGenerator &gen, DeltaGenerator::Transaction &tx,
+                                                           memgraph::storage::PipelineBudget &budget,
+                                                           uint64_t timestamp, bool commit) {
+  memgraph::storage::durability::TxnWalBuffer buffer{budget};
+  buffer.result = memgraph::storage::EncodeTxnCommandsTo(buffer.encoder,
+                                                         tx.Commands(),
+                                                         gen.storage(),
+                                                         gen.items(),
+                                                         timestamp,
+                                                         commit,
+                                                         memgraph::storage::StorageAccessType::WRITE,
+                                                         [] {});
+  buffer.timestamp = timestamp;
+  auto const positions = gen.wal().AppendEncodedTransaction(buffer);
+  gen.RecordEncodedAppend(positions, timestamp, buffer.result.frame_count);
+  return positions;
+}
+
+TEST_P(WalFileTest, EncodedAppendIsByteIdenticalToDirectAppend) {
+  // DeltaGenerator(path, properties_on_edges, seq_num, uuid, epoch): the third argument is the WAL sequence number.
+  auto const uuid = memgraph::utils::UUID{};
+  auto const epoch = std::string{"epoch-1"};
+  std::filesystem::create_directories(storage_directory);
+  DeltaGenerator direct(storage_directory / "direct", GetParam(), /*seq_num=*/7, uuid, epoch);
+  DeltaGenerator encoded(storage_directory / "encoded", GetParam(), /*seq_num=*/7, uuid, epoch);
+  auto d = direct.CreateTransaction();
+  auto *dv = d.CreateVertex();
+  d.AddLabel(dv, "L");
+  d.SetProperty(dv, "p", memgraph::storage::PropertyValue(1));
+  d.SetProperty(dv, "q", memgraph::storage::PropertyValue("x"));
+  auto *dw = d.CreateVertex();
+  // Without properties on edges the generator's edge reference is a pointer that EncodeDelta reads as a gid, so two
+  // generators cannot agree on it; the edge part of the identity check is meaningful only with properties on edges.
+  if (GetParam()) {
+    auto *de = d.CreateEdge(dv, dw, "E");
+    d.SetEdgeProperty(de, dv, "r", memgraph::storage::PropertyValue(2.5));
+  }
+  d.FinalizeEngineFormat(/*timestamp=*/100, /*commit=*/true, memgraph::storage::StorageAccessType::WRITE);
+
+  auto e = encoded.CreateTransaction();
+  auto *ev = e.CreateVertex();
+  e.AddLabel(ev, "L");
+  e.SetProperty(ev, "p", memgraph::storage::PropertyValue(1));
+  e.SetProperty(ev, "q", memgraph::storage::PropertyValue("x"));
+  auto *ew = e.CreateVertex();
+  if (GetParam()) {
+    auto *ee = e.CreateEdge(ev, ew, "E");
+    e.SetEdgeProperty(ee, ev, "r", memgraph::storage::PropertyValue(2.5));
+  }
+  memgraph::storage::PipelineBudget budget{1 << 20};
+  auto const positions = AppendEncoded(encoded, e, budget, /*timestamp=*/100, /*commit=*/true);
+  EXPECT_EQ(budget.InFlightBytes(), 0);
+
+  direct.Finalize();
+  encoded.Finalize();
+  EXPECT_EQ(ReadFileBytes(direct.Path()), ReadFileBytes(encoded.Path()));
+  auto const di = memgraph::storage::durability::ReadWalInfo(direct.Path());
+  auto const ei = memgraph::storage::durability::ReadWalInfo(encoded.Path());
+  EXPECT_EQ(ei.num_deltas, di.num_deltas);
+  EXPECT_EQ(ei.from_timestamp, 100);
+  EXPECT_EQ(ei.to_timestamp, 100);
+  EXPECT_EQ(positions.commit_flag_wal_position_, direct.LastTxnPositions().commit_flag_wal_position_);
+  EXPECT_EQ(positions.crc_wal_pos_, direct.LastTxnPositions().crc_wal_pos_);
+  EXPECT_EQ(positions.stored_crc_, direct.LastTxnPositions().stored_crc_);
+  EXPECT_EQ(positions.crc_wal_pos_ - positions.commit_flag_wal_position_,
+            direct.LastTxnPositions().crc_wal_pos_ - direct.LastTxnPositions().commit_flag_wal_position_);
+  EXPECT_TRUE(VerifyAllTransactionCrcs(encoded.Path()));
+}
+
+TEST_P(WalFileTest, MixedDirectAndEncodedAppendsSummarizeAndRecover) {
+  // Ten transactions, odd ones direct, even ones buffered; the header summary must equal a scan (the pattern of
+  // FinalizedHeaderSummaryMatchesScan) and LoadWal must recover all fifty vertices.
+  std::filesystem::create_directories(storage_directory);
+  DeltaGenerator gen(storage_directory, GetParam(), /*seq_num=*/3);
+  memgraph::storage::PipelineBudget budget{1 << 20};
+  for (int i = 0; i < 10; ++i) {
+    auto tx = gen.CreateTransaction();
+    for (int j = 0; j < 5; ++j) {
+      auto *vertex = tx.CreateVertex();
+      tx.AddLabel(vertex, "L");
+      tx.SetProperty(vertex, "p", memgraph::storage::PropertyValue(i * 5 + j));
+    }
+    auto const timestamp = static_cast<uint64_t>(100 + i);
+    if (i % 2 == 0) {
+      AppendEncoded(gen, tx, budget, timestamp, /*commit=*/true);
+    } else {
+      tx.FinalizeEngineFormat(timestamp, /*commit=*/true, memgraph::storage::StorageAccessType::WRITE);
+    }
+  }
+  gen.Finalize();
+  auto const info = memgraph::storage::durability::ReadWalInfo(gen.Path());  // scans
+  auto const summary = HeaderSummary(gen.Path());  // header, trusted by ReadWalContents/LoadWal
+  EXPECT_EQ(summary.num_deltas, info.num_deltas);
+  EXPECT_EQ(summary.from_timestamp, info.from_timestamp);
+  EXPECT_EQ(summary.to_timestamp, info.to_timestamp);
+  EXPECT_EQ(info.from_timestamp, 100);
+  EXPECT_EQ(info.to_timestamp, 109);
+  // Every transaction: start + 5 creates + 5 labels + 5 properties + end.
+  EXPECT_EQ(info.num_deltas, 10 * 17);
+  EXPECT_TRUE(VerifyAllTransactionCrcs(gen.Path()));
+  EXPECT_EQ(RecoverAndCountVisibleVertices(gen.Path(), GetParam()), 50);
+}
+
+TEST_P(WalFileTest, CommitFlagPatchWorksAtRelocatedOffsets) {
+  // One direct transaction first so the buffered one lands at a nonzero offset; the buffered one is a commit=false
+  // prepare record; UpdateCommitStatus(positions) flips it and patches the CRC, and recovery sees it committed.
+  std::filesystem::create_directories(storage_directory);
+  DeltaGenerator gen(storage_directory, GetParam(), /*seq_num=*/4);
+  memgraph::storage::PipelineBudget budget{1 << 20};
+  {
+    auto tx = gen.CreateTransaction();
+    auto *vertex = tx.CreateVertex();
+    tx.AddLabel(vertex, "L");
+    tx.FinalizeEngineFormat(/*timestamp=*/100, /*commit=*/true, memgraph::storage::StorageAccessType::WRITE);
+  }
+  memgraph::storage::durability::WalTxnDataPos positions;
+  {
+    auto tx = gen.CreateTransaction();
+    for (int j = 0; j < 3; ++j) {
+      auto *vertex = tx.CreateVertex();
+      tx.SetProperty(vertex, "p", memgraph::storage::PropertyValue(j));
+    }
+    positions = AppendEncoded(gen, tx, budget, /*timestamp=*/101, /*commit=*/false);
+  }
+  EXPECT_GT(positions.commit_flag_wal_position_, 0);
+  // A later transaction follows the prepare record, so the patch has to seek back and restore the append position.
+  {
+    auto tx = gen.CreateTransaction();
+    static_cast<void>(tx.CreateVertex());
+    tx.FinalizeEngineFormat(/*timestamp=*/102, /*commit=*/true, memgraph::storage::StorageAccessType::WRITE);
+  }
+  gen.wal().UpdateCommitStatus(positions);
+  gen.Finalize();
+  EXPECT_TRUE(VerifyAllTransactionCrcs(gen.Path()));
+  EXPECT_EQ(RecoverAndCountVisibleVertices(gen.Path(), GetParam()), 5);
+  auto const info = memgraph::storage::durability::ReadWalInfo(gen.Path());
+  EXPECT_EQ(HeaderSummary(gen.Path()).num_deltas, info.num_deltas);
 }
 
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {

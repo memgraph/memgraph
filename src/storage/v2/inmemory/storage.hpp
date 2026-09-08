@@ -37,6 +37,7 @@
 #include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
+#include "storage/v2/inmemory/txn_commands.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -186,6 +187,11 @@ class InMemoryStorage final : public Storage {
                                                    storage::Gid gid,
                                                    std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
                                                    std::optional<utils::SkipListDb<Edge>::Accessor> &edge_acc);
+
+    // Resolves every delta this transaction wrote into encode-ordered commands (the traversal with processed-head/tail
+    // tracking that tolerates concurrent abort rewiring). `progress` is invoked where the inline path invoked the
+    // replica progress callback; `policy` is propagated to every container the traversal allocates.
+    auto MaterializeTxnCommands(TxnAllocPolicy policy, std::function<void()> const &progress) -> TxnCommands;
 
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,

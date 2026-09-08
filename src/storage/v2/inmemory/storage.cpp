@@ -261,7 +261,8 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, BatchedList<Edge *> &current
  */
 class DeltaVertexCache {
  public:
-  explicit DeltaVertexCache(uint64_t commit_timestamp) : commit_timestamp_(commit_timestamp) {}
+  explicit DeltaVertexCache(uint64_t commit_timestamp, TxnAllocPolicy policy = {})
+      : commit_timestamp_(commit_timestamp), policy_(policy), cache_(CacheAllocator{policy}) {}
 
   Vertex *GetVertexFromDelta(Delta const *delta) {
     auto prev = delta->prev.Get();
@@ -270,7 +271,8 @@ class DeltaVertexCache {
     auto const it = cache_.find(delta);
     if (it != cache_.cend()) return it->second;
 
-    std::vector<Delta const *> discovered_subchain_heads{delta};
+    BudgetVector<Delta const *> discovered_subchain_heads{BudgetAllocator<Delta const *>{policy_}};
+    discovered_subchain_heads.push_back(delta);
 
     auto const write_to_cache = [&](auto *vertex) {
       for (auto const *uncached : discovered_subchain_heads) cache_[uncached] = vertex;
@@ -307,8 +309,11 @@ class DeltaVertexCache {
   }
 
  private:
+  using CacheAllocator = BudgetAllocator<std::pair<Delta const *const, Vertex *>>;
+
   uint64_t commit_timestamp_;
-  std::unordered_map<Delta const *, Vertex *> cache_;
+  TxnAllocPolicy policy_;
+  std::unordered_map<Delta const *, Vertex *, std::hash<Delta const *>, std::equal_to<>, CacheAllocator> cache_;
 };
 
 };  // namespace
@@ -4018,23 +4023,6 @@ bool InMemoryStorage::ArchiveSupersededDurabilityFiles(std::filesystem::path con
 
 namespace {
 
-// One MVCC delta resolved by the commit thread's traversal: the delta, the object it belongs to
-// (exactly one of vertex/edge set), and the edge lookup data workers cannot pull from the transaction.
-struct TxnDataCommand {
-  Delta const *delta;
-  Vertex *vertex;
-  Edge *edge;
-  Gid in_vertex_gid;
-  EdgeTypeId edge_type_id;
-};
-
-// Everything a transaction writes, in encode order. Built once on the commit thread; the WAL worker
-// and every replica worker encode from it concurrently, so it must outlive all of their tasks.
-struct TxnCommands {
-  std::vector<MetadataDelta const *> metadata;
-  std::vector<TxnDataCommand> data;
-};
-
 void EncodeMetadataDelta(durability::BaseEncoder &encoder, MetadataDelta const &md_delta, Storage *mem_storage,
                          uint64_t durability_commit_timestamp) {
   auto const apply_encode = [&](durability::StorageMetadataOperation const op, auto &&encode_operation) {
@@ -4245,27 +4233,45 @@ void EncodeMetadataDelta(durability::BaseEncoder &encoder, MetadataDelta const &
 
 }  // namespace
 
-auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
-                                                                     TransactionReplication &replicating_txn,
-                                                                     CommitArgs const &commit_args) -> bool {
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+auto EncodeTxnCommandsTo(durability::BaseEncoder &encoder, TxnCommands const &commands, Storage *storage,
+                         SalientConfig::Items const &items, uint64_t durability_ts, bool commit,
+                         StorageAccessType access_type, std::function<void()> const &progress)
+    -> durability::TxnEncodeResult {
+  durability::TxnEncodeResult result;
+  result.commit_flag_position = durability::EncodeTransactionStart(&encoder, durability_ts, commit, access_type);
+  result.frame_count = 1;
+  for (auto const *md_delta : commands.metadata) {
+    EncodeMetadataDelta(encoder, *md_delta, storage, durability_ts);
+    ++result.frame_count;
+    progress();
+  }
+  for (auto const &cmd : commands.data) {
+    if (cmd.edge != nullptr) {
+      durability::EncodeDelta(
+          &encoder, storage, *cmd.delta, cmd.edge, durability_ts, cmd.in_vertex_gid, cmd.edge_type_id);
+    } else {
+      durability::EncodeDelta(&encoder, storage, items, *cmd.delta, cmd.vertex, durability_ts);
+    }
+    ++result.frame_count;
+    progress();
+  }
+  auto const end = durability::EncodeTransactionEnd(&encoder, durability_ts);
+  result.crc_position = end.crc_wal_pos_;
+  result.stored_crc = end.stored_crc_;
+  ++result.frame_count;
+  return result;
+}
 
-  // If replica executes this:
-  //   STRICT_SYNC: commit_immediately is false because such replica needs to commit only after receiving
-  //   FinalizeCommitRpc SYNC/ASYNC:  commit_immediately is true because such replica needs to commit immediately
-  // If main executes this:
-  //   Any STRICT_SYNC replica registered -> need to run 2PC, don't commit immediately
-  // else:
-  //   All SYNC/ASYNC replicas -> commit immediately
-  bool const two_phase_commit = commit_args.two_phase_commit(replicating_txn);
-  // The WAL file needs to be updated only if we don't commit immediately.
-  needs_wal_update_ = two_phase_commit;
-
+auto InMemoryStorage::InMemoryAccessor::MaterializeTxnCommands(TxnAllocPolicy policy,
+                                                               std::function<void()> const &progress) -> TxnCommands {
+  // The traversal the inline durability path used to perform, extracted whole so a pipelined commit can run it
+  // with no serializer held: processed-head/tail tracking for concurrent abort rewiring included. Every container
+  // allocates through `policy`, so a pipelined commit's scratch memory is charged at the allocation boundary.
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
   //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
   //            unique transaction to apply the index creation safely.
-  TxnCommands commands;
+  TxnCommands commands{policy};
   commands.metadata.reserve(transaction_.md_deltas.size());
   for (auto const &md_delta : transaction_.md_deltas) {
     commands.metadata.push_back(&md_delta);
@@ -4273,7 +4279,9 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // A single transaction will always be fully-contained in a single WAL file.
   auto current_commit_timestamp = transaction_.commit_info->timestamp.load(std::memory_order_acquire);
-  DeltaVertexCache vertex_cache(current_commit_timestamp);
+  DeltaVertexCache vertex_cache(current_commit_timestamp, policy);
+  // The collector ignores the timestamp the traversal hands it; the inline path passed the durability timestamp.
+  auto const durability_commit_timestamp = current_commit_timestamp;
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain to find the first delta
@@ -4297,8 +4305,10 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // D.prev = C
     // In this cases, following the `next` pointers would read A, B, D, E, and
     // the `prev` pointers would read `E`, D`, `C`, `B`, `A`.
-    std::unordered_set<Delta const *> processed_subchain_heads;
-    std::unordered_set<Delta const *> processed_subchain_tails;
+    using TrackingSet =
+        std::unordered_set<Delta const *, std::hash<Delta const *>, std::equal_to<>, BudgetAllocator<Delta const *>>;
+    TrackingSet processed_subchain_heads{BudgetAllocator<Delta const *>{policy}};
+    TrackingSet processed_subchain_tails{BudgetAllocator<Delta const *>{policy}};
     bool const should_track_nonseq_subchains{transaction_.has_non_sequential_deltas};
     constexpr auto kNoTracking = std::bool_constant<false>{};
     constexpr auto kTrackTails = std::bool_constant<true>{};
@@ -4539,9 +4549,35 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       } else {
         commands.data.push_back({.delta = &delta, .vertex = parent, .edge = nullptr});
       }
-      commit_args.apply_cb_if_replica_write();
+      progress();
     });
   }
+  return commands;
+}
+
+auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+                                                                     TransactionReplication &replicating_txn,
+                                                                     CommitArgs const &commit_args) -> bool {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // If replica executes this:
+  //   STRICT_SYNC: commit_immediately is false because such replica needs to commit only after receiving
+  //   FinalizeCommitRpc SYNC/ASYNC:  commit_immediately is true because such replica needs to commit immediately
+  // If main executes this:
+  //   Any STRICT_SYNC replica registered -> need to run 2PC, don't commit immediately
+  // else:
+  //   All SYNC/ASYNC replicas -> commit immediately
+  bool const two_phase_commit = commit_args.two_phase_commit(replicating_txn);
+  // The WAL file needs to be updated only if we don't commit immediately.
+  needs_wal_update_ = two_phase_commit;
+
+  // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
+  //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
+  //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
+  //            unique transaction to apply the index creation safely.
+  // The plain allocation policy keeps this path's allocation behaviour unchanged; only a pipelined commit charges.
+  auto const progress = [&commit_args] { commit_args.apply_cb_if_replica_write(); };
+  TxnCommands commands = MaterializeTxnCommands(TxnAllocPolicy{}, progress);
 
   // Every fused task borrows this frame (commands, streams), so if anything below throws before
   // ShipDeltas collected them, collect them here; on the normal path this is a no-op. Declared before

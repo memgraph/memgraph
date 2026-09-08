@@ -63,6 +63,10 @@ class Encoder final : public BaseEncoder {
   // directly.
   void Write(const uint8_t *data, uint64_t size);
 
+  /// Writes already-encoded bytes: advances the logical position and size, does not touch the CRC accumulator.
+  /// For appending a transaction that was encoded, CRC included, into a private buffer.
+  void WriteRaw(const uint8_t *data, uint64_t size);
+
   /// See NonConcurrentOutputFile::AppendFrom.
   [[nodiscard]] std::optional<uint64_t> AppendFrom(int src_fd, uint64_t size)
     requires std::same_as<FileType, utils::NonConcurrentOutputFile>;
