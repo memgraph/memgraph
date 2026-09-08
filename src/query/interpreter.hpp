@@ -593,7 +593,7 @@ class Interpreter final {
 
   struct QueryExecution {
     static constexpr struct ThreadSafe {
-    } thread_safe_;
+    } thread_safe_{};
 
     // QueryExecution memory is charged to the DB whose query/trigger is being
     // prepared. System-only executions may pass nullptr because they do not run

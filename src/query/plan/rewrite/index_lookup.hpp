@@ -44,6 +44,7 @@
 #include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 
+#include "utils/fnv.gmf.hpp"
 import memgraph.utils.fnv;
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
@@ -1358,6 +1359,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             case IN:
               return 1.0;  // ATM multiple scans...not a good prederence
           }
+          std::unreachable();
         };
 
         return r::fold_left(filters | rv::transform(filter_type_score), 1.0, std::multiplies<>{});
@@ -1873,6 +1875,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return ExpressionRange::IsNotNull();
         }
       }
+      std::unreachable();
     };
 
     // Lower an `x IN list` filter to a per-element index scan: chain

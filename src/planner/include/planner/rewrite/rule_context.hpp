@@ -19,6 +19,7 @@
 
 #include "utils/small_vector.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::rewrite {

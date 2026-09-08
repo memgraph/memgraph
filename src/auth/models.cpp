@@ -154,6 +154,7 @@ std::string PermissionToString(Permission permission) {
     case Permission::COORDINATOR_WRITE:
       return "COORDINATOR_WRITE";
   }
+  std::unreachable();
 }
 
 std::string PermissionLevelToString(PermissionLevel level) {
@@ -165,6 +166,7 @@ std::string PermissionLevelToString(PermissionLevel level) {
     case PermissionLevel::DENY:
       return "DENY";
   }
+  std::unreachable();
 }
 
 #ifdef MG_ENTERPRISE

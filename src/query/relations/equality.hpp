@@ -18,6 +18,7 @@
 /// equivalent to a Null, and which a hash container reads.
 #pragma once
 
+#include <utility>
 #include "query/typed_value.hpp"
 // typed_value.hpp only forward-declares these, and equality reads the identity
 // out of each.
@@ -97,6 +98,7 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Null:
       LOG_FATAL("Unhandled comparison for types");
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::query::relations::equality

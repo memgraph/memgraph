@@ -14,6 +14,8 @@
 #include "test_support/symbols.hpp"
 #include "utils/small_vector.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
+#include "planner/core/union_find.gmf.hpp"
 import memgraph.planner.core.egraph;
 import memgraph.planner.core.union_find;
 

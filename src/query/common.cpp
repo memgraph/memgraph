@@ -12,6 +12,7 @@
 #include "query/common.hpp"
 #include "flags/run_time_configurable.hpp"
 
+#include "utils/aws.gmf.hpp"
 import memgraph.utils.aws;
 
 namespace memgraph::query {

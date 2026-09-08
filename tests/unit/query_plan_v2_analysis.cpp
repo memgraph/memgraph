@@ -27,6 +27,7 @@
 #include "query/plan_v2/resolve/constant_identity.hpp"
 #include "storage/v2/property_value.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::query::plan::v2 {

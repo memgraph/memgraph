@@ -547,7 +547,7 @@ class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
 
-  explicit ReplicationException(const std::string &message)
+  explicit ReplicationException(std::string message)
       : utils::BasicException(fmt::format("Replication Exception: {}", ReplicationFailureMessage(message))) {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationException)
 };

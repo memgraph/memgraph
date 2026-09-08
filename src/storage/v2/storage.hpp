@@ -15,6 +15,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
 
 #include "common_function_signatures.hpp"
 #include "memory/db_arena_fwd.hpp"
@@ -73,6 +74,7 @@ constexpr utils::ResourceLockGuard::Type ToGuardType(StorageAccessType rw_type) 
     case StorageAccessType::NO_ACCESS:
       LOG_FATAL("NO_ACCESS names the absence of a hold; it has no lock mode");
   }
+  std::unreachable();
 }
 
 constexpr StorageAccessType ToAccessType(utils::ResourceLockGuard::Type type) {
@@ -86,6 +88,7 @@ constexpr StorageAccessType ToAccessType(utils::ResourceLockGuard::Type type) {
     case utils::ResourceLockGuard::READ_ONLY:
       return StorageAccessType::READ_ONLY;
   }
+  std::unreachable();
 }
 
 class SharedAccessTimeout : public utils::BasicException {

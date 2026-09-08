@@ -95,11 +95,11 @@ class EdgeAccessor final {
   /// Properties of this edge that are backed by a vector index.
   std::vector<PropertyId> VectorIndexedProperties() const;
 
-  auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
+  auto GidPropertiesOnEdges() const -> storage::Gid { return edge_.ptr->gid; }
 
-  auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
+  auto GidNoPropertiesOnEdges() const -> storage::Gid { return edge_.gid; }
 
-  Gid Gid() const noexcept;
+  storage::Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 

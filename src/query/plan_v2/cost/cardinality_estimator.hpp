@@ -17,6 +17,7 @@
 #include "query/plan_v2/egraph/symbol.hpp"
 #include "query/plan_v2/resolve/analysis.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::query::plan::v2 {

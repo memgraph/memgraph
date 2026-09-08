@@ -40,6 +40,7 @@ std::string ToString(EdgeAtom::Direction dir) {
     case EdgeAtom::Direction::OUT:
       return "out";
   }
+  std::unreachable();
 }
 
 std::string ToString(EdgeAtom::Type type) {
@@ -59,6 +60,7 @@ std::string ToString(EdgeAtom::Type type) {
     case EdgeAtom::Type::SINGLE:
       return "single";
   }
+  std::unreachable();
 }
 
 std::string ToString(Ordering ord) {
@@ -68,6 +70,7 @@ std::string ToString(Ordering ord) {
     case Ordering::DESC:
       return "desc";
   }
+  std::unreachable();
 }
 
 ///////////////////////////////////////////////////////////////////////////////

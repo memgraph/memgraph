@@ -14,6 +14,8 @@
 #include <cstdint>
 
 #include "planner/pattern/types.hpp"
+
+#include "planner/core/strong_type.gmf.hpp"
 import rollbear.strong_type;
 
 namespace memgraph::planner::core::pattern::vm {

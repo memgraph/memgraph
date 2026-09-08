@@ -12,6 +12,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 
 #include "frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
@@ -32,6 +33,7 @@ struct FrameChangeId {
       case Kind::Sym:
         return lhs.symbol_pos_ == rhs.symbol_pos_;
     }
+    std::unreachable();
   }
 
   size_t hash() const { return hash_; }

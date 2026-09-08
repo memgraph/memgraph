@@ -18,6 +18,7 @@
 
 #include "query/plan_v2/egraph/symbol_lists.hpp"
 
+#include "planner/core/typed_egraph.gmf.hpp"
 import memgraph.planner.core.typed_egraph;
 
 namespace memgraph::query::plan::v2 {

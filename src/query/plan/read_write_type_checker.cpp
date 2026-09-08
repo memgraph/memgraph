@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/read_write_type_checker.hpp"
+#include <utility>
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define PRE_VISIT(TOp, RWType, continue_visiting)                                     \
@@ -209,6 +210,7 @@ std::string ReadWriteTypeChecker::TypeToString(const RWType type) {
     case RWType::RW:
       return "rw";
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::query::plan

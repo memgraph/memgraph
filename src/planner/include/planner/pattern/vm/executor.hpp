@@ -21,6 +21,7 @@
 #include "planner/pattern/vm/compiled_matcher.hpp"
 #include "planner/pattern/vm/tracer.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::pattern::vm {

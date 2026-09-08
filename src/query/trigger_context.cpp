@@ -12,6 +12,7 @@
 #include "query/trigger.hpp"
 
 #include <concepts>
+#include <utility>
 
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -266,6 +267,7 @@ const char *TriggerEventTypeToString(const TriggerEventType event_type) {
     case TriggerEventType::EDGE_UPDATE:
       return "--> UPDATE";
   }
+  std::unreachable();
 }
 
 void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
@@ -404,6 +406,7 @@ TypedValue TriggerContext::GetTypedValue(const TriggerIdentifierTag tag, DbAcces
                          set_vertex_labels_,
                          removed_vertex_labels_);
   }
+  std::unreachable();
 }
 
 bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const {
@@ -454,6 +457,7 @@ bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const
     case EventType::EDGE_UPDATE:
       return AnyContainsValue(set_edge_properties_, removed_edge_properties_);
   }
+  std::unreachable();
 }
 
 void TriggerContextCollector::UpdateLabelMap(const VertexAccessor vertex, const storage::LabelId label_id,

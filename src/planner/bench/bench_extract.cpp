@@ -22,6 +22,7 @@
 #include "planner/extract/pareto_frontier.hpp"
 #include "test_support/extract.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace {

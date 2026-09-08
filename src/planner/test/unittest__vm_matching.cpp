@@ -18,6 +18,7 @@
 #include "test_matcher_fixture.hpp"
 #include "test_support/patterns.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {

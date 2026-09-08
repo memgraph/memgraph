@@ -29,4 +29,5 @@
 #include "utils/exceptions.hpp"
 #include "utils/small_vector.hpp"
 
+#include "storage/v2/property_value.gmf.hpp"
 import memgraph.storage.property_value;

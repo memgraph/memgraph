@@ -13,6 +13,7 @@
 
 #include "planner/pattern/match_storage.hpp"
 
+#include "planner/core/eids.gmf.hpp"
 import memgraph.planner.core.eids;
 
 using namespace memgraph::planner::core;

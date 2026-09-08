@@ -398,6 +398,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::VirtualGraph:
       throw std::logic_error{"mgp_value for TypedValue::Type::VirtualGraph doesn't exist."};
   }
+  std::unreachable();
 }
 
 bool IsDeleted(const mgp_vertex *vertex) {
@@ -538,6 +539,7 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
           "Enum values cannot be returned from procedures. "
           "Returning enum results requires EnumStore context which is not available in this path.");
   }
+  std::unreachable();
 }
 
 mgp_value::mgp_value(allocator_type alloc) noexcept : type(MGP_VALUE_TYPE_NULL), alloc(alloc) {}
@@ -2458,6 +2460,7 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
     case MGP_VALUE_TYPE_ENUM:
       throw ValueConversionException{"Cannot convert Enum mgp_value back to PropertyValue without EnumStore context!"};
   }
+  std::unreachable();
 }
 
 memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value &value);
@@ -2537,6 +2540,7 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value
       // Without EnumStore context we can't resolve the name back to an ID.
       throw ValueConversionException{"Enum to ExternalPropertyValue conversion requires EnumStore context!"};
   }
+  std::unreachable();
 }
 }  // namespace
 
@@ -5523,6 +5527,7 @@ int mgp_must_abort(mgp_graph *graph) {
     case memgraph::query::AbortReason::NO_ABORT:
       return 0;
   }
+  std::unreachable();
 }
 
 namespace memgraph::query::procedure {
@@ -5585,6 +5590,7 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Function:
       LOG_FATAL("value must not be a graph|function element");
   }
+  std::unreachable();
 }
 
 }  // namespace
@@ -5657,6 +5663,7 @@ mgp_source_type StreamSourceTypeToMgpSourceType(const StreamSourceType type) {
     case StreamSourceType::PULSAR:
       return mgp_source_type::PULSAR;
   }
+  std::unreachable();
 }
 
 }  // namespace

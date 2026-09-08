@@ -52,61 +52,120 @@ struct ResourceLock {
   // again, and the waiter that could have made progress is never woken.
   enum class NotifyKind : uint8_t { None, All };
 
-  // clang-format off
+  // Every per-mode rule below dispatches on Req with `if constexpr` rather than an in-class explicit
+  // specialisation, which GCC rejects (CWG 727 is not implemented there).
+
   // Admission rule, evaluated under mtx (as the wait predicate, and by the non-blocking probes).
   // A waiting UNIQUE (unique_pending_count) gates new shared acquisitions (writer-preference),
   // mirroring ro_pending_count's READ_ONLY-over-WRITE priority.
-  template <LockReq Req> bool can_acquire() const;
-  template <> bool can_acquire<LockReq::WRITE>() const      { return state != UNIQUE && ro_count == 0 && ro_pending_count == 0 && unique_pending_count == 0; }
-  template <> bool can_acquire<LockReq::READ>() const       { return state != UNIQUE && unique_pending_count == 0; }
-  template <> bool can_acquire<LockReq::READ_ONLY>() const  { return state != UNIQUE && w_count == 0 && unique_pending_count == 0; }
-  template <> bool can_acquire<LockReq::UNIQUE>() const     { return state == UNLOCKED; }
+  template <LockReq Req>
+  bool can_acquire() const {
+    if constexpr (Req == LockReq::WRITE) {
+      return state != UNIQUE && ro_count == 0 && ro_pending_count == 0 && unique_pending_count == 0;
+    } else if constexpr (Req == LockReq::READ) {
+      return state != UNIQUE && unique_pending_count == 0;
+    } else if constexpr (Req == LockReq::READ_ONLY) {
+      return state != UNIQUE && w_count == 0 && unique_pending_count == 0;
+    } else {
+      static_assert(Req == LockReq::UNIQUE);
+      return state == UNLOCKED;
+    }
+  }
 
-  template <LockReq Req> void lock_state_updater();
-  template <> void lock_state_updater<LockReq::WRITE>()     { ++w_count; }
-  template <> void lock_state_updater<LockReq::READ>()      { ++r_count; }
-  template <> void lock_state_updater<LockReq::READ_ONLY>() { ++ro_count; }
-  template <> void lock_state_updater<LockReq::UNIQUE>()    { }
+  template <LockReq Req>
+  void lock_state_updater() {
+    if constexpr (Req == LockReq::WRITE) {
+      ++w_count;
+    } else if constexpr (Req == LockReq::READ) {
+      ++r_count;
+    } else if constexpr (Req == LockReq::READ_ONLY) {
+      ++ro_count;
+    } else {
+      static_assert(Req == LockReq::UNIQUE);
+    }
+  }
 
   // Applied once admitted; leaves the lock in the state the acquisition claims.
-  template <LockReq Req> void commit_state()             { state = SHARED; lock_state_updater<Req>(); }
-  template <> void commit_state<LockReq::UNIQUE>()       { state = UNIQUE; }
+  template <LockReq Req>
+  void commit_state() {
+    if constexpr (Req == LockReq::UNIQUE) {
+      state = UNIQUE;
+    } else {
+      state = SHARED;
+      lock_state_updater<Req>();
+    }
+  }
 
   // Pending registration, held for as long as a caller is waiting to acquire, so the kinds it gates
   // yield to it (see can_acquire). READ and WRITE gate nobody, so they register nothing.
-  template <LockReq Req> void pending_add() {}
-  template <> void pending_add<LockReq::READ_ONLY>() { ++ro_pending_count; }
-  template <> void pending_add<LockReq::UNIQUE>()    { ++unique_pending_count; }
+  template <LockReq Req>
+  void pending_add() {
+    if constexpr (Req == LockReq::READ_ONLY) {
+      ++ro_pending_count;
+    } else if constexpr (Req == LockReq::UNIQUE) {
+      ++unique_pending_count;
+    }
+  }
 
-  template <LockReq Req> void pending_sub() {}
-  template <> void pending_sub<LockReq::READ_ONLY>() { --ro_pending_count; }
-  template <> void pending_sub<LockReq::UNIQUE>()    { --unique_pending_count; }
+  template <LockReq Req>
+  void pending_sub() {
+    if constexpr (Req == LockReq::READ_ONLY) {
+      --ro_pending_count;
+    } else if constexpr (Req == LockReq::UNIQUE) {
+      --unique_pending_count;
+    }
+  }
 
   // Giving up without acquiring can be the event that ungates whoever we were holding back, and
   // nothing else will wake them: their predicate came true because we deregistered.
-  template <LockReq Req> NotifyKind pending_release_should_notify() const { return NotifyKind::None; }
-  template <> NotifyKind pending_release_should_notify<LockReq::READ_ONLY>() const { return ro_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
-  template <> NotifyKind pending_release_should_notify<LockReq::UNIQUE>() const { return unique_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
+  template <LockReq Req>
+  NotifyKind pending_release_should_notify() const {
+    if constexpr (Req == LockReq::READ_ONLY) {
+      return ro_pending_count == 0 ? NotifyKind::All : NotifyKind::None;
+    } else if constexpr (Req == LockReq::UNIQUE) {
+      return unique_pending_count == 0 ? NotifyKind::All : NotifyKind::None;
+    } else {
+      return NotifyKind::None;
+    }
+  }
 
   // The counts are unsigned: an unmatched release wraps one rather than going negative, and the
   // mode it guards is then blocked for the lifetime of the process, silently and far from the
   // cause. Assert the balance at the release itself.
-  template <LockReq Req> void unlock_state_updater();
-  template <> void unlock_state_updater<LockReq::WRITE>()     { DMG_ASSERT(w_count > 0, "unlock_shared<WRITE> without a matching lock_shared<WRITE>"); --w_count; }
-  template <> void unlock_state_updater<LockReq::READ>()      { DMG_ASSERT(r_count > 0, "unlock_shared<READ> without a matching lock_shared<READ>"); --r_count; }
-  template <> void unlock_state_updater<LockReq::READ_ONLY>() { DMG_ASSERT(ro_count > 0, "unlock_shared<READ_ONLY> without a matching lock_shared<READ_ONLY>"); --ro_count; }
-  template <> void unlock_state_updater<LockReq::UNIQUE>()    { }
+  template <LockReq Req>
+  void unlock_state_updater() {
+    if constexpr (Req == LockReq::WRITE) {
+      DMG_ASSERT(w_count > 0, "unlock_shared<WRITE> without a matching lock_shared<WRITE>");
+      --w_count;
+    } else if constexpr (Req == LockReq::READ) {
+      DMG_ASSERT(r_count > 0, "unlock_shared<READ> without a matching lock_shared<READ>");
+      --r_count;
+    } else if constexpr (Req == LockReq::READ_ONLY) {
+      DMG_ASSERT(ro_count > 0, "unlock_shared<READ_ONLY> without a matching lock_shared<READ_ONLY>");
+      --ro_count;
+    } else {
+      static_assert(Req == LockReq::UNIQUE);
+    }
+  }
 
   // WRITE omits ro_count, and READ_ONLY omits w_count, because the two are mutually exclusive by
   // admission (can_acquire<WRITE> demands ro_count == 0, can_acquire<READ_ONLY> demands
   // w_count == 0), so the omitted count is necessarily 0 whenever the other is being released.
   // Relax either admission rule without revisiting these and the lock declares itself UNLOCKED
   // while a holder is still live. UNIQUE excludes every shared mode, so no count can be standing.
-  template <LockReq Req> bool unlock_has_fully_unlocked() const;
-  template <> bool unlock_has_fully_unlocked<LockReq::WRITE>() const     { return w_count == 0 && r_count == 0; }
-  template <> bool unlock_has_fully_unlocked<LockReq::READ>() const      { return r_count == 0 && ro_count == 0 && w_count == 0; }
-  template <> bool unlock_has_fully_unlocked<LockReq::READ_ONLY>() const { return ro_count == 0 && r_count == 0; }
-  template <> bool unlock_has_fully_unlocked<LockReq::UNIQUE>() const    { return true; }
+  template <LockReq Req>
+  bool unlock_has_fully_unlocked() const {
+    if constexpr (Req == LockReq::WRITE) {
+      return w_count == 0 && r_count == 0;
+    } else if constexpr (Req == LockReq::READ) {
+      return r_count == 0 && ro_count == 0 && w_count == 0;
+    } else if constexpr (Req == LockReq::READ_ONLY) {
+      return ro_count == 0 && r_count == 0;
+    } else {
+      static_assert(Req == LockReq::UNIQUE);
+      return true;
+    }
+  }
 
   // If upon unlock we could possible unblock another lock then
   // we would want to notify to make sure we rapidly make progress
@@ -120,13 +179,19 @@ struct ResourceLock {
   // fully-unlocked condition because no acquirer is gated on r_count, so a READ release can only
   // ever admit UNIQUE, and only by freeing the lock. Releasing UNIQUE always frees the lock, so it
   // can admit any waiter and always notifies.
-  template <LockReq Req> NotifyKind unlock_should_notify() const;
-  template <> NotifyKind unlock_should_notify<LockReq::WRITE>() const { return w_count == 0 ? NotifyKind::All : NotifyKind::None; }
-  template <> NotifyKind unlock_should_notify<LockReq::READ>() const { return (r_count == 0 && w_count == 0 && ro_count == 0) ? NotifyKind::All : NotifyKind::None; }
-  template <> NotifyKind unlock_should_notify<LockReq::READ_ONLY>() const { return ro_count == 0 ? NotifyKind::All : NotifyKind::None; }
-  template <> NotifyKind unlock_should_notify<LockReq::UNIQUE>() const { return NotifyKind::All; }
-
-  // clang-format on
+  template <LockReq Req>
+  NotifyKind unlock_should_notify() const {
+    if constexpr (Req == LockReq::WRITE) {
+      return w_count == 0 ? NotifyKind::All : NotifyKind::None;
+    } else if constexpr (Req == LockReq::READ) {
+      return (r_count == 0 && w_count == 0 && ro_count == 0) ? NotifyKind::All : NotifyKind::None;
+    } else if constexpr (Req == LockReq::READ_ONLY) {
+      return ro_count == 0 ? NotifyKind::All : NotifyKind::None;
+    } else {
+      static_assert(Req == LockReq::UNIQUE);
+      return NotifyKind::All;
+    }
+  }
 
   void maybe_notify(std::unique_lock<std::mutex> &lock, NotifyKind kind) {
     lock.unlock();

@@ -91,6 +91,7 @@ struct PointIterator {
       case CoordinateReferenceSystem::Cartesian_3d:
         return lhs.cartesian_3d_ == rhs.cartesian_3d_;
     }
+    std::unreachable();
   }
 
   auto operator=(PointIterator const &o) -> PointIterator & {
@@ -183,6 +184,7 @@ struct PointIterator {
         return VertexAccessor{vertex, storage_, transaction_};
       }
     }
+    std::unreachable();
   }
 
   ~PointIterator() {

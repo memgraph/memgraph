@@ -23,6 +23,7 @@
 
 #include "query/typed_value.hpp"
 
+#include "query/jsonl/reader.gmf.hpp"
 import memgraph.query.jsonl.reader;
 
 namespace fs = std::filesystem;

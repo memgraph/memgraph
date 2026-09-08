@@ -85,6 +85,11 @@
 #include "utils/timer.hpp"
 #include "vertex_accessor.hpp"
 
+#include "csv/parsing.gmf.hpp"
+#include "query/arrow_parquet/reader.gmf.hpp"
+#include "query/jsonl/reader.gmf.hpp"
+#include "utils/aws.gmf.hpp"
+#include "utils/fnv.gmf.hpp"
 import memgraph.csv.parsing;
 import memgraph.query.arrow_parquet.reader;
 import memgraph.query.jsonl.reader;
@@ -234,6 +239,7 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       return storage::PropertyValueRange::IsNotNull();
     }
   }
+  std::unreachable();
 }
 
 auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
@@ -356,6 +362,7 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       return storage::PropertyValueRange::IsNotNull();
     }
   }
+  std::unreachable();
 }
 
 ExpressionRange::ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
@@ -958,6 +965,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
       case EdgeAtom::Direction::BOTH:
         return CreateEdge(self_.edge_info_, edge_type, dba, &v1, &v2, &frame, context, &evaluator);
     }
+    std::unreachable();
   }();
 
   context.execution_stats[ExecutionStats::Key::CREATED_EDGES] += 1;
@@ -1375,6 +1383,7 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }
+  std::unreachable();
 }
 
 // Helper function to evaluate an expression and convert it to a property value.
@@ -6926,6 +6935,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
     case Aggregation::Op::DERIVE:
       return TypedValue(query::VirtualGraph(memory));
   }
+  std::unreachable();
 }
 
 void DefaultAggregation(ExecutionContext &context, const std::vector<Aggregate::Element> &aggregations,

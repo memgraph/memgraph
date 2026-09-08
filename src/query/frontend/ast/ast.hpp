@@ -14,6 +14,7 @@
 #include <memory>
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -1885,6 +1886,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       case Type::SINGLE:
         return false;
     }
+    std::unreachable();
   }
 
   memgraph::query::EdgeAtom::Type type_{Type::SINGLE};

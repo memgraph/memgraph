@@ -44,6 +44,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // For color console logging
 #include "spdlog/sinks/ostream_sink.h"
 
+#include "storage/v2/property_value.gmf.hpp"
 import memgraph.storage.property_value;
 
 static constexpr auto kMetricKind = "l2sq";

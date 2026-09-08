@@ -1,0 +1,22 @@
+--- a/boost/unordered/detail/foa/core.hpp
++++ b/boost/unordered/detail/foa/core.hpp
+@@ -853,7 +853,7 @@
+ /* size index of a group array for a given *element* capacity */
+ 
+ template<typename Group,typename SizePolicy>
+-static inline std::size_t size_index_for(std::size_t n)
++inline std::size_t size_index_for(std::size_t n)
+ {
+   /* n/N+1 == ceil((n+1)/N) (extra +1 for the sentinel) */
+   return SizePolicy::size_index(n/Group::N+1);
+--- a/boost/unordered/detail/xmx.hpp
++++ b/boost/unordered/detail/xmx.hpp
+@@ -41,7 +41,7 @@
+ #endif
+ #endif
+ 
+-static inline std::size_t xmx(std::size_t x)noexcept
++inline std::size_t xmx(std::size_t x)noexcept
+ {
+ #if defined(BOOST_UNORDERED_64B_ARCHITECTURE)
+ 

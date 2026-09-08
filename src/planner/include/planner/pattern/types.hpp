@@ -16,6 +16,7 @@
 
 #include <boost/unordered/unordered_flat_map.hpp>
 
+#include "planner/core/strong_type.gmf.hpp"
 import rollbear.strong_type;
 
 namespace memgraph::planner::core::pattern {

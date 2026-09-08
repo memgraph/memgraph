@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <utility>
 
 #include "dbms/database.hpp"
 #include "query/config.hpp"
@@ -81,6 +82,7 @@ auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
     case TriggerIdentifierTag::UPDATED_OBJECTS:
       return "updatedObjects";
   }
+  std::unreachable();
 }
 
 template <typename T>
@@ -164,6 +166,7 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
       return TagsToIdentifiers(
           IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES);
   }
+  std::unreachable();
 }
 }  // namespace
 

@@ -42,6 +42,7 @@ std::string_view StorageModeToString(StorageMode storage_mode) {
     case StorageMode::N:
       std::unreachable();
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::storage

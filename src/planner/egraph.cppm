@@ -11,9 +11,7 @@
 
 module;
 
-#include <cassert>
-
-#include "utils/small_vector.hpp"
+#include "planner/core/egraph.gmf.hpp"
 
 // When fuzzing we always want assert regardless of Debug vs Release
 #ifdef ASSERT_FUZZ
@@ -26,21 +24,6 @@ module;
                                      std::to_string(__LINE__)))
 
 #endif
-
-#include <deque>
-#include <limits>
-#include <memory>
-#include <optional>
-#include <ranges>
-#include <span>
-#include <type_traits>
-#include <unordered_map>
-#include <vector>
-
-#include <boost/container/flat_set.hpp>
-#include <boost/unordered/unordered_flat_map.hpp>
-#include <boost/unordered/unordered_flat_set.hpp>
-#include <strong_type/strong_type.hpp>
 
 export module memgraph.planner.core.egraph;
 

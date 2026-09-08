@@ -18,6 +18,15 @@ target_sources(mg-planner
     FILE_SET HEADERS
     BASE_DIRS include
     FILES
+    # core/ - global-module-fragment preludes, included before `import`
+    include/planner/core/concepts.gmf.hpp
+    include/planner/core/constants.gmf.hpp
+    include/planner/core/egraph.gmf.hpp
+    include/planner/core/eids.gmf.hpp
+    include/planner/core/strong_type.gmf.hpp
+    include/planner/core/typed_egraph.gmf.hpp
+    include/planner/core/union_find.gmf.hpp
+
     # pattern/ - Pattern definition and matching
     include/planner/pattern/match.hpp
     include/planner/pattern/match_index.hpp

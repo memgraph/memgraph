@@ -249,6 +249,7 @@ HashedPassword HashPassword(const std::string &password, std::optional<PasswordH
         return SHA::HashPassword(password, iterations, {salt.data(), salt.size()});
       }
     }
+    std::unreachable();
   });
   return HashedPassword{hash_algo, std::move(password_hash)};
 };
@@ -317,6 +318,8 @@ auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
       return {SHA::SHA_LENGTH, SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
   }
 
+  std::unreachable();
+
 }
 
 bool HashedPassword::VerifyPassword(const std::string &password) {
@@ -328,6 +331,7 @@ bool HashedPassword::VerifyPassword(const std::string &password) {
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
       return SHA::VerifyPassword(password, password_hash, MULTIPLE_SHA_ITERATIONS);
   }
+  std::unreachable();
 }
 
 void to_json(nlohmann::json &j, const HashedPassword &p) {
@@ -350,6 +354,7 @@ bool HashedPassword::IsSalted() const {
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
       return SHA::IsSalted(password_hash);
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::auth

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "communication/bolt/v1/mg_types.hpp"
@@ -107,6 +108,7 @@ query::TypedValue ToTypedValue(const Value &value, storage::Storage const *stora
       return query::TypedValue{value.ValuePoint3d()};
     }
   }
+  std::unreachable();
 }
 
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
@@ -272,6 +274,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
     }
   }
+  std::unreachable();
 }
 
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
@@ -462,6 +465,7 @@ storage::ExternalPropertyValue ToExternalPropertyValue(communication::bolt::Valu
       return storage::ExternalPropertyValue(value.ValuePoint3d());
     }
   }
+  std::unreachable();
 }
 
 Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &storage) {
@@ -537,6 +541,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
         case storage::TemporalType::Duration:
           return Value(utils::Duration(type.microseconds));
       }
+      std::unreachable();
     }
     case storage::PropertyValue::Type::ZonedTemporalData: {
       const auto &type = value.ValueZonedTemporalData();
@@ -544,6 +549,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
         case storage::ZonedTemporalType::ZonedDateTime:
           return {utils::ZonedDateTime(type.microseconds, type.timezone)};
       }
+      std::unreachable();
     }
     case storage::PropertyValue::Type::Enum: {
       auto maybe_enum_value_str = storage.enum_store_.ToString(value.ValueEnum());
@@ -567,6 +573,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       return vector | std::ranges::views::transform([](auto v) { return Value(v); }) | std::ranges::to<std::vector>();
     }
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::glue

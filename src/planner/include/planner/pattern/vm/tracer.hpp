@@ -24,6 +24,7 @@
 
 #include "planner/pattern/vm/instruction.hpp"
 
+#include "planner/core/eids.gmf.hpp"
 import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core::pattern::vm {

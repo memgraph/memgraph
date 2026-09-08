@@ -25,7 +25,10 @@ module;
 #include <boost/iostreams/filtering_stream.hpp>
 #include <ctre.hpp>
 
+#include "csv/parsing.gmf.hpp"
+
 module memgraph.csv.parsing;
+
 import memgraph.utils.aws;
 
 using PlainStream = boost::iostreams::filtering_istream;

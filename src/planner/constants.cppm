@@ -11,7 +11,7 @@
 
 module;
 
-#include <cstddef>
+#include "planner/core/constants.gmf.hpp"
 
 export module memgraph.planner.core.constants;
 

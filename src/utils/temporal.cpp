@@ -27,6 +27,8 @@
 
 #include "utils/exceptions.hpp"
 #include "utils/timezone.hpp"
+
+#include "utils/fnv.gmf.hpp"
 import memgraph.utils.fnv;
 
 #include <fmt/format.h>

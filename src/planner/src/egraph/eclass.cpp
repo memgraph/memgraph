@@ -17,6 +17,8 @@ module;
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
+#include "planner/core/egraph.gmf.hpp"
+
 module memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::detail {

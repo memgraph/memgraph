@@ -18,6 +18,7 @@
 #include <compare>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 
 #include "boost/functional/hash.hpp"
 #include "strong_type/strong_type.hpp"
@@ -52,7 +53,8 @@ inline auto CrsToSrid(CoordinateReferenceSystem val) -> Srid {
     case Cartesian_3d:
       return Srid{kSrid_Cartesian_3D};
   }
-};
+  std::unreachable();
+}
 
 inline auto StringToCrs(std::string_view crs) -> std::optional<CoordinateReferenceSystem> {
   using enum CoordinateReferenceSystem;
@@ -84,6 +86,7 @@ inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
     case Cartesian_3d:
       return "cartesian";
   }
+  std::unreachable();
 }
 
 inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {

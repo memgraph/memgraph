@@ -11,12 +11,7 @@
 
 module;
 
-#include <functional>
-
-#include "query/typed_value.hpp"
-#include "utils/memory.hpp"
-#include "utils/pmr/string.hpp"
-#include "utils/pmr/vector.hpp"
+#include "query/arrow_parquet/reader.gmf.hpp"
 
 export module memgraph.query.arrow_parquet.reader;
 

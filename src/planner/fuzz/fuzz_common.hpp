@@ -38,6 +38,8 @@
 
 #include "planner/pattern/pattern.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
+#include "planner/core/typed_egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 import memgraph.planner.core.typed_egraph;
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/edges_iterable.hpp"
+#include <utility>
 
 namespace memgraph::storage {
 
@@ -88,6 +89,7 @@ EdgesIterable::Iterator EdgesIterable::begin() {
     case Type::BY_EDGE_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_edges_by_edge_property_.begin());
   }
+  std::unreachable();
 }
 
 EdgesIterable::Iterator EdgesIterable::end() {
@@ -99,6 +101,7 @@ EdgesIterable::Iterator EdgesIterable::end() {
     case Type::BY_EDGE_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_edges_by_edge_property_.end());
   }
+  std::unreachable();
 }
 
 EdgesIterable::Iterator::Iterator(InMemoryEdgeTypeIndex::Iterable::Iterator it) : type_(Type::BY_EDGE_TYPE_IN_MEMORY) {
@@ -224,6 +227,7 @@ EdgeAccessor const &EdgesIterable::Iterator::operator*() const {
     case Type::BY_EDGE_PROPERTY_IN_MEMORY:
       return *in_memory_edges_by_edge_property_;
   }
+  std::unreachable();
 }
 
 EdgesIterable::Iterator &EdgesIterable::Iterator::operator++() {
@@ -250,6 +254,7 @@ bool EdgesIterable::Iterator::operator==(const Iterator &other) const {
     case Type::BY_EDGE_PROPERTY_IN_MEMORY:
       return in_memory_edges_by_edge_property_ == other.in_memory_edges_by_edge_property_;
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::storage

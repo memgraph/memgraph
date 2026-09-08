@@ -13,6 +13,7 @@
 
 #include "bench_common.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 using namespace memgraph::planner::bench;

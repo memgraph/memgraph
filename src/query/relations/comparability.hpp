@@ -18,6 +18,7 @@
 /// must place every pair because a sort is undefined without that.
 #pragma once
 
+#include <utility>
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::relations::comparability {
@@ -55,6 +56,7 @@ constexpr bool Admits(TypedValue::Type type) {
     case TypedValue::Type::Point3d:
       return false;
   }
+  std::unreachable();
 }
 
 constexpr bool IsTemporal(TypedValue::Type type) {

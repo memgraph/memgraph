@@ -11,12 +11,7 @@
 
 module;
 
-#include <cstddef>
-#include <functional>
-
-#include <boost/functional/hash.hpp>
-
-#include "utils/small_vector.hpp"
+#include "planner/core/egraph.gmf.hpp"
 
 export module memgraph.planner.core.egraph:enode;
 
@@ -43,7 +38,10 @@ struct ENodeBase {
   explicit ENodeBase(uint64_t disambiguator, utils::small_vector<EClassId> children = {})
       : disambiguator_(disambiguator), children_(std::move(children)) {}
 
-  friend bool operator==(ENodeBase const &lhs, ENodeBase const &rhs) = default;
+  // Written out: GCC 16 crashes (ICE) in importers when this is `= default`.
+  friend bool operator==(ENodeBase const &lhs, ENodeBase const &rhs) {
+    return lhs.disambiguator_ == rhs.disambiguator_ && lhs.children_ == rhs.children_;
+  }
 
   /// @return Number of child e-classes (0 for leaf nodes)
   [[nodiscard]] auto arity() const -> std::size_t { return children_.size(); }

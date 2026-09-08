@@ -75,6 +75,7 @@
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "utils/aws.gmf.hpp"
 import memgraph.utils.aws;
 
 namespace r = ranges;
@@ -3395,6 +3396,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
                 case PreviousPtr::Type::NULL_PTR:
                   LOG_FATAL("Invalid database state!");
               }
+              std::unreachable();
             });
             if (delta.prev.Get() != prev) {
               // Something changed, we could now be the first delta in the

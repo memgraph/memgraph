@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <utility>
 
 #include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -21,6 +22,7 @@
 #include "utils/logging.hpp"
 #include "utils/spin_lock.hpp"
 
+#include "storage/v2/property_value.gmf.hpp"
 import memgraph.storage.property_value;
 
 namespace memgraph::storage {
@@ -144,6 +146,7 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
     case PreviousPtr::Type::NULL_PTR:
       return b.type == PreviousPtr::Type::NULL_PTR;
   }
+  std::unreachable();
 }
 
 struct opt_str {

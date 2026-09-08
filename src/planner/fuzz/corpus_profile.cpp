@@ -36,6 +36,7 @@
 #include "planner/pattern/vm/executor.hpp"
 #include "planner/rewrite/rule.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {

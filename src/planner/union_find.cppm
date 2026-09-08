@@ -11,16 +11,7 @@
 
 module;
 
-#include <bit>
-#include <cassert>
-#include <compare>
-#include <cstddef>
-#include <cstdint>
-#include <deque>
-#include <limits>
-#include <optional>
-#include <span>
-#include <vector>
+#include "planner/core/union_find.gmf.hpp"
 
 export module memgraph.planner.core.union_find;
 
@@ -192,8 +183,7 @@ struct UnionFind {
 };
 }  // namespace memgraph::planner::core
 
-module :private;
-
+// Not a private module fragment: GCC 16 reports it as unimplemented.
 namespace memgraph::planner::core {
 
 // Static assertion to ensure UnionFind::rank_t rank storage is sufficient

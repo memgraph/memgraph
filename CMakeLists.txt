@@ -319,6 +319,9 @@ add_compile_options(
         # declaration order, not the order the initializer list is written in.
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-ctor>
         $<$<CXX_COMPILER_ID:GNU>:-Werror=reorder>
+        # GCC emits GCC-8-compatible alias manglings by default; with C++20 modules those collide with
+        # the primary mangling of constrained templates ("conflicts with a previous mangle").
+        $<$<CXX_COMPILER_ID:GNU>:-fabi-compat-version=0>
 )
 
 # Use lld linker to speedup build and use less memory.

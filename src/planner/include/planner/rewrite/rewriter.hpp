@@ -26,6 +26,7 @@
 #include "planner/rewrite/rule.hpp"
 #include "planner/rewrite/rule_set.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::rewrite {

@@ -1543,6 +1543,7 @@ std::string_view ToString(const CommonStreamConfigKey key) {
     case CommonStreamConfigKey::END:
       LOG_FATAL("Invalid config key used");
   }
+  std::unreachable();
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -1567,6 +1568,7 @@ std::string_view ToString(const KafkaConfigKey key) {
     case KafkaConfigKey::CREDENTIALS:
       return "CREDENTIALS";
   }
+  std::unreachable();
 }
 
 void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
@@ -1696,6 +1698,7 @@ std::string_view ToString(const PulsarConfigKey key) {
     case PulsarConfigKey::SERVICE_URL:
       return "SERVICE_URL";
   }
+  std::unreachable();
 }
 }  // namespace
 

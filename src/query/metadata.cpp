@@ -13,6 +13,7 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace memgraph::query {
 
@@ -26,6 +27,7 @@ constexpr std::string_view GetSeverityLevelString(const SeverityLevel level) {
     case SeverityLevel::WARNING:
       return "WARNING"sv;
   }
+  std::unreachable();
 }
 
 constexpr std::string_view GetCodeString(const NotificationCode code) {
@@ -117,6 +119,7 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
     case NotificationCode::CREATE_ROLE:
       return "CreateRole"sv;
   }
+  std::unreachable();
 }
 }  // namespace
 
@@ -152,6 +155,7 @@ std::string ExecutionStatsKeyToString(const ExecutionStats::Key key) {
     case ExecutionStats::Key::UPDATED_PROPERTIES:
       return std::string("properties-set");
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::query

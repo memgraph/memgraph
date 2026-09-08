@@ -10,9 +10,11 @@
 // licenses/APL.txt.
 
 #pragma once
+#include <compare>
 #include <cstdint>
 #include <iosfwd>
 #include <string_view>
+#include <utility>
 
 #include <boost/functional/hash_fwd.hpp>
 #include "utils/temporal.hpp"
@@ -32,6 +34,7 @@ inline std::ostream &operator<<(std::ostream &stream, const TemporalType type) {
     case TemporalType::Duration:
       return stream << "Duration";
   }
+  std::unreachable();
 }
 
 constexpr std::string_view TemporalTypeToString(const TemporalType type) {
@@ -45,13 +48,14 @@ constexpr std::string_view TemporalTypeToString(const TemporalType type) {
     case TemporalType::Duration:
       return "Duration";
   }
+  std::unreachable();
 }
 
 struct TemporalData {
   // For localdatetime use system time (UTC microseconds since epoch)
   explicit TemporalData(TemporalType type, int64_t microseconds);
 
-  auto operator<=>(const TemporalData &) const = default;
+  std::strong_ordering operator<=>(const TemporalData &) const = default;
 
   friend std::ostream &operator<<(std::ostream &os, const TemporalData &t) {
     switch (t.type) {
@@ -64,6 +68,7 @@ struct TemporalData {
       case TemporalType::Duration:
         return os << "DURATION(\"" << utils::Duration(t.microseconds) << "\")";
     }
+    std::unreachable();
   }
 
   TemporalType type;
@@ -77,19 +82,21 @@ constexpr std::string_view ZonedTemporalTypeToString(const ZonedTemporalType typ
     case ZonedTemporalType::ZonedDateTime:
       return "ZonedDateTime";
   }
+  std::unreachable();
 }
 
 struct ZonedTemporalData {
   explicit ZonedTemporalData(ZonedTemporalType type, std::chrono::sys_time<std::chrono::microseconds> microseconds,
                              utils::Timezone timezone);
 
-  auto operator<=>(const ZonedTemporalData &) const = default;
+  std::strong_ordering operator<=>(const ZonedTemporalData &) const = default;
 
   friend std::ostream &operator<<(std::ostream &os, const ZonedTemporalData &t) {
     switch (t.type) {
       case ZonedTemporalType::ZonedDateTime:
         return os << "DATETIME(\"" << utils::ZonedDateTime(t.microseconds, t.timezone) << "\")";
     }
+    std::unreachable();
   }
 
   int64_t IntMicroseconds() const;

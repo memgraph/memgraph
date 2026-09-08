@@ -142,6 +142,7 @@ constexpr uint32_t SizeToByteSize(Size size) {
     case Size::INT64:
       return 8;
   }
+  std::unreachable();
 }
 
 inline double HalfToDouble(uint16_t bits) { return static_cast<double>(fp16_ieee_to_fp32_value(bits)); }
@@ -585,6 +586,7 @@ auto CrsToSize(CoordinateReferenceSystem value) -> Size {
     case Cartesian_3d:
       return INT64;
   }
+  std::unreachable();
 }
 
 auto SizeToCrs(Size value) -> CoordinateReferenceSystem {
@@ -600,6 +602,7 @@ auto SizeToCrs(Size value) -> CoordinateReferenceSystem {
     case INT64:
       return Cartesian_3d;
   }
+  std::unreachable();
 }
 
 inline Size DoubleFixedSize() {
@@ -832,6 +835,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       return {{Type::VECTOR, *size}};
     }
   }
+  std::unreachable();
 }
 
 namespace {

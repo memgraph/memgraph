@@ -384,9 +384,7 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_2d},
         using_distance_(true),
-        point_value_{std::move(point_value)},
-        boundary_value_{std::move(boundary_value)},
-        distance_condition_{condition},
+        distance_{std::move(point_value), std::move(boundary_value), condition},
         wgs84_2d_{std::move(index)} {}
 
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS3d>> index,
@@ -395,9 +393,7 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_3d},
         using_distance_(true),
-        point_value_{std::move(point_value)},
-        boundary_value_{std::move(boundary_value)},
-        distance_condition_{condition},
+        distance_{std::move(point_value), std::move(boundary_value), condition},
         wgs84_3d_{std::move(index)} {}
 
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian2d>> index,
@@ -406,9 +402,7 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_2d},
         using_distance_(true),
-        point_value_{std::move(point_value)},
-        boundary_value_{std::move(boundary_value)},
-        distance_condition_{condition},
+        distance_{std::move(point_value), std::move(boundary_value), condition},
         cartesian_2d_{std::move(index)} {}
 
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian3d>> index,
@@ -417,9 +411,7 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_3d},
         using_distance_(true),
-        point_value_{std::move(point_value)},
-        boundary_value_{std::move(boundary_value)},
-        distance_condition_{condition},
+        distance_{std::move(point_value), std::move(boundary_value), condition},
         cartesian_3d_{std::move(index)} {}
 
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS2d>> index,
@@ -428,9 +420,7 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_2d},
         using_distance_(false),
-        bottom_left_{std::move(bottom_left)},
-        top_right_{std::move(top_right)},
-        withinbbox_condition_{condition},
+        bbox_{std::move(bottom_left), std::move(top_right), condition},
         wgs84_2d_{std::move(index)} {}
 
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS3d>> index,
@@ -439,9 +429,7 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_3d},
         using_distance_(false),
-        bottom_left_{std::move(bottom_left)},
-        top_right_{std::move(top_right)},
-        withinbbox_condition_{condition},
+        bbox_{std::move(bottom_left), std::move(top_right), condition},
         wgs84_3d_{std::move(index)} {}
 
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian2d>> index,
@@ -450,9 +438,7 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_2d},
         using_distance_(false),
-        bottom_left_{std::move(bottom_left)},
-        top_right_{std::move(top_right)},
-        withinbbox_condition_{condition},
+        bbox_{std::move(bottom_left), std::move(top_right), condition},
         cartesian_2d_{std::move(index)} {}
 
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian3d>> index,
@@ -461,9 +447,7 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_3d},
         using_distance_(false),
-        bottom_left_{std::move(bottom_left)},
-        top_right_{std::move(top_right)},
-        withinbbox_condition_{condition},
+        bbox_{std::move(bottom_left), std::move(top_right), condition},
         cartesian_3d_{std::move(index)} {}
 
   friend struct PointIterable;
@@ -489,10 +473,9 @@ struct PointIterable::impl {
         break;
     }
     if (using_distance_) {
-      std::destroy_at(&point_value_);
+      std::destroy_at(&distance_);
     } else {
-      std::destroy_at(&bottom_left_);
-      std::destroy_at(&top_right_);
+      std::destroy_at(&bbox_);
     }
   }
 
@@ -502,18 +485,22 @@ struct PointIterable::impl {
   CoordinateReferenceSystem crs_;
   bool using_distance_;
 
-  union {
-    struct {
-      PropertyValue point_value_;
-      PropertyValue boundary_value_;
-      PointDistanceCondition distance_condition_;
-    };
+  // Named alternatives: GCC rejects non-trivial members inside an anonymous struct (a GNU extension).
+  struct DistanceQuery {
+    PropertyValue point_value_;
+    PropertyValue boundary_value_;
+    PointDistanceCondition distance_condition_;
+  };
 
-    struct {
-      PropertyValue bottom_left_;
-      PropertyValue top_right_;
-      WithinBBoxCondition withinbbox_condition_;
-    };
+  struct WithinBBoxQuery {
+    PropertyValue bottom_left_;
+    PropertyValue top_right_;
+    WithinBBoxCondition withinbbox_condition_;
+  };
+
+  union {
+    DistanceQuery distance_;
+    WithinBBoxQuery bbox_;
   };
 
   union {
@@ -545,6 +532,7 @@ auto make_pimpl(PointIndex const &index, storage::CoordinateReferenceSystem crs,
       return func(index.GetCartesian3dIndex());
     }
   }
+  std::unreachable();
 };
 }  // namespace
 
@@ -729,6 +717,7 @@ auto get_index_iterator_distance(Index const &index, PropertyValue const &point_
       }));
     }
   }
+  std::unreachable();
 }
 
 template <typename Index>
@@ -775,6 +764,7 @@ auto get_index_iterator_withinbbox(Index &index, PropertyValue const &bottom_lef
       return index.qbegin(bgi::covered_by(bounding_box));
     }
   }
+  std::unreachable();
 }
 
 }  // namespace
@@ -791,15 +781,18 @@ auto PointIterable::begin() const -> PointIterator {
       case CoordinateReferenceSystem::Cartesian_3d:
         return func(*pimpl->cartesian_3d_);
     }
+    std::unreachable();
   };
 
   if (pimpl->using_distance_) {
     auto make_distance_iter = [&](auto const &index) {
-      return PointIterator{
-          pimpl->storage_,
-          pimpl->transaction_,
-          pimpl->crs_,
-          get_index_iterator_distance(index, pimpl->point_value_, pimpl->boundary_value_, pimpl->distance_condition_)};
+      return PointIterator{pimpl->storage_,
+                           pimpl->transaction_,
+                           pimpl->crs_,
+                           get_index_iterator_distance(index,
+                                                       pimpl->distance_.point_value_,
+                                                       pimpl->distance_.boundary_value_,
+                                                       pimpl->distance_.distance_condition_)};
     };
     return apply_index(pimpl->crs_, make_distance_iter);
   }
@@ -809,7 +802,8 @@ auto PointIterable::begin() const -> PointIterator {
         pimpl->storage_,
         pimpl->transaction_,
         pimpl->crs_,
-        get_index_iterator_withinbbox(index, pimpl->bottom_left_, pimpl->top_right_, pimpl->withinbbox_condition_)};
+        get_index_iterator_withinbbox(
+            index, pimpl->bbox_.bottom_left_, pimpl->bbox_.top_right_, pimpl->bbox_.withinbbox_condition_)};
   };
   return apply_index(pimpl->crs_, make_withinbbox_iter);
 }
@@ -825,6 +819,7 @@ auto PointIterable::end() const -> PointIterator {
     case CoordinateReferenceSystem::Cartesian_3d:
       return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_3d_->qend()};
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::storage

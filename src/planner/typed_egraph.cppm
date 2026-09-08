@@ -11,13 +11,7 @@
 
 module;
 
-#include <concepts>
-#include <cstdint>
-#include <optional>
-#include <type_traits>
-#include <utility>
-
-#include "utils/small_vector.hpp"
+#include "planner/core/typed_egraph.gmf.hpp"
 
 export module memgraph.planner.core.typed_egraph;
 

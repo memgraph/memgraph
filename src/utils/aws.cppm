@@ -11,22 +11,7 @@
 
 module;
 
-#include <expected>
-#include <map>
-#include <optional>
-#include <ostream>
-#include <streambuf>
-#include <string>
-
-#include <aws/core/Aws.h>
-#include <aws/core/auth/AWSCredentialsProvider.h>
-#include <aws/core/client/DefaultRetryStrategy.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/model/GetObjectRequest.h>
-#include <aws/transfer/TransferManager.h>
-
-#include "spdlog/spdlog.h"
-#include "utils/counter.hpp"
+#include "utils/aws.gmf.hpp"
 
 export module memgraph.utils.aws;
 
@@ -68,6 +53,7 @@ auto AwsValidationErrorToStr(AwsValidationError err) -> std::string {
           kAwsSecretKeyQuerySetting,
           kAwsSecretKeyEnv);
   }
+  std::unreachable();
 }
 
 struct S3Config {

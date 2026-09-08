@@ -9,6 +9,7 @@ target_sources(mg-csv
         FILE_SET HEADERS
         BASE_DIRS include
         FILES
+        include/csv/parsing.gmf.hpp
 
         PRIVATE
         parsing.cpp

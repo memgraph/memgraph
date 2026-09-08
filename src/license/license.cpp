@@ -319,6 +319,7 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
     case LicenseCheckError::NOT_ENTERPRISE_LICENSE:
       return fmt::format("Access to {} requires an enterprise, ai_platform, or oem license.", feature);
   }
+  std::unreachable();
 }
 
 LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &settings) const {

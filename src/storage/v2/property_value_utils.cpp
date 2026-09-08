@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "property_value_utils.hpp"
+#include <utility>
 
 namespace memgraph::storage {
 
@@ -47,6 +48,7 @@ auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
       // This is the last type in the order so we leave the upper bound empty.
       return std::nullopt;
   }
+  std::unreachable();
 }
 
 auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
@@ -82,6 +84,7 @@ auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
     case PropertyValue::Type::VectorIndexId:
       return utils::MakeBoundInclusive(kSmallestVectorIndexId);
   }
+  std::unreachable();
 }
 
 auto PrefixSuccessor(std::string_view prefix) -> std::optional<std::string> {
