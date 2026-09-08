@@ -278,9 +278,7 @@ struct PlanInvalidatorDefault : public PlanInvalidator {
 
 using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 
-// Type aliases for the commit serializer mutex and its owning lock.
 // Using timed_mutex so callers can use try_lock_for() without a type change.
-// CommitMutex supports the same lock()/try_lock()/unlock() interface as std::mutex.
 using CommitMutex = std::timed_mutex;
 using CommitLock = std::unique_lock<CommitMutex>;
 
@@ -438,19 +436,13 @@ class Storage {
   virtual void PrepareForNewEpoch() = 0;
 
   // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
-  // Returns an owning lock on success, a non-owning (empty) lock when another committer holds it.
-  [[nodiscard]] CommitLock TryCommitLock() noexcept { return CommitLock{commit_mutex_, std::try_to_lock}; }
-
-  // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
-  // Pressure-scaled timed wait: sleeps up to `budget` for commit_mutex_; returns a non-owning lock
-  // on timeout. Caller must check owns_lock() before proceeding.
+  // Returns non-owning lock on timeout — caller must check owns_lock() before proceeding.
   [[nodiscard]] CommitLock TryCommitLockFor(std::chrono::microseconds budget) noexcept {
     return CommitLock{commit_mutex_, budget};
   }
 
   // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
-  // Blocking (indefinite sleep) acquire of commit_mutex_. Used when no idle workers are available
-  // and parking would stall the pool entirely (P==0 case).
+  // Blocking acquire of commit_mutex_; always returns owning lock.
   [[nodiscard]] CommitLock LockCommitBlocking() { return CommitLock{commit_mutex_}; }
 
   // True iff the lock-free read-snapshot experiment is ON for this storage instance.
@@ -900,7 +892,7 @@ class Accessor {
   virtual void DropAllConstraints() = 0;
 
   // NOLINTNEXTLINE(google-default-arguments)
-  // preheld_commit_lock: owning lock pre-acquired by the caller via TryLockCommit(); adopted here.
+  // preheld_commit_lock: owning lock pre-acquired by the caller via TryLockCommitFor(); adopted here.
   // Default-constructed (non-owning) = no pre-held guard; implementation acquires blocking.
   virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args,
                                                                               CommitLock preheld_commit_lock = {}) = 0;
@@ -915,16 +907,14 @@ class Accessor {
   // EXPERIMENTAL (lock-free-read-snapshot) helpers for the parkable-commit path.
   bool IsCommitSerialised() const noexcept { return storage_->IsCommitSerialised(); }
 
-  // Must not be called on the OFF path: commit_mutex_ is never taken there, so the try always
-  // succeeds (harmless but wasteful); gate the call with IsCommitSerialised().
-  [[nodiscard]] CommitLock TryLockCommit() noexcept { return storage_->TryCommitLock(); }
-
-  // Pressure-scaled timed wait. Must not be called on the OFF path (see TryLockCommit above).
+  // Pressure-scaled timed wait. Must not be called on the OFF path — commit_mutex_ is only
+  // meaningful when IsCommitSerialised().
   [[nodiscard]] CommitLock TryLockCommitFor(std::chrono::microseconds budget) noexcept {
     return storage_->TryCommitLockFor(budget);
   }
 
-  // Blocking acquire. Must not be called on the OFF path (see TryLockCommit above).
+  // Blocking acquire. Must not be called on the OFF path — commit_mutex_ is only meaningful
+  // when IsCommitSerialised().
   [[nodiscard]] CommitLock LockCommitBlocking() { return storage_->LockCommitBlocking(); }
 
   // Stable per-query id; preserved across PERIODIC COMMIT.

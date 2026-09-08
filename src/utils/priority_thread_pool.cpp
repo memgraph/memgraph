@@ -79,9 +79,7 @@ bool HotMask::AnySet() const noexcept {
 }
 
 uint16_t HotMask::Count() const noexcept {
-  // Relaxed loads are intentional: Count() is a soft pressure signal, not a synchronisation point.
-  // Stale bits (worker just transitioned hot→cold or vice versa) are tolerable; callers treat the
-  // result as an approximate snapshot.
+  // Relaxed: Count() is a soft pressure signal; stale bits from an in-flight hot→cold transition are tolerable.
   uint32_t total = 0;
   for (size_t g = 0; g < n_groups_; ++g) {
     total += std::popcount(hot_masks_[g].load(std::memory_order_relaxed));
@@ -302,10 +300,8 @@ std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcep
   // No-pressure fast path: ≥10% workers idle and backlog empty → caller can afford to sleep long.
   if (free * 10 >= pool && backlog == 0) return kTryBudgetMax;
 
-  // Linear interpolation from kTryBudgetMax toward kTryBudgetMin as backlog fills the pool.
-  // fraction = min(backlog, pool) / pool  — clamped to [0, 1] using integer arithmetic only.
-  // safe_pool guards the division; pool >= 1 is guaranteed by the constructor MG_ASSERT.
-  // PROVISIONAL: the exact slope and threshold constants below are perf-tunable.
+  // T(P) = kTryBudgetMax − (clamped_backlog/pool)×range; pool ≥ 2 by MG_ASSERT. PROVISIONAL: constants are
+  // perf-tunable.
   const uint64_t safe_pool = pool > 0 ? pool : 1;
   const uint64_t clamped_backlog = backlog < safe_pool ? backlog : safe_pool;
   const uint64_t range = static_cast<uint64_t>(kTryBudgetMax.count() - kTryBudgetMin.count());
@@ -315,10 +311,11 @@ std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcep
   // Scarce-worker clamp: fewer than 10% free → collapse immediately to minimum regardless of backlog.
   if (free * 10 < pool) return kTryBudgetMin;
 
-  // Final bounds: protect against any arithmetic edge case.
-  const int64_t clamped = budget_us < kTryBudgetMin.count()   ? kTryBudgetMin.count()
-                          : budget_us > kTryBudgetMax.count() ? kTryBudgetMax.count()
-                                                              : budget_us;
+  int64_t clamped = budget_us;
+  if (budget_us < kTryBudgetMin.count())
+    clamped = kTryBudgetMin.count();
+  else if (budget_us > kTryBudgetMax.count())
+    clamped = kTryBudgetMax.count();
   return std::chrono::microseconds{clamped};
 }
 
@@ -334,17 +331,14 @@ uint32_t PriorityThreadPool::AdmissionRescheduleCap() const noexcept {
   // No-pressure fast path: ≥10% workers idle and backlog empty → maximum reschedule budget.
   if (backlog == 0) return kRescheduleCapMax;
 
-  // Linear interpolation from kRescheduleCapMax down toward kRescheduleCapMin as backlog fills the pool.
-  // fraction = min(backlog, pool) / pool  — clamped to [0, 1] using integer arithmetic only.
-  // safe_pool guards the division; pool >= 1 is guaranteed by the constructor MG_ASSERT.
-  // PROVISIONAL: the exact slope and threshold constants are perf-tunable.
+  // N(P) = kRescheduleCapMax − (clamped_backlog/pool)×range; pool ≥ 2 by MG_ASSERT. PROVISIONAL: constants are
+  // perf-tunable.
   const uint64_t safe_pool = pool > 0 ? pool : 1;
   const uint64_t clamped_backlog = backlog < safe_pool ? backlog : safe_pool;
   const uint32_t range = kRescheduleCapMax - kRescheduleCapMin;
-  const uint32_t reduction = static_cast<uint32_t>((clamped_backlog * range) / safe_pool);
+  const auto reduction = static_cast<uint32_t>((clamped_backlog * range) / safe_pool);
   const uint32_t cap = kRescheduleCapMax > reduction ? kRescheduleCapMax - reduction : kRescheduleCapMin;
 
-  // Final clamp: protect against any arithmetic edge case.
   if (cap < kRescheduleCapMin) return kRescheduleCapMin;
   if (cap > kRescheduleCapMax) return kRescheduleCapMax;
   return cap;
