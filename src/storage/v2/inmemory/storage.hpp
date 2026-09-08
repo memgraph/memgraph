@@ -465,8 +465,8 @@ class InMemoryStorage final : public Storage {
     // finalize commit method which will bump ldt, update commit ts etc.
     // @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    std::expected<void, StorageManipulationError> PrepareForCommitPhase(
-        CommitArgs commit_args, std::unique_lock<std::mutex> preheld_commit_lock = {}) override;
+    std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args,
+                                                                        CommitLock preheld_commit_lock = {}) override;
 
     std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
@@ -928,7 +928,7 @@ class InMemoryStorage final : public Storage {
   }
 
   // Engaged only under commit-lock-narrowing. Lock order: see Storage::commit_mutex_ (before engine_lock_).
-  [[nodiscard]] std::optional<std::unique_lock<std::mutex>> LockCommitMutexIfNarrowing() const {
+  [[nodiscard]] std::optional<CommitLock> LockCommitMutexIfNarrowing() const {
     if (!config_.experimental_commit_lock_narrowing) return std::nullopt;
     return std::unique_lock{commit_mutex_};
   }
