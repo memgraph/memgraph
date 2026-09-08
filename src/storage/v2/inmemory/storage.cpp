@@ -446,16 +446,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
-      // EXPERIMENTAL (lock-free-read-snapshot): restore the read-snapshot watermark to the highest recovered
-      // committed timestamp.  We derive it from the local MVCC counter (timestamp_ - 1 = highest committed ts
-      // in this storage's own timestamp space) rather than from a durability-space field, so the watermark is
-      // space-correct: readers compare it against local MVCC delta timestamps, which live in the same space.
-      // Guard against underflow when the counter is still at its initial value.
-      if (config_.experimental_lockfree_read_snapshot) {
-        last_committed_mvcc_ts_.store(std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed),
-                                               timestamp_ > kTimestampInitialId ? timestamp_ - 1 : kTimestampInitialId),
-                                      std::memory_order_release);
-      }
+      SeedReadSnapshotWatermarkFromLocalCounter();
       CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
                                   .num_committed_txns_ = info->num_committed_txns};
       repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
@@ -1381,6 +1372,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   if (mem_storage->config_.experimental_lockfree_read_snapshot) {
     // Publish the watermark: readers that BEGIN after this see this commit. Ordered AFTER the
     // commit_info->timestamp store and MarkFinished, under the same publish engine_lock hold.
+    // On the STRICT_SYNC 2PC path this publish precedes replica finalization, so a reader can
+    // observe the commit before 2PC completes; acceptable while replicated flag-on is deferred
+    // (replicated clusters are not yet cleared for the flag). Revisit ordering when they are.
     mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
     InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_publish);
   }
@@ -3153,6 +3147,17 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   }
 }
 
+void InMemoryStorage::SeedReadSnapshotWatermarkFromLocalCounter() {
+  // EXPERIMENTAL (lock-free-read-snapshot): seed the read-snapshot watermark from the local MVCC
+  // counter (timestamp_ - 1 = highest committed ts in this storage's own timestamp space), which is
+  // space-correct because readers compare it against local MVCC delta timestamps. No-op with the
+  // flag off; guards underflow at the initial counter value.
+  if (!config_.experimental_lockfree_read_snapshot) return;
+  last_committed_mvcc_ts_.store(std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed),
+                                         timestamp_ > kTimestampInitialId ? timestamp_ - 1 : kTimestampInitialId),
+                                std::memory_order_release);
+}
+
 uint64_t InMemoryStorage::GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns) {
   if (!config_.experimental_lockfree_read_snapshot) return raw_oldest_active;  // OFF: byte-identical
   auto const &gc_slot = snapshot_slots_[raw_oldest_active % kSnapshotSlots];
@@ -4814,15 +4819,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    // EXPERIMENTAL (lock-free-read-snapshot): seed the watermark from the local MVCC counter
-    // (timestamp_ - 1 = highest committed ts in this storage's own timestamp space).  Using the
-    // local counter is space-correct: readers compare against local MVCC delta timestamps.
-    // Guard against underflow when the counter is still at its initial value.
-    if (config_.experimental_lockfree_read_snapshot) {
-      last_committed_mvcc_ts_.store(std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed),
-                                             timestamp_ > kTimestampInitialId ? timestamp_ - 1 : kTimestampInitialId),
-                                    std::memory_order_release);
-    }
+    SeedReadSnapshotWatermarkFromLocalCounter();
     loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
     auto const update_func = [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp,
@@ -5525,6 +5522,14 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
     // watermark to the recovered durable ts afterward.
     last_committed_mvcc_ts_.store(kTimestampInitialId, std::memory_order_release);
     gc_visibility_floor_.store(kTimestampInitialId, std::memory_order_release);
+    // No txn is active after Clear(), so the GC visibility ring must return to empty. A stale slot
+    // could otherwise pair a post-recovery oldest-active id with a reused pre-Clear tag (in-flight
+    // pre-crash SI tags can exceed the recovered next_timestamp) and advance the floor to a
+    // stale-high snap. Recovery runs single-threaded here (no concurrent GC reader).
+    for (size_t i = 0; i < kSnapshotSlots; ++i) {
+      snapshot_slots_[i].tag.store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);
+      snapshot_slots_[i].snap.store(0, std::memory_order_relaxed);
+    }
   }
   transaction_id_ = kTransactionInitialId;
 

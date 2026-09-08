@@ -909,6 +909,8 @@ class InMemoryStorage final : public Storage {
   // result to the (possibly lower) folded physical horizon. OFF (flag disabled): returns raw_oldest_active,
   // byte-identical to today.
   uint64_t GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns);
+  // Seed last_committed_mvcc_ts_ from the local MVCC counter on recovery (no-op with the flag off).
+  void SeedReadSnapshotWatermarkFromLocalCounter();
 
   // Objects leave storage only through these, and only from a collection pass. An index entry
   // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same

@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -48,6 +49,12 @@ using memgraph::storage::View;
 using Accessor = memgraph::storage::Storage::Accessor;
 
 namespace {
+
+// Handshake wait with a timeout: a regression that never reaches the probe fails the test
+// instead of hanging the binary forever on a bare acquire().
+void AcquireOrFail(std::binary_semaphore &sem) {
+  ASSERT_TRUE(sem.try_acquire_for(std::chrono::seconds(10))) << "semaphore handshake timed out";
+}
 
 std::unique_ptr<InMemoryStorage> MakeStorage(bool flag_on) {
   Config config{};
@@ -157,7 +164,7 @@ TEST(LockFreeReadSnapshot, ReaderBeginsBeforePublish_SeesPreCommitValue) {
     memgraph::storage::CommitProbe probe;
     probe.before_publish = [&] {
       reached.release();
-      resume.acquire();
+      AcquireOrFail(resume);
     };
     store->SetCommitProbe(&probe);
 
@@ -169,7 +176,7 @@ TEST(LockFreeReadSnapshot, ReaderBeginsBeforePublish_SeesPreCommitValue) {
   });
 
   // Commit is now parked at before_publish: minted, engine_lock released, not yet published.
-  reached.acquire();
+  AcquireOrFail(reached);
   {
     auto reader = store->Access(memgraph::storage::READ);
     EXPECT_EQ(ReadProp(*reader, gid), 1);
@@ -322,7 +329,7 @@ TEST(LockFreeReadSnapshot, LostUpdatePrevented_GapCommitPublishesAfterSnapshot_O
   memgraph::storage::CommitProbe probe;
   probe.after_mint = [&] {
     reached.release();
-    resume.acquire();
+    AcquireOrFail(resume);
   };
   store->SetCommitProbe(&probe);
 
@@ -335,7 +342,7 @@ TEST(LockFreeReadSnapshot, LostUpdatePrevented_GapCommitPublishesAfterSnapshot_O
   });
 
   // C has minted C_ts but not published; open W now so W's snapshot is below C_ts.
-  reached.acquire();
+  AcquireOrFail(reached);
   auto w = store->Access(memgraph::storage::WRITE);
 
   // Let C finish publishing X=2, then confirm it committed.
@@ -703,7 +710,7 @@ TEST(LockFreeReadSnapshot, ReaderBeginsDuringAbortingCommitWindow_NeverSeesAbort
   bool all_unique = true;
 
   std::thread committer([&] {
-    start.acquire();
+    AcquireOrFail(start);
     for (int i = 0; i < kIters; ++i) {
       auto w = store->Access(memgraph::storage::WRITE);
       auto vertex = w->CreateVertex();
@@ -893,22 +900,6 @@ TEST_F(LockFreeReadSnapshotRecovery, WriteOff_RecoverOff_DataIntact) {
   WriteDurable(storage_directory, /*flag_on=*/false);
   RecoverAndCheck(storage_directory, /*flag_on=*/false, 5);
 }
-
-// Phase 2, batch 7: concern-B (index-creation gap). Under the flag a label-property index is
-// built by scanning the vertex store at the accessor's frozen snapshot_ts (=
-// last_committed_mvcc_ts_ at AccessorOpen time). If a vertex committed in the window
-// (snapshot_ts, start_timestamp) -- i.e. it minted its ts and ran FinalizeCommitPhase steps
-// (set delta timestamps, update active indices) BEFORE the index was registered, but is still
-// parked at before_publish when CreateIndex opens -- it is invisible to PopulateIndex (its
-// delta ts > snapshot_ts under the flag-ON predicate) AND is not covered by the automatic
-// commit-time index update (because RegisterIndex had not yet run when it executed that step).
-// Result: the vertex is permanently absent from the index. Under flag-OFF the engine_lock is
-// held straight through GetCommitTimestamp→FinalizeCommitPhase, so a concurrent commit cannot
-// be interleaved into CreateIndex; the first-committed vertex is fully visible at start_ts.
-//
-// NOTE: This test is EXPECTED TO FAIL for flag_on=true (it reproduces a real bug). It will
-// turn green when the fix (e.g. a PopulateIndex re-pass using start_ts, or seeding
-// last_committed_mvcc_ts_ as the accessor's snapshot at index-scan time) is applied.
 
 // Helper: count vertices reachable via a label-property index scan on the given accessor.
 namespace {
@@ -1231,7 +1222,7 @@ TEST(LockFreeReadSnapshot, NonSequentialEdgeWriteInGap_ON) {
   memgraph::storage::CommitProbe probe;
   probe.before_publish = [&] {
     reached.release();
-    resume.acquire();
+    AcquireOrFail(resume);
   };
   store->SetCommitProbe(&probe);
 
@@ -1248,7 +1239,7 @@ TEST(LockFreeReadSnapshot, NonSequentialEdgeWriteInGap_ON) {
   });
 
   // C is parked at before_publish: C_ts is minted, engine_lock released, watermark not advanced.
-  reached.acquire();
+  AcquireOrFail(reached);
 
   // W opens: snapshot_ts = last_committed_mvcc_ts_.load() at Access time (flag ON).
   // Because the watermark has not advanced, W.snapshot_ts < C_ts.
