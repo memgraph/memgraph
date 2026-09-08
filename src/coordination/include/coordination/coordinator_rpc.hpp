@@ -13,7 +13,14 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_slk.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
@@ -285,36 +292,6 @@ struct UnregisterReplicaRes {
 
 using UnregisterReplicaRpc = rpc::RequestResponse<UnregisterReplicaReq, UnregisterReplicaRes>;
 
-struct EnableWritingOnMainReq {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_REQ,
-                                         .name = "EnableWritingOnMainReq"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(EnableWritingOnMainReq *self, memgraph::slk::Reader *reader);
-  static void Save(EnableWritingOnMainReq const &self, memgraph::slk::Builder *builder);
-
-  EnableWritingOnMainReq() = default;
-};
-
-struct EnableWritingOnMainRes {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
-                                         .name = "EnableWritingOnMainRes"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
-  static void Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
-
-  explicit EnableWritingOnMainRes(bool const success) : arg_(success) {}
-
-  EnableWritingOnMainRes() = default;
-
-  bool arg_;
-};
-
-// This exists now solely for backwards compatibility and to support ISSU, coordinators aren't sending
-// this RPC anymore
-using EnableWritingOnMainRpc = rpc::RequestResponse<EnableWritingOnMainReq, EnableWritingOnMainRes>;
-
 struct GetDatabaseHistoriesReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
                                          .name = "GetDatabaseHistoriesReq"};
@@ -554,14 +531,29 @@ using ForceResetReq = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceReset
 using ForceResetRes = SingleArgMsg<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1, bool>;
 using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
 
+using YieldLeadershipReq = EmptyReq<utils::TypeId::COORD_YIELD_LEADERSHIP_REQ, "YieldLeadershipReq", 1>;
+using YieldLeadershipRes = SingleArgMsg<utils::TypeId::COORD_YIELD_LEADERSHIP_RES, "YieldLeadershipRes", 1, bool>;
+using YieldLeadershipRpc = rpc::RequestResponse<YieldLeadershipReq, YieldLeadershipRes>;
+
+using ShowCoordSettingsReq = EmptyReq<utils::TypeId::COORD_SHOW_COORD_SETTINGS_REQ, "ShowCoordSettingsReq", 1>;
+// nullopt when the leader couldn't serve the request.
+using ShowCoordSettingsRes = SingleArgMsg<utils::TypeId::COORD_SHOW_COORD_SETTINGS_RES, "ShowCoordSettingsRes", 1,
+                                          std::optional<std::vector<std::pair<std::string, std::string>>>>;
+using ShowCoordSettingsRpc = rpc::RequestResponse<ShowCoordSettingsReq, ShowCoordSettingsRes>;
+
 using UpdateConfigReq =
     SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
 using UpdateConfigRes = SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1, bool>;
 using UpdateConfigRpc = rpc::RequestResponse<UpdateConfigReq, UpdateConfigRes>;
 
-using CoordReplicationLagReq = EmptyReq<utils::TypeId::COORD_REPL_LAG_REQ, "CoordReplLagReq", 1>;
-using CoordReplicationLagRes = SingleArgMsg<utils::TypeId::COORD_REPL_LAG_RES, "CoordReplLagRes", 1,
-                                            std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+// v1 answered with a bare map, where an empty map meant both "the leader has no lag data" and "the leader couldn't
+// collect it". v2 answers with ReplicationLagResult so a forwarding follower can tell the two apart and report why.
+// The request is bumped alongside it because the response version follows the request version.
+using CoordReplicationLagReqV1 = EmptyReq<utils::TypeId::COORD_REPL_LAG_REQ, "CoordReplLagReq", 1>;
+using CoordReplicationLagReq = UpgradeableEmptyReq<CoordReplicationLagReqV1>;
+using CoordReplicationLagResV1 =
+    SingleArgMsg<utils::TypeId::COORD_REPL_LAG_RES, "CoordReplLagRes", 1, ReplicationLagData>;
+using CoordReplicationLagRes = DowngradeableSingleArgMsg<CoordReplicationLagResV1, ReplicationLagResult>;
 using CoordReplicationLagRpc = rpc::RequestResponse<CoordReplicationLagReq, CoordReplicationLagRes>;
 
 // RPC for updating data instance config managed by the coordinator. v1 carried only deltas_batch_progress_size; v2
@@ -639,6 +631,57 @@ struct UpdateDataInstanceConfigRes {
 
 using UpdateDataInstanceConfigRpc = rpc::RequestResponse<UpdateDataInstanceConfigReq, UpdateDataInstanceConfigRes>;
 
+// Coordinator->leader role/privilege RPCs. Follower coordinators forward role and privilege queries to the leader so
+// the query works from any coordinator. Write responses carry the leader's exact status so the follower reports the
+// same reason as the leader (e.g. NO_SUCH_ROLE, or ROLE_ALREADY_EXISTS which CREATE ROLE IF NOT EXISTS must treat as
+// a no-op). An empty optional means the RPC itself failed (dead leader), so the follower reports a forwarding error.
+using CreateRoleReq = SingleArgMsg<utils::TypeId::COORD_CREATE_ROLE_REQ, "CreateRoleReq", 1, std::string>;
+using CreateRoleRes =
+    SingleArgMsg<utils::TypeId::COORD_CREATE_ROLE_RES, "CreateRoleRes", 1, std::optional<CreateRoleStatus>>;
+using CreateRoleRpc = rpc::RequestResponse<CreateRoleReq, CreateRoleRes>;
+
+using DropRoleReq = SingleArgMsg<utils::TypeId::COORD_DROP_ROLE_REQ, "DropRoleReq", 1, std::string>;
+using DropRoleRes = SingleArgMsg<utils::TypeId::COORD_DROP_ROLE_RES, "DropRoleRes", 1, std::optional<DropRoleStatus>>;
+using DropRoleRpc = rpc::RequestResponse<DropRoleReq, DropRoleRes>;
+
+// GetRoles reads the committed role set from the leader. An empty optional response means the receiver is not the ready
+// leader (or the RPC failed), so the follower reports a forwarding error.
+using GetRolesReq = EmptyReq<utils::TypeId::COORD_GET_ROLES_REQ, "GetRolesReq", 1>;
+using GetRolesRes =
+    SingleArgMsg<utils::TypeId::COORD_GET_ROLES_RES, "GetRolesRes", 1, std::optional<std::vector<CoordinatorRole>>>;
+using GetRolesRpc = rpc::RequestResponse<GetRolesReq, GetRolesRes>;
+
+// Grant/Revoke carry (role name, privilege mask). Response mirrors the write-status convention above.
+using GrantPrivilegeReq =
+    SingleArgMsg<utils::TypeId::COORD_GRANT_PRIVILEGE_REQ, "GrantPrivilegeReq", 1, std::pair<std::string, uint64_t>>;
+using GrantPrivilegeRes =
+    SingleArgMsg<utils::TypeId::COORD_GRANT_PRIVILEGE_RES, "GrantPrivilegeRes", 1, std::optional<GrantPrivilegeStatus>>;
+using GrantPrivilegeRpc = rpc::RequestResponse<GrantPrivilegeReq, GrantPrivilegeRes>;
+
+using RevokePrivilegeReq =
+    SingleArgMsg<utils::TypeId::COORD_REVOKE_PRIVILEGE_REQ, "RevokePrivilegeReq", 1, std::pair<std::string, uint64_t>>;
+using RevokePrivilegeRes = SingleArgMsg<utils::TypeId::COORD_REVOKE_PRIVILEGE_RES, "RevokePrivilegeRes", 1,
+                                        std::optional<RevokePrivilegeStatus>>;
+using RevokePrivilegeRpc = rpc::RequestResponse<RevokePrivilegeReq, RevokePrivilegeRes>;
+
+// GetRolePrivileges reads one role's mask from the leader. The response pair is {role_found, mask}; an empty optional
+// means the RPC failed, so the follower reports a forwarding error.
+using GetRolePrivilegesReq =
+    SingleArgMsg<utils::TypeId::COORD_GET_ROLE_PRIVILEGES_REQ, "GetRolePrivilegesReq", 1, std::string>;
+using GetRolePrivilegesRes = SingleArgMsg<utils::TypeId::COORD_GET_ROLE_PRIVILEGES_RES, "GetRolePrivilegesRes", 1,
+                                          std::optional<std::pair<bool, uint64_t>>>;
+using GetRolePrivilegesRpc = rpc::RequestResponse<GetRolePrivilegesReq, GetRolePrivilegesRes>;
+
+// SetCoordinatorSetting carries (setting name, setting value). Follower coordinators forward the write to the leader so
+// the query works from any coordinator; the response mirrors the write-status convention above, carrying the leader's
+// exact status so the follower reports the same reason (e.g. UNKNOWN_SETTING, INVALID_ARGUMENT).
+using SetCoordinatorSettingReq = SingleArgMsg<utils::TypeId::COORD_SET_COORDINATOR_SETTING_REQ,
+                                              "SetCoordinatorSettingReq", 1, std::pair<std::string, std::string>>;
+using SetCoordinatorSettingRes =
+    SingleArgMsg<utils::TypeId::COORD_SET_COORDINATOR_SETTING_RES, "SetCoordinatorSettingRes", 1,
+                 std::optional<SetCoordinatorSettingStatus>>;
+using SetCoordinatorSettingRpc = rpc::RequestResponse<SetCoordinatorSettingReq, SetCoordinatorSettingRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -671,10 +714,6 @@ void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::sl
 void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
-
-// EnableWritingOnMainRpc
-void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
 
 // GetDatabaseHistoriesRpc
 void Save(const memgraph::coordination::GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder);
@@ -709,13 +748,25 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::YieldLeadershipRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::ShowCoordSettingsRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::CoordReplicationLagRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::CreateRoleRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::DropRoleRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::GetRolesRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::GrantPrivilegeRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::RevokePrivilegeRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::GetRolePrivilegesRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::SetCoordinatorSettingRpc)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigResV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigRes)
+
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::CoordReplicationLagReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::CoordReplicationLagResV1)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckReqV2)

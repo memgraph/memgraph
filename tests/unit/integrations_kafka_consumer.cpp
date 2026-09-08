@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
 #include <chrono>
 #include <latch>
 #include <optional>
@@ -17,7 +18,7 @@
 #include <thread>
 #include <vector>
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include "integrations/kafka/consumer.hpp"
@@ -44,6 +45,57 @@ inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 inline constexpr int64_t kDefaultBatchSize{1000};
 
 inline constexpr double kTimingTolerance = 1.2;  // tolerance for all timings to prevent flakes
+
+// How long a test will wait for messages it has already sent. Generous, because it exists to turn a
+// consumer that never delivers into a failure with the counts in hand rather than a hung job; a
+// working consumer reaches the condition long before this and stops waiting.
+inline constexpr auto kConsumerReadyTimeout = std::chrono::seconds{60};
+
+// Deliveries land on the consumer's own thread, so every wait here is a poll. The interval only
+// sets how promptly the condition is noticed once it holds.
+inline constexpr auto kPollInterval = std::chrono::milliseconds{50};
+
+// The warm-up retry sends a message on every attempt, so its pacing decides how much traffic a slow
+// leader election puts on the topic that the rest of the test then has to consume. It is spaced out
+// where an ordinary wait, which only reads a counter, is not.
+inline constexpr auto kWarmUpSeedInterval = std::chrono::milliseconds{500};
+
+std::chrono::steady_clock::time_point Now() { return std::chrono::steady_clock::now(); }
+
+// Polls until the condition holds or the deadline passes. The condition is checked before the
+// clock, so a caller that arrives after the deadline still reports a condition that has already
+// come true rather than one it never looked at.
+template <typename Condition>
+bool WaitForConditionUntil(Condition condition, std::chrono::steady_clock::time_point deadline,
+                           std::chrono::milliseconds poll_interval) {
+  while (true) {
+    if (condition()) return true;
+    if (Now() >= deadline) return false;
+    std::this_thread::sleep_for(poll_interval);
+  }
+}
+
+// Waits for a named condition, and fails the test naming it if it never holds. Naming the condition
+// is what makes the failure readable: a timed-out poll otherwise reports only that some loop ran
+// out of time.
+template <typename Condition>
+bool ExpectEventually(std::string_view what, Condition condition, std::chrono::seconds timeout = kConsumerReadyTimeout,
+                      std::chrono::milliseconds poll_interval = kPollInterval) {
+  if (WaitForConditionUntil(std::move(condition), Now() + timeout, poll_interval)) return true;
+  ADD_FAILURE() << "Timed out after " << timeout.count() << "s waiting for " << what;
+  return false;
+}
+
+// Waiting for a counter to reach a target is the shape almost every wait in this file takes, and
+// how far it got is worth more than the bare fact that it stopped short, so the failure carries it.
+bool ExpectCountReaches(std::string_view what, const std::atomic<int> &counter, int target,
+                        std::chrono::seconds timeout = kConsumerReadyTimeout) {
+  const auto reached = [&] { return counter.load(std::memory_order_acquire) >= target; };
+  if (WaitForConditionUntil(reached, Now() + timeout, kPollInterval)) return true;
+  ADD_FAILURE() << "Timed out after " << timeout.count() << "s waiting for " << what << ": reached "
+                << counter.load(std::memory_order_acquire) << " of " << target;
+  return false;
+}
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
@@ -92,17 +144,29 @@ struct ConsumerTest : public ::testing::Test {
       return nullptr;
     }
 
-    // Send messages to the topic until the consumer starts to receive them. In the first few seconds the consumer
-    // doesn't get messages because there is no leader in the consumer group. If consumer group leader election timeout
-    // could be lowered (didn't find anything in librdkafka docs), then this mechanism will become unnecessary.
-    while (last_received_message->load() == 0) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      SeedTopicWithInt(kTopicName, ++sent_messages);
+    // For the first few seconds the consumer receives nothing, because its group has no leader yet,
+    // and librdkafka offers no way to shorten that election. Sending again on every attempt is what
+    // makes this a retry rather than a wait: there is nothing in flight to wait for, because a
+    // consumer without a group leader never received what was sent before it.
+    if (!ExpectEventually(
+            "the warming-up consumer to receive a first message",
+            [&] {
+              if (last_received_message->load() != 0) return true;
+              SeedTopicWithInt(kTopicName, ++sent_messages);
+              return false;
+            },
+            kConsumerReadyTimeout,
+            kWarmUpSeedInterval)) {
+      return nullptr;
     }
 
-    while (last_received_message->load() != sent_messages) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    };
+    // Each message carries its own sequence number, so the last one received tells us how far the
+    // consumer has got without counting anything.
+    if (!ExpectCountReaches("the warming-up consumer to catch up with the messages sent to it",
+                            *last_received_message,
+                            sent_messages)) {
+      return nullptr;
+    }
 
     consumer->Stop();
     std::this_thread::sleep_for(std::chrono::seconds(4));
@@ -140,16 +204,19 @@ TEST_F(ConsumerTest, BatchInterval) {
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  ASSERT_NE(nullptr, consumer);
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
-    // Sleep for a bit to allow the consumer to receive the message.
+    // Spacing the messages out is what puts each one in a batch of its own, which is the point of
+    // this test rather than a wait for something to happen.
     std::this_thread::sleep_for(kBatchInterval);
   }
-  // Wait for all messages to be delivered
-  sent_messages.wait();
+  // try_wait is allowed to report false even once the count has reached zero, so a single reading of
+  // it cannot be trusted; polling it until the deadline turns that into an answer.
+  ExpectEventually("every message to be delivered", [&] { return sent_messages.try_wait(); });
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
@@ -213,38 +280,60 @@ TEST_F(ConsumerTest, StartStop) {
 }
 
 TEST_F(ConsumerTest, BatchSize) {
-  // Increase default batch interval to give more time for messages to receive
-  static constexpr auto kBatchInterval = std::chrono::milliseconds{1000};
+  // A batch ends on whichever comes first: batch_size messages, or batch_interval elapsing. The
+  // interval is a budget for assembling the whole batch, not an idle timeout - it is charged for
+  // the time every message takes to arrive, not only for gaps - so a batch of batch_size messages
+  // only ever comes out full if the interval outlasts the delivery of all of them. This is the
+  // mirror of BatchInterval, which leaves the batch size at its large default so that only the
+  // interval can end a batch; here the interval is generous enough that only the size can. The mock
+  // delivers with a delay of a few hundred milliseconds per message, so an interval anywhere near
+  // the time batch_size of them take ends batches early and the sizes stop being predictable.
+  // The interval is also the timeout the polling thread blocks in, and Stop() joins that thread, so
+  // it is this test's shutdown cost as well. Keep it comfortably above the delivery time of a full
+  // batch without paying for more than that.
+  static constexpr auto kBatchInterval = std::chrono::seconds{5};
   static constexpr auto kBatchSize = 3;
+  static constexpr auto kFullBatchCount = 3;
+  // One message beyond a whole number of batches, so the last batch is short and is flushed by the
+  // interval rather than by the size. Both halves of the rule stay covered.
+  static constexpr auto kMessageCount = kFullBatchCount * kBatchSize + 1;
+  static constexpr std::string_view kMessage = "BatchSizeTestMessage";
+
   auto info = CreateDefaultConsumerInfo();
-  std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
   info.batch_size = kBatchSize;
-  static constexpr std::string_view kMessage = "BatchSizeTestMessage";
+
+  std::vector<size_t> batch_sizes{};
   auto expected_messages_received = true;
+  std::atomic<int> received_count{0};
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
-    received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
+    batch_sizes.push_back(messages.size());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
+    received_count.fetch_add(static_cast<int>(messages.size()), std::memory_order_release);
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  ASSERT_NE(nullptr, consumer);
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
-  static constexpr auto kLastBatchMessageCount = 1;
-  static constexpr auto kMessageCount = 3 * kBatchSize + kLastBatchMessageCount;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
   }
-  std::this_thread::sleep_for(kBatchInterval * 2);
-  consumer->Stop();
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
-  ASSERT_FALSE(received_timestamps.empty());
 
-  static constexpr auto kExpectedBatchCount = kMessageCount / kBatchSize + 1;
-  EXPECT_EQ(kExpectedBatchCount, received_timestamps.size());
+  ExpectCountReaches("every message to be delivered", received_count, kMessageCount);
+  // Stop() joins the polling thread, which publishes batch_sizes to this one.
+  consumer->Stop();
+
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
+  ASSERT_EQ(kMessageCount, received_count.load(std::memory_order_acquire));
+  ASSERT_EQ(kFullBatchCount + 1, batch_sizes.size());
+  for (auto i = 0; i < kFullBatchCount; ++i) {
+    EXPECT_EQ(kBatchSize, batch_sizes[i]) << "Batch " << i << " should have been ended by its size";
+  }
+  EXPECT_EQ(1, batch_sizes.back()) << "The trailing batch should have been ended by the interval";
 }
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {
@@ -321,15 +410,9 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
     auto consumer = std::make_unique<Consumer>(ConsumerInfo{info}, consumer_function);
     ASSERT_FALSE(consumer->IsRunning());
     consumer->Start();
-    const auto start = std::chrono::steady_clock::now();
     ASSERT_TRUE(consumer->IsRunning());
 
-    static constexpr auto kMaxWaitTime = std::chrono::seconds(5);
-
-    while (expected_total_messages != received_message_count.load() &&
-           (std::chrono::steady_clock::now() - start) < kMaxWaitTime) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    }
+    ExpectCountReaches("the messages just sent to be delivered", received_message_count, expected_total_messages);
     // it is stopped because of limited batches
     EXPECT_EQ(expected_total_messages, received_message_count);
     EXPECT_NO_THROW(consumer->Stop());
@@ -349,6 +432,7 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
   auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
+  ASSERT_NE(nullptr, consumer);
 
   static constexpr auto kMessageCount = 4;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
@@ -465,6 +549,7 @@ TEST_F(ConsumerTest, LimitBatches_CannotStartIfAlreadyRunning) {
   auto info = CreateDefaultConsumerInfo();
 
   auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
+  ASSERT_NE(nullptr, consumer);
 
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
@@ -507,6 +592,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
   };
 
   auto consumer = CreateConsumer(std::move(info), consumer_function);
+  ASSERT_NE(nullptr, consumer);
 
   for (auto sent_messages = 0; sent_messages <= kNumberOfMessagesToSend; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
@@ -526,6 +612,7 @@ TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
   auto info = CreateDefaultConsumerInfo();
 
   auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
+  ASSERT_NE(nullptr, consumer);
 
   std::chrono::milliseconds timeout{3000};
 

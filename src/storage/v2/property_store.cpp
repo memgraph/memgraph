@@ -2721,15 +2721,16 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
   return WithReader(property_equal);
 }
 
-auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
+void PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
-                                       std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
+                                       std::span<std::size_t const> position_lookup, std::vector<bool> &result) const {
   auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
 
-  auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
-    auto result = std::vector<bool>(ordered_properties.size(), false);
+  // assign rather than construct: a reused buffer keeps its capacity
+  result.assign(ordered_properties.size(), false);
 
+  auto properties_are_equal = [&](Reader &reader) {
     auto const get_result = [&](Reader &reader, PropertyPath const &path, PropertyValue const &cmp_val) {
       auto const orig_reader = reader;
 
@@ -2759,9 +2760,8 @@ auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_pro
       auto const &value = values[position_lookup[pos]];
       safe_reader(std::tuple{property, std::cref(value)}, std::tuple{std::cref(value), pos});
     }
-    return result;
   };
-  return WithReader(properties_are_equal);
+  WithReader(properties_are_equal);
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {

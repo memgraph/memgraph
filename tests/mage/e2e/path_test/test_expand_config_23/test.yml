@@ -1,0 +1,10 @@
+# An end or terminator node is allowlisted implicitly, so an allowlist that does not name it cannot
+# starve the filter it is paired with: D is reachable even though only B and C are allowlisted.
+query: >
+  MATCH (a:Node {name: "A"}), (b:Node {name: "B"}), (c:Node {name: "C"}), (d:Node {name: "D"})
+  CALL path.expand_config(a, {maxHops: 4, terminatorNodes: [d], allowlistNodes: [b, c]})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A", "B", "C", "D"]

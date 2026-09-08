@@ -22,8 +22,8 @@ if [[ -x "$BUILD_DIR/mgconsole" ]]; then
     MGCONSOLE_BINARY="$BUILD_DIR/bin/mgconsole"
 elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
     MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
-elif [[ -x "/opt/toolchain-v7/bin/mgconsole" ]]; then
-    MGCONSOLE_BINARY="/opt/toolchain-v7/bin/mgconsole"
+elif [[ -x "/opt/toolchain-v8/bin/mgconsole" ]]; then
+    MGCONSOLE_BINARY="/opt/toolchain-v8/bin/mgconsole"
 elif command -v mgconsole &>/dev/null; then
     MGCONSOLE_BINARY="$(command -v mgconsole)"
 else

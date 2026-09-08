@@ -16,6 +16,7 @@
 #include <memory>
 
 #include "test_support/builders.hpp"
+#include "test_support/op_make_traits.hpp"
 #include "test_support/patterns.hpp"
 #include "test_support/types.hpp"
 
@@ -61,7 +62,10 @@ void BenchmarkWithMatchContext(benchmark::State &state, int64_t context_mode, EM
 // The MatcherIndex constructor calls rebuild_index() itself, so no explicit rebuild is needed.
 class MatcherFixtureBase : public benchmark::Fixture {
  protected:
-  TestEGraph egraph_;
+  // The rewrite engine drives the typed wrapper; `egraph_` aliases the core it
+  // owns so the matcher and building operations act on the same graph.
+  TypedTestEGraph typed_egraph_;
+  TestEGraph &egraph_ = typed_egraph_.core();
   std::unique_ptr<TestMatcherIndex> matcher_;
   EMatchContext match_context_;
   TestMatches matches_;

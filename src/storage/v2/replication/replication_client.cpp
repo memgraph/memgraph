@@ -111,7 +111,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       });
 
   if (!maybe_heartbeat_res) {
-    spdlog::trace("Couldn't get RPC lock while trying to UpdateReplicaState");
+    spdlog::warn("Couldn't get RPC lock while trying to UpdateReplicaState");
     return;
   }
 
@@ -213,12 +213,19 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   main_db_name);
     replica_state_.WithLock([&](auto &state) {
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask(
+      client_.maintenance_pool_.AddTask(
           [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
-            const memory::DbArenaScope db_arena_scope{arena_pool};
-            this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                                 main_storage,
-                                 true);  // needs force reset so we need to recover from 0.
+            try {
+              const memory::DbArenaScope db_arena_scope{arena_pool};
+              this->RecoverReplica(/*replica_last_commit_ts*/ 0,
+                                   main_storage,
+                                   true);  // needs force reset so we need to recover from 0.
+            } catch (...) {
+              // The task runs raw on the maintenance worker; left in RECOVERY the replica would never
+              // be rechecked, the frequent check reacts to MAYBE_BEHIND alone.
+              spdlog::error("Recovery of replica {} failed.", client_.name_);
+              this->SetMaybeBehind();
+            }
           });
     });
 #else
@@ -242,7 +249,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // so merging it via the advance-only Max below would restore the stale (inflated) count, undo the reset, and
   // resurface as a persistent negative replication lag. Two things keep this safe: the RECOVERY gate checked here,
   // and the fact that this function and the recovery task both run on the same single-threaded per-client
-  // thread_pool_, so the reset can never execute between this check and the Max merge. Note that engine_lock_ does
+  // maintenance_pool_, so the reset can never execute between this check and the Max merge. Note that engine_lock_ does
   // NOT protect this: the recovery task's reset takes no engine lock. If the pool ever became multi-threaded, this
   // check-then-merge would be racy and would need to hold replica_state_'s lock across both the check and the merge.
   if (*replica_state_.Lock() == ReplicaState::RECOVERY) {
@@ -290,13 +297,20 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     } else {
       spdlog::debug("Replica {} is behind for db {}.", client_.name_, main_db_name);
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([main_storage,
-                                    current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
-                                    gk = protector.clone(),
-                                    arena_pool = main_storage->DbArenaPool(),
-                                    this] {
-        const memory::DbArenaScope db_arena_scope{arena_pool};
-        this->RecoverReplica(current_commit_timestamp, main_storage);
+      client_.maintenance_pool_.AddTask([main_storage,
+                                         current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
+                                         gk = protector.clone(),
+                                         arena_pool = main_storage->DbArenaPool(),
+                                         this] {
+        try {
+          const memory::DbArenaScope db_arena_scope{arena_pool};
+          this->RecoverReplica(current_commit_timestamp, main_storage);
+        } catch (...) {
+          // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
+          // rechecked, the frequent check reacts to MAYBE_BEHIND alone.
+          spdlog::error("Recovery of replica {} failed.", client_.name_);
+          this->SetMaybeBehind();
+        }
       });
     }
   });
@@ -316,10 +330,17 @@ void ReplicationStorageClient::LogRpcFailure() const {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
-  client_.thread_pool_.AddTask(
+  client_.maintenance_pool_.AddTask(
       [main_storage, protector = protector.clone(), arena_pool = main_storage->DbArenaPool(), this]() {
-        const memory::DbArenaScope db_arena_scope{arena_pool};
-        this->TryCheckReplicaStateSync(main_storage, *protector);
+        try {
+          const memory::DbArenaScope db_arena_scope{arena_pool};
+          this->TryCheckReplicaStateSync(main_storage, *protector);
+        } catch (...) {
+          // The task runs raw on the maintenance worker; the frequent check retries a MAYBE_BEHIND
+          // replica.
+          spdlog::error("State check of replica {} failed.", client_.name_);
+          this->SetMaybeBehind();
+        }
       });
 }
 
@@ -328,12 +349,19 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
       "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
-    client_.thread_pool_.AddTask(
+    client_.maintenance_pool_.AddTask(
         [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
-          const memory::DbArenaScope db_arena_scope{arena_pool};
-          this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                               main_storage,
-                               true);  // needs force reset so we need to recover from 0.
+          try {
+            const memory::DbArenaScope db_arena_scope{arena_pool};
+            this->RecoverReplica(/*replica_last_commit_ts*/ 0,
+                                 main_storage,
+                                 true);  // needs force reset so we need to recover from 0.
+          } catch (...) {
+            // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
+            // rechecked, the frequent check reacts to MAYBE_BEHIND alone.
+            spdlog::error("Recovery of replica {} failed.", client_.name_);
+            this->SetMaybeBehind();
+          }
         });
   });
 }
@@ -422,7 +450,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
         }
 
         if (!maybe_stream_handler) {
-          spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
+          spdlog::warn("Couldn't obtain RPC lock for committing to ASYNC replica.");
           *locked_state = MAYBE_BEHIND;
           return std::unexpected{StartTxnReplicationError{FailedToGetAsyncRpcLock{}}};
         }
@@ -466,6 +494,8 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     return stream.SendAndWait().success;
   } catch (const rpc::RpcFailedException &) {
     // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
+    return false;
+  } catch (...) {
     return false;
   }
 }
@@ -535,7 +565,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
     });
     spdlog::error("Couldn't replicate data to {} because timeout occurred.", client_.name_);
     return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
-  } catch (rpc::GenericRpcFailedException const &) {
+  } catch (rpc::RpcFailedException const &) {
     replica_state_.WithLock([&replica_stream](auto &state) {
       replica_stream.reset();
       state = ReplicaState::MAYBE_BEHIND;
@@ -592,9 +622,9 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
                commit_num_committed_txns,
                is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
-    const memory::DbArenaScope db_arena_scope{arena_pool};
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
+      const memory::DbArenaScope db_arena_scope{arena_pool};
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
@@ -636,7 +666,16 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       });
       spdlog::error("Couldn't replicate data to {} because timeout occurred.", client_.name_);
       return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
-    } catch (rpc::GenericRpcFailedException const &) {
+    } catch (rpc::RpcFailedException const &) {
+      replica_state_.WithLock([&replica_stream_obj](auto &state) {
+        replica_stream_obj.reset();
+        state = ReplicaState::MAYBE_BEHIND;
+      });
+      LogRpcFailure();
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+    } catch (...) {
+      // In ASYNC mode this task runs raw on the client's worker, where an escaping exception (e.g.
+      // bad_alloc while decoding the response) terminates the whole process.
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
         state = ReplicaState::MAYBE_BEHIND;
@@ -657,7 +696,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
 }
 
 void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &protector) {
-  spdlog::trace("Replication client started for database \"{}\"", storage->name());
+  spdlog::info("Replication client started for database \"{}\"", storage->name());
   TryCheckReplicaStateSync(storage, protector);
 }
 
@@ -668,6 +707,10 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                                               bool const reset_needed) const {
   auto const &main_db_name = main_storage->name();
 
+  // A guardrail, not a decision point: read without a hold, so the mode could flip right after.
+  // A storage with replication clients cannot enter analytical mode (SetStorageMode refuses under the
+  // clients' lock), and taking main_lock_ on this background task would risk deadlocking against the
+  // commits it is recovering.
   if (main_storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
@@ -736,6 +779,9 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
                     client_.name_,
+                    main_mem_storage->config_.durability.release_sent_snapshot_page_cache
+                        ? utils::PageCachePolicy::kDrop
+                        : utils::PageCachePolicy::kKeep,
                     main_uuid,
                     main_mem_storage->uuid());
                 // Error happened on our side when trying to load snapshot file
@@ -795,6 +841,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
                     client_.name_,
+                    utils::PageCachePolicy::kKeep,
                     wals.size(),
                     main_uuid,
                     main_mem_storage->uuid(),
@@ -852,6 +899,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                       main_mem_storage->config_.durability.root_data_directory,
                       repl_mode,
                       client_.name_,
+                      utils::PageCachePolicy::kKeep,
                       main_uuid,
                       main_mem_storage->uuid(),
                       do_reset);

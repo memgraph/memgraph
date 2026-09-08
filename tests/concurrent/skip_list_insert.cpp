@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,25 +20,34 @@ const uint64_t kMaxNum = 10000000;
 int main() {
   memgraph::utils::SkipList<uint64_t> list;
 
-  std::vector<std::thread> threads;
-  for (int i = 0; i < kNumThreads; ++i) {
-    threads.push_back(std::thread([&list, i] {
-      for (uint64_t num = i * kMaxNum; num < (i + 1) * kMaxNum; ++num) {
-        auto acc = list.access();
-        MG_ASSERT(acc.insert(num).second);
-      }
-    }));
-  }
-  for (int i = 0; i < kNumThreads; ++i) {
-    threads[i].join();
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(kNumThreads);
+    for (int i = 0; i < kNumThreads; ++i) {
+      threads.emplace_back([&list, i] {
+        for (uint64_t num = i * kMaxNum; num < (i + 1) * kMaxNum; ++num) {
+          auto acc = list.access();
+          MG_ASSERT(acc.insert(num).second);
+        }
+      });
+    }
   }
 
   MG_ASSERT(list.size() == kMaxNum * kNumThreads);
-  for (uint64_t i = 0; i < kMaxNum * kNumThreads; ++i) {
-    auto acc = list.access();
-    auto it = acc.find(i);
-    MG_ASSERT(it != acc.end());
-    MG_ASSERT(*it == i);
+
+  // Reads back the same ranges the writers used. Checking the final contents is not what this
+  // test is measuring, so it is not left to one thread.
+  std::vector<std::jthread> verifiers;
+  verifiers.reserve(kNumThreads);
+  for (int i = 0; i < kNumThreads; ++i) {
+    verifiers.emplace_back([&list, i] {
+      auto acc = list.access();
+      for (uint64_t num = i * kMaxNum; num < (i + 1) * kMaxNum; ++num) {
+        auto it = acc.find(num);
+        MG_ASSERT(it != acc.end());
+        MG_ASSERT(*it == num);
+      }
+    });
   }
 
   return 0;

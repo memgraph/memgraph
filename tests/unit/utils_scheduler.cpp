@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include "gtest/gtest.h"
 
 #include <atomic>

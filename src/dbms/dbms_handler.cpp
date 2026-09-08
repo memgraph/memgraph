@@ -24,6 +24,7 @@
 #include "dbms/global.hpp"
 #include "dbms/rpc.hpp"
 #include "license/license.hpp"
+#include "memory/global_memory_control.hpp"  // memory::PurgeUnusedMemory (synchronous reclaim on suspend)
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
@@ -1227,6 +1228,10 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // OUTSIDE lock_: value_.reset() -> ~Database (stop threads, FinalizeWal, NO exit snapshot).
   // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
   gk->finish_suspend();
+
+  // The database teardown frees its own arena, but many allocations remain in shared jemalloc arenas.
+  // Force a global purge so SUSPEND returns only after the tenant's memory has been reclaimed.
+  memory::PurgeUnusedMemory();
 
   // The suspend is committed (tenant is COLD, in-memory storage and stream consumers dropped;
   // durable stream metadata persists for resume). Keep the streams stopped — do NOT run the undo guard.

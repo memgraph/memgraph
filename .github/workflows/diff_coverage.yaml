@@ -23,6 +23,14 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
+      python_build_version:
+        type: string
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python."
+        default: ''
+      python_runtime_version:
+        type: string
+        description: "After building, remove the build Python and swap in this version so tests run against a different libpython. Empty disables the swap."
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -35,7 +43,9 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: v7
+  PYTHON_BUILD_VERSION: ${{ inputs.python_build_version }}
+  PYTHON_RUNTIME_VERSION: ${{ inputs.python_runtime_version }}
+  TOOLCHAIN: v8
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
@@ -47,7 +57,7 @@ jobs:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 70
+    timeout-minutes: 120
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -68,12 +78,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -111,6 +119,8 @@ jobs:
           --build-type $BUILD_TYPE \
           --no-ccache \
           build-memgraph --init-only \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -135,8 +145,11 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
+          --threads 12 \
           build-memgraph --coverage --asan --ubsan \
           --link-threads $LINK_THREADS \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -158,6 +171,15 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit-coverage
+
+      - name: Save ctest results
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        if: always()
+        with:
+          name: "ctest_results_Coverage${{ env.RUN_ID }}"
+          path: build/test-results/
+          if-no-files-found: ignore
 
       - name: Compute code coverage
         run: |
@@ -213,12 +235,14 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Coverage / Core tests"
 
-  clang-tidy-community:
+  clang-tidy:
     if: ${{ inputs.run_clang_tidy == 'true' }}
-    name: "Clang tidy community"
+    name: "Clang tidy"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 40
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -239,12 +263,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -260,7 +282,7 @@ jobs:
           fi
           echo "BASE_BRANCH=origin/$base_branch" >> $GITHUB_ENV
 
-      - name: Configure cmake
+      - name: Configure cmake (community)
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -268,21 +290,18 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
-          build-memgraph --cmake-only --community \
+          build-memgraph --cmake-only --community --mage on \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
 
-      - name: Configure mage
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          build-mage --config-only
-
-      - name: Run clang-tidy
+      # The community check continues on error so the enterprise check always
+      # runs; the "Determine job status" step below fails the job afterwards.
+      - name: Run clang-tidy (community)
+        id: clang_tidy_community
+        continue-on-error: true
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -291,6 +310,40 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Configure cmake (enterprise)
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --no-ccache \
+          build-memgraph --cmake-only --mage on \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: Run clang-tidy (enterprise)
+        id: clang_tidy_enterprise
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Determine job status
+        run: |
+          if [[ "${{ steps.clang_tidy_community.outcome }}" == "failure" ]]; then
+            echo "ERROR: community clang-tidy check failed"
+            exit 1
+          fi
+          echo "Both clang-tidy checks passed"
 
       - name: Stop mgbuild container
         if: always()
@@ -311,101 +364,5 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-
-  clang-tidy-enterprise:
-    if: ${{ inputs.run_clang_tidy == 'true' }}
-    name: "Clang tidy enterprise"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          fetch-depth: 0
-          ref: ${{ inputs.ref || github.ref }}
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Set base branch
-        run: |
-          base_branch="master"
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base_branch="${{ github.base_ref }}"
-          fi
-          echo "BASE_BRANCH=origin/$base_branch" >> $GITHUB_ENV
-
-      - name: Configure cmake
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --no-ccache \
-          build-memgraph --cmake-only \
-          --conan-remote $CONAN_REMOTE \
-          --conan-username $CONAN_USERNAME \
-          --conan-password $CONAN_PASSWORD
-
-      - name: Configure mage
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          build-mage --config-only
-
-      - name: Run clang-tidy
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
-
-      - name: Stop mgbuild container
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          stop --remove
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
-        uses: ./.github/actions/cancel-on-failure-in-merge-queue
+          job-name: "Coverage / Clang tidy"

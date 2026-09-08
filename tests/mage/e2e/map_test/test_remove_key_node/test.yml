@@ -1,0 +1,5 @@
+query: >
+  MATCH (n:Person) RETURN map.remove_key(n, "age") AS result;
+
+output:
+  - result: {"city": "NYC", "name": "Alice"}

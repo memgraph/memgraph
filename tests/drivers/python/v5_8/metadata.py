@@ -24,9 +24,11 @@ def check_md(tx_md):
     n = 0
     for record in tx_md:
         md = record[4]
-        if md["ver"] == "session" and md["str"] == "aha" and md["num"] == 123:
+        # Background-task rows (GC, snapshot) also appear in SHOW TRANSACTIONS with
+        # their own metadata keys, so match with .get() instead of indexing.
+        if md.get("ver") == "session" and md.get("str") == "aha" and md.get("num") == 123:
             n = n + 1
-        elif md["ver"] == "transaction" and md["str"] == "oho" and md["num"] == 456:
+        elif md.get("ver") == "transaction" and md.get("str") == "oho" and md.get("num") == 456:
             n = n + 1
     return n
 

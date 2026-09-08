@@ -1,0 +1,18 @@
+# With the sequence starting one node out, the first relationship step is spent on the hop out of the
+# start node and the rest repeat from there. NEXT> is used once, then '<FROM,POSTED>,NEXT>' cycles --
+# which reaches the same nodes as the three-step sequence starting at the start node, one step over.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {minHops: 0, maxHops: 4, beginSequenceAtStart: false,
+                              relationshipFilter: 'NEXT>,<FROM,POSTED>,NEXT>'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["P1"]
+  - names: ["P1", "R1"]
+  - names: ["P1", "RB"]
+  - names: ["P1", "R1", "A1"]
+  - names: ["P1", "R1", "A1", "P2"]
+  - names: ["P1", "R1", "A1", "P2", "R2"]

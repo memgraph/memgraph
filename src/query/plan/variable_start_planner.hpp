@@ -237,7 +237,8 @@ class VaryMatchingStart {
 // Cartesian product of all of them is returned.
 CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Matching> &, const SymbolTable &);
 
-CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching, const SymbolTable &symbol_table);
+CartesianProduct<VaryMatchingStart> VarySubqueryMatchingStarts(const Matching &matching,
+                                                               const SymbolTable &symbol_table);
 
 // Produces alternative query parts out of a single part by varying how each
 // graph matching is done.
@@ -293,8 +294,8 @@ class VaryQueryPartMatching {
                     optional_matchings_.end(),
                     merge_matchings_.begin(),
                     merge_matchings_.end(),
-                    filter_matchings_.begin(),
-                    filter_matchings_.end());
+                    subquery_matchings_.begin(),
+                    subquery_matchings_.end());
   }
 
   auto end() {
@@ -305,8 +306,8 @@ class VaryQueryPartMatching {
                     optional_matchings_.end(),
                     merge_matchings_.end(),
                     merge_matchings_.end(),
-                    filter_matchings_.end(),
-                    filter_matchings_.end());
+                    subquery_matchings_.end(),
+                    subquery_matchings_.end());
   }
 
  private:
@@ -318,7 +319,7 @@ class VaryQueryPartMatching {
   CartesianProduct<VaryMatchingStart> optional_matchings_;
   // Like optional matching, but for merge matchings.
   CartesianProduct<VaryMatchingStart> merge_matchings_;
-  CartesianProduct<VaryMatchingStart> filter_matchings_;
+  CartesianProduct<VaryMatchingStart> subquery_matchings_;
 };
 
 }  // namespace impl
@@ -401,6 +402,7 @@ class VariableStartPlanner {
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
+          context->scoped_call_imports.clear();
           return rule_planner.Plan(reconstructed_query_parts);
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));

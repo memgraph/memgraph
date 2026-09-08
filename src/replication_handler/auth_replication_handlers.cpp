@@ -84,7 +84,7 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
     spdlog::debug("UpdateAuthDataHandler: SUCCESS");
   } catch (const auth::AuthException &e) {
     // Failure
-    spdlog::trace("Saving role '{}' exception: {}", req.role->rolename(), e.what());
+    spdlog::warn("Saving role '{}' exception: {}", req.role->rolename(), e.what());
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);

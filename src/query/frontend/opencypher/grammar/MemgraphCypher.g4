@@ -54,6 +54,8 @@ memgraphCypherKeyword : cypherKeyword
                       | CONSUMER_GROUP
                       | CONTAINING
                       | COORDINATOR
+                      | COORDINATOR_READ
+                      | COORDINATOR_WRITE
                       | CREDENTIALS
                       | CSV
                       | CURRENT
@@ -164,6 +166,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PROFILES
                       | PULSAR
                       | QUOTE
+                      | RANGE
                       | READ
                       | READ_FILE
                       | RECOVER
@@ -182,6 +185,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | ROUTING
                       | ROWS
                       | RUNNING
                       | SCHEMA
@@ -209,6 +213,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STRING
                       | SYNC
                       | SUSPEND
+                      | TABLE
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
@@ -365,6 +370,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | setCoordinatorSetting
                  | showCoordinatorSettings
                  | showReplicationLag
+                 | showRoutingTable
                  | updateConfig
                  ;
 
@@ -408,7 +414,9 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName nestedPropertyKeyList? ;
+indexHint: ':' labelName nestedPropertyKeyList?
+         | ':' '(' propertyKeyName ')'
+         ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
@@ -590,12 +598,13 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
-          | COORDINATOR
           | IMPERSONATE_USER
           | PROFILE_RESTRICTION
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | COORDINATOR_READ
+          | COORDINATOR_WRITE
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
@@ -673,6 +682,8 @@ setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
 showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
 
 showReplicationLag: SHOW REPLICATION LAG ;
+
+showRoutingTable: SHOW ROUTING TABLE ;
 
 coordinatorServerId : literal ;
 
@@ -831,17 +842,21 @@ showMemoryInfo : SHOW MEMORY INFO ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-indexQuery : createIndex | dropIndex;
+indexQuery : createIndex | dropIndex | createGlobalVertexIndex | dropGlobalVertexIndex;
 
 nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
 
 alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
 
 createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
-            | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            | CREATE RANGE? INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
             ;
 
 dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+
+createGlobalVertexIndex : CREATE GLOBAL INDEX ON ':' '(' propertyKeyName ')' ;
+
+dropGlobalVertexIndex : DROP GLOBAL INDEX ON ':' '(' propertyKeyName ')' ;
 
 propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
 
@@ -853,7 +868,7 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-createEdgeIndexAlternativeSyntax : CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
+createEdgeIndexAlternativeSyntax : CREATE RANGE? INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
 
 edgeIndexQuery : createEdgeIndex
                | dropEdgeIndex
@@ -1047,6 +1062,7 @@ descriptionTarget
     | EDGE TYPE ':' labelName
     | LABEL PROPERTY ':' labelName ( ':' labelName )* propertyKeyList
     | EDGE TYPE PROPERTY ':' labelName propertyKeyList
+    | PROPERTY propertyKeyName VALUE literal
     | PROPERTY propertyKeyName
     | DATABASE symbolicName
     ;

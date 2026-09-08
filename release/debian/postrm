@@ -65,6 +65,27 @@ if [ "$1" = "purge" ]; then
     fi
 fi
 
+# Remove the libpython3.so symlink created in postinst, but only on actual
+# removal/purge (not upgrade, where the replacement still needs it) and only if
+# it is still a symlink pointing at a versioned libpython (i.e. one we created,
+# not a file owned by another package such as libpython3-dev).
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    removed_symlink=false
+    for link in /usr/lib/*/libpython3.so /usr/lib64/libpython3.so /usr/lib/libpython3.so; do
+        if [ -L "$link" ]; then
+            case "$(readlink "$link")" in
+                libpython3.*.so.1.0)
+                    rm -f "$link"
+                    removed_symlink=true
+                ;;
+            esac
+        fi
+    done
+    if [ "$removed_symlink" = true ]; then
+        ldconfig || true
+    fi
+fi
+
 # Take a look at the preinst script for the detailed explanation.
 if dpkg-maintscript-helper supports rm_conffile 2>/dev/null; then
     dpkg-maintscript-helper rm_conffile /etc/logrotate.d/memgraph_audit 1.1.999 -- "$@"

@@ -403,6 +403,48 @@ TEST(SkipList, Move) {
   }
 }
 
+// clear() is what frees a large storage during a replica force-reset, and it reports nothing on its own -- size_ is
+// only zeroed once the walk finishes. An RPC handler waiting on that teardown relies on this callback to tell its peer
+// it is still alive, so a silent clear() is a peer timeout.
+TEST(SkipList, ClearReportsProgress) {
+  memgraph::utils::SkipList<int64_t> list;
+  constexpr uint64_t kInterval = memgraph::utils::kClearProgressMask + 1;
+  constexpr int64_t kElements = 3 * kInterval;
+
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kElements; ++i) {
+      ASSERT_TRUE(acc.insert(i).second);
+    }
+  }
+
+  uint64_t reports = 0;
+  list.clear([&reports] { ++reports; });
+
+  EXPECT_EQ(reports, 3) << "expected one report per " << kInterval << " destroyed nodes";
+  {
+    auto acc = list.access();
+    EXPECT_EQ(acc.size(), 0);
+  }
+}
+
+// A clear() with no callback must still work: that is how every caller outside the recovery paths uses it, including
+// ~SkipList.
+TEST(SkipList, ClearWithoutProgressCallback) {
+  memgraph::utils::SkipList<int64_t> list;
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < 100; ++i) {
+      ASSERT_TRUE(acc.insert(i).second);
+    }
+  }
+
+  list.clear();
+
+  auto acc = list.access();
+  EXPECT_EQ(acc.size(), 0);
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(SkipList, Clear) {
   memgraph::utils::SkipList<int64_t> list;
@@ -716,6 +758,36 @@ TEST(SkipList, EstimateRangeCount) {
     uint64_t count = acc.estimate_range_count<int64_t>(std::nullopt, std::nullopt, 1);
     ASSERT_EQ(count, kMaxElements * kElementMembers);
   }
+}
+
+TEST(SkipList, EstimateRangeCountLowerBoundNeedNotBeInTheList) {
+  // A range is described by where its bounds fall between the keys, not by the keys themselves, so
+  // a bound that no element matches has to count the same elements as the next key above it.
+  memgraph::utils::SkipList<Counter> list;
+  const int64_t kKeys = 100;
+  const int64_t kMembers = 10;
+  {
+    auto acc = list.access();
+    for (int64_t key = 0; key < kKeys; ++key) {
+      for (int64_t member = 0; member < kMembers; ++member) {
+        ASSERT_TRUE(acc.insert({key * 2, member}).second);
+      }
+    }
+  }
+
+  auto acc = list.access();
+  using memgraph::utils::BoundType;
+  for (int64_t absent : {1, 51, 197}) {
+    auto const from_absent = acc.estimate_range_count<int64_t>({{absent, BoundType::INCLUSIVE}}, std::nullopt, 1);
+    auto const from_next_key = acc.estimate_range_count<int64_t>({{absent + 1, BoundType::INCLUSIVE}}, std::nullopt, 1);
+    EXPECT_GT(from_next_key, 0);
+    EXPECT_EQ(from_absent, from_next_key);
+  }
+
+  // An absent bound inside a bounded range behaves the same way.
+  auto const bounded_from_absent =
+      acc.estimate_range_count<int64_t>({{51, BoundType::INCLUSIVE}}, {{59, BoundType::INCLUSIVE}}, 1);
+  EXPECT_EQ(bounded_from_absent, 4 * kMembers);  // keys 52, 54, 56, 58
 }
 
 template <typename TElem, typename TCmp>

@@ -11,12 +11,14 @@
 
 #include "glue/communication.hpp"
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "communication/bolt/v1/mg_types.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "query/auth_checker.hpp"
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
@@ -285,10 +287,16 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   }
   auto maybe_properties = vertex.Properties(view);
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
+  const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
+                                     ? vertex.VectorIndexedProperties(*maybe_labels)
+                                     : std::vector<storage::PropertyId>{};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
     if (auth_checker && !auth_checker->HasPropertyPermission(
                             *maybe_labels, prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    if (std::ranges::contains(hidden_properties, prop.first)) {
       continue;
     }
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
@@ -308,10 +316,16 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   auto type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
+  const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
+                                     ? edge.VectorIndexedProperties()
+                                     : std::vector<storage::PropertyId>{};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
     if (auth_checker && !auth_checker->HasPropertyPermission(
                             edge.EdgeType(), prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    if (std::ranges::contains(hidden_properties, prop.first)) {
       continue;
     }
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);

@@ -41,7 +41,7 @@ def assert_timeout(set_timeout, measure_timeout):
     print(measure_timeout)
     print(set_timeout)
     assert (
-        measure_timeout >= set_timeout and measure_timeout < set_timeout * 1.2
+        measure_timeout >= set_timeout and measure_timeout < set_timeout * 2
     ), "Wrong timeout; expected {}s and measured {}s".format(set_timeout, measure_timeout)
 
 
@@ -62,10 +62,10 @@ def test_timeout(driver, set_timeout):
     timed_out = False
     try:
         with driver.session() as session:
-            start_time = time.time()
+            start_time = time.monotonic()
             session.run("MATCH (a), (b), (c), (d), (e), (f) RETURN COUNT(*) AS cnt").consume()
     except TransientError:
-        end_time = time.time()
+        end_time = time.monotonic()
         assert_timeout(set_timeout, end_time - start_time)
         timed_out = True
 

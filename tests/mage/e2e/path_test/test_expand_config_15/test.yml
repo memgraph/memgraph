@@ -1,0 +1,7 @@
+# filterStartNode makes the label filter apply to the start node as well, which A fails, so the walk
+# stops before it begins.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {labelFilter: ['+Missing'], filterStartNode: true, maxHops: 3})
+  YIELD result RETURN result;
+output: []

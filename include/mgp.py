@@ -1623,9 +1623,12 @@ def _typing_to_cypher_type(type_):
                 if len(types) == 1:
                     (type_arg,) = types
                 else:
-                    # We cannot do typing.Union[*types], so do the equivalent
-                    # with __getitem__ which does not even need arg unpacking.
-                    type_arg = typing.Union.__getitem__(types)
+                    # Subscripting Union with the tuple directly is equivalent to
+                    # typing.Union[*types] without needing arg unpacking. Use the
+                    # subscript form (not Union.__getitem__) because on Python
+                    # 3.14 typing.Union is a class whose __getitem__ is unbound,
+                    # so Union.__getitem__(types) raises a descriptor TypeError.
+                    type_arg = typing.Union[types]
                 return _mgp.type_nullable(_typing_to_cypher_type(type_arg))
         elif complex_type == list:
             (type_arg,) = type_args
@@ -1755,8 +1758,8 @@ def _is_typing_same(type1_, type2_):
                 (type_arg1,) = types1
                 (type_arg2,) = types2
             else:
-                type_arg1 = typing.Union.__getitem__(types1)
-                type_arg2 = typing.Union.__getitem__(types2)
+                type_arg1 = typing.Union[types1]
+                type_arg2 = typing.Union[types2]
             return _is_typing_same(type_arg1, type_arg2)
     elif complex_type1 == list:
         (type_arg1,) = type_args1

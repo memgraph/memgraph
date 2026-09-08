@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/edge_property_index.hpp"
+
+#include <algorithm>
 #include "storage/v2/edge.hpp"
 
 namespace memgraph::storage {
@@ -17,22 +19,15 @@ namespace memgraph::storage {
 void EdgePropertyIndexAbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property,
                                                               Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
                                                               PropertyValue value) {
-  auto it = cleanup_collection_.find(property);
-  if (it == cleanup_collection_.end()) {
-    DMG_ASSERT(false, "Should not be possible");
-    return;
-  }
-  it->second.emplace_back(std::move(value), from_vertex, to_vertex, edge, edge_type);
-}
-
-EdgePropertyIndexAbortProcessor::EdgePropertyIndexAbortProcessor(std::span<PropertyId const> properties) {
-  for (auto edge_type : properties) {
-    cleanup_collection_.insert({edge_type, {}});
-  }
+  // A write names a property, so properties with no index on them reach here. An abort undoes
+  // whatever was collected, so collecting an entry for a property no index covers would mean
+  // looking later for an index that does not exist.
+  if (!IsInteresting(property)) return;
+  cleanup_collection_[property].emplace_back(std::move(value), from_vertex, to_vertex, edge, edge_type);
 }
 
 bool EdgePropertyIndexAbortProcessor::IsInteresting(PropertyId property) const {
-  return cleanup_collection_.contains(property);
+  return std::ranges::binary_search(indexed_, property);
 }
 
 }  // namespace memgraph::storage

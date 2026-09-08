@@ -462,8 +462,16 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "NestedArithmetic",
             .query = "RETURN 1 + 2 * 3 AS r;",
-            .expected_details = {"Produce {r`0:(1 + (2 * 3))}", "Once"},
-            .expected_rewrites = 0,
+            .expected_details = {"Produce {r`0:7}", "Once"},  // constant-folded
+            .expected_rewrites = 2,
+        },
+        // The keystone demonstrable: a constant arithmetic expression folds to
+        // its value, cascading innermost-out under saturation.
+        PipelineTestCase{
+            .name = "ConstantArithmeticFoldsToValue",
+            .query = "RETURN 1 + 1 + 1 + 1 AS r;",
+            .expected_details = {"Produce {r`0:4}", "Once"},
+            .expected_rewrites = 3,
         }
     ),
     TestCaseName
@@ -485,8 +493,9 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "InlineThroughAdd",
             .query = "WITH 1 AS a RETURN a + 2 AS r;",
-            .expected_details = {"Produce {r`0:(1 + 2)}", "Once"},  // dead store: Bind for a eliminated
-            .expected_rewrites = 1,
+            // inline a -> 1, then fold 1 + 2 -> 3; dead Bind for a eliminated
+            .expected_details = {"Produce {r`0:3}", "Once"},
+            .expected_rewrites = 2,
         }
     ),
     TestCaseName
@@ -500,8 +509,9 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "SameExpressionTwoOutputs",
             .query = "RETURN 1 + 2 AS a, 1 + 2 AS b;",
-            .expected_details = {"Produce {a`0:(1 + 2), b`1:(1 + 2)}", "Once"},
-            .expected_rewrites = 0,
+            // the shared 1 + 2 folds once to 3 and both outputs project it
+            .expected_details = {"Produce {a`0:3, b`1:3}", "Once"},
+            .expected_rewrites = 1,
         },
         // Shared subexpression with Bind - after inline, Identifier(a) merges with
         // Add(1,2). The return expression a + (1+2) becomes Add(merged, merged) where
@@ -509,8 +519,9 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "SharedSubexprWithBind",
             .query = "WITH 1 + 2 AS a RETURN a + (1 + 2) AS r;",
-            .expected_details = {"Produce {r`0:((1 + 2) + (1 + 2))}", "Once"},
-            .expected_rewrites = 1,
+            // 1 + 2 folds to 3, the diamond becomes 3 + 3, which folds to 6
+            .expected_details = {"Produce {r`0:6}", "Once"},
+            .expected_rewrites = 3,
         }
     ),
     TestCaseName
@@ -584,8 +595,9 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "InlinedExpressionBindDead",
             .query = "WITH 1 AS x RETURN x + 1 AS r;",
-            .expected_details = {"Produce {r`0:(1 + 1)}", "Once"},
-            .expected_rewrites = 1,
+            // inline x -> 1, then fold 1 + 1 -> 2; dead Bind for x eliminated
+            .expected_details = {"Produce {r`0:2}", "Once"},
+            .expected_rewrites = 2,
         }
     ),
     TestCaseName
@@ -693,14 +705,18 @@ INSTANTIATE_TEST_SUITE_P(
         // NamedOutput Identifier(a) downstream, even though no node in
         // Bind's input subtree demands it.  With per-row Output cost
         // scaling, evaluating Identifier(a) per output row beats inlining
-        // the addition tree 101 times.
+        // the addition tree 101 times.  The tree is built over a parameter so
+        // it is costly yet not constant-foldable - a constant would fold to a
+        // cheap literal and then be inlined, which is a different scenario.
         PipelineTestCase{
             .name = "WithUnwindPrefersNonInlined",
-            .query = "WITH 1+1+1+1+1+1 AS a UNWIND range(0, 100) AS X RETURN a;",
-            .expected_details = {"Produce {a`2:a}",
-                                 "Unwind {X:RANGE(0, 100)}",
-                                 "Produce {a`0:(((((1 + 1) + 1) + 1) + 1) + 1)}",
-                                 "Once"},
+            .query = "WITH $p+$p+$p+$p+$p+$p AS a UNWIND range(0, 100) AS X RETURN a;",
+            .expected_details =
+                {"Produce {a`2:a}",
+                 "Unwind {X:RANGE(0, 100)}",
+                 "Produce {a`0:(((((ParameterLookup + ParameterLookup) + ParameterLookup) + ParameterLookup) + "
+                 "ParameterLookup) + ParameterLookup)}",
+                 "Once"},
             .expected_rewrites = 1,
         }
     ),
@@ -801,11 +817,15 @@ INSTANTIATE_TEST_SUITE_P(
         // value) and `x` by Identifier (the per-row Unwind value).
         // AliveRequired at y's Bind level: expr_required={a,x} is added to
         // (input_required\{y}), exercising the set-union branch in demand propagation.
+        // `a` is a parameter tree so it is costly but not constant-foldable.
         PipelineTestCase{
             .name = "ScalarAliveBindUnwindInlinedPerRowExpr",
-            .query = "WITH 1+1+1+1+1+1 AS a UNWIND range(0, 100) AS x WITH a + x AS y RETURN y;",
-            .expected_details = {"Produce {y`2:(a + x)}", "Unwind {x:RANGE(0, 100)}",
-                                 "Produce {a`0:(((((1 + 1) + 1) + 1) + 1) + 1)}", "Once"},
+            .query = "WITH $p+$p+$p+$p+$p+$p AS a UNWIND range(0, 100) AS x WITH a + x AS y RETURN y;",
+            .expected_details =
+                {"Produce {y`2:(a + x)}", "Unwind {x:RANGE(0, 100)}",
+                 "Produce {a`0:(((((ParameterLookup + ParameterLookup) + ParameterLookup) + ParameterLookup) + "
+                 "ParameterLookup) + ParameterLookup)}",
+                 "Once"},
             .expected_rewrites = 2,
         },
         // Chained Bind where the inner Bind's expr references the outer
@@ -813,8 +833,9 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "ChainedBindExprUsesPriorBindSym",
             .query = "WITH 1 AS a WITH a+1 AS b RETURN b;",
-            .expected_details = {"Produce {b`0:(1 + 1)}", "Once"},
-            .expected_rewrites = 2,
+            // inline a -> 1, fold 1 + 1 -> 2, inline b -> 2
+            .expected_details = {"Produce {b`0:2}", "Once"},
+            .expected_rewrites = 3,
         },
         // Deeper chain with a multi-symbol expression at one level and a
         // NamedOutput in the RETURN.  Exercises Output's NamedOutput-sym
@@ -822,8 +843,9 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "ChainedBindMultiSymWithNamedOutput",
             .query = "WITH 1 AS a WITH a+a AS b RETURN b+200 AS c;",
-            .expected_details = {"Produce {c`0:((1 + 1) + 200)}", "Once"},
-            .expected_rewrites = 2,
+            // a -> 1, a + a -> 2, b -> 2, 2 + 200 -> 202
+            .expected_details = {"Produce {c`0:202}", "Once"},
+            .expected_rewrites = 4,
         }
     ),
     TestCaseName

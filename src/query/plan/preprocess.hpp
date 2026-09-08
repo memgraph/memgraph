@@ -76,6 +76,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(Extract &extract) override {
+    // Remove the symbol bound by extract, because we are only interested
+    // in free (unbound) symbols.
+    symbols_.erase(symbol_table_.at(*extract.identifier_));
+    return true;
+  }
+
   bool PostVisit(ListComprehension &list_comprehension) override {
     // Remove the symbol which is bound by list comprehension, because we are only interested
     // in free (unbound) symbols.
@@ -84,7 +91,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    const bool is_ordinary_flow = !in_exists && !in_pattern_comprehension;
+    const bool is_ordinary_flow = in_subquery_depth == 0 && in_pattern_comprehension_depth == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
     } else if (ident.user_declared_) {
@@ -93,17 +100,17 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(Exists &exists) override {
-    in_exists = true;
+  bool PreVisit(SubqueryExpression &subquery) override {
+    ++in_subquery_depth;
 
-    if (exists.HasPattern()) {
-      // We do not visit pattern identifier since we're in exists filter pattern
-      for (auto &atom : exists.GetPattern()->atoms_) {
+    if (subquery.HasPattern()) {
+      // We do not visit pattern identifier since we're in subquery filter pattern
+      for (auto &atom : subquery.GetPattern()->atoms_) {
         atom->Accept(*this);
       }
-    } else if (exists.HasSubquery()) {
+    } else if (subquery.HasSubquery()) {
       // For subqueries, we need to collect symbols from the subquery
-      auto *single_query = exists.GetSubquery()->single_query_;
+      auto *single_query = subquery.GetSubquery()->single_query_;
       if (single_query) {
         for (auto *clause : single_query->clauses_) {
           if (auto *match = utils::Downcast<Match>(clause)) {
@@ -117,27 +124,28 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
       }
     } else {
       throw SemanticException(
-          "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-          "should not happen!");
+          "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+          "should not happen!",
+          subquery.FoldName());
     }
 
     return false;
   }
 
-  bool PostVisit(Exists & /*exists*/) override {
-    in_exists = false;
+  bool PostVisit(SubqueryExpression & /*subquery*/) override {
+    --in_subquery_depth;
     return true;
   }
 
   bool PreVisit(PatternComprehension &pc) override {
-    in_pattern_comprehension = true;
+    ++in_pattern_comprehension_depth;
     pc.pattern_->Accept(*this);
 
     return false;
   }
 
   bool PostVisit(PatternComprehension & /*pc*/) override {
-    in_pattern_comprehension = false;
+    --in_pattern_comprehension_depth;
     return true;
   }
 
@@ -150,9 +158,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
 
- private:
-  bool in_exists{false};
-  bool in_pattern_comprehension{false};
+ protected:
+  // Depths, not flags: a nested one's `PostVisit` would clear a flag and let the rest of the outer body collect
+  // anonymous symbols. Both nest - a pattern's property maps and variable-length bounds may hold another
+  // comprehension, and a subquery body may hold another subquery. Protected so a subclass that walks the body itself
+  // can enter without also triggering the base's walk.
+  int in_subquery_depth{0};
+  int in_pattern_comprehension_depth{0};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -210,21 +222,22 @@ struct Expansion {
 enum class SplitExpressionMode { AND, OR };
 
 struct PatternComprehensionMatching;
-struct FilterMatching;
+struct SubqueryMatching;
 using PatternComprehensionMatchings = std::vector<PatternComprehensionMatching>;
 
-enum class PatternFilterType { EXISTS_PATTERN, EXISTS_SUBQUERY };
+/// Which body form was written: a bare pattern, or a full subquery. Independent of the fold.
+enum class SubqueryKind : uint8_t { kPattern, kSubquery };
 
 /// Collects pattern comprehensions and EXISTS patterns from any AST node.
 /// Uses HierarchicalTreeVisitor for automatic traversal of all expressions in all clause types.
-class PatternComprehensionCollector : public HierarchicalTreeVisitor {
+class SubqueryMatchingCollector : public HierarchicalTreeVisitor {
  public:
-  explicit PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage);
-  PatternComprehensionCollector(const PatternComprehensionCollector &) = delete;
-  PatternComprehensionCollector &operator=(const PatternComprehensionCollector &) = delete;
-  PatternComprehensionCollector(PatternComprehensionCollector &&) = delete;
-  PatternComprehensionCollector &operator=(PatternComprehensionCollector &&) = delete;
-  ~PatternComprehensionCollector() override;
+  explicit SubqueryMatchingCollector(SymbolTable &symbol_table, AstStorage &storage);
+  SubqueryMatchingCollector(const SubqueryMatchingCollector &) = delete;
+  SubqueryMatchingCollector &operator=(const SubqueryMatchingCollector &) = delete;
+  SubqueryMatchingCollector(SubqueryMatchingCollector &&) = delete;
+  SubqueryMatchingCollector &operator=(SubqueryMatchingCollector &&) = delete;
+  ~SubqueryMatchingCollector() override;
 
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
@@ -234,9 +247,9 @@ class PatternComprehensionCollector : public HierarchicalTreeVisitor {
   // Uses PreVisit to handle manually and prevent automatic traversal into pattern/filter
   bool PreVisit(PatternComprehension &op) override;
 
-  // Exists pattern filters
+  // SubqueryExpression pattern filters
   // Uses PreVisit to handle manually and prevent automatic traversal into pattern/subquery
-  bool PreVisit(Exists &op) override;
+  bool PreVisit(SubqueryExpression &op) override;
 
   // Leaf nodes - stop traversal (no children to visit)
   bool Visit(Identifier &) override { return true; }
@@ -247,13 +260,13 @@ class PatternComprehensionCollector : public HierarchicalTreeVisitor {
 
   bool Visit(EnumValueAccess &) override { return true; }
 
-  std::vector<FilterMatching> getFilterMatchings();
+  std::vector<SubqueryMatching> getSubqueryMatchings();
   PatternComprehensionMatchings getPatternComprehensionMatchings();
 
  private:
   SymbolTable &symbol_table_;
   AstStorage &storage_;
-  std::vector<FilterMatching> filter_matchings_;
+  std::vector<SubqueryMatching> subquery_matchings_;
   PatternComprehensionMatchings pattern_comprehension_matchings_;
 };
 
@@ -264,7 +277,50 @@ class PropertyFilter {
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
   /// matched value or a range with lower and (or) upper bounds, IN list filter.
-  enum class Type : uint8_t { EQUAL = 0, REGEX_MATCH = 1, RANGE = 2, IN = 3, IS_NOT_NULL = 4 };
+  enum class Type : uint8_t {
+    EQUAL = 0,
+    REGEX_MATCH = 1,
+    RANGE = 2,
+    IN = 3,
+    IS_NOT_NULL = 4,
+    STARTS_WITH = 5,
+    CONTAINS = 6,
+    ENDS_WITH = 7
+  };
+
+  /// True when an edge index scan admits rows the filter rejects, so the original expression must
+  /// be retained as a post-filter. An edge scan ranges upwards from a single bound with no ceiling,
+  /// so even a prefix match reads past the prefix and on into the types that sort after strings.
+  static constexpr bool RequiresPostFilterOnEdgeScan(Type t) {
+    return t == Type::REGEX_MATCH || t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
+  /// True when a node index scan admits rows the filter rejects, so the original expression must be
+  /// retained as a post-filter. A node scan bounds a prefix match above as well as below, and those
+  /// two bounds span exactly the strings carrying the prefix, so STARTS_WITH has nothing left to
+  /// check. The rest have no bound narrower than the whole string type.
+  static constexpr bool RequiresPostFilterOnNodeScan(Type t) {
+    return t == Type::REGEX_MATCH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
+  /// The predicates that read a search term to narrow a scan over the property's string values,
+  /// as the seek key or as the predicate that skips whole groups of equal values. One whose search
+  /// term reads a symbol other than the scanned one is refused as an index candidate: the term
+  /// then describes a single row of the other branch, while a Cartesian evaluates it once for the
+  /// whole pass. It stays a filter over a scan, which is also why an indexed search term is the
+  /// same for the whole execution.
+  static constexpr bool IsStringPredicate(Type t) {
+    return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH || t == Type::REGEX_MATCH;
+  }
+
+  /// True when the index seek key is built from this filter's value expression, rather than being a
+  /// constant span of the property's type. Such a scan can only run where that expression's symbols
+  /// are bound, so a Cartesian above it has to be converted into an IndexedJoin. On an edge scan
+  /// STARTS_WITH both keeps its post-filter and seeks on its value, creating that dependency without
+  /// its expression ever being removed, so removal alone cannot be used to detect it.
+  static constexpr bool SeeksOnValue(Type t) {
+    return t == Type::EQUAL || t == Type::RANGE || t == Type::IN || t == Type::STARTS_WITH;
+  }
 
   /// Construct with Expression being the equality or regex match check.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *, Type);
@@ -376,7 +432,7 @@ struct FilterInfo {
   /// elements.
   enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType };
 
-  // FilterInfo is tricky because FilterMatching is not yet defined:
+  // FilterInfo is tricky because SubqueryMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
   //   * if any user-declared constructor -> non-aggregate type -> no designated initializers are possible
   //   * IMPORTANT: Matchings will always be initialized to an empty container.
@@ -405,9 +461,9 @@ struct FilterInfo {
   std::vector<EdgeTypeIx> edgetypes{};
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter{};
-  /// Matchings for filters that include patterns
-  /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
-  std::vector<FilterMatching> matchings;
+  /// The EXISTS this filter evaluates, in either spelling.
+  /// NOTE: The vector is not defined here because SubqueryMatching is forward declared above.
+  std::vector<SubqueryMatching> subquery_matchings;
   PatternComprehensionMatchings pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
@@ -529,12 +585,16 @@ struct Matching {
 // TODO clumsy to need to declare it before, usually only the struct definition would be in header
 struct QueryParts;
 
-struct FilterMatching : Matching {
-  /// Type of pattern filter
-  PatternFilterType type;
-  /// Symbol for the filter expression
+/// One EXISTS, normalized. The pattern form fills in @c Matching's expansions and filters; the subquery form leaves
+/// those empty and carries a preprocessed body instead.
+struct SubqueryMatching : Matching {
+  /// Which spelling this was written as.
+  SubqueryKind type{SubqueryKind::kPattern};
+  /// What the branch's rows are reduced to - the other axis, independent of @c type.
+  SubqueryExpression::Fold fold{SubqueryExpression::Fold::kBool};
+  /// The frame slot the fold writes, and the expression reads.
   std::optional<Symbol> symbol;
-  /// For EXISTS_SUBQUERY, holds the full subquery QueryParts
+  /// For @c SubqueryKind::kSubquery, the body's own query parts.
   std::shared_ptr<QueryParts> subquery;
 };
 
@@ -616,6 +676,9 @@ struct PatternComprehensionMatching : Matching {
   /// Pattern comprehension result named expression
   NamedExpression *result_expr = nullptr;
   Symbol result_symbol;
+  /// The clause whose own expressions evaluate this comprehension; a drain at any earlier clause would put the
+  /// RollUpApply below the operators that clause plans.
+  Clause *origin_clause = nullptr;
   /// Nested pattern comprehensions found in the result expression
   PatternComprehensionMatchings nested_pattern_comprehensions;
   /// External symbols that this pattern comprehension depends on.
@@ -673,6 +736,11 @@ struct SingleQueryPart {
   /// @c PatternComprehension clause itself inside `remaining_clauses`. The reason is that we
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
   PatternComprehensionMatchings pattern_comprehension_matchings;
+
+  /// @brief @c SubqueryMatching for each EXISTS found in a non-@c Match clause.
+  ///
+  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo instead; these need a forced fold on the chain.
+  std::vector<SubqueryMatching> subquery_matchings;
 
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};

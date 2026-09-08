@@ -98,14 +98,17 @@ Feature: Case
             |  CASE name WHEN null THEN "doesn't work" WHEN 2 THEN "doesn't work" ELSE 'works' END |
             |  'works'                                                                             |
 
-    Scenario: Test exists does not work in CASE clauses
+    Scenario: Test exists works in CASE clauses
       Given an empty graph
       And having executed:
           """
-          CREATE ()-[:T]->();
+          CREATE (:P {id: 1})-[:T]->(:X)
+          CREATE (:P {id: 2})
           """
       When executing query:
           """
-          MATCH (a) WHERE CASE WHEN TRUE THEN exists(()-[]->()) END RETURN a;
+          MATCH (a:P) WHERE CASE WHEN TRUE THEN exists((a)-[:T]->()) END RETURN a.id AS id;
           """
-      Then an error should be raised
+      Then the result should be:
+          | id |
+          | 1  |

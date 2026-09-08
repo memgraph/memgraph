@@ -1,0 +1,1 @@
+CREATE (a:A {name: 'A'}) CREATE (b:B {name: 'B'}) CREATE (c:C {name: 'C'}) CREATE (d:D {name: 'D'}) CREATE (e:E {name: 'E'}) CREATE (a)-[:R {seq: 1}]->(b) CREATE (b)-[:R {seq: 2}]->(c) CREATE (c)-[:R {seq: 3}]->(d) CREATE (a)-[:R {seq: 4}]->(e) CREATE (e)-[:R {seq: 5}]->(d);

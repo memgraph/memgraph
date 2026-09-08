@@ -96,10 +96,13 @@ class AstStorage {
   template <typename T, typename... Args>
   T *Create(Args &&...args) {
     T *ptr = new T(std::forward<Args>(args)...);
-    std::unique_ptr<T> tmp(ptr);
-    storage_.emplace_back(std::move(tmp));
+    Adopt(std::unique_ptr<Tree>(ptr));
     return ptr;
   }
+
+  // Taking ownership through the base pointer keeps the vector's allocator
+  // machinery out of Create, which is instantiated once per node type.
+  void Adopt(std::unique_ptr<Tree> node);
 
   LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
 
@@ -107,10 +110,21 @@ class AstStorage {
 
   EdgeTypeIx GetEdgeTypeIx(const std::string &name) { return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)}; }
 
+  int64_t FindOrAddUserFunction(const std::string &name) { return FindOrAddName(name, &user_functions_); }
+
+  int64_t FindOrAddCallProcedure(const std::string &name) { return FindOrAddName(name, &call_procedures_); }
+
+  /// True when building this AST read the query-module registry, so facts taken from it
+  /// (a procedure's result fields, graph access and required privilege; whether a function
+  /// name resolves at all) are baked in here and go stale when a module is reloaded.
+  bool DependsOnModules() const { return !user_functions_.empty() || !call_procedures_.empty(); }
+
   // TODO: would be good if these were stable memory locations, then *Ix could have string_view rather than stringq
   std::vector<std::string> labels_;
   std::vector<std::string> edge_types_;
   std::vector<std::string> properties_;
+  std::vector<std::string> user_functions_;
+  std::vector<std::string> call_procedures_;
 
   // Public only for serialization access
   std::vector<std::unique_ptr<Tree>> storage_;

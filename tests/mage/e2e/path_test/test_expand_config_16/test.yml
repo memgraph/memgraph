@@ -1,0 +1,13 @@
+# `limit` caps the number of returned paths. Walking breadth-first, the cap keeps the shortest ones,
+# so a limit of 3 returns the start node plus both one-hop paths and stops there.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {maxHops: 4, limit: 3})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "E"]

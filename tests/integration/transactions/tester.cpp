@@ -11,7 +11,7 @@
 
 #include <iostream>
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 

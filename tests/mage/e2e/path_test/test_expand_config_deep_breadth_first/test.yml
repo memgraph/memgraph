@@ -1,0 +1,18 @@
+# The breadth-first walk is a queue, so depth costs it a branch rather than a stack frame and nothing
+# bounds it but the memory limit. This chain is longer than the depth the recursive walk refuses at, so
+# it pins that the refusal does not reach here. `test_expand_config_10` pins that it still reaches
+# `bfs: false`, which does recurse.
+#
+# minHops is past the end of the chain so nothing is emitted on the way down: without it the walk
+# returns a path at every depth, and the returned paths alone are quadratic in the chain length.
+query: >
+  MATCH (a:Deep),(b:Deep) WHERE b.i = a.i + 1 CREATE (a)-[:R]->(b)
+  WITH count(*) AS _
+  MATCH (start:Deep {i: 0})
+  CALL path.expand_config(start, {relationshipFilter: ['R>'], minHops: 5001})
+  YIELD result
+  RETURN count(*) AS paths, max(length(result)) AS hops;
+
+output:
+  - paths: 1
+    hops: 5001

@@ -516,6 +516,14 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
   for (auto *pre_query_directive : ctx->preQueryDirective()) {
     if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
+        if (auto *prop_ctx = index_hint_ctx->propertyKeyName()) {
+          auto property = std::any_cast<PropertyIx>(prop_ctx->accept(this));
+          pre_query_directives.index_hints_.emplace_back(
+              // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+              IndexHint{.index_type_ = IndexHint::IndexType::VERTEX_PROPERTY,
+                        .property_ixs_ = {PropertyIxPath{{property}}}});
+          continue;
+        }
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
         auto *list = index_hint_ctx->nestedPropertyKeyList();
         if (!list) {
@@ -664,6 +672,24 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
     index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
   }
 
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateGlobalVertexIndex(MemgraphCypher::CreateGlobalVertexIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::CREATE;
+  index_query->is_global_ = true;
+  auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  index_query->properties_ = {PropertyIxPath{{std::move(name_key)}}};
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropGlobalVertexIndex(MemgraphCypher::DropGlobalVertexIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::DROP;
+  index_query->is_global_ = true;
+  auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  index_query->properties_ = {PropertyIxPath{{std::move(name_key)}}};
   return index_query;
 }
 
@@ -1137,6 +1163,12 @@ antlrcpp::Any CypherMainVisitor::visitShowCoordinatorSettings(MemgraphCypher::Sh
 antlrcpp::Any CypherMainVisitor::visitShowReplicationLag(MemgraphCypher::ShowReplicationLagContext * /*ctx*/) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
   coordinator_query->action_ = CoordinatorQuery::Action::SHOW_REPLICATION_LAG;
+  return coordinator_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowRoutingTable(MemgraphCypher::ShowRoutingTableContext * /*ctx*/) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_ROUTING_TABLE;
   return coordinator_query;
 }
 
@@ -1958,7 +1990,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
       check_write_procedure("CALL");
       has_call_procedure = true;
-      if (call_procedure->is_write_) {
+      if (call_procedure->graph_access_ == GraphAccess::Write) {
         calls_write_procedure = true;
         has_update = true;
       }
@@ -2041,8 +2073,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure &&
-      !parsing_exists_subquery_) {
+  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !parsing_subquery_body_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -2135,14 +2166,6 @@ antlrcpp::Any CypherMainVisitor::visitCreate(MemgraphCypher::CreateContext *ctx)
 }
 
 antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedureContext *ctx) {
-  // Don't cache queries which call procedures because the
-  // procedure definition can affect the behaviour of the visitor and
-  // the execution of the query.
-  // If a user recompiles and reloads the procedure with different result
-  // names, because of the cache, old result names will be expected while the
-  // procedure will return results mapped to new names.
-  query_info_.is_cacheable = false;
-
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
   call_proc->procedure_name_ = JoinSymbolicNames(this, ctx->procedureName()->symbolicName());
@@ -2167,7 +2190,11 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
   }
 
-  call_proc->is_write_ = maybe_found->second->info.is_write;
+  // Record the dependency before reading the signature below: the graph access, void-ness and the
+  // YIELD * expansion all come from it and are baked into the AST from here on.
+  storage_->FindOrAddCallProcedure(call_proc->procedure_name_);
+
+  call_proc->graph_access_ = maybe_found->second->info.graph_access;
   if (maybe_found->second->results.empty()) {
     call_proc->void_procedure_ = true;
   }
@@ -2434,6 +2461,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   } else {
     /* grant all privileges */
     auth->privileges_ = kPrivilegesAll;
+    auth->all_privileges_ = true;
   }
   return auth;
 }
@@ -2469,6 +2497,7 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   } else {
     /* deny all privileges */
     auth->privileges_ = kPrivilegesAll;
+    auth->all_privileges_ = true;
   }
   return auth;
 }
@@ -2516,6 +2545,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   } else {
     /* revoke all privileges */
     auth->privileges_ = kPrivilegesAll;
+    auth->all_privileges_ = true;
   }
   return auth;
 }
@@ -2781,12 +2811,13 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->STORAGE_MODE()) return AuthQuery::Privilege::STORAGE_MODE;
   if (ctx->MULTI_DATABASE_EDIT()) return AuthQuery::Privilege::MULTI_DATABASE_EDIT;
   if (ctx->MULTI_DATABASE_USE()) return AuthQuery::Privilege::MULTI_DATABASE_USE;
-  if (ctx->COORDINATOR()) return AuthQuery::Privilege::COORDINATOR;
   if (ctx->IMPERSONATE_USER()) return AuthQuery::Privilege::IMPERSONATE_USER;
   if (ctx->PROFILE_RESTRICTION()) return AuthQuery::Privilege::PROFILE_RESTRICTION;
   if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
   if (ctx->SERVER_SIDE_PARAMETERS()) return AuthQuery::Privilege::SERVER_SIDE_PARAMETERS;
   if (ctx->RELOAD_TLS()) return AuthQuery::Privilege::RELOAD_TLS;
+  if (ctx->COORDINATOR_READ()) return AuthQuery::Privilege::COORDINATOR_READ;
+  if (ctx->COORDINATOR_WRITE()) return AuthQuery::Privilege::COORDINATOR_WRITE;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
@@ -3376,9 +3407,6 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 1:
-        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
-          throw SemanticException("KSHORTEST expansion does not support filter lambda.");
-        }
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
             edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
           // For wShortest and allShortest, the first (and required) lambda is
@@ -3398,6 +3426,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
+          // A bidirectional search reusing inner searches has no one path leading to the tested edge.
+          if (edge->type_ == EdgeAtom::Type::KSHORTEST && edge->filter_lambda_.accumulated_path) {
+            throw SemanticException("KSHORTEST expansion does not support the accumulated path in a filter lambda.");
+          }
           if (edge->filter_lambda_.accumulated_weight) {
             throw SemanticException(
                 "Accumulated weight in filter lambda can be used only with "
@@ -3482,8 +3514,6 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::Relation
 }
 
 antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::VariableExpansionContext *ctx) {
-  DMG_ASSERT(ctx->expression().size() <= 2U, "Expected 0, 1 or 2 bounds in range literal.");
-
   EdgeAtom::Type edge_type = EdgeAtom::Type::DEPTH_FIRST;
   if (!ctx->getTokens(MemgraphCypher::BFS).empty())
     edge_type = EdgeAtom::Type::BREADTH_FIRST;
@@ -3502,6 +3532,8 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     --n_expressions;  // Last expression is the limit
     limit = std::any_cast<Expression *>(ctx->k->accept(this));
   }
+  // Counted after discounting `| k`, which the grammar puts in the same `expression` list.
+  DMG_ASSERT(n_expressions <= 2U, "Expected 0, 1 or 2 bounds in range literal.");
 
   if (n_expressions == 0U) {
     // Case -[*]-
@@ -3729,6 +3761,17 @@ antlrcpp::Any CypherMainVisitor::visitExpression2b(MemgraphCypher::Expression2bC
   return expression;
 }
 
+namespace {
+/// Which fold a brace form asks for. Every spelling shares one body rule, so the keyword on the `atom` alternative is
+/// the only thing left that says which construct was written.
+SubqueryExpression::Fold FoldOf(MemgraphCypher::AtomContext *ctx) {
+  if (ctx->EXISTS()) return SubqueryExpression::Fold::kBool;
+  if (ctx->COUNT()) return SubqueryExpression::Fold::kCount;
+  if (ctx->COLLECT()) return SubqueryExpression::Fold::kList;
+  LOG_FATAL("A subquery body with no keyword to fold it - the atom rule admits no such alternative.");
+}
+}  // namespace
+
 antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
   if (ctx->literal()) {
     return ctx->literal()->accept(this);
@@ -3742,8 +3785,10 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
   } else if (ctx->existsExpression()) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
-  } else if (ctx->existsSubquery()) {
-    return std::any_cast<Expression *>(ctx->existsSubquery()->accept(this));
+  } else if (ctx->subqueryBody()) {
+    // Ahead of the ctx->COUNT() arm below, which COUNT { ... } also satisfies - that arm is COUNT(*). One body rule
+    // serves every spelling, so the keyword is what picks the fold.
+    return BuildSubqueryFold(ctx->subqueryBody(), FoldOf(ctx));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -3887,11 +3932,11 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 }
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
-  auto *exists = storage_->Create<Exists>();
+  auto *subquery = storage_->Create<SubqueryExpression>();
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (exists->GetPattern()->identifier_) {
+    subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (subquery->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in exists(...).");
     }
   } else {
@@ -3899,67 +3944,103 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  const bool has_pattern = exists->HasPattern();
-  const bool has_subquery = exists->HasSubquery();
+  const bool has_pattern = subquery->HasPattern();
+  const bool has_subquery = subquery->HasSubquery();
   if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
     throw SyntaxException(
         "EXISTS must have exactly one of pattern or subquery set. Please contact Memgraph support as this scenario "
         "should not happen!");
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
 }
 
-antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
-  auto *exists = storage_->Create<Exists>();
+Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyContext *ctx,
+                                                 SubqueryExpression::Fold fold) {
+  auto const construct = SubqueryExpression::FoldName(fold);
+  auto *subquery = storage_->Create<SubqueryExpression>();
+  subquery->fold_ = fold;
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (exists->GetPattern()->identifier_) {
-      throw SyntaxException("Identifiers are not supported in exists(...).");
+    // A bare pattern names no column, and the list fold has to collect one - so this shape can never work for it.
+    if (fold == SubqueryExpression::Fold::kList) {
+      throw SyntaxException("{} needs a body returning a single column, and a bare pattern returns none.", construct);
+    }
+    subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (subquery->GetPattern()->identifier_) {
+      throw SyntaxException("Identifiers are not supported in a {} pattern.", construct);
     }
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }
-    // Set the flag to indicate we are parsing an EXISTS subquery
-    auto old_flag = parsing_exists_subquery_;
-    parsing_exists_subquery_ = true;
+    auto old_flag = parsing_subquery_body_;
+    // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
+    auto old_in_with = std::exchange(in_with_, false);
+    parsing_subquery_body_ = true;
     auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
-    parsing_exists_subquery_ = old_flag;
-    exists->content_ = cypher_query;
+    in_with_ = old_in_with;
+    parsing_subquery_body_ = old_flag;
+    subquery->content_ = cypher_query;
 
-    // 1. There must be at least one clause
-    auto *single_query = cypher_query->single_query_;
-    if (!single_query || single_query->clauses_.empty()) {
-      throw SyntaxException("EXISTS subquery must contain at least one clause.");
-    }
-
-    // 2. Only MATCH, WHERE, WITH, RETURN allowed
-    for (const auto *clause : single_query->clauses_) {
-      const auto &type = clause->GetTypeInfo();
-      if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
-            utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
-        throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+    // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
+    // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
+    auto validate_branch = [construct, fold](const SingleQuery *single_query) {
+      if (!single_query || single_query->clauses_.empty()) {
+        throw SyntaxException("{} subquery must contain at least one clause.", construct);
       }
+      for (const auto *clause : single_query->clauses_) {
+        const auto &type = clause->GetTypeInfo();
+        if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
+              utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
+          throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
+        }
+      }
+      // 5. The list fold collects one column per branch row, so the body has to name exactly one, and `RETURN *`
+      // names an unknown number. Caught here, so a multi-column body is a syntax error rather than the operator's
+      // "must be of size 1".
+      if (fold != SubqueryExpression::Fold::kList) {
+        return;
+      }
+      const auto *ret = utils::Downcast<const Return>(single_query->clauses_.back());
+      if (ret == nullptr || ret->body_.all_identifiers || ret->body_.named_expressions.size() != 1) {
+        throw SyntaxException("{} subquery must end with a RETURN of exactly one column.", construct);
+      }
+    };
+    validate_branch(cypher_query->single_query_);
+    for (const auto *cypher_union : cypher_query->cypher_unions_) {
+      validate_branch(cypher_union->single_query_);
     }
 
     // 3. No query memory limit
     if (cypher_query->memory_limit_ != nullptr) {
-      throw SyntaxException("EXISTS subqueries cannot have a query memory limit.");
+      throw SyntaxException("{} subqueries cannot have a query memory limit.", construct);
+    }
+
+    // 4. No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
+    // but it would run, finalizing the caller's transaction from inside an expression.
+    if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
+      throw SyntaxException("{} subqueries cannot have a periodic commit.", construct);
+    }
+
+    // 5. No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
+    // and the body is a sub-plan re-executed per outer row, which the parallel cursors' Reset() mishandles.
+    if (cypher_query->pre_query_directives_.parallel_execution_) {
+      throw SyntaxException("{} subqueries cannot use parallel execution.", construct);
     }
   } else {
-    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+    throw SyntaxException("{} supports only a single relation or a subquery as its input.", construct);
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  const bool has_pattern = exists->HasPattern();
-  const bool has_subquery = exists->HasSubquery();
+  const bool has_pattern = subquery->HasPattern();
+  const bool has_subquery = subquery->HasSubquery();
   if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
     throw SyntaxException(
-        "EXISTS must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
-        "should not happen!");
+        "{} must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
+        "should not happen!",
+        construct);
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) {
@@ -3976,13 +4057,13 @@ antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::Patte
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) {
-  auto *exists = storage_->Create<Exists>();
-  exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-  if (exists->GetPattern()->identifier_) {
+  auto *subquery = storage_->Create<SubqueryExpression>();
+  subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+  if (subquery->GetPattern()->identifier_) {
     throw SyntaxException("Identifiers are not supported in pattern expressions.");
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
@@ -4063,14 +4144,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
 
   auto *function_expr = storage_->Create<Function>(function_name, expressions);
 
-  // Don't cache queries which call user-defined functions. For performance reasons we want to avoid
-  // repeativly finding the function at call time, this means user-defined functions have there lifetime
-  // tied to the ast Function operation. We do not want that cached, because we want to be able to reload
-  // query module that is not currently being used.
-  query_info_.is_cacheable &= !function_expr->IsUserDefined();
-
   // user defined functions are case sensitive, built-in functions work only with upper case
-  if (!function_expr->IsUserDefined()) {
+  if (function_expr->IsUserDefined()) {
+    function_expr->user_function_id_ = storage_->FindOrAddUserFunction(function_name);
+  } else {
     function_expr->function_name_ = upper_function_name;
   }
 
@@ -4220,9 +4297,11 @@ antlrcpp::Any CypherMainVisitor::visitCaseAlternatives(MemgraphCypher::CaseAlter
 
 antlrcpp::Any CypherMainVisitor::visitWith(MemgraphCypher::WithContext *ctx) {
   auto *with = storage_->Create<With>();
-  in_with_ = true;
+  // Restored rather than cleared, so the flag is this function's own business. Defensive today: the only way to reach
+  // a nested WITH is through an EXISTS body, and that visit already clears the flag and re-arms it on the way out.
+  auto old_in_with = std::exchange(in_with_, true);
   with->body_ = std::any_cast<ReturnBody>(ctx->returnBody()->accept(this));
-  in_with_ = false;
+  in_with_ = old_in_with;
   if (ctx->DISTINCT()) {
     with->body_.distinct = true;
   }
@@ -4793,6 +4872,25 @@ antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::Descripti
   return description_query;
 }
 
+namespace {
+// VALUE reuses the general `literal` rule, whose list/map alternatives admit arbitrary expressions. A property-value
+// code must be a constant, so reject anything that is not a literal (or a stripped-literal ParameterLookup) — otherwise
+// a non-constant would reach the prepare-time constant evaluator and terminate / evaluate to null.
+bool IsConstantLiteralExpression(Expression *expr) {
+  if (utils::Downcast<PrimitiveLiteral>(expr) != nullptr || utils::Downcast<ParameterLookup>(expr) != nullptr) {
+    return true;
+  }
+  if (auto *list = utils::Downcast<ListLiteral>(expr)) {
+    return std::ranges::all_of(list->elements_, IsConstantLiteralExpression);
+  }
+  if (auto *map = utils::Downcast<MapLiteral>(expr)) {
+    return std::ranges::all_of(map->elements_,
+                               [](auto const &entry) { return IsConstantLiteralExpression(entry.second); });
+  }
+  return false;
+}
+}  // namespace
+
 void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx,
                                               DescriptionQuery *description_query) {
   if (ctx->LABEL() && ctx->PROPERTY()) {
@@ -4838,6 +4936,13 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     description_query->target_kind_ = storage::DescriptionTargetKind::LABEL;
     for (auto *label : ctx->labelName()) {
       description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+  } else if (ctx->PROPERTY() && ctx->VALUE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY_VALUE;
+    description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));
+    description_query->value_ = std::any_cast<Expression *>(ctx->literal()->accept(this));
+    if (!IsConstantLiteralExpression(description_query->value_)) {
+      throw SemanticException("A property-value description VALUE must be a constant literal (scalar, list, or map).");
     }
   } else if (ctx->PROPERTY()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;

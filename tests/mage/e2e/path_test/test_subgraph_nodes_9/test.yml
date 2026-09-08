@@ -1,0 +1,13 @@
+# Multiple start nodes: each seeds the BFS, so both disconnected components are returned in full.
+query: >
+  MATCH (n:Node) WHERE n.name IN ['A', 'C']
+  WITH collect(n) AS starts
+  CALL path.subgraph_nodes(starts, {relationshipFilter: ['R>'], maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B
+  - name: C
+  - name: D

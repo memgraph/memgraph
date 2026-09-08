@@ -49,7 +49,7 @@ namespace memgraph::storage {
     }                                                                                           \
                                                                                                 \
    private:                                                                                     \
-    type_store id_;                                                                             \
+    type_store id_{};                                                                           \
   };                                                                                            \
   static_assert(std::is_trivially_copyable_v<name>, "storage::" #name " must be trivially copyable!");
 

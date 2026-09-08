@@ -539,14 +539,22 @@
                            (filter #(= :show-instances-read (:f %)))
                            (map :value))
 
-            partial-instances (->> si-reads
+            ; A coordinator which isn't a ready leader and cannot reach the leader reports no instances at all, so an
+            ; empty read is a valid answer and only non-empty reads carry information about the cluster.
+            non-empty-si-reads (->> si-reads
+                                    (remove #(empty? (:instances %))))
+            partial-instances (->> non-empty-si-reads
                                    (filter #(not= 6 (count (:instances %)))))
             ; All reads grouped by node {node->instances}
             coord->instances (->> si-reads
                                   (group-by :node)
                                   (map (fn [[node values]] [node (map :instances values)]))
                                   (into {}))
-            coord->roles (->> coord->instances
+            coord->non-empty-instances (->> non-empty-si-reads
+                                            (group-by :node)
+                                            (map (fn [[node values]] [node (map :instances values)]))
+                                            (into {}))
+            coord->roles (->> coord->non-empty-instances
                               (map (fn [[node reads]]
                                      [node (map single-read-to-roles reads)]))
                               (into {}))

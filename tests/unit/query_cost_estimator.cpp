@@ -443,6 +443,104 @@ TEST_F(QueryCostEstimator, UnwindNoLiteral) {
           MiscParam::kUnwindNoLiteral);
 }
 
+namespace {
+// Helper to build the toSet(coalesce(list, [])) AST pattern produced by IN-to-Unwind lowering.
+Expression *MakeInUnwindExpression(AstStorage &storage, std::vector<Expression *> elements) {
+  auto *inner_list = storage.Create<ListLiteral>(std::move(elements));
+  auto *empty_list = storage.Create<ListLiteral>(std::vector<Expression *>{});
+  auto *coalesced = storage.Create<Coalesce>(std::vector<Expression *>{inner_list, empty_list});
+  auto *toset = storage.Create<Function>();
+  toset->function_name_ = "TOSET";
+  toset->arguments_ = {coalesced};
+  return toset;
+}
+}  // namespace
+
+TEST_F(QueryCostEstimator, UnwindInLowering) {
+  auto *expr = MakeInUnwindExpression(storage_, {Literal(1), Literal(2), Literal(3)});
+  TEST_OP(MakeOp<memgraph::query::plan::Unwind>(last_op_, expr, NextSymbol()), CostParam::kUnwind, 3);
+}
+
+// -- IN-list cardinality estimation tests --
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInList) {
+  AddVertices(100, 30, 20);
+  // IN [12]: 1 element, matches 1 vertex. Unwind factor = 1, scan sum = 1.
+  // Current estimate: 1 * 1 = 1 (no double-count for single element).
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(12)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(12)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(last_op_,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  // cost = CostParam::kUnwind + (1 * 1) * CostParam::kScanAllByLabelProperties
+  EXPECT_COST(CostParam::kUnwind + 1 * CostParam::kScanAllByLabelProperties);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListMultipleElements) {
+  AddVertices(100, 30, 20);
+  // IN [5, 10]: 2 elements, each matches 1 vertex. Unwind factor = 2, scan per-row = 1.
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(last_op_,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  // Scan returns per-row factor: S / n = 2 / 2 = 1. Cardinality = 2 * 1 = 2.
+  EXPECT_COST(CostParam::kUnwind + 2 * CostParam::kScanAllByLabelProperties);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListNonexistentValue) {
+  AddVertices(100, 30, 20);
+  // IN [999]: 1 element, matches 0 vertices. Unwind factor = 1, scan sum = 0.
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(999)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(999)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(last_op_,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  // cardinality = 1 * 0 = 0, cost = min_cost + CostParam::kUnwind
+  EXPECT_COST(CostParam::kUnwind + CostParam::kMinimumCost);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesMultipleInLists) {
+  AddVertices(100, 30, 20);
+  // Composite index on (prop_c, prop_a, prop_b). All three properties are set to the same
+  // value i for each vertex, so only diagonal entries (i,i,i) exist.
+  // prop_c = 5 (resolved), prop_a IN [5, 10] (unresolved), prop_b IN [5, 10] (unresolved).
+  // True matches: only (5,5,5). Independence estimate: S_a * S_b / T = 1 * 1 / 1 = 1.
+  // Unwind factors: 2 * 2 = 4. Scan per-row = 1 / 4 = 0.25. Final cardinality = 1.
+  auto *list_a = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  auto *list_b = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  // Chain two Unwinds (the real plan has two Unwinds for two IN clauses)
+  auto *unwind_expr_a = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr_a, NextSymbol());
+  auto *unwind_expr_b = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr_b, NextSymbol());
+  auto *sym_a = storage_.Create<Identifier>("anon_a");
+  auto *sym_b = storage_.Create<Identifier>("anon_b");
+  MakeOp<ScanAllByLabelProperties>(
+      last_op_,
+      NextSymbol(),
+      label,
+      std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
+      std::vector{
+          ExpressionRange::Equal(Literal(5)), ExpressionRange::In(sym_a, list_a), ExpressionRange::In(sym_b, list_b)});
+  // Unwind 1: cost += 1 * kUnwind, cardinality = 2
+  // Unwind 2: cost += 2 * kUnwind, cardinality = 4
+  // Scan: independence result = 1, unwind_factor = 4, per-row = 0.25. cardinality = 4 * 0.25 = 1.
+  EXPECT_COST(3 * CostParam::kUnwind + 1 * CostParam::kScanAllByLabelProperties);
+}
+
 #undef TEST_OP
 #undef EXPECT_COST
 
@@ -486,6 +584,127 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesDescSameCostAsAsc) {
   auto desc_cost = Cost();
 
   EXPECT_FLOAT_EQ(asc_cost, desc_cost);
+}
+
+TEST_F(QueryCostEstimator, ExtractListFromInUnwindNonMatching) {
+  EXPECT_EQ(ExtractListFromInUnwind(nullptr), nullptr);
+  EXPECT_EQ(ExtractListFromInUnwind(Literal(42)), nullptr);
+  auto *plain_list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(1)});
+  EXPECT_EQ(ExtractListFromInUnwind(plain_list), nullptr);
+}
+
+TEST_F(QueryCostEstimator, ExtractListFromInUnwindMatching) {
+  auto *expr = MakeInUnwindExpression(storage_, {Literal(1), Literal(2)});
+  auto *extracted = ExtractListFromInUnwind(expr);
+  ASSERT_NE(extracted, nullptr);
+  EXPECT_EQ(extracted->elements_.size(), 2);
+}
+
+/** A fixture for the string predicates, whose scan is narrowed to the string type rather than to a
+ * span around the search term. Holds a global property index over values spread across the
+ * alphabet, so an estimate that mistook the search term for a bound would move as the term moves. */
+class QueryCostEstimatorStringPredicates : public ::testing::Test {
+ protected:
+  std::unique_ptr<ms::Storage> db = std::make_unique<ms::InMemoryStorage>();
+  std::optional<std::unique_ptr<ms::Storage::Accessor>> storage_dba;
+  std::optional<memgraph::query::DbAccessor> dba;
+  ms::PropertyId prop = db->NameToProperty("s");
+  ms::PropertyId mixed = db->NameToProperty("mixed");
+
+  std::shared_ptr<LogicalOperator> last_op_ = std::make_shared<Once>();
+  AstStorage storage_;
+  SymbolTable symbol_table_;
+  Parameters parameters_;
+  int symbol_count = 0;
+
+  // The index count a range estimate returns is exact only while the index stays under the size
+  // at which SkipListLayerForCountEstimation starts sampling upper skip-list layers. Above it the
+  // estimate is a random sample whose spread swamps the ratios these tests compare.
+  static constexpr int kStringCount = 400;
+
+  void SetUp() override {
+    {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_TRUE(unique_acc->CreateGlobalVertexIndex(prop).has_value());
+      ASSERT_TRUE(unique_acc->CreateGlobalVertexIndex(mixed).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    storage_dba.emplace(db->Access(memgraph::storage::WRITE));
+    dba.emplace(storage_dba->get());
+    // Spread across the alphabet, so a term mistaken for a bound would cut the count differently
+    // depending on the letter it starts with.
+    for (int i = 0; i < kStringCount; ++i) {
+      auto vertex = dba->InsertVertex();
+      auto value = std::string(1, static_cast<char>('a' + i % 26)) + std::to_string(i);
+      ASSERT_TRUE(vertex.SetProperty(prop, ms::PropertyValue(std::move(value))).has_value());
+    }
+    // A property whose values are mostly numbers: a string predicate reads only the tail of it.
+    for (int i = 0; i < kStringCount; ++i) {
+      auto vertex = dba->InsertVertex();
+      auto value = i % 10 == 0 ? ms::PropertyValue(std::to_string(i)) : ms::PropertyValue(i);
+      ASSERT_TRUE(vertex.SetProperty(mixed, std::move(value)).has_value());
+    }
+    dba->AdvanceCommand();
+  }
+
+  Symbol NextSymbol() { return symbol_table_.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
+
+  template <typename TValue>
+  Expression *Literal(TValue value) {
+    return storage_.Create<PrimitiveLiteral>(value);
+  }
+
+  template <typename TValue>
+  Expression *Parameter(TValue value) {
+    int token_position = parameters_.size();
+    parameters_.Add(token_position, ms::ExternalPropertyValue(value));
+    return storage_.Create<ParameterLookup>(token_position);
+  }
+
+  double CostOf(ExpressionRange range) { return CostOfProperty(prop, range); }
+
+  double CostOfProperty(ms::PropertyId property, ExpressionRange range) {
+    last_op_ = std::make_shared<ScanAllByVertexProperty>(nullptr, NextSymbol(), property, range);
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(
+        &*dba, symbol_table_, parameters_, memgraph::query::plan::IndexHints());
+    last_op_->Accept(cost_estimator);
+    return cost_estimator.cost();
+  }
+};
+
+TEST_F(QueryCostEstimatorStringPredicates, EstimateDoesNotMoveWithTheSearchTerm) {
+  // Query stripping turns the term into a parameter and the plan cache is keyed on the stripped
+  // text, so a plan costed against one call's term would be handed to every other term. The
+  // estimate therefore has to be the same for all of them, non-strings included.
+  auto const reference = CostOf(ExpressionRange::Contains(Literal("a")));
+  for (auto *term : {Literal("a"), Literal("m"), Literal("z"), Literal("zzzz"), Parameter("z"), Literal(5)}) {
+    EXPECT_FLOAT_EQ(CostOf(ExpressionRange::Contains(term)), reference);
+    EXPECT_FLOAT_EQ(CostOf(ExpressionRange::EndsWith(term)), reference);
+    EXPECT_FLOAT_EQ(CostOf(ExpressionRange::RegexMatch(term)), reference);
+  }
+}
+
+TEST_F(QueryCostEstimatorStringPredicates, EstimateCoversTheStringsTheScanReads) {
+  // Every value here is a string, so the band these predicates read is the whole property. An
+  // estimate far below it would make the scan look free and win comparisons it should lose.
+  auto const whole_property = CostOf(ExpressionRange::IsNotNull());
+  ASSERT_GT(whole_property, 0.0);
+  EXPECT_GT(CostOf(ExpressionRange::Contains(Literal("a"))), whole_property / 2);
+}
+
+TEST_F(QueryCostEstimatorStringPredicates, EstimateNarrowsToTheStringsWhenMostValuesAreNot) {
+  // A string predicate reads the property's string values, not the numbers sorted below them, and
+  // the band those occupy is the same whatever the search term is.
+  auto const whole_property = CostOfProperty(mixed, ExpressionRange::IsNotNull());
+  auto const string_band = CostOfProperty(mixed, ExpressionRange::Contains(Literal("a")));
+  EXPECT_LT(string_band, whole_property / 2);
+  EXPECT_GT(string_band, CostParam::kMinimumCost);
+}
+
+TEST_F(QueryCostEstimatorStringPredicates, StartsWithStillNarrowsToItsPrefix) {
+  // The prefix is a real bound on what matches, and STARTS_WITH already accepts that its plan is
+  // settled by the term. This pins the line between the two: only the prefix seek reads it.
+  EXPECT_LT(CostOf(ExpressionRange::StartsWith(Literal("a"))), CostOf(ExpressionRange::IsNotNull()));
 }
 
 // TODO test cost when ScanAll, Expand, Accumulate, Limit

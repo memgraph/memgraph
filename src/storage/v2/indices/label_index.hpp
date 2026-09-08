@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <algorithm>
+#include <span>
+
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
@@ -44,15 +47,17 @@ class LabelIndex {
 struct LabelIndexAbortProcessor {
   explicit LabelIndexAbortProcessor() = default;
 
-  explicit LabelIndexAbortProcessor(std::vector<LabelId> label) : label_(std::move(label)) {}
+  explicit LabelIndexAbortProcessor(std::span<LabelId const> indexed) : indexed_{indexed} {}
 
   void CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
-    if (std::binary_search(label_.begin(), label_.end(), label)) {
+    if (std::ranges::binary_search(indexed_, label)) {
       cleanup_collection_[label].emplace_back(vertex);  // TODO (ivan): check that this is sorted
     }
   }
 
-  std::vector<LabelId> label_;
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life; copying
+  /// it for every abort is the cost this avoids.
+  std::span<LabelId const> indexed_;
   LabelIndexAbortableInfo cleanup_collection_;
 };
 

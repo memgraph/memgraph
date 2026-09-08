@@ -407,7 +407,7 @@ def main():
 
     if args.output:
         with open(args.output, "w") as outfile:
-            json.dump(summary, outfile)
+            json.dump(summary, outfile, indent=2)
     else:
         try:
             print(json.dumps(summary))

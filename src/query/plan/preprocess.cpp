@@ -22,6 +22,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/range.hpp"
 #include "utils/bound.hpp"
@@ -988,16 +989,36 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *is_not = utils::Downcast<NotOperator>(expr)) {
+    // Negating twice leaves a predicate unchanged, `null` included, so analyse
+    // what the pair wraps. Left as it is, the outer negation would only ever
+    // yield a generic filter and hide a comparison an index could answer.
+    // Re-entering CollectFilterExpression also splits any conjunction inside.
+    if (auto *inner_not = utils::Downcast<NotOperator>(is_not->expression_)) {
+      CollectFilterExpression(inner_not->expression_, symbol_table);
+      return;
+    }
     // WHERE NOT point.withinbbox()
     if (!add_point_withinbbox_filter_unary(is_not->expression_, WithinBBoxCondition::OUTSIDE) &&
         !add_prop_is_not_null_check(is_not)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (utils::Downcast<Exists>(expr)) {
+  } else if (utils::Downcast<SubqueryExpression>(expr)) {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
-  } else if (utils::Downcast<Function>(expr)) {
+  } else if (auto *func = utils::Downcast<Function>(expr)) {
+    auto const &fn = func->function_name_;
     // WHERE point.withinbbox()
-    if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
+    if (add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
+      // handled
+    } else if ((fn == kContains || fn == kStartsWith || fn == kEndsWith) && func->arguments_.size() == 2) {
+      auto const type = [&] {
+        if (fn == kStartsWith) return PropertyFilter::Type::STARTS_WITH;
+        if (fn == kContains) return PropertyFilter::Type::CONTAINS;
+        return PropertyFilter::Type::ENDS_WITH;
+      }();
+      if (!try_add_prop_filter(func->arguments_[0], func->arguments_[1], type)) {
+        all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+      }
+    } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
@@ -1121,20 +1142,20 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
   // If there are any pattern filters, we add those as well
   for (auto &filter : matching.filters) {
-    PatternComprehensionCollector collector(symbol_table, storage);
+    SubqueryMatchingCollector collector(symbol_table, storage);
     filter.expression->Accept(collector);
-    filter.matchings = collector.getFilterMatchings();
+    filter.subquery_matchings = collector.getSubqueryMatchings();
     filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
   }
 }
 
-// PatternComprehensionCollector implementation
-PatternComprehensionCollector::PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage)
+// SubqueryMatchingCollector implementation
+SubqueryMatchingCollector::SubqueryMatchingCollector(SymbolTable &symbol_table, AstStorage &storage)
     : symbol_table_(symbol_table), storage_(storage) {}
 
-PatternComprehensionCollector::~PatternComprehensionCollector() = default;
+SubqueryMatchingCollector::~SubqueryMatchingCollector() = default;
 
-bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
+bool SubqueryMatchingCollector::PreVisit(PatternComprehension &op) {
   PatternComprehensionMatching matching;
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
 
@@ -1154,14 +1175,14 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
 
   // Process nested pattern comprehensions in filters
   for (auto &filter : matching.filters) {
-    PatternComprehensionCollector nested_collector(symbol_table_, storage_);
+    SubqueryMatchingCollector nested_collector(symbol_table_, storage_);
     filter.expression->Accept(nested_collector);
-    filter.matchings = nested_collector.getFilterMatchings();
+    filter.subquery_matchings = nested_collector.getSubqueryMatchings();
     filter.pattern_comprehension_matchings = nested_collector.getPatternComprehensionMatchings();
   }
 
   // Process nested pattern comprehensions in result expression
-  PatternComprehensionCollector result_collector(symbol_table_, storage_);
+  SubqueryMatchingCollector result_collector(symbol_table_, storage_);
   op.resultExpr_->Accept(result_collector);
   matching.nested_pattern_comprehensions = result_collector.getPatternComprehensionMatchings();
 
@@ -1170,9 +1191,10 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
 
-  // Compute external symbols: symbols used in filter/result that are NOT bound within the comprehension.
-  // External symbols are references to variables from outer scope (e.g., FOREACH variable `x` in
-  // `[(a)-[r]->(b) WHERE a.id = x | b]`).
+  // Every symbol the comprehension reads that is NOT bound within it, e.g. the FOREACH variable `x` in
+  // `[(a)-[r]->(b) WHERE a.id = x | b]`. `DepsSatisfied` decides from this when a comprehension may drain, so it must
+  // cover every position an outer symbol can appear in, not just the two obvious expressions: a miss splices the
+  // RollUpApply below the operator that writes the symbol, where it reads an unwritten frame slot.
   std::unordered_set<Symbol> used_symbols;
 
   // Collect symbols from filter expression
@@ -1186,6 +1208,24 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   UsedSymbolsCollector result_symbol_collector(symbol_table_);
   op.resultExpr_->Accept(result_symbol_collector);
   used_symbols.insert(result_symbol_collector.symbols_.begin(), result_symbol_collector.symbols_.end());
+
+  // The collectors above skip the comprehension's own pattern, missing `[(p {name: name})-->(q) | q]`. `AddMatching`
+  // already routed those into the property filters' `used_symbols`.
+  for (const auto &filter : matching.filters) {
+    used_symbols.insert(filter.used_symbols.begin(), filter.used_symbols.end());
+  }
+
+  // `UsedSymbolsCollector` visits only a nested comprehension's pattern, missing what its filter reads. A nested
+  // matching's `external_symbols` comes from this same block, so it is already complete.
+  auto collect_nested_external = [&used_symbols](const PatternComprehensionMatchings &nested) {
+    for (const auto &nested_pc : nested) {
+      used_symbols.insert(nested_pc.external_symbols.begin(), nested_pc.external_symbols.end());
+    }
+  };
+  collect_nested_external(matching.nested_pattern_comprehensions);
+  for (const auto &filter : matching.filters) {
+    collect_nested_external(filter.pattern_comprehension_matchings);
+  }
 
   // Collect symbols bound by nested pattern comprehensions.
   // These should NOT be treated as external symbols - they are bound within their respective nested PCs.
@@ -1206,40 +1246,42 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   return false;  // Don't auto-traverse, we handled it manually
 }
 
-bool PatternComprehensionCollector::PreVisit(Exists &op) {
-  FilterMatching filter_matching;
-  filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+bool SubqueryMatchingCollector::PreVisit(SubqueryExpression &op) {
+  SubqueryMatching subquery_matching;
+  subquery_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+  subquery_matching.fold = op.fold_;
 
   if (op.HasPattern()) {
     std::vector<Pattern *> patterns;
     patterns.push_back(op.GetPattern());
-    AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
-    filter_matching.type = PatternFilterType::EXISTS_PATTERN;
+    AddMatching(patterns, nullptr, symbol_table_, storage_, subquery_matching);
+    subquery_matching.type = SubqueryKind::kPattern;
   } else if (op.HasSubquery()) {
-    filter_matching.type = PatternFilterType::EXISTS_SUBQUERY;
-    filter_matching.subquery =
+    subquery_matching.type = SubqueryKind::kSubquery;
+    subquery_matching.subquery =
         std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.GetSubquery(), true));
   } else {
     throw SemanticException(
-        "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-        "should not happen!");
+        "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+        "should not happen!",
+        op.FoldName());
   }
 
-  filter_matchings_.push_back(std::move(filter_matching));
+  subquery_matchings_.push_back(std::move(subquery_matching));
 
   return false;  // Don't auto-traverse, we handled it manually
 }
 
-std::vector<FilterMatching> PatternComprehensionCollector::getFilterMatchings() { return filter_matchings_; }
+std::vector<SubqueryMatching> SubqueryMatchingCollector::getSubqueryMatchings() { return subquery_matchings_; }
 
-PatternComprehensionMatchings PatternComprehensionCollector::getPatternComprehensionMatchings() {
+PatternComprehensionMatchings SubqueryMatchingCollector::getPatternComprehensionMatchings() {
   return pattern_comprehension_matchings_;
 }
 
 namespace {
 
 // Collect MERGE matchings from FOREACH and its nested FOREACH clauses
-// Note: Pattern comprehensions are now collected via PatternComprehensionCollector
+// Note: Pattern comprehensions are now collected via SubqueryMatchingCollector
 void CollectForeachMergeMatchings(Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                                   SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
@@ -1296,10 +1338,19 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       // - FOREACH list expression and nested clauses
       // - WITH/RETURN named_expressions, order_by, skip, limit, where
       // - UNWIND expression
-      // - EdgeAtom filter_lambda, weight_lambda, lower_bound, upper_bound
-      PatternComprehensionCollector collector(symbol_table, storage);
+      // - EdgeAtom lower_bound, upper_bound, total_weight, limit
+      // Not traversed, so a comprehension there is collected by nobody and fails loudly at evaluation: EdgeAtom's
+      // filter/weight lambdas, dynamic label expressions, and LOAD CSV/PARQUET/JSONL file and config expressions.
+      SubqueryMatchingCollector collector(symbol_table, storage);
       clause->Accept(collector);
-      query_part->pattern_comprehension_matchings.append_range(collector.getPatternComprehensionMatchings());
+      // Record the originating clause, so a drain can tell "can this be planned yet?" from "should it be?".
+      auto matchings = collector.getPatternComprehensionMatchings();
+      for (auto &matching : matchings) {
+        matching.origin_clause = clause;
+        query_part->pattern_comprehension_matchings.push_back(std::move(matching));
+      }
+      // Keep the EXISTS matchings too - a WITH/RETURN body plans them on demand, keyed by result symbol.
+      query_part->subquery_matchings.append_range(collector.getSubqueryMatchings());
 
       // Handle query part boundaries
       if (utils::Downcast<With>(clause) || utils::Downcast<Unwind>(clause) ||
@@ -1398,7 +1449,7 @@ FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Sym
       used_symbols(std::move(used_symbols)),
       property_filter(std::move(property_filter)),
       id_filter(std::move(id_filter)),
-      matchings({}) {}
+      subquery_matchings({}) {}
 
 FilterInfo::FilterInfo(const FilterInfo &) = default;
 FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;

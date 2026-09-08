@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "general.hpp"
+#include "flags/query_modules_directory.hpp"
 
 #include <gflags/gflags.h>
 #include <algorithm>
@@ -49,22 +50,14 @@ DEFINE_VALIDATED_int32(monitoring_port, 7444,
 DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(metrics_format, "JSON",
+DEFINE_VALIDATED_string(metrics_format, "OpenMetrics",
                         "Format for the metrics endpoint. Supported values: OpenMetrics, JSON. JSON is deprecated.", {
                           (void)flagname;
                           if (value == "OpenMetrics") return true;
                           if (value == "JSON") {
-                            // As JSON is currently the default, if `--metrics-format=JSON` is
-                            // specified then this validator fires once at startup and again when
-                            // the flag is parsed, producing two deprecation warnings. This
-                            // suppresses the second one.
-                            static bool already_warned{false};
-                            if (!already_warned) {
-                              already_warned = true;
-                              spdlog::warn(
-                                  "--metrics-format=JSON is deprecated and will be removed in a future release. Please "
-                                  "use OpenMetrics instead.");
-                            }
+                            spdlog::warn(
+                                "--metrics-format=JSON is deprecated and will be removed in a future release. Please "
+                                "use OpenMetrics instead.");
                             return true;
                           }
                           return false;
@@ -154,6 +147,26 @@ DEFINE_uint64(storage_snapshot_thread_count,
               "The number of threads used to create snapshots.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_snapshot_writeback_window_mib,
+              memgraph::storage::Config::Durability().snapshot_writeback_window_mib,
+              "How much of a snapshot may build up in the operating system's file cache before it is written out "
+              "to disk and released, in MiB. Applies per snapshot thread. Set to 0 to leave this to the operating "
+              "system, which can let a large snapshot slow down queries and evict cached data.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_release_recovered_snapshot_page_cache,
+            memgraph::storage::Config::Durability().release_recovered_snapshot_page_cache,
+            "Release a snapshot from the operating system's file cache once recovery has loaded it, so it stops "
+            "holding memory the database could use. Set to false to leave it cached.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_release_sent_snapshot_page_cache,
+            memgraph::storage::Config::Durability().release_sent_snapshot_page_cache,
+            "Release a snapshot from the operating system's file cache once it has been sent to a replica. Off by "
+            "default, because any further replica syncing from the same snapshot then has to read it from disk "
+            "again. Set to true to free the memory sooner on an instance that syncs a replica once.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
               std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
@@ -187,10 +200,8 @@ DEFINE_bool(storage_backup_dir_enabled, true,
             "Controls whether .old dir will be used to store latest snapshot and WAL files.");
 
 // RocksDB flags
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",
-              "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, "
-              "FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.");
+// The info log flags are defined in mg-kvstore (kvstore/rocksdb_options.hpp) because they apply to every RocksDB
+// instance, not just the disk storage one.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_rocksdb_enable_thread_tracking, false,
             "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. "
@@ -268,6 +279,12 @@ DEFINE_string(cluster_key_file, "", "Key file used for intra-cluster TLS communi
 DEFINE_string(cluster_ca_file, "",
               "The file used for storing certificate of the Certificate Authority you trust for intra-cluster TLS "
               "communication.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(ca_bundle_file, "",
+              "Path to a CA certificate bundle used to verify peers of outgoing HTTPS requests (e.g. LOAD CSV from "
+              "https URLs). When empty, well-known system trust-store locations are probed on the first outgoing "
+              "request and the result is cached for the lifetime of the process.");
 
 auto memgraph::flags::IsIntraClusterTLSEnabled() -> bool {
   return !FLAGS_cluster_cert_file.empty() && !FLAGS_cluster_key_file.empty() && !FLAGS_cluster_ca_file.empty();

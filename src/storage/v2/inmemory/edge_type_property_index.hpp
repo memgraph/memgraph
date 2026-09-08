@@ -11,23 +11,25 @@
 
 #pragma once
 
+#include <mutex>
+
 #include <cstdint>
 #include <map>
 #include <utility>
 
 #include "memory/db_arena_fwd.hpp"
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -247,12 +249,14 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
+    mutable std::once_flag indexed_built_;
+    mutable EdgeTypePropertyIndexed indexed_;
   };
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
   /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
@@ -262,7 +266,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   void RestoreIndex(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> evicted,
                     ActiveIndicesUpdater const &updater);
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// Sweeps only the indexes whose property `arming` names, and returns how many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   void DropGraphClearIndices() override;
 
@@ -270,8 +276,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp);

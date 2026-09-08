@@ -39,6 +39,7 @@
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
+#include "flags/query_modules_directory.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
@@ -58,7 +59,9 @@
 #include "query/interpreter_context.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "query/procedure/py_module.hpp"
+#endif
 #include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
 #include "requests/requests.hpp"
@@ -70,6 +73,7 @@
 #include "utils/build_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/page_cache_releaser.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
@@ -97,7 +101,7 @@ constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIE
 constexpr uint64_t kMgVmMaxMapCount = 524'288;
 
 void WarnDeprecatedFlags() {
-  auto warn_if_set = [](std::string_view name, std::string_view message) {
+  [[maybe_unused]] auto warn_if_set = [](std::string_view name, std::string_view message) {
     const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
     if (!info.is_default) spdlog::warn("{}", message);
   };
@@ -161,6 +165,13 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx,
   memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
   auto tmp_user = tmp_auth_checker.GenEmptyUser();
   interpreter.SetUser(tmp_user);
+#ifdef MG_ENTERPRISE
+  // A locally-authored init file is trusted the same way the empty user above trusts it, so grant the coordinator
+  // privileges the HA cluster-init queries (ADD COORDINATOR / REGISTER INSTANCE / SET INSTANCE TO MAIN) require. This
+  // interpreter never authenticates, and the privilege mask grants nothing by default.
+  interpreter.SetCoordinatorPrivileges(static_cast<uint64_t>(memgraph::auth::Permission::COORDINATOR_READ) |
+                                       static_cast<uint64_t>(memgraph::auth::Permission::COORDINATOR_WRITE));
+#endif
 
   std::ifstream file(cypherl_file_path);
   if (!file.is_open()) {
@@ -299,6 +310,11 @@ int main(int argc, char **argv) {
                  build_info.build_name);
   }
 
+  // Owns the thread that drops read-through snapshots from the page cache. Declared here so it
+  // outlives every database that can hand it a file, and is joined before `main` returns rather
+  // than during static destruction.
+  auto const page_cache_releaser = memgraph::utils::InstallPageCacheReleaser();
+
   // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
   // Must run after logger init so the fatal message is delivered.
   memgraph::flags::ValidateIntraClusterTLSFlags();
@@ -328,13 +344,14 @@ int main(int argc, char **argv) {
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
   bool const is_coordinator_instance = coordination_setup.management_port && coordination_setup.coordinator_port &&
-                                       coordination_setup.coordinator_id &&
+                                       coordination_setup.coordinator_id != memgraph::flags::kUnsetCoordinatorId &&
                                        !coordination_setup.coordinator_hostname.empty();
 
 #else
   bool const is_coordinator_instance = false;
 #endif
 
+#ifdef MG_PYTHON_SUPPORT
   std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
   wchar_t *program_name{nullptr};
   PyThreadState *python_thread_state{nullptr};
@@ -390,6 +407,7 @@ int main(int argc, char **argv) {
     python_gc_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
     python_gc_scheduler->Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
   }
+#endif
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
@@ -530,6 +548,9 @@ int main(int argc, char **argv) {
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .snapshot_thread_count = FLAGS_storage_snapshot_thread_count,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
+                     .snapshot_writeback_window_mib = FLAGS_storage_snapshot_writeback_window_mib,
+                     .release_recovered_snapshot_page_cache = FLAGS_storage_release_recovered_snapshot_page_cache,
+                     .release_sent_snapshot_page_cache = FLAGS_storage_release_sent_snapshot_page_cache,
                      .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
@@ -721,15 +742,15 @@ int main(int argc, char **argv) {
   // but DataInstanceManagementServer must be explicitly shut down before repl_state destruction (done in shutdown
   // lambda)
   std::shared_ptr<CoordinatorState> coordinator_state{};
-  auto const is_valid_data_instance =
-      coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
+  auto const is_valid_data_instance = coordination_setup.management_port && !coordination_setup.coordinator_port &&
+                                      coordination_setup.coordinator_id == memgraph::flags::kUnsetCoordinatorId;
 
   auto try_init_coord_state = [&coordinator_state,
                                &extracted_bolt_port,
                                &is_valid_data_instance,
                                &is_coordinator_instance](auto const &coordination_setup) {
     if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
-          coordination_setup.coordinator_id)) {
+          coordination_setup.coordinator_id != memgraph::flags::kUnsetCoordinatorId)) {
       spdlog::trace("Aborting coordinator initialization.");
       return;
     }
@@ -795,7 +816,7 @@ int main(int argc, char **argv) {
   memgraph::metrics::Metrics().SetInstanceStatusResolver(
       [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
         if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
-        return coordinator_state->ShowInstances();
+        return coordinator_state->ShowInstances().value_or(std::vector<memgraph::coordination::InstanceStatus>{});
       });
 #endif
 
@@ -853,7 +874,11 @@ int main(int argc, char **argv) {
     worker_pool_.emplace(/* low priority */
                          static_cast<uint16_t>(FLAGS_bolt_num_workers),
                          /* high priority */ 1U,
+#ifdef MG_PYTHON_SUPPORT
                          is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); });
+#else
+                         []() {});
+#endif
     io_n_threads = 1U;
   }
 
@@ -1198,6 +1223,7 @@ int main(int argc, char **argv) {
     } catch (memgraph::query::QueryException &) {
       spdlog::warn("Failed to unload query modules while shutting down.");
     }
+#ifdef MG_PYTHON_SUPPORT
     python_gc_scheduler->Stop();
     // NOTE: We intentionally skip Py_Finalize(). Third-party extensions (DGL,
     // PyTorch, numpy) may have spawned background threads that race with
@@ -1206,7 +1232,8 @@ int main(int argc, char **argv) {
     // OS reclaims all resources. This is standard practice for embedded Python.
     MG_ASSERT(python_thread_state, "Invalid Python thread state");
     PyEval_RestoreThread(python_thread_state);
-    PyMem_RawFree(program_name);
+    (void)program_name;
+#endif
   }
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();

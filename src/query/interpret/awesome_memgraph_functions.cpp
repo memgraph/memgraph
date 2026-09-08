@@ -12,12 +12,14 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <random>
 #include <ranges>
@@ -37,6 +39,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -534,7 +537,7 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   } else if (value.IsList()) {
     return TypedValue(static_cast<int64_t>(value.ValueList().size()), ctx.memory);
   } else if (value.IsString()) {
-    return TypedValue(static_cast<int64_t>(value.ValueString().size()), ctx.memory);
+    return TypedValue(static_cast<int64_t>(utils::CountUtf8CodePoints(value.ValueString())), ctx.memory);
   } else if (value.IsMap()) {
     // neo4j doesn't implement size for map, but I don't see a good reason not
     // to do it.
@@ -682,6 +685,59 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
   }
 }
 
+// int64's maximum is not representable as a double, so the bound is the
+// smallest double above the range, 2^63, and it is exclusive.
+constexpr double kInt64UpperBoundExclusive = 9223372036854775808.0;
+constexpr auto kInt64LowerBoundInclusive = static_cast<double>(std::numeric_limits<int64_t>::min());
+
+// False for NaN, which compares false against both bounds.
+bool IsWithinInt64Range(const double value) {
+  return value >= kInt64LowerBoundInclusive && value < kInt64UpperBoundExclusive;
+}
+
+// Truncates toward zero, saturating at either end of the range and taking NaN
+// to zero. This is how a floating point argument converts: the C++ cast is
+// undefined outside the range, so the bounds are applied before it.
+int64_t TruncateToInteger(const double value) {
+  if (std::isnan(value)) return 0;
+  if (value >= kInt64UpperBoundExclusive) return std::numeric_limits<int64_t>::max();
+  if (value < kInt64LowerBoundInclusive) return std::numeric_limits<int64_t>::min();
+  return static_cast<int64_t>(value);
+}
+
+// A string can fail to yield an integer in two ways that are reported
+// differently: one naming no number at all is null, while one naming a number
+// too large for the type is an error in toInteger and null in toIntegerOrNull.
+enum class StringToInteger : std::uint8_t { kOk, kNotANumber, kOutOfRange };
+
+std::pair<StringToInteger, int64_t> ParseInteger(std::string_view text) {
+  const auto trimmed = utils::Trim(text);
+  // A whole-number string is parsed as an integer directly. A double holds
+  // fewer significant digits than int64, so going through one would round large
+  // values onto a neighbouring integer or off the end of the range.
+  int64_t parsed{};
+  const auto *const begin = trimmed.data();
+  const auto *const end = begin + trimmed.size();
+  if (const auto [stopped_at, ec] = std::from_chars(begin, end, parsed); stopped_at == end) {
+    if (ec == std::errc{}) return {StringToInteger::kOk, parsed};
+    if (ec == std::errc::result_out_of_range) return {StringToInteger::kOutOfRange, 0};
+    // Empty text consumes nothing, which leaves the cursor at the end as well,
+    // so reaching it is not on its own a sign that a number was read.
+  }
+
+  // Anything else is only meaningful as a floating point number, and is
+  // truncated toward zero. Unlike a floating point argument it does not
+  // saturate: the text named an exact value, and no integer stands for it.
+  double as_double{};
+  try {
+    as_double = utils::ParseDouble(trimmed);
+  } catch (const utils::BasicException &) {
+    return {StringToInteger::kNotANumber, 0};
+  }
+  if (!IsWithinInt64Range(as_double)) return {StringToInteger::kOutOfRange, 0};
+  return {StringToInteger::kOk, static_cast<int64_t>(as_double)};
+}
+
 TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<ToNumericTypes>("toInteger", args, nargs);
   const auto &value = args[0];
@@ -692,14 +748,16 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
   } else if (value.IsInt()) {
     return TypedValue(value, ctx.memory);
   } else if (value.IsDouble()) {
-    return TypedValue(static_cast<int64_t>(value.ValueDouble()), ctx.memory);
+    return TypedValue(TruncateToInteger(value.ValueDouble()), ctx.memory);
   } else {
-    try {
-      // Yup, this is correct. String is valid if it has floating point
-      // number, then it is parsed and converted to int.
-      return TypedValue(static_cast<int64_t>(utils::ParseDouble(utils::Trim(value.ValueString()))), ctx.memory);
-    } catch (const utils::BasicException &) {
-      return TypedValue(ctx.memory);
+    const auto [status, parsed] = ParseInteger(value.ValueString());
+    switch (status) {
+      case StringToInteger::kOk:
+        return TypedValue(parsed, ctx.memory);
+      case StringToInteger::kNotANumber:
+        return TypedValue(ctx.memory);
+      case StringToInteger::kOutOfRange:
+        throw QueryRuntimeException("'{}' is outside the range of an integer.", value.ValueString());
     }
   }
 }
@@ -721,7 +779,15 @@ TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionCo
 }
 
 TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return ConvertOrNull<ToNumericTypes, ToInteger>("toIntegerOrNull", args, nargs, ctx);
+  if (nargs != 1) throw QueryRuntimeException("'{}' requires exactly 1 argument.", "toIntegerOrNull");
+  if (!ToNumericTypes::Check(args[0])) return TypedValue(ctx.memory);
+  // A string naming a value out of range is an error in the strict form but
+  // null here, so the string case cannot delegate the way the rest can.
+  if (args[0].IsString()) {
+    const auto [status, parsed] = ParseInteger(args[0].ValueString());
+    return status == StringToInteger::kOk ? TypedValue(parsed, ctx.memory) : TypedValue(ctx.memory);
+  }
+  return ToInteger(args, nargs, ctx);
 }
 
 TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1189,8 +1255,15 @@ TypedValue Rand(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 template <class TPredicate>
 TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String>, Or<Null, String>>(TPredicate::name, args, nargs);
-  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  // A non-string on either side compares to Null rather than raising. An index scan narrows the
+  // subject to the string type segment before any filter runs, so raising would let the presence
+  // of an index decide whether the query errors at all: it would raise on a property that holds a
+  // string and stay silent on one that holds none. Null keeps the answer the same either way, and
+  // makes the whole predicate answerable from the index alone.
+  if (nargs != 2) {
+    throw QueryRuntimeException("'{}' requires exactly 2 arguments.", TPredicate::name);
+  }
+  if (!args[0].IsString() || !args[1].IsString()) return TypedValue(ctx.memory);
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
   return TypedValue(TPredicate{}(s1, s2), ctx.memory);
@@ -1423,7 +1496,7 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
 TypedValue Left(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("left", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()), ctx.memory);
+  return TypedValue(utils::SubstrUtf8(args[0].ValueString(), 0, args[1].ValueInt()), ctx.memory);
 }
 
 TypedValue Right(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1431,8 +1504,7 @@ TypedValue Right(const TypedValue *args, int64_t nargs, const FunctionContext &c
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto len = args[1].ValueInt();
-  return len <= str.size() ? TypedValue(utils::Substr(str, str.size() - len, len), ctx.memory)
-                           : TypedValue(str, ctx.memory);
+  return TypedValue(std::string_view{str}.substr(utils::Utf8OffsetOfLastCodePoints(str, len)), ctx.memory);
 }
 
 TypedValue CallStringFunction(const TypedValue *args, int64_t nargs, utils::MemoryResource *memory, const char *name,
@@ -1461,8 +1533,11 @@ TypedValue Trim(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(
-      args, nargs, ctx.memory, "reverse", [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
+  return CallStringFunction(args, nargs, ctx.memory, "reverse", [&](const auto &str) {
+    TypedValue::TString res(ctx.memory);
+    utils::ReverseUtf8(&res, str);
+    return res;
+  });
 }
 
 TypedValue ToLower(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1496,8 +1571,15 @@ TypedValue Split(const TypedValue *args, int64_t nargs, const FunctionContext &c
   if (args[0].IsNull() || args[1].IsNull()) {
     return TypedValue(ctx.memory);
   }
+  const auto &input = args[0].ValueString();
   TypedValue::TVector result(ctx.memory);
-  utils::Split(&result, args[0].ValueString(), args[1].ValueString());
+  if (input.empty()) {
+    // utils::Split yields no fields at all for an empty input, but splitting a
+    // non-null string must always produce at least one field.
+    result.emplace_back("");
+  } else {
+    utils::Split(&result, input, args[1].ValueString());
+  }
   return TypedValue(std::move(result));
 }
 
@@ -1506,9 +1588,9 @@ TypedValue Substring(const TypedValue *args, int64_t nargs, const FunctionContex
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto start = args[1].ValueInt();
-  if (nargs == 2) return TypedValue(utils::Substr(str, start), ctx.memory);
+  if (nargs == 2) return TypedValue(utils::SubstrUtf8(str, start), ctx.memory);
   auto len = args[2].ValueInt();
-  return TypedValue(utils::Substr(str, start, len), ctx.memory);
+  return TypedValue(utils::SubstrUtf8(str, start, len), ctx.memory);
 }
 
 TypedValue ToByteString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1757,7 +1839,7 @@ utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_param
   }
   const auto &value = input_parameters.at(timezone);
   if (value.IsString()) {
-    return utils::Timezone(value.ValueString());
+    return utils::ParseTimezoneFromUserString(value.ValueString());
   }
   if (value.IsInt()) {
     return utils::Timezone(std::chrono::minutes{value.ValueInt()});
@@ -2055,9 +2137,21 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(std::move(roles_list));
 }
 
+TypedValue Description(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<String, Or<Null, Bool, Integer, Double, String, List, Map>>("description", args, nargs);
+  if (args[1].IsNull()) return TypedValue(ctx.memory);
+  auto const desc = ctx.db_accessor->GetPropertyValueDescription(args[0].ValueString(),
+                                                                 static_cast<storage::ExternalPropertyValue>(args[1]));
+  if (!desc) return TypedValue(ctx.memory);
+  return TypedValue(TypedValue::TString(*desc, ctx.memory));
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
+
+    // Reads mutable catalog state (server-side descriptions) -> not cacheable.
+    {"DESCRIPTION", func_info{.func_ = Description, .is_pure_ = false}},
 
     // Scalar functions
     {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true}},
@@ -2171,7 +2265,6 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    // Lock on the module is already acquired in the AST construction
     procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
 
     auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
@@ -2181,7 +2274,10 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
     auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
     auto maybe_res = mgp_func_result{};
     auto memory = mgp_memory{ctx.memory};
-    func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+      func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    }
     if (maybe_res.error_msg) [[unlikely]] {
       throw QueryRuntimeException(*maybe_res.error_msg);
     }
@@ -2195,6 +2291,16 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
 
     return {*std::move(maybe_res.value), ctx.memory};
   };
+}
+
+std::optional<user_func> TryResolveUserFunction(const std::string &name) {
+  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, name);
+  if (!maybe_found) {
+    return std::nullopt;
+  }
+  auto module_ptr = std::move(maybe_found->first);
+  const auto *func = maybe_found->second;
+  return user_func{UserFunction(*func, name), std::move(module_ptr)};
 }
 
 }  // namespace
@@ -2214,16 +2320,33 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
     return buildin_it->second.func_;
   }
 
-  // Next lookip for user-defined function from a module
-  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
-  if (maybe_found) {
-    auto module_ptr = std::move((*maybe_found).first);
-    const auto *func = (*maybe_found).second;
-    return std::make_pair(UserFunction(*func, function_name), std::move(module_ptr));
+  // Next lookup for user-defined function from a module
+  if (auto user_function = TryResolveUserFunction(function_name)) {
+    return std::move(*user_function);
   }
 
   // Does not exist
   return std::monostate{};
+}
+
+auto ResolveUserFunction(const std::string &name) -> user_func {
+  auto user_function = TryResolveUserFunction(name);
+  if (!user_function) {
+    throw QueryRuntimeException("Function '{}' doesn't exist.", name);
+  }
+  return std::move(*user_function);
+}
+
+auto ResolveUserFunctions(const std::vector<std::string> &names) -> std::shared_ptr<ResolvedUserFunctions> {
+  if (names.empty()) {
+    return nullptr;
+  }
+  auto resolved = std::make_shared<ResolvedUserFunctions>();
+  resolved->functions.reserve(names.size());
+  for (const auto &name : names) {
+    resolved->functions.push_back(ResolveUserFunction(name));
+  }
+  return resolved;
 }
 
 bool IsFunctionPure(std::string_view function_name) {

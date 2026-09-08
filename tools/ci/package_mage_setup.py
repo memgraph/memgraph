@@ -31,25 +31,11 @@ SUPPORTED_BUILDS = [
     {"label": "cuda", "os": "ubuntu-24.04", "arch": "amd", "cuda": "true", "cugraph": "false", "malloc": "false"},
     {"label": "cugraph", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "true", "malloc": "false"},
     {"label": "malloc", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "true"},
-    {"label": "centos-9", "os": "centos-9", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
-    {"label": "centos-10", "os": "centos-10", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
-    # Disabled until MAGE supports Python versions other than 3.12 (see note above).
-    # These mirror the rest of the Memgraph build matrix in build_rc.yml:
-    # {"label": "ubuntu-22.04",  "os": "ubuntu-22.04", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.10
-    # {"label": "debian-12",     "os": "debian-12",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.11
-    # {"label": "debian-12-arm", "os": "debian-12",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.11
-    # {"label": "debian-13",     "os": "debian-13",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
-    # {"label": "debian-13-arm", "os": "debian-13",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
-    # {"label": "fedora-42",     "os": "fedora-42",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
-    # {"label": "fedora-42-arm", "os": "fedora-42",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
-    # {"label": "rocky-10",      "os": "rocky-10",     "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.12, not yet validated
+    # TODO(matt): validate MAGE on other Python versions - 3.14 would be particularly desirable for switching
+    # to Ubuntu 26.04 as our Docker image base distro.
 ]
 
-# matrix_build (workflow_dispatch) builds the original ubuntu-24.04 flavour set
-# (amd, arm, cuda, cugraph, malloc) plus centos-9. Selected from SUPPORTED_BUILDS
-# by label, minus the PR-label key. The remaining distros are still reachable via
-# single-OS workflow_dispatch selection or their PR labels.
-MATRIX_BUILD_LABELS = {"amd", "arm", "cuda", "cugraph", "malloc", "centos-9"}
+MATRIX_BUILD_LABELS = {"amd", "arm", "cuda", "cugraph", "malloc"}
 MATRIX_BUILDS = [
     {k: v for k, v in build.items() if k != "label"}
     for build in SUPPORTED_BUILDS
@@ -57,11 +43,15 @@ MATRIX_BUILDS = [
 ]
 
 
-def _build_docker_image(distro: str, cugraph: str) -> str:
-    # Builds produce a debug MAGE image so the docker smoke + e2e tests have
-    # something to run against. Only ubuntu-24.04 publishes a MAGE image; rpm
-    # distros build none (smoke-tested via the rpm smoke image) and cugraph can't
-    # be smoke/e2e-tested in CI (GPU), so it gets no image either.
+def _build_docker_image(distro: str, cugraph: str, requested: str = "default") -> str:
+    # An explicit build_docker_image dispatch input (none|prod|debug|both) wins.
+    # "default" applies the heuristic: builds produce a debug MAGE image so the
+    # docker smoke + e2e tests have something to run against. Only ubuntu-24.04
+    # publishes a MAGE image; rpm distros build none (smoke-tested via the rpm
+    # smoke image) and cugraph can't be smoke/e2e-tested in CI (GPU), so it
+    # gets no image either.
+    if requested and requested != "default":
+        return requested
     return "debug" if (distro == "ubuntu-24.04" and cugraph != "true") else "none"
 
 
@@ -102,6 +92,8 @@ class PackageMageSetup:
     def _check_pr_label(self, build: dict, pr_labels: list) -> dict | None:
         default_args = {
             "memgraph_download_link": "",
+            "memgraph_rpm_download_link": "",
+            "memgraph_debuginfo_download_link": "",
             "push_to_s3": "false",
             "s3_dest_dir": "mage-unofficial",
             "run_smoke_tests": "true",
@@ -151,6 +143,10 @@ class PackageMageSetup:
             "package_mage": self.workflow_inputs.get("package_mage", "default"),
             "ref": self.workflow_inputs.get("ref", ""),
         }
+        requested_image = self.workflow_inputs.get("build_docker_image", "default") or "default"
+        if requested_image not in ("default", "none", "prod", "debug", "both"):
+            print(f"Error: invalid build_docker_image input '{requested_image}'")
+            sys.exit(1)
         if self.workflow_inputs.get("matrix_build") == "true":
             # arch/os/cuda/cugraph/malloc come from each MATRIX_BUILDS entry; the
             # remaining inputs above are applied uniformly across the matrix.
@@ -158,7 +154,7 @@ class PackageMageSetup:
                 {
                     **build,
                     **common,
-                    "build_docker_image": _build_docker_image(build["os"], build["cugraph"]),
+                    "build_docker_image": _build_docker_image(build["os"], build["cugraph"], requested_image),
                 }
                 for build in MATRIX_BUILDS
             ]
@@ -171,8 +167,10 @@ class PackageMageSetup:
                 "cugraph": cugraph,
                 "malloc": self.workflow_inputs.get("malloc", "false"),
                 "os": distro,
-                "build_docker_image": _build_docker_image(distro, cugraph),
+                "build_docker_image": _build_docker_image(distro, cugraph, requested_image),
                 "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
+                "memgraph_rpm_download_link": self.workflow_inputs.get("memgraph_rpm_download_link", ""),
+                "memgraph_debuginfo_download_link": self.workflow_inputs.get("memgraph_debuginfo_download_link", ""),
                 "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
                 **common,
             }

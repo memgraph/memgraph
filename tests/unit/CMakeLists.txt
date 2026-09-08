@@ -96,6 +96,11 @@ add_unit_test(interpreter
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(query_plan_pruning_bfs
+    SOURCES query_plan_pruning_bfs.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(plan_pretty_print
     SOURCES plan_pretty_print.cpp
     LINK_TARGETS mg-query disk_test_utils
@@ -211,6 +216,14 @@ add_unit_test(query_plan_v2_cardinality
 )
 
 # ============================================================================
+# plan_v2 unit tests - Layer 3: Analysis framework (constant identity + lattice)
+# ============================================================================
+add_unit_test(query_plan_v2_analysis
+    SOURCES query_plan_v2_analysis.cpp
+    LINK_TARGETS mg-query mg-planner
+)
+
+# ============================================================================
 # plan_v2 unit tests - Layer 3: Full extraction pipeline + rewrites
 # ============================================================================
 add_unit_test(query_plan_v2_rewrites
@@ -261,6 +274,11 @@ add_unit_test(transaction_queue_multiple
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(query_plan_printer_race
+    SOURCES query_plan_printer_race.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
 
 # Test query functions
 add_unit_test(query_function_mgp_module
@@ -285,12 +303,14 @@ add_unit_test(query_procedure_mgp_module
 )
 
 
+if (MG_PYTHON_SUPPORT)
 add_unit_test(query_procedure_py_module
     SOURCES query_procedure_py_module.cpp
     LINK_TARGETS mg-query disk_test_utils
     CUSTOM_MAIN
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
+endif()
 
 
 add_unit_test(query_procedures_mgp_graph
@@ -305,10 +325,20 @@ add_unit_test(query_virtual_graph
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
+add_unit_test(query_procedure_text_search_query_fields
+    SOURCES query_procedure_text_search_query_fields.cpp
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+)
+
 
 # END query/procedure
 add_unit_test(query_profile
     SOURCES query_profile.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(query_graph_free
+    SOURCES query_graph_free.cpp
     LINK_TARGETS mg-query
 )
 
@@ -438,10 +468,14 @@ add_unit_test(utils_aws
     LINK_TARGETS mg-utils mg-aws
 )
 
+# Every iteration starts a thread per barrier participant, so ctest's default cost of one slot per
+# test lets it be scheduled alongside a full machine's worth of other tests. Declaring the slots it
+# needs keeps that from happening; where the machine has fewer, ctest runs this test on its own.
+# PROCESSORS mirrors kN in utils_barrier.cpp and has to be changed with it.
 add_unit_test(utils_barrier
     SOURCES utils_barrier.cpp
     LINK_TARGETS mg-utils
-    TEST_PROPERTIES TIMEOUT 60
+    TEST_PROPERTIES TIMEOUT 120 PROCESSORS 12
 )
 
 add_unit_test(utils_hot_mask
@@ -466,6 +500,11 @@ add_unit_test(utils_exceptions
 
 add_unit_test(utils_file
     SOURCES utils_file.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_page_cache_releaser
+    SOURCES utils_page_cache_releaser.cpp
     LINK_TARGETS mg-utils
 )
 
@@ -501,6 +540,11 @@ add_unit_test(utils_query_memory_tracker
 
 add_unit_test(jemalloc_hook_stress_test
     SOURCES jemalloc_hook_stress_test.cpp
+    LINK_TARGETS mg-memory mg-utils
+)
+
+add_unit_test(tls_destructor_registration
+    SOURCES tls_destructor_registration.cpp
     LINK_TARGETS mg-memory mg-utils
 )
 
@@ -559,6 +603,11 @@ add_unit_test(small_vector
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_id_bitmap
+    SOURCES utils_id_bitmap.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(skip_list_range_chunking
     SOURCES skip_list_range_chunking.cpp
     LINK_TARGETS mg-utils
@@ -582,6 +631,36 @@ add_unit_test(utils_thread_pool
 add_unit_test(csv_csv_parsing
     SOURCES csv_csv_parsing.cpp
     LINK_TARGETS mg::csv
+)
+
+add_unit_test(query_jsonl_reader
+    SOURCES query_jsonl_reader.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(utils_prefetched
+    SOURCES utils_prefetched.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_byte_source
+    SOURCES utils_byte_source.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_download_temp_file
+    SOURCES utils_download_temp_file.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(query_download_failure_reporting
+    SOURCES query_download_failure_reporting.cpp
+    LINK_TARGETS mg-query mg-requests
+)
+
+add_unit_test(requests_transfer_stall
+    SOURCES requests_transfer_stall.cpp
+    LINK_TARGETS mg-requests mg-utils
 )
 
 add_unit_test(utils_async_timer
@@ -712,9 +791,14 @@ add_unit_test(storage_v2_decoder_encoder
     LINK_TARGETS mg::storage
 )
 
+# Much the slowest test in the suite: it writes and recovers snapshots and WAL
+# across every durability mode, and in a sanitized build it runs long enough that
+# the general cap would leave it far less headroom than it leaves every other
+# test. It keeps the signal settings, so a hang in it still dumps core.
 add_unit_test(storage_v2_durability_inmemory
     SOURCES storage_v2_durability_inmemory.cpp
-    LINK_TARGETS mg::storage mg-dbms
+    LINK_TARGETS mg::storage mg-dbms storage_test_utils
+    TEST_PROPERTIES TIMEOUT 1800
 )
 
 add_unit_test(storage_v2_create_snapshot
@@ -767,6 +851,16 @@ add_unit_test(storage_v2_gc
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_gc_index_sweep
+    SOURCES storage_v2_gc_index_sweep.cpp
+    LINK_TARGETS mg::storage
+)
+
+add_unit_test(storage_v2_index_arming
+    SOURCES storage_v2_index_arming.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_non_sequential_isolation
     SOURCES storage_v2_non_sequential_isolation.cpp
     LINK_TARGETS mg::storage
@@ -780,6 +874,16 @@ add_unit_test(storage_v2_delta_correctness
 add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
     LINK_TARGETS mg::storage mg-utils disk_test_utils ddl_abort_helpers
+)
+
+add_unit_test(storage_v2_index_entry_lifetime
+    SOURCES storage_v2_index_entry_lifetime.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
+add_unit_test(storage_v2_object_removal
+    SOURCES storage_v2_object_removal.cpp
+    LINK_TARGETS mg::storage mg-utils
 )
 
 add_unit_test(storage_v2_name_id_mapper
@@ -899,6 +1003,13 @@ else ()
     )
 endif ()
 
+if (MG_ENTERPRISE)
+    add_unit_test(coordinator_sso_authenticator
+        SOURCES coordinator_sso_authenticator.cpp
+        LINK_TARGETS mg-glue mg-auth
+    )
+endif ()
+
 add_unit_test(cpp_api
     SOURCES cpp_api.cpp
     LINK_TARGETS mg-query disk_test_utils
@@ -908,12 +1019,12 @@ add_unit_test(cpp_api
 
 add_unit_test(vector_index
     SOURCES vector_index.cpp
-    LINK_TARGETS mg::storage ddl_abort_helpers
+    LINK_TARGETS mg::storage mg-glue ddl_abort_helpers
 )
 
 add_unit_test(vector_edge_index
     SOURCES vector_edge_index.cpp
-    LINK_TARGETS mg::storage ddl_abort_helpers
+    LINK_TARGETS mg::storage mg-glue ddl_abort_helpers
 )
 
 add_unit_test(text_index
@@ -982,6 +1093,12 @@ add_unit_test(rpc_in_progress
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
+# Test rpc progress heartbeat (sends only on recorded progress)
+add_unit_test(rpc_progress_heartbeat
+    SOURCES rpc_progress_heartbeat.cpp
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
 # Test rpc file framing (receive-buffer duplicate-file bug)
 add_unit_test(rpc_file_framing
     SOURCES rpc_file_framing.cpp
@@ -998,6 +1115,12 @@ add_unit_test(replication_rpc_progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
+# Test cancellation of full-scan schema operations (index population, constraint validation)
+add_unit_test(storage_v2_schema_cancellation
+    SOURCES storage_v2_schema_cancellation.cpp
+    LINK_TARGETS mg-storage-v2
 )
 
 add_unit_test(snapshot_progress
@@ -1258,4 +1381,9 @@ add_unit_test(safe_hardware_concurrency
 add_unit_test(logging
     SOURCES logging.cpp
     LINK_TARGETS gflags mg-flags
+)
+
+add_unit_test(utils_queued_byte_source
+    SOURCES utils_queued_byte_source.cpp
+    LINK_TARGETS mg-utils
 )

@@ -474,8 +474,8 @@ TYPED_TEST(SmallVectorCommon, MoveSelfAssign) {
 TYPED_TEST(SmallVectorCommon, AtOutOfBounds) {
   // mutable at
   auto sut = make_seq<TypeParam>(this, 3);
-  EXPECT_NO_THROW(sut.at(2));
-  EXPECT_THROW(sut.at(3), std::out_of_range);
+  EXPECT_NO_THROW((void)sut.at(2));
+  EXPECT_THROW((void)sut.at(3), std::out_of_range);
 
   // immutable at
   auto const &const_sut = sut;

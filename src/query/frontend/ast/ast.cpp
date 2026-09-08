@@ -13,8 +13,8 @@
 #include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
-#include "query/frontend/ast/query/exists.hpp"
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "utils/typeinfo.hpp"
@@ -396,7 +396,9 @@ constexpr utils::TypeInfo query::TransactionQueueQuery::kType{.id = utils::TypeI
                                                               .name = "TransactionQueueQuery",
                                                               .superclass = &query::Query::kType};
 
-constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exists", &query::Expression::kType};
+constexpr utils::TypeInfo query::SubqueryExpression::kType{.id = utils::TypeId::AST_SUBQUERY_EXPRESSION,
+                                                           .name = "SubqueryExpression",
+                                                           .superclass = &query::Expression::kType};
 
 constexpr utils::TypeInfo query::CallSubquery::kType{
     .id = utils::TypeId::AST_CALL_SUBQUERY, .name = "CallSubquery", .superclass = &query::Clause::kType};
@@ -471,6 +473,9 @@ constexpr utils::TypeInfo query::TenantProfileQuery::kType{
     .id = utils::TypeId::AST_TENANT_PROFILE_QUERY, .name = "TenantProfileQuery", .superclass = &query::Query::kType};
 
 namespace query {
+
+void AstStorage::Adopt(std::unique_ptr<Tree> node) { storage_.emplace_back(std::move(node)); }
+
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue const *>);
@@ -489,12 +494,12 @@ bool NamedExpression::Accept(HierarchicalTreeVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue>);
-DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue *>);
-DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue const *>);
-DEFINE_VISITABLE(Exists, ExpressionVisitor<void>);
+DEFINE_VISITABLE(SubqueryExpression, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(SubqueryExpression, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(SubqueryExpression, ExpressionVisitor<TypedValue const *>);
+DEFINE_VISITABLE(SubqueryExpression, ExpressionVisitor<void>);
 
-bool Exists::Accept(HierarchicalTreeVisitor &visitor) {
+bool SubqueryExpression::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     if (HasPattern()) {
       GetPattern()->Accept(visitor);

@@ -1,0 +1,13 @@
+# -1 is the no-limit upper bound for the subgraph walk too; the config reader used to drop it.
+query: >
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {maxHops: -1})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B
+  - name: C
+  - name: D
+  - name: E

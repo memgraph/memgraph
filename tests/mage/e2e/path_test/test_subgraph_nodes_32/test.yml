@@ -1,0 +1,12 @@
+# The outgoing marker may lead the type as well as trail it; a leading one used to be read as part of
+# the type name, which no relationship carries, so the filter silently matched nothing.
+query: >
+  MATCH (b:N {name: "B"})
+  CALL path.subgraph_nodes(b, {relationshipFilter: ['>R'], maxHops: 1})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: "A"
+  - name: "B"
+  - name: "C"

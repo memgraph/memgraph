@@ -1,0 +1,9 @@
+# Only -1 means "no limit"; any other negative value would silently return nothing.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {maxHops: 2, limit: -5})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  Config key 'limit' needs to be non-negative, or -1 for no limit

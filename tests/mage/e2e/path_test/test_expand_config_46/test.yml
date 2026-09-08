@@ -1,0 +1,14 @@
+# '*' matches every label, which is how a sequence says "any label in this position": the first step
+# admits P1 and the third A1, while the second holds the walk to Reply nodes.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {minHops: 0, maxHops: 3, labelFilter: '*,Reply'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["P1"]
+  - names: ["P1", "R1"]
+  - names: ["P1", "RB"]
+  - names: ["P1", "R1", "A1"]

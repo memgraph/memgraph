@@ -22,6 +22,7 @@
 #include <spdlog/async_logger.h>
 #include <spdlog/common.h>
 #include <iostream>
+#include <optional>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -94,5 +95,11 @@ void RedirectToStderr();
 // /// Use it for operations that must successfully finish.
 inline void AssertRocksDBStatus(const auto &status) { MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString()); }
 
-std::string MaskSensitiveInformation(std::string_view input);
+// Redacts the value of any credential-bearing clause in `input`. Returns
+// nullopt when there is nothing to redact, so callers can keep using the
+// original text rather than a copy of it.
+//
+// Redaction fails closed: a value whose closing quote is missing is redacted
+// to the end of the input, because the alternative is logging the secret.
+std::optional<std::string> MaskSensitiveInformation(std::string_view input);
 }  // namespace memgraph::logging

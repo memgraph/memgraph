@@ -25,14 +25,15 @@ env:
   MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
   MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
-  OS: 'debian-12'
-  TOOLCHAIN: 'v7'
+  OS: 'ubuntu-24.04'
+  TOOLCHAIN: 'v8'
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
   RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
   CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
   CLUSTER_ENV: "ci-jepsen"
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   core:
@@ -83,12 +84,16 @@ jobs:
 
       - name: Build release binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 12 \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -212,3 +217,5 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Jepsen / Core tests"

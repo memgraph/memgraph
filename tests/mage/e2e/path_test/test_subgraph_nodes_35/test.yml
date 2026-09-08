@@ -1,0 +1,9 @@
+# A node filter may be given as a bare node instead of a list of one.
+query: >
+  MATCH (b:Node {name: "B"})
+  WITH b
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {denylistNodes: b, maxHops: 3})
+  YIELD nodes RETURN nodes.name AS name ORDER BY name ASC;
+output:
+  - name: "A"

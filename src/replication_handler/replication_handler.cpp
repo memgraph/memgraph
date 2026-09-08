@@ -23,6 +23,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+
 namespace memgraph::replication {
 
 using namespace std::chrono_literals;
@@ -153,7 +155,7 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
+  spdlog::info("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck(
       [&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
           ReplicationClient &local_client) mutable {
@@ -295,7 +297,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
     // All DBs should have the same epoch
     auto const new_epoch = ReplicationEpoch();
-    spdlog::trace("Generated new epoch {}", new_epoch.id());
+    spdlog::info("Generated new epoch {}", new_epoch.id());
 
     // STEP 4) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
@@ -352,38 +354,60 @@ auto ReplicationHandler::RegisterReplica(const ReplicationClientConfig &config)
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult {
+  // Reject before any replication state is mutated, mirroring the registration gate. Analytical mode
+  // implies there are no per-database clients to erase, so this would silently half-unregister.
+  if (auto const analytical_db = AnalyticalDatabase(); analytical_db.has_value()) {
+    spdlog::error("Cannot unregister replica {} while database \"{}\" is in analytical mode.", name, *analytical_db);
+    return query::UnregisterReplicaResult::ANALYTICAL_MODE;
+  }
+  return UnregisterReplica_(name);
+}
+
+auto ReplicationHandler::UnregisterReplica_(std::string_view name) -> query::UnregisterReplicaResult {
   try {
     auto locked_repl_state = repl_state_.TryLock();
-
-    auto const replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
-      return query::UnregisterReplicaResult::NOT_MAIN;
-    };
-    auto const main_handler =
-        [this, name, &locked_repl_state](RoleMainData &mainData) -> query::UnregisterReplicaResult {
-      if (!locked_repl_state->TryPersistUnregisterReplica(name)) {
-        return query::UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
-      }
-      // Remove database specific clients
-      dbms_handler_.ForEach([name](dbms::DatabaseAccess db_acc) {
-        db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([&name](auto &clients) {
-          std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
-        });
-      });
-      // Remove instance level clients
-      auto const n_unregistered =
-          std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
-
-      // Drop the per-instance replication throughput series so the metric maps don't grow unbounded.
-      metrics::Metrics().RemoveReplicationThroughput(name);
-
-      return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
-                                 : query::UnregisterReplicaResult::CANNOT_UNREGISTER;
-    };
-
-    return std::visit(utils::Overloaded{main_handler, replica_handler}, locked_repl_state->ReplicationData());
+    return UnregisterReplicaLocked_(locked_repl_state, name);
   } catch (const utils::TryLockException & /* unused */) {
     return query::UnregisterReplicaResult::NO_ACCESS;
   }
+}
+
+auto ReplicationHandler::UnregisterReplicaLocked_(LockedReplState &locked_repl_state, std::string_view name)
+    -> query::UnregisterReplicaResult {
+  auto const replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
+    return query::UnregisterReplicaResult::NOT_MAIN;
+  };
+  auto const main_handler = [this, name, &locked_repl_state](RoleMainData &mainData) -> query::UnregisterReplicaResult {
+    if (!locked_repl_state->TryPersistUnregisterReplica(name)) {
+      return query::UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
+    }
+    // Stop the instance-level client before destroying any storage client below. Its thread pool holds raw
+    // pointers to them, and only Shutdown aborts the in-flight recovery, drops the queue and joins the
+    // worker; the destructor further down would do it after the storage clients are already gone.
+    // ClientsShutdown observes the same order for the role transition.
+    auto const client_it = std::ranges::find_if(mainData.registered_replicas_,
+                                                [name](auto const &client) { return client.name_ == name; });
+    if (client_it == mainData.registered_replicas_.end()) {
+      return query::UnregisterReplicaResult::CANNOT_UNREGISTER;
+    }
+    client_it->Shutdown();
+
+    // Remove database specific clients
+    dbms_handler_.ForEach([name](dbms::DatabaseAccess db_acc) {
+      db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([&name](auto &clients) {
+        std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
+      });
+    });
+    // Remove instance level client
+    mainData.registered_replicas_.erase(client_it);
+
+    // Drop the per-instance replication throughput series so the metric maps don't grow unbounded.
+    metrics::Metrics().RemoveReplicationThroughput(name);
+
+    return query::UnregisterReplicaResult::SUCCESS;
+  };
+
+  return std::visit(utils::Overloaded{main_handler, replica_handler}, locked_repl_state->ReplicationData());
 }
 
 auto ReplicationHandler::GetRole() const -> replication_coordination_glue::ReplicationRole {

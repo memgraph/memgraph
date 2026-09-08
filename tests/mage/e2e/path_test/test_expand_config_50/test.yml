@@ -1,0 +1,16 @@
+# Every start node enters the node-global walk at depth 0 sharing one set of marks, so a start reached
+# from another start is returned once, as its own root -- not a second time on the path that reached it.
+# B and C are both reachable from A here, and each comes back only as itself.
+query: >
+  MATCH (n:Node) WHERE n.name IN ["A", "B", "C"]
+  WITH collect(n) AS starts
+  CALL path.expand_config(starts, {minHops: 0, maxHops: 3, uniqueness: 'NODE_GLOBAL'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["B"]
+  - names: ["C"]
+  - names: ["C", "D"]

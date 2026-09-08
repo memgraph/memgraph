@@ -1,0 +1,9 @@
+# The error names the key the caller actually wrote, not whichever spelling is treated as canonical.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {minLevel: 'two'})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  Config key 'minLevel' needs to be an integer.

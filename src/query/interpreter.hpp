@@ -21,6 +21,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/plan_v2/frontend/query_planner_context.hpp"
 #include "query/stream.hpp"
@@ -162,8 +163,9 @@ class CoordinatorQueryHandler {
   /// @throw QueryRuntimeException if an error occurred.
   virtual coordination::InstanceStatus ShowInstance() const = 0;
 
+  /// nullopt if the leader couldn't be reached.
   /// @throw QueryRuntimeException if an error occurred.
-  virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
+  virtual std::optional<std::vector<coordination::InstanceStatus>> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void AddCoordinatorInstance(int32_t coordinator_id, std::string_view bolt_server,
@@ -181,9 +183,30 @@ class CoordinatorQueryHandler {
 
   virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
 
-  virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
+  /// Both return nullopt if the leader couldn't be reached.
+  virtual std::optional<std::vector<std::pair<std::string, std::string>>> ShowCoordinatorSettings() = 0;
 
-  virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void CreateRole(std::string_view role_name, bool if_not_exists) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void DropRole(std::string_view role_name) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual std::vector<std::string> ShowRoles() = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void GrantCoordinatorPrivilege(std::string_view role_name, uint64_t privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void RevokeCoordinatorPrivilege(std::string_view role_name, uint64_t privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred. Returns the role's coordinator permission mask.
+  virtual uint64_t ShowRolePrivileges(std::string_view role_name) = 0;
+
+  virtual std::optional<coordination::ReplicationLagResult> ShowReplicationLag() = 0;
+
+  virtual coordination::RoutingTable GetRoutingTable(std::string_view db_name) = 0;
 };
 #endif
 
@@ -311,6 +334,16 @@ class Interpreter final {
   std::shared_ptr<QueryUserOrRole>
       user_or_role_{};  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
+  // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
+  // (basic-auth passthrough) sessions, which carry full WRITE; sessions with coordinator roles recompute their mask
+  // per check via EffectiveCoordinatorPermissions. Zero denies everything, so an interpreter that never authenticated
+  // grants nothing: every privileged path must call SetCoordinatorPrivileges explicitly.
+  uint64_t coordinator_permissions_{0};
+  // Role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session). A claim
+  // captured at login, not a fact: both the privilege mask (EffectiveCoordinatorPermissions) and SHOW CURRENT ROLE
+  // re-check these names against the leader's committed role set on every use, so a dropped role stops counting and
+  // stops being reported without waiting for a reconnect.
+  std::vector<std::string> coordinator_roles_;
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
@@ -434,7 +467,12 @@ class Interpreter final {
 
   std::optional<uint64_t> GetTransactionId() const;
 
-  void CommitTransaction();
+  // True iff an active transaction has no pending writes; its COMMIT is a near-noop the scheduler routes HIGH.
+  bool IsCurrentTransactionEmpty() const;
+
+  // Returns the notification produced by the commit, if any. A SYNC replication failure does not abort the
+  // transaction, so it is reported as a notification instead of an exception.
+  std::optional<Notification> CommitTransaction();
 
   void RollbackTransaction();
 
@@ -492,6 +530,21 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
+
+  // Sets the session's effective coordinator privilege mask (auth::Permission bits). Called at authentication time on
+  // coordinators; a basic-auth passthrough session is granted full WRITE.
+  void SetCoordinatorPrivileges(uint64_t privileges) { coordinator_permissions_ = privileges; }
+
+  // Sets the role names the session authenticated with on a coordinator (reported by SHOW CURRENT ROLE).
+  void SetCoordinatorRoles(std::vector<std::string> roles) { coordinator_roles_ = std::move(roles); }
+
+  // The role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session).
+  const std::vector<std::string> &GetCoordinatorRoles() const { return coordinator_roles_; }
+
+  // The session's effective coordinator privilege mask. A role-less (basic-auth passthrough) session uses the mask
+  // fixed at login; an SSO session recomputes it from its role names against the leader's committed role set on
+  // every check, so REVOKE/DROP ROLE downgrades long-lived sessions without a reconnect.
+  uint64_t EffectiveCoordinatorPermissions() const;
 #else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 #endif
@@ -532,6 +585,7 @@ class Interpreter final {
     query_executions_.clear();
     system_transaction_.reset();
     transaction_queries_->clear();
+    commit_notification_.reset();
     if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
       current_db_.db_acc_.reset();
     }
@@ -545,10 +599,11 @@ class Interpreter final {
     // prepared. System-only executions may pass nullptr because they do not run
     // inside a DB query-memory budget.
     explicit QueryExecution(utils::MemoryTracker *db_query_tracker = nullptr)
-        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker} {}
+        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker}, memory_tracker{db_query_tracker} {}
 
     QueryExecution(ThreadSafe /*marker*/, utils::MemoryTracker *db_query_tracker)
-        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker} {}
+        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker},
+          memory_tracker{db_query_tracker} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -559,6 +614,12 @@ class Interpreter final {
 
     std::variant<QueryAllocator, ThreadSafeQueryAllocator>
         execution_memory;  // NOTE: before all other fields which uses this memory
+
+    /// Tracks this query's allocations when there is no storage transaction to do it. A transaction
+    /// carries one of these for the same purpose; nothing about it needs the transaction, only the
+    /// database's tracker to report to, and that may be absent too.
+    /// NOTE: before `prepared_query`, whose plan holds a pointer to this.
+    utils::QueryMemoryTracker memory_tracker;
 
     std::optional<PreparedQuery> prepared_query;
     std::map<std::string, TypedValue> summary;
@@ -609,7 +670,7 @@ class Interpreter final {
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
   // TODO Figure out how this would work for multi-database
-  // Exists only during a single transaction (for now should be okay as is)
+  // SubqueryExpression only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
 
   // all queries that are run as part of the current transaction
@@ -624,8 +685,16 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
+  // Notification produced by the last Commit(); set when the transaction committed on main but could not be
+  // replicated to every SYNC replica. Consumed by whoever drove the commit (Pull or CommitTransaction).
+  std::optional<Notification> commit_notification_;
+
+  static void AppendNotificationToSummary(const Notification &notification, std::map<std::string, TypedValue> &summary);
+
   PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
+  // Resets tx-tracking left ACTIVE by SetupInterpreterTransaction when NOTHING skips Commit()/Abort()'s cleanup.
+  void FinishAutocommitNothing();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
@@ -720,6 +789,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         }
       }
 
+      // NOTE: must happen before Commit(), which clears the runtime data of every query execution.
       if (!query_execution->notifications.empty()) {
         std::vector<TypedValue> notifications;
         notifications.reserve(query_execution->notifications.size());
@@ -737,12 +807,19 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             Abort();
             break;
           case QueryHandlerResult::NOTHING: {
-            // The only cases in which we have nothing to do are those where
-            // we're either in an explicit transaction or the query is such that
-            // a transaction wasn't started on a call to `Prepare()`.
+            // NOTHING means no storage transaction was opened on `Prepare()` (this switch only runs
+            // for autocommit queries -- it is inside `if (!in_explicit_transaction_)`).
             MG_ASSERT(!current_db_.db_transactional_accessor_);
+            // Unlike COMMIT/ABORT, NOTHING must dispose the ACTIVE state itself or the session stays active.
+            FinishAutocommitNothing();
             break;
           }
+        }
+        // The commit itself can report a SYNC replication failure. This also covers the explicit COMMIT
+        // query, whose handler already cleared in_explicit_transaction_ by the time we get here.
+        if (commit_notification_) {
+          AppendNotificationToSummary(*commit_notification_, *maybe_summary);
+          commit_notification_.reset();
         }
         // As the transaction is done we can clear all the executions
         // NOTE: we cannot clear query_execution inside the Abort and Commit

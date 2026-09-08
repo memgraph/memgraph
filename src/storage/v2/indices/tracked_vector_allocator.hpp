@@ -77,7 +77,11 @@ class TrackedVectorAllocator {
 
   pointer allocate(size_type count_bytes) {
     const auto extended = unum::usearch::divide_round_up<alignment_ak>(count_bytes) * alignment_ak;
-    if (!tracker_->Alloc(static_cast<int64_t>(extended))) {
+    const bool tracked = [this, extended] {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+      return tracker_->Alloc(static_cast<int64_t>(extended));
+    }();
+    if (!tracked) {
       auto msg = utils::MemoryErrorStatus().msg();
       DMG_ASSERT(msg, "MemoryErrorStatus should have a message when allocation fails");
       [[maybe_unused]] auto blocker = utils::MemoryTracker::OutOfMemoryExceptionBlocker{};

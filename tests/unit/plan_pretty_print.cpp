@@ -1487,7 +1487,34 @@ TYPED_TEST(PrintToJsonTest, Foreach) {
           })sep");
 }
 
-TYPED_TEST(PrintToJsonTest, Exists) {
+TYPED_TEST(PrintToJsonTest, SubqueryExpressionFoldsNameThemselves) {
+  // The fold, and the column a list fold reads, are what let a JSON plan tell the three deferred folds apart.
+  Symbol x = this->GetSymbol("x");
+  Symbol output = this->GetSymbol("output_symbol");
+  Symbol collected = this->GetSymbol("collected");
+  std::shared_ptr<LogicalOperator> scan = std::make_shared<ScanAll>(nullptr, x);
+
+  auto pattern_filter_json = [&](std::shared_ptr<LogicalOperator> filter) {
+    auto root =
+        std::make_shared<Filter>(scan, std::vector<std::shared_ptr<LogicalOperator>>{std::move(filter)}, LITERAL(true));
+    return PlanToJson(this->dba, root.get())["pattern_filter1"];
+  };
+
+  auto bool_json =
+      pattern_filter_json(std::make_shared<EvaluatePatternFilter>(nullptr, output, RollUpApply::Fold::kBool));
+  EXPECT_EQ(bool_json["fold"], "bool");
+  EXPECT_FALSE(bool_json.contains("collected_symbol"));
+
+  auto count_json =
+      pattern_filter_json(std::make_shared<EvaluatePatternFilter>(nullptr, output, RollUpApply::Fold::kCount));
+  EXPECT_EQ(count_json["fold"], "count");
+
+  auto list_json = pattern_filter_json(std::make_shared<EvaluatePatternFilter>(nullptr, output, collected));
+  EXPECT_EQ(list_json["fold"], "list");
+  EXPECT_EQ(list_json["collected_symbol"], "collected");
+}
+
+TYPED_TEST(PrintToJsonTest, SubqueryExpression) {
   Symbol x = this->GetSymbol("x");
   Symbol e = this->GetSymbol("edge");
   Symbol n = this->GetSymbol("node");
@@ -1502,8 +1529,8 @@ TYPED_TEST(PrintToJsonTest, Exists) {
                                std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1")},
                                false,
                                memgraph::storage::View::OLD);
-  std::shared_ptr<LogicalOperator> limit = std::make_shared<Limit>(expand, LITERAL(1));
-  std::shared_ptr<LogicalOperator> evaluate_pattern_filter = std::make_shared<EvaluatePatternFilter>(limit, output);
+  std::shared_ptr<LogicalOperator> evaluate_pattern_filter =
+      std::make_shared<EvaluatePatternFilter>(expand, output, RollUpApply::Fold::kBool);
   last_op = std::make_shared<Filter>(last_op,
                                      std::vector<std::shared_ptr<LogicalOperator>>{evaluate_pattern_filter},
                                      EXISTS(PATTERN(NODE("x"),
@@ -1512,7 +1539,7 @@ TYPED_TEST(PrintToJsonTest, Exists) {
 
   this->Check(last_op.get(), R"sep(
           {
-            "expression": "(Exists expression)",
+            "expression": "(EXISTS expression)",
             "input": {
               "input": {
                 "name": "Once"
@@ -1522,23 +1549,20 @@ TYPED_TEST(PrintToJsonTest, Exists) {
             },
             "name": "Filter",
             "pattern_filter1": {
+              "fold": "bool",
               "input": {
-                "expression": "1",
+                "direction": "both",
+                "edge_symbol": "edge",
+                "edge_types": [
+                  "EdgeType1"
+                ],
+                "existing_node": false,
                 "input": {
-                  "direction": "both",
-                  "edge_symbol": "edge",
-                  "edge_types": [
-                    "EdgeType1"
-                  ],
-                  "existing_node": false,
-                  "input": {
-                    "name": "Once"
-                  },
-                  "input_symbol": "x",
-                  "name": "Expand",
-                  "node_symbol": "node"
+                  "name": "Once"
                 },
-                "name": "Limit"
+                "input_symbol": "x",
+                "name": "Expand",
+                "node_symbol": "node"
               },
               "name": "EvaluatePatternFilter",
               "output_symbol": "output_symbol"
@@ -1570,6 +1594,7 @@ TYPED_TEST(PrintToJsonTest, RollUpApply) {
 
   this->Check(rollup_op.get(), R"sep(
           {
+            "collected_symbol": "node",
             "input": {
                 "input": {
                     "name": "Once"
@@ -1600,7 +1625,95 @@ TYPED_TEST(PrintToJsonTest, RollUpApply) {
                     }
                 ]
             },
+            "fold": "list",
             "name": "RollUpApply",
             "output_symbol": "node"
+          })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, RollUpApplyBoolFold) {
+  auto x = this->GetSymbol("x");
+  auto e = this->GetSymbol("edge");
+  auto n = this->GetSymbol("node");
+  auto branch = std::make_shared<Expand>(nullptr,
+                                         x,
+                                         n,
+                                         e,
+                                         memgraph::query::EdgeAtom::Direction::BOTH,
+                                         std::vector<memgraph::storage::EdgeTypeId>{},
+                                         false,
+                                         memgraph::storage::View::OLD);
+  auto input_op = std::make_shared<ScanAll>(nullptr, x);
+  // The column-less ctor: no collected column, so no list_collection_symbols.
+  auto rollup_op = std::make_shared<RollUpApply>(
+      std::move(input_op), std::move(branch), this->GetSymbol("output_symbol"), RollUpApply::Fold::kBool);
+
+  this->Check(rollup_op.get(), R"sep(
+          {
+            "input": {
+                "input": {
+                    "name": "Once"
+                },
+                "name": "ScanAll",
+                "output_symbol": "x"
+            },
+            "list_collection_branch": {
+                "direction": "both",
+                "edge_symbol": "edge",
+                "edge_types": null,
+                "existing_node": false,
+                "input": {
+                    "name": "Once"
+                },
+                "input_symbol": "x",
+                "name": "Expand",
+                "node_symbol": "node"
+            },
+            "fold": "bool",
+            "name": "RollUpApply",
+            "output_symbol": "output_symbol"
+          })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, RollUpApplyCountFold) {
+  auto x = this->GetSymbol("x");
+  auto e = this->GetSymbol("edge");
+  auto n = this->GetSymbol("node");
+  auto branch = std::make_shared<Expand>(nullptr,
+                                         x,
+                                         n,
+                                         e,
+                                         memgraph::query::EdgeAtom::Direction::BOTH,
+                                         std::vector<memgraph::storage::EdgeTypeId>{},
+                                         false,
+                                         memgraph::storage::View::OLD);
+  auto input_op = std::make_shared<ScanAll>(nullptr, x);
+  auto rollup_op = std::make_shared<RollUpApply>(
+      std::move(input_op), std::move(branch), this->GetSymbol("output_symbol"), RollUpApply::Fold::kCount);
+
+  this->Check(rollup_op.get(), R"sep(
+          {
+            "input": {
+                "input": {
+                    "name": "Once"
+                },
+                "name": "ScanAll",
+                "output_symbol": "x"
+            },
+            "list_collection_branch": {
+                "direction": "both",
+                "edge_symbol": "edge",
+                "edge_types": null,
+                "existing_node": false,
+                "input": {
+                    "name": "Once"
+                },
+                "input_symbol": "x",
+                "name": "Expand",
+                "node_symbol": "node"
+            },
+            "fold": "count",
+            "name": "RollUpApply",
+            "output_symbol": "output_symbol"
           })sep");
 }

@@ -47,6 +47,7 @@ PRE_VISIT(ScanAllByEdgeProperty, RWType::R, true)
 PRE_VISIT(ScanAllByEdgePropertyValue, RWType::R, true)
 PRE_VISIT(ScanAllByEdgePropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeId, RWType::R, true)
+PRE_VISIT(ScanAllByVertexProperty, RWType::R, true)
 
 PRE_VISIT(Expand, RWType::R, true)
 PRE_VISIT(ExpandVariable, RWType::R, true)
@@ -84,12 +85,29 @@ bool ReadWriteTypeChecker::PreVisit(Union &op) {
 PRE_VISIT(Unwind, RWType::NONE, true)
 
 bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
-  if (op.is_write_) {
+  if (op.graph_access_ == GraphAccess::Write) {
     UpdateType(RWType::RW);
     return false;
   }
   UpdateType(RWType::R);
   return true;
+}
+
+bool StorageAccessChecker::PreVisit(CallProcedure &op) {
+  // A call that reaches no storage is still a read to RWType, which is what clients and the read
+  // counters are told. Only the storage question is answered differently here.
+  if (op.graph_access_ == GraphAccess::None) {
+    UpdateType(RWType::NONE);
+    return true;
+  }
+  return ReadWriteTypeChecker::PreVisit(op);
+}
+
+bool PlanRequiresStorageAccess(const LogicalOperator &plan) {
+  StorageAccessChecker checker;
+  // Const only because the visitor framework has no const traversal; the checker mutates nothing.
+  checker.InferRWType(const_cast<LogicalOperator &>(plan));
+  return checker.type != ReadWriteTypeChecker::RWType::NONE;
 }
 
 bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
@@ -141,6 +159,7 @@ PRE_VISIT(ScanParallelByEdgeTypePropertyRange, RWType::R, true)
 PRE_VISIT(ScanParallelByEdgeProperty, RWType::R, true)
 PRE_VISIT(ScanParallelByEdgePropertyValue, RWType::R, true)
 PRE_VISIT(ScanParallelByEdgePropertyRange, RWType::R, true)
+PRE_VISIT(ScanParallelByVertexProperty, RWType::R, true)
 PRE_VISIT(ScanChunk, RWType::NONE, true)
 PRE_VISIT(ScanChunkByEdge, RWType::NONE, true)
 

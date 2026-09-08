@@ -9,20 +9,32 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <chrono>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <climits>
+#include <cstdio>
 #include <fstream>
+#include <latch>
 #include <map>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
-#include <unordered_set>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "page_cache_probe.hpp"
+#include "utils/download_temp_file.hpp"
 #include "utils/file.hpp"
-#include "utils/spin_lock.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
-#include "utils/synchronized.hpp"
 
 namespace fs = std::filesystem;
 
@@ -639,127 +651,6 @@ void CreateFiles(const fs::path &path) {
   fs::permissions(path / "existing_file_000", fs::perms::none);
 }
 
-class GetUniqueDownloadPathTest : public testing::Test {
- protected:
-  void SetUp() override {
-    test_dir_ = std::filesystem::temp_directory_path() / "get_unique_path_test";
-    std::filesystem::create_directories(test_dir_);
-  }
-
-  void TearDown() override {
-    if (std::filesystem::exists(test_dir_)) {
-      std::filesystem::remove_all(test_dir_);
-    }
-  }
-
-  // Creates empty file
-  static void CreateFile(std::filesystem::path const &path) {
-    std::ofstream file(path);
-    file.close();
-  }
-
-  std::filesystem::path test_dir_;
-};
-
-using memgraph::utils::CreateUniqueDownloadFile;
-
-TEST_F(GetUniqueDownloadPathTest, ThreadSafeFiles) {
-  auto const path = test_dir_ / "thread.csv";
-  // hardware_concurrency can return 0, should be considered only a hint
-  auto const num_threads = std::max(std::thread::hardware_concurrency(), 8U);
-
-  std::vector<std::filesystem::path> storage(num_threads);
-  for (auto i = 0U; i < num_threads; i++) {
-    std::jthread exec{
-        [&path, thread_id = i, &storage]() { storage[thread_id] = CreateUniqueDownloadFile(path).first; }};
-  }
-
-  std::unordered_set<std::filesystem::path> checker;
-  for (auto const &path : storage) {
-    ASSERT_TRUE(checker.insert(path).second);
-  }
-}
-
-TEST_F(GetUniqueDownloadPathTest, CreateFirstAttempt) {
-  auto const path = test_dir_ / "nonexistent.csv";
-  ASSERT_EQ(path, CreateUniqueDownloadFile(path).first);
-}
-
-TEST_F(GetUniqueDownloadPathTest, CreateSecondAttempt) {
-  auto const path = test_dir_ / "file.csv";
-  CreateFile(path);
-  auto const new_path = test_dir_ / "file_1.csv";
-  ASSERT_EQ(new_path, CreateUniqueDownloadFile(path).first);
-}
-
-TEST_F(GetUniqueDownloadPathTest, MultipleFilesExist) {
-  auto base = test_dir_ / "file.txt";
-  CreateFile(base);
-  CreateFile(test_dir_ / "file_1.txt");
-  CreateFile(test_dir_ / "file_2.txt");
-
-  auto result = CreateUniqueDownloadFile(base).first;
-
-  EXPECT_EQ(result, test_dir_ / "file_3.txt");
-}
-
-TEST_F(GetUniqueDownloadPathTest, GapInSequence) {
-  auto base = test_dir_ / "file.txt";
-  CreateFile(base);
-  CreateFile(test_dir_ / "file_1.txt");
-  // Skip file_2.txt
-  CreateFile(test_dir_ / "file_3.txt");
-
-  auto result = CreateUniqueDownloadFile(base).first;
-
-  // Should return _2 since _1 exists but _2 doesn't
-  EXPECT_EQ(result, test_dir_ / "file_2.txt");
-}
-
-TEST_F(GetUniqueDownloadPathTest, NoExtension) {
-  auto base = test_dir_ / "file";
-  CreateFile(base);
-
-  auto result = CreateUniqueDownloadFile(base).first;
-
-  EXPECT_EQ(result, test_dir_ / "file_1");
-}
-
-TEST_F(GetUniqueDownloadPathTest, MultipleExtensions) {
-  auto base = test_dir_ / "archive.tar.gz";
-  CreateFile(base);
-
-  auto result = CreateUniqueDownloadFile(base).first;
-
-  EXPECT_EQ(result, test_dir_ / "archive.tar_1.gz");
-}
-
-TEST_F(GetUniqueDownloadPathTest, LargeSequenceNumber) {
-  auto base = test_dir_ / "file.txt";
-  CreateFile(base);
-
-  // Create files up to _99
-  for (int i = 1; i <= 99; ++i) {
-    CreateFile(test_dir_ / std::format("file_{}.txt", i));
-  }
-
-  auto result = CreateUniqueDownloadFile(base).first;
-
-  EXPECT_EQ(result, test_dir_ / "file_100.txt");
-}
-
-TEST_F(GetUniqueDownloadPathTest, MaxSuffixReached) {
-  auto base = test_dir_ / "file.txt";
-  CreateFile(base);
-
-  // Create files up to and including _10000
-  for (int i = 1; i <= 10'000; ++i) {
-    CreateFile(test_dir_ / std::format("file_{}.txt", i));
-  }
-
-  EXPECT_THROW(CreateUniqueDownloadFile(base), memgraph::utils::BasicException);
-}
-
 class UtilsFileTest : public ::testing::Test {
  public:
   void SetUp() override {
@@ -960,92 +851,534 @@ TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
   }
 }
 
+// Everything the writer has produced so far: the bytes already flushed to the file, then the bytes
+// still in the output buffer. The writer appends 0, 1, 2 and so on, so a snapshot is correct when
+// its bytes go up by one throughout, including across the seam where the file ends and the buffer
+// begins.
+struct FileSnapshot {
+  size_t file_bytes = 0;
+  size_t buffer_bytes = 0;
+  bool ascends_by_one = true;
+  size_t break_offset = 0;
+  uint8_t expected_byte = 0;
+  uint8_t actual_byte = 0;
+
+  size_t byte_count() const { return file_bytes + buffer_bytes; }
+};
+
 TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   const auto file_path = storage / "existing_dir_777" / "existing_file_777";
   memgraph::utils::OutputFile handle;
   handle.Open(file_path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
-  std::uniform_int_distribution<int> random_short_wait(1, 10);
+  // Disabling flushing locks the writer out, so the file and the buffer cannot change while both
+  // are read. A break is returned rather than asserted on: an assertion would return without
+  // re-enabling flushing, leaving the writer on a lock nobody releases and the test hanging.
+  const auto read_snapshot = [&] {
+    FileSnapshot snapshot;
+    handle.DisableFlushing();
+    const memgraph::utils::OnScopeExit resume_flushing([&] { handle.EnableFlushing(); });
+    auto [buffer, buffer_size] = handle.CurrentBuffer();
 
-  const auto sleep_for = [&](int milliseconds) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+    memgraph::utils::InputFile input_handle;
+    input_handle.Open(file_path);
+    const memgraph::utils::OnScopeExit close_input([&] { input_handle.Close(); });
+
+    std::optional<uint8_t> previous_byte;
+    const auto consume = [&](const uint8_t byte) {
+      if (previous_byte && snapshot.ascends_by_one) {
+        const uint8_t expected = *previous_byte + 1;
+        if (byte != expected) {
+          snapshot.ascends_by_one = false;
+          snapshot.break_offset = snapshot.byte_count();
+          snapshot.expected_byte = expected;
+          snapshot.actual_byte = byte;
+        }
+      }
+      previous_byte = byte;
+    };
+
+    uint8_t current_byte = 0;
+    while (input_handle.Read(&current_byte, 1)) {
+      consume(current_byte);
+      ++snapshot.file_bytes;
+    }
+    for (; buffer_size > 0; ++buffer, --buffer_size) {
+      consume(*buffer);
+      ++snapshot.buffer_bytes;
+    }
+    return snapshot;
   };
 
-  static constexpr size_t number_of_writes = 500;
-  std::thread writer_thread([&] {
-    std::default_random_engine engine{586'478'780};
-    uint8_t current_number = 0;
-    for (size_t i = 0; i < number_of_writes; ++i) {
-      handle.Write(&current_number, 1);
-      ++current_number;
-      handle.TryFlushing();
-      sleep_for(random_short_wait(engine));
-    }
-  });
-
   static constexpr size_t reader_threads_num = 7;
-  // number_of_reads needs to be higher than number_of_writes
-  // so we maximize the chance of having at least one reading
-  // thread that will read all of the data.
-  static constexpr size_t number_of_reads = 550;
-  std::vector<std::thread> reader_threads(reader_threads_num);
-  memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> max_read_counts;
-  for (size_t i = 0; i < reader_threads_num; ++i) {
-    reader_threads.emplace_back([&, thread_id = i] {
-      std::default_random_engine engine{586'478'780 + thread_id};
-      for (size_t i = 0; i < number_of_reads; ++i) {
-        handle.DisableFlushing();
-        auto [buffer, buffer_size] = handle.CurrentBuffer();
-        memgraph::utils::InputFile input_handle;
-        input_handle.Open(file_path);
-        std::optional<uint8_t> previous_number;
-        size_t total_read_count = 0;
-        uint8_t current_number;
-        // Read the file
-        while (input_handle.Read(&current_number, 1)) {
-          if (previous_number) {
-            const uint8_t expected_next = *previous_number + 1;
-            ASSERT_TRUE(current_number == expected_next);
+  static constexpr size_t min_writes = 500;
+  // The file and the buffer are split differently at each length, so one snapshot of a part-written
+  // file says little; what matters is catching many.
+  static constexpr size_t growth_steps_target = 200;
+  // Reading only the file exercises none of the joining, so some of those catches have to hold bytes
+  // on both sides of the seam.
+  static constexpr size_t spanning_snapshots_target = 25;
+  // So readers have bytes in both places to join, rather than an empty file and a full buffer.
+  static constexpr size_t sync_every = 64;
+  // A bound in case the readers never see the file growing, so the check below reports it instead
+  // of the test running on.
+  static constexpr size_t max_writes = 50'000;
+
+  std::atomic<bool> writer_finished{false};
+  std::atomic<size_t> bytes_written{0};
+  std::latch readers_saw_growth{reader_threads_num};
+
+  struct ReaderOutcome {
+    size_t growth_steps = 0;
+    size_t spanning_snapshots = 0;
+    std::optional<FileSnapshot> final_snapshot;
+    std::optional<FileSnapshot> broken_snapshot;
+  };
+
+  std::vector<ReaderOutcome> outcomes(reader_threads_num);
+
+  {
+    std::vector<std::jthread> reader_threads;
+    reader_threads.reserve(reader_threads_num);
+    for (size_t i = 0; i < reader_threads_num; ++i) {
+      reader_threads.emplace_back([&, thread_id = i] {
+        auto &outcome = outcomes[thread_id];
+        bool counted_down = false;
+        size_t previous_count = 0;
+        // The writer waits on this latch, so this reader has to release it however it leaves.
+        const memgraph::utils::OnScopeExit release_writer([&] {
+          if (!counted_down) readers_saw_growth.count_down();
+        });
+
+        while (true) {
+          // Read before the snapshot, so a snapshot taken once this is false must hold every write.
+          const bool writer_still_running = !writer_finished.load(std::memory_order_acquire);
+          auto snapshot = read_snapshot();
+          if (!snapshot.ascends_by_one) {
+            outcome.broken_snapshot = snapshot;
+            return;
           }
-          previous_number = current_number;
-          ++total_read_count;
-        }
-        // Read the buffer
-        while (buffer_size > 0) {
-          if (previous_number) {
-            const uint8_t expected_next = *previous_number + 1;
-            ASSERT_TRUE(*buffer == expected_next);
+          if (!writer_still_running) {
+            outcome.final_snapshot = snapshot;
+            return;
           }
-          previous_number = *buffer;
-          ++buffer;
-          --buffer_size;
-          ++total_read_count;
+          // Readers snapshot much faster than the writer advances, so the same length again says
+          // nothing new about the split.
+          if (snapshot.file_bytes > 0 && snapshot.buffer_bytes > 0) ++outcome.spanning_snapshots;
+          if (snapshot.byte_count() > 0 && snapshot.byte_count() != previous_count) {
+            previous_count = snapshot.byte_count();
+            ++outcome.growth_steps;
+            if (!counted_down && outcome.growth_steps >= growth_steps_target &&
+                outcome.spanning_snapshots >= spanning_snapshots_target) {
+              counted_down = true;
+              readers_saw_growth.count_down();
+            }
+          }
+          std::this_thread::yield();
         }
-        handle.EnableFlushing();
-        input_handle.Close();
-        // Last read will always have the highest amount of
-        // bytes read.
-        if (i == number_of_reads - 1) {
-          max_read_counts.WithLock([&](auto &read_counts) { read_counts.push_back(total_read_count); });
-        }
-        sleep_for(random_short_wait(engine));
+      });
+    }
+
+    // Declared after the readers so it is joined first: they run until it says it has finished.
+    std::jthread const writer_thread([&] {
+      uint8_t current_byte = 0;
+      size_t written = 0;
+      // The writer cannot idle while it waits: readers only see the file grow while it is growing.
+      while (written < min_writes || (!readers_saw_growth.try_wait() && written < max_writes)) {
+        handle.Write(&current_byte, 1);
+        ++current_byte;
+        ++written;
+        if (written % sync_every == 0) handle.Sync();
+        // Without this the writer keeps the lock and the file jumps forward in bursts no reader
+        // sees between.
+        std::this_thread::yield();
       }
+      bytes_written.store(written, std::memory_order_release);
+      writer_finished.store(true, std::memory_order_release);
     });
   }
 
-  if (writer_thread.joinable()) {
-    writer_thread.join();
+  const auto total_written = bytes_written.load(std::memory_order_acquire);
+  EXPECT_GE(total_written, min_writes);
+  for (size_t i = 0; i < reader_threads_num; ++i) {
+    const auto &outcome = outcomes[i];
+    ASSERT_FALSE(outcome.broken_snapshot.has_value())
+        << "reader " << i << " read a torn snapshot at offset " << outcome.broken_snapshot->break_offset
+        << ": expected " << static_cast<int>(outcome.broken_snapshot->expected_byte) << ", got "
+        << static_cast<int>(outcome.broken_snapshot->actual_byte);
+    ASSERT_TRUE(outcome.final_snapshot.has_value()) << "reader " << i << " never took a settled snapshot";
+    EXPECT_EQ(outcome.final_snapshot->byte_count(), total_written)
+        << "reader " << i << " missed writes in a snapshot taken after the writer had finished";
+    // What stops the checks above passing against a file nothing was writing to.
+    EXPECT_GE(outcome.growth_steps, growth_steps_target)
+        << "reader " << i << " did not catch the file at enough different lengths; the writer stopped after "
+        << total_written << " of at most " << max_writes << " writes";
+    EXPECT_GE(outcome.spanning_snapshots, spanning_snapshots_target)
+        << "reader " << i << " rarely caught bytes on both sides of the seam, so the joining was hardly tested";
   }
-  for (auto &reader_thread : reader_threads) {
-    if (reader_thread.joinable()) {
-      reader_thread.join();
+
+  // A reader cannot be required to catch bytes in both places: re-enabling flushing empties the
+  // buffer, and under load the readers empty it faster than the writer fills it. Joined, nothing
+  // else touches the file, so this can be checked directly.
+  static constexpr size_t seam_tail = 10;
+  handle.Sync();
+  auto trailing_byte = static_cast<uint8_t>(total_written);
+  for (size_t i = 0; i < seam_tail; ++i) {
+    handle.Write(&trailing_byte, 1);
+    ++trailing_byte;
+  }
+  const auto seam_snapshot = read_snapshot();
+  EXPECT_GT(seam_snapshot.file_bytes, 0U) << "syncing left nothing in the file";
+  EXPECT_EQ(seam_snapshot.buffer_bytes, seam_tail) << "the bytes written after the sync are not in the buffer";
+  EXPECT_TRUE(seam_snapshot.ascends_by_one) << "the bytes do not run in order across the seam";
+  EXPECT_EQ(seam_snapshot.byte_count(), total_written + seam_tail);
+
+  handle.Close();
+}
+
+// Writeback pacing is advisory: every syscall it issues can be refused by the kernel with no visible
+// effect. What is *not* advisory is that it may never change a byte of the file, whatever the writer
+// does to it in between. That is the invariant these tests hold.
+class FileCacheHintTest : public ::testing::Test {
+ protected:
+  // The only file type that offers pacing. `OutputFile` deliberately does not: it backs the WAL,
+  // where the trade is wrong, and where `SeekFile` runs without the lock that serialises flushing.
+  using PacedFile = memgraph::utils::NonConcurrentOutputFile;
+
+  void SetUp() override {
+    test_dir_ = fs::temp_directory_path() / "MG_test_file_cache_hints";
+    fs::create_directories(test_dir_);
+  }
+
+  void TearDown() override {
+    if (fs::exists(test_dir_)) {
+      fs::remove_all(test_dir_);
     }
   }
 
-  handle.Close();
-  // Check if any of the threads read the entire data.
-  ASSERT_TRUE(max_read_counts.WithLock([&](auto &read_counts) {
-    return std::any_of(
-        read_counts.cbegin(), read_counts.cend(), [](const auto read_count) { return read_count == number_of_writes; });
-  }));
+  // Comfortably more than one internal buffer (256 KiB) and several pacing windows, so flushes and
+  // window boundaries actually interleave.
+  static constexpr size_t kWindow = 512 * 1024;
+  static constexpr size_t kTotal = 4 * 1024 * 1024;
+
+  // Position-dependent bytes, so a misplaced write shows up as a mismatch at a known offset rather
+  // than as plausible-looking data.
+  static std::vector<uint8_t> Pattern(size_t size, uint8_t salt = 0) {
+    std::vector<uint8_t> data(size);
+    for (size_t i = 0; i < size; ++i) {
+      data[i] = static_cast<uint8_t>((i * 31 + salt) & 0xFF);
+    }
+    return data;
+  }
+
+  // Chunk size shares no factor with the internal buffer or the window, so writes straddle both.
+  static constexpr size_t kChunk = 7000;
+
+  static void WriteStreaming(const fs::path &path, const std::vector<uint8_t> &data, size_t window) {
+    PacedFile file;
+    file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+    file.EnableWritebackPacing(window);
+    for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+      file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+    }
+    file.Sync();
+    file.Close();
+  }
+
+  enum class PositionQueries : uint8_t { kNone, kEveryBatch };
+
+  // Residency of `path` once `data` has been streamed to it with pacing on, which is what says
+  // whether pacing disposed of the windows it completed.
+  static std::optional<double> ResidencyAfterPacedWrite(const fs::path &path, const std::vector<uint8_t> &data,
+                                                        PositionQueries queries) {
+    PacedFile file;
+    file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+    file.EnableWritebackPacing(kWindow);
+    for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+      file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+      if (queries == PositionQueries::kEveryBatch) file.GetPosition();
+    }
+    file.Sync();
+    auto const resident = memgraph::test::ResidentFraction(path);
+    file.Close();
+    return resident;
+  }
+
+  std::vector<uint8_t> ReadFileContents(const fs::path &path) const {
+    std::ifstream ifs(path, std::ios::binary);
+    return std::vector<uint8_t>(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+  }
+
+  fs::path test_dir_;
+};
+
+TEST_F(FileCacheHintTest, PacedAndUnpacedWritesProduceIdenticalBytes) {
+  const auto data = Pattern(kTotal);
+  const auto paced = test_dir_ / "paced.bin";
+  const auto unpaced = test_dir_ / "unpaced.bin";
+
+  WriteStreaming(paced, data, kWindow);
+  WriteStreaming(unpaced, data, 0);
+
+  EXPECT_EQ(ReadFileContents(paced), data);
+  EXPECT_EQ(ReadFileContents(unpaced), data);
+}
+
+// The snapshot writer's shape: stream a lot of output, seek back over several already-written
+// windows to patch a placeholder, then return to the end and carry on. A pacer that still believed
+// it was at the old end would from here on address ranges that correspond to nothing.
+TEST_F(FileCacheHintTest, PacingSurvivesTheWriterSeekingBackToPatch) {
+  const auto body = Pattern(kTotal);
+  const auto tail = Pattern(kWindow * 3, 77);
+  const std::vector<uint8_t> patched{1, 2, 3, 4, 5, 6, 7, 8};
+  const auto path = test_dir_ / "patched.bin";
+
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+
+  // A placeholder the writer comes back to fill in once it knows the value, as the snapshot encoder
+  // does for each batch's size and for the offset table.
+  const std::vector<uint8_t> placeholder(patched.size(), 0);
+  file.Write(placeholder.data(), placeholder.size());
+
+  for (size_t offset = 0; offset < body.size(); offset += kChunk) {
+    file.Write(body.data() + offset, std::min(kChunk, body.size() - offset));
+  }
+
+  const auto end = file.GetPosition();
+  ASSERT_EQ(file.SetPosition(PacedFile::Position::SET, 0), 0U);
+  file.Write(patched.data(), patched.size());
+
+  ASSERT_EQ(file.SetPosition(PacedFile::Position::SET, static_cast<ssize_t>(end)), end);
+  file.Write(tail.data(), tail.size());
+
+  file.Sync();
+  file.Close();
+
+  const auto contents = ReadFileContents(path);
+  ASSERT_EQ(contents.size(), patched.size() + body.size() + tail.size());
+  EXPECT_TRUE(std::equal(patched.begin(), patched.end(), contents.begin()));
+  EXPECT_TRUE(std::equal(body.begin(), body.end(), contents.begin() + patched.size()));
+  EXPECT_TRUE(std::equal(tail.begin(), tail.end(), contents.begin() + patched.size() + body.size()));
+}
+
+// Pacing knows where it is by counting bytes written, which is the file offset only while the file
+// is append-only. Seeking must therefore reposition it. Byte content cannot show this: misaligned
+// windows still write correct bytes, so this asserts on the pacer's own view of the file.
+TEST_F(FileCacheHintTest, SeekingRepositionsPacing) {
+  const auto data = Pattern(kTotal);
+  const auto path = test_dir_ / "repositioned.bin";
+
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+  for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+    file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+  }
+  file.Sync();
+  EXPECT_EQ(file.PacingOffset(), kTotal) << "pacing did not follow an append-only write";
+
+  file.SetPosition(PacedFile::Position::SET, 0);
+  EXPECT_EQ(file.PacingOffset(), 0U) << "pacing kept addressing the old end of the file after a seek";
+
+  const auto middle = static_cast<ssize_t>(kTotal / 2);
+  file.SetPosition(PacedFile::Position::SET, middle);
+  EXPECT_EQ(file.PacingOffset(), static_cast<size_t>(middle));
+
+  file.Close();
+}
+
+// Parallel snapshot creation appends each worker's part with `sendfile`, straight at the descriptor.
+// Pacing counts the bytes it is handed, so output that skips the buffer has to be counted too, or
+// every window after it addresses a range the file has already moved past, which for a parallel
+// snapshot is all of the data. The buffered head must also land in front of the copied bytes.
+TEST_F(FileCacheHintTest, AppendingFromAnotherFileKeepsPacingAlignedWithTheFile) {
+  const auto head = Pattern(kChunk);
+  const auto part = Pattern(kTotal, 91);
+  const auto part_path = test_dir_ / "part.bin";
+  WriteStreaming(part_path, part, 0);
+
+  const int src_fd = ::open(part_path.c_str(), O_RDONLY);
+  ASSERT_NE(src_fd, -1);
+  const auto close_src = memgraph::utils::OnScopeExit{[src_fd] { ::close(src_fd); }};
+
+  const auto path = test_dir_ / "appended.bin";
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+  file.Write(head.data(), head.size());
+
+  const auto copied = file.AppendFrom(src_fd, part.size());
+  ASSERT_TRUE(copied.has_value());
+  EXPECT_EQ(*copied, part.size());
+  file.Sync();
+
+  EXPECT_EQ(file.PacingOffset(), head.size() + part.size())
+      << "pacing lost track of bytes that did not pass through Write";
+  file.Close();
+
+  const auto contents = ReadFileContents(path);
+  ASSERT_EQ(contents.size(), head.size() + part.size());
+  EXPECT_TRUE(std::equal(head.begin(), head.end(), contents.begin()));
+  EXPECT_TRUE(std::equal(part.begin(), part.end(), contents.begin() + head.size()));
+}
+
+// Asking a file for its position seeks to where the file already is, and the snapshot writer asks at
+// every batch boundary. If that counted as a move it would abandon the window in flight each time,
+// so no window would ever be handed to writeback or dropped, which on a large snapshot is most of
+// the file. Residency is what shows it: the pacer's own offset is right either way.
+//
+// The baseline is the same write without the queries, and it is also the gate: whether pacing can
+// drop anything at all is a property of the filesystem, and one that `PageCacheEvictionObservable`
+// cannot answer, because it asks about a file that has been fsynced. On overlayfs, which is what a
+// container's own filesystem is, `sync_file_range` reports success having done nothing: it writes
+// back the mapping of the inode it is given, and the overlay inode holds no pages, they are all on
+// the upper filesystem's inode. The pages stay dirty, DONTNEED skips dirty pages, and nothing is
+// released. `fsync` is passed through to the upper file and so still works, which is why whole-file
+// eviction after a sync is observable there and this is not.
+TEST_F(FileCacheHintTest, RepositioningToTheCurrentOffsetKeepsTheWindowInFlight) {
+  const auto data = Pattern(kTotal);
+
+  const auto baseline = ResidencyAfterPacedWrite(test_dir_ / "streamed.bin", data, PositionQueries::kNone);
+  ASSERT_TRUE(baseline.has_value());
+  if (*baseline >= 0.5) {
+    GTEST_SKIP() << "paced writeback releases nothing under " << test_dir_ << ": a stream with no position query at all"
+                 << " left " << (*baseline * 100) << "% of the file cached";
+  }
+
+  const auto resident =
+      ResidencyAfterPacedWrite(test_dir_ / "position_queried.bin", data, PositionQueries::kEveryBatch);
+  ASSERT_TRUE(resident.has_value());
+  EXPECT_LT(*resident, 0.5) << "asking for the position abandoned the window in flight: " << (*resident * 100)
+                            << "% of the file is still cached, against " << (*baseline * 100)
+                            << "% without the queries";
+}
+
+// `EnableWritebackPacing` is the one place that sets the window, and it must also reset where pacing
+// thinks it is; otherwise re-enabling on a reused handle would carry a stale offset into the new
+// file.
+TEST_F(FileCacheHintTest, EnablingPacingStartsFromTheBeginning) {
+  const auto data = Pattern(kTotal);
+  const auto path = test_dir_ / "re_enabled.bin";
+
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+  file.Write(data.data(), data.size());
+  file.Sync();
+  ASSERT_EQ(file.PacingOffset(), kTotal);
+
+  file.EnableWritebackPacing(kWindow);
+  EXPECT_EQ(file.PacingOffset(), 0U);
+
+  file.Close();
+}
+
+// Opening resets pacing too, so a handle reused for a second file starts from that file's
+// beginning without the caller having to re-enable.
+TEST_F(FileCacheHintTest, ReopeningAHandleStartsPacingFromTheNewFile) {
+  const auto data = Pattern(kTotal);
+
+  PacedFile file;
+  file.Open(test_dir_ / "first.bin", PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+  file.Write(data.data(), data.size());
+  file.Sync();
+  ASSERT_EQ(file.PacingOffset(), kTotal);
+  file.Close();
+
+  file.Open(test_dir_ / "second.bin", PacedFile::Mode::OVERWRITE_EXISTING);
+  EXPECT_EQ(file.PacingOffset(), 0U) << "pacing carried the previous file's offset into this one";
+
+  file.Write(data.data(), kChunk);
+  file.Sync();
+  EXPECT_EQ(file.PacingOffset(), kChunk);
+
+  file.Close();
+}
+
+// Dropping is an explicit request from a caller that knows this file is finished with, not a
+// feature of pacing. Bounding the dirty footprint while writing and releasing the file afterwards
+// are separate decisions, and a deployment that turns pacing off still gets the release it asked
+// for.
+TEST_F(FileCacheHintTest, DroppingCachedPagesEvictsAnUnpacedFile) {
+  if (!memgraph::test::PageCacheEvictionObservable(test_dir_ / "probe.bin")) {
+    GTEST_SKIP() << "page cache eviction is not observable under " << test_dir_;
+  }
+
+  const auto data = Pattern(kTotal);
+  const auto path = test_dir_ / "unpaced_release.bin";
+
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+    file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+  }
+  // Clean pages are the only ones DONTNEED can evict.
+  file.Sync();
+
+  const auto before = memgraph::test::ResidentFraction(path);
+  ASSERT_TRUE(before.has_value());
+  ASSERT_GT(*before, 0.9) << "the file was not cached to begin with";
+
+  file.DropCachedPages();
+  const auto after = memgraph::test::ResidentFraction(path);
+  file.Close();
+
+  ASSERT_TRUE(after.has_value());
+  EXPECT_LT(*after, 0.05) << "dropping left " << (*after * 100) << "% of an unpaced file resident";
+}
+
+// A descriptor pacing cannot work on must disable pacing rather than have every flush repeat a
+// syscall that cannot succeed. /dev/null gives that deterministically: sync_file_range answers
+// ESPIPE for anything that is not a regular file, block device or directory. It refuses fsync too,
+// so this file is never synced; nothing here is about durability.
+//
+// The fatal branch, EIO and ENOSPC, needs an injected device failure and is not covered here.
+TEST_F(FileCacheHintTest, PacingDisablesItselfOnADescriptorItCannotPace) {
+  PacedFile file;
+  ASSERT_TRUE(file.Open("/dev/null", PacedFile::Mode::APPEND_TO_EXISTING));
+  file.EnableWritebackPacing(kWindow);
+
+  // Crossing the first window boundary is what issues the syscall, and what fails.
+  const auto data = Pattern(kWindow * 2);
+  file.Write(data.data(), data.size());
+  const auto after_failure = file.PacingOffset();
+  ASSERT_GT(after_failure, 0U) << "the write never reached a window boundary";
+
+  // Pacing is off now, so further writes are neither tracked nor retried.
+  file.Write(data.data(), data.size());
+  EXPECT_EQ(file.PacingOffset(), after_failure) << "pacing kept running on a descriptor it cannot pace";
+
+  file.Close();
+}
+
+// Recovery releases the snapshot through the same handle it read it with, once the load is done.
+// Reading a file leaves its pages clean, and clean pages are the ones DONTNEED can evict.
+TEST_F(FileCacheHintTest, ReadingAFileThenDroppingItEvictsIt) {
+  const auto data = Pattern(kTotal);
+  const auto path = test_dir_ / "read_then_dropped.bin";
+  WriteStreaming(path, data, 0);
+
+  if (!memgraph::test::PageCacheEvictionObservable(test_dir_ / "probe.bin")) {
+    GTEST_SKIP() << "page cache eviction is not observable under " << test_dir_;
+  }
+
+  memgraph::utils::InputFile file;
+  ASSERT_TRUE(file.Open(path));
+  std::vector<uint8_t> scratch(kChunk);
+  for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+    ASSERT_TRUE(file.Read(scratch.data(), std::min(kChunk, data.size() - offset)));
+  }
+
+  const auto before = memgraph::test::ResidentFraction(path);
+  ASSERT_TRUE(before.has_value());
+
+  file.DropCachedPages();
+  const auto after = memgraph::test::ResidentFraction(path);
+  file.Close();
+
+  ASSERT_TRUE(after.has_value());
+  EXPECT_LT(*after, 0.05) << "dropping left " << (*after * 100) << "% resident, was " << (*before * 100) << "%";
 }

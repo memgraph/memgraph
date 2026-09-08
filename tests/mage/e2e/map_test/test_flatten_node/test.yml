@@ -1,0 +1,5 @@
+query: >
+  MATCH (n:Person) RETURN map.flatten(n) AS result;
+
+output:
+  - result: {"age": 30, "city": "NYC", "name": "Alice"}

@@ -1,0 +1,10 @@
+# `limit` caps how many nodes are returned. Walking one depth at a time, the cap keeps the nearest
+# ones, so a limit of 1 yields the start node alone.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {maxHops: 5, limit: 1})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A

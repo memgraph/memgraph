@@ -1,6 +1,8 @@
 # Install systemd service (must use absolute path).
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
-    DESTINATION /lib/systemd/system)
+if(MG_BUILD_MEMGRAPH)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
+        DESTINATION /lib/systemd/system)
+endif()
 
 # Set parameters to recognize the host distro
 cmake_host_system_information(RESULT DISTRO QUERY DISTRIB_NAME)
@@ -23,6 +25,15 @@ elseif(${MG_ARCH} STREQUAL "ARM64")
     set(MG_ARCH_EXTENSION_DEB "arm64")
 endif()
 
+# Normalised "ON"/"OFF" copy, CPACK_-prefixed so it is serialized into
+# CPackConfig.cmake: the deb postinst template and the rpm spec's %post read
+# it to skip the libpython symlink and pip phases in Python-less builds.
+if(MG_PYTHON_SUPPORT)
+    set(CPACK_MG_PYTHON_SUPPORT "ON")
+else()
+    set(CPACK_MG_PYTHON_SUPPORT "OFF")
+endif()
+
 # DEB specific
 # Instead of using "name <email>" format, we use "email (name)" to prevent
 # errors due to full stop, '.' at the end of "Ltd". (See: RFC 822)
@@ -30,24 +41,79 @@ set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tech@memgraph.com (Memgraph Ltd.)")
 set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_VERSION "${MEMGRAPH_VERSION_DEB}")
+# postinst is templated: its libpython symlink + pip phases are skipped when
+# the build has MG_PYTHON_SUPPORT=OFF (see CPACK_MG_PYTHON_SUPPORT above).
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst.in
+    ${CMAKE_CURRENT_BINARY_DIR}/debian/postinst
+    @ONLY
+    FILE_PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE)
 set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
-    "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    "${CMAKE_CURRENT_BINARY_DIR}/debian/postinst;")
+# Auto-shlibdeps is OFF: dpkg-shlibdeps reads the build host's libc6.symbols
+# (which has `Build-Depends-Package: libc6-dev` forcing minimum to whatever
+# libc6 the build host ships), so building on Ubuntu 24.04 results in
+# `libc6 (>= 2.38)` regardless of the symbols the binary actually uses. The
+# binary itself is sysroot-clean (no symbols above GLIBC_2.31), so we write
+# Depends manually with a realistic libc6 floor instead.
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 
 # Description formatting is important, summary must be followed with a newline and 1 space.
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
  Contains Memgraph, the graph database. It aims to deliver developers the
  speed, simplicity and scale required to build the next generation of
  applications driver by real-time connected data.")
+if(NOT MG_PYTHON_SUPPORT)
+    string(APPEND CPACK_DEBIAN_PACKAGE_DESCRIPTION "
+ Built without the embedded Python interpreter: Python query modules are
+ unavailable, only C/C++ (.so) query modules can be loaded.")
+endif()
 
-# Add `openssl` package to dependencies list. Used to generate SSL certificates.
-# We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0)")
+# Explicit runtime deps. Format:
+#   libc6 (>= 2.31)           — matches the toolchain sysroot glibc floor.
+#   libstdc++6 (>= 9)         — std::filesystem in plain libstdc++ since GCC 9
+#                                (Ubuntu 20.04 LTS has libstdc++6 10).
+#   libgcc-s1                 — provides libgcc_s.so.1 (Ubuntu 20.04+).
+#   libatomic1                — NEEDED libatomic.so.1; absent on minimal images.
+#   openssl                   — CLI; pulls libssl{3,1.1} transitively, name
+#                                stable across libssl3 / libssl3t64.
+#   python3 (>= 3.5.0)        — interpreter for tooling around query modules;
+#                                does NOT pull libpython3.X on Debian/Ubuntu.
+#   python3-pip               — postinst pip-installs the query-module deps.
+#   ca-certificates           — TLS trust for pip (PyPI over https).
+#   libxmlsec1|libxmlsec1-1   — system lib for the pip xmlsec wheel (SAML SSO);
+#                                t64 name Provides libxmlsec1 on Ubuntu 24.04,
+#                                renamed libxmlsec1-1 from Ubuntu 26.04 (xmlsec
+#                                1.3 soname bump, no Provides).
+#   libkrb5-3                 — GSSAPI runtime for the gssapi wheel (Kerberos
+#                                SSO; the wheel itself is best-effort/offline).
+#   libpython3.10 | ... |3.14 — the binary links the unversioned abi3 SONAME
+#                                libpython3.so (needs >= 3.10); only versioned
+#                                runtime libs exist as packages, so pull one
+#                                and let postinst symlink libpython3.so to it
+#                                (t64 names Provide these). OLDEST FIRST: the
+#                                postinst pip-installs the query-module deps
+#                                with the default python3, and every distro's
+#                                default is its oldest >= 3.10 candidate (e.g.
+#                                jammy also carries 3.11 in universe — newest
+#                                first would embed 3.11 while pip fills 3.10's
+#                                site-packages, breaking the python modules).
+#
+# Everything from python3 onwards exists for the embedded interpreter and the
+# postinst pip phase, so it is only declared when MG_PYTHON_SUPPORT=ON.
+set(CPACK_DEBIAN_PACKAGE_DEPENDS
+    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0)")
+if(MG_PYTHON_SUPPORT)
+    string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
+        ", python3 (>= 3.5.0), python3-pip, ca-certificates, libxmlsec1 | libxmlsec1-1, libkrb5-3, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
+endif()
 
 # Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")
@@ -79,32 +145,60 @@ set(CPACK_RPM_PACKAGE_AUTOREQ " no")
 set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
 It aims to deliver developers the speed, simplicity and scale required to build
 the next generation of applications driver by real-time connected data.")
+if(NOT MG_PYTHON_SUPPORT)
+    string(APPEND CPACK_RPM_PACKAGE_DESCRIPTION "
+Built without the embedded Python interpreter: Python query modules are
+unavailable, only C/C++ (.so) query modules can be loaded.")
+endif()
 
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph. `libatomic` is a
 # runtime dependency of the binary; since CPACK_RPM_PACKAGE_AUTOREQ is off
 # (above), soname deps aren't auto-detected and must be listed explicitly.
-set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate, libatomic")
+# python3-pip + util-linux (runuser) serve the %post pip install of the
+# query-module deps; xmlsec1/krb5-libs are the system libs behind the pip
+# xmlsec and gssapi packages (SAML / Kerberos SSO).
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logrotate, libatomic")
+# The el9 python3.12 rich dependency lives in the spec template as a whole
+# line, so it can be dropped entirely for Python-less builds.
+set(CPACK_MG_RPM_PYTHON_REQUIRES "")
+if(MG_PYTHON_SUPPORT)
+    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3 >= 3.5.0, python3-pip, util-linux, xmlsec1, krb5-libs")
+    set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)")
+endif()
 
 # When memgraph is built against an explicit Python (currently CentOS Stream 9,
 # where it embeds python 3.12 instead of the distro-default 3.9 — see
-# -DMG_PYTHON_VERSION), require that interpreter's package so the embedded
-# libpython is present and the MAGE %post (which runs python<ver> -m pip) works.
-if(NOT "${MG_PYTHON_VERSION}" STREQUAL "")
-    set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}")
+# -DMG_PYTHON_VERSION), require that interpreter's package (+ its pip) so the
+# embedded libpython is present and the %post pip installs target the
+# interpreter memgraph actually embeds. CPACK_-prefixed copy so the value is
+# serialized into CPackConfig.cmake and substituted into the spec template.
+set(CPACK_MG_PYTHON_VERSION "${MG_PYTHON_VERSION}")
+if(MG_PYTHON_SUPPORT AND NOT "${MG_PYTHON_VERSION}" STREQUAL "")
+    set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}, python${MG_PYTHON_VERSION}-pip")
 endif()
 
-# Configure CPack to build mgconsole using the unified install script
-set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
+# Configure CPack to build mgconsole using the unified install script.
+if(MG_BUILD_MEMGRAPH)
+    set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
+endif()
 
-# Component-based packaging. Produces:
+# Component-based packaging. Depending on MG_BUILD_MEMGRAPH / MG_BUILD_MAGE,
+# produces up to four packages (as DEB or RPM):
 #   * memgraph_<ver>_<arch>.deb / memgraph-<ver>-1.<arch>.rpm
 #       main package: binary, libstdc++, query modules, configs, systemd unit
 #   * memgraph-debuginfo_<ver>_<arch>.deb / memgraph-debuginfo-<ver>-1.<arch>.rpm
 #       companion: .debug sidecars for memgraph + query modules. Depends on
 #       the main package at the exact matching version. .debug files install
 #       alongside their binaries; gdb resolves them via .gnu_debuglink.
-set(CPACK_COMPONENTS_ALL memgraph debuginfo)
+#   * memgraph-mage_<ver>_<arch>.deb / memgraph-mage-<ver>-1.<arch>.rpm
+#       MAGE query modules + bundled toolchain libomp + python requirements
+#   * memgraph-mage-debuginfo_* — .debug sidecars for the MAGE modules
+#       (only when the build was configured with MG_SPLIT_DEBUG=ON)
+set(CPACK_COMPONENTS_ALL)
+if(MG_BUILD_MEMGRAPH)
+    list(APPEND CPACK_COMPONENTS_ALL memgraph debuginfo)
+endif()
 
 # --- DEB component config ---
 set(CPACK_DEB_COMPONENT_INSTALL ON)
@@ -141,6 +235,104 @@ set(CPACK_RPM_DEBUGINFO_PACKAGE_SUMMARY
     "Debug symbols for memgraph")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_DESCRIPTION
     "Debug symbols (.debug sidecars) for the matching memgraph package.")
+
+# --- MAGE components (memgraph-mage / memgraph-mage-debuginfo) ---
+if(MG_BUILD_MAGE)
+    list(APPEND CPACK_COMPONENTS_ALL mage)
+
+    # Values consumed by the package scriptlets (deb postinst, rpm %post),
+    # which run install_python_requirements.sh at install time; it expects
+    # --arch amd64|arm64. CPACK_-prefixed so they're serialized into
+    # CPackConfig.cmake and available to the rpm spec template at cpack time.
+    if(MG_ENABLE_CUGRAPH OR MG_MAGE_CUDA)
+        set(CPACK_MAGE_CUDA "true")
+    else()
+        set(CPACK_MAGE_CUDA "false")
+    endif()
+    set(CPACK_MAGE_PKG_ARCH "${MG_ARCH_EXTENSION_DEB}")
+
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/mage/postinst.in
+        ${CMAKE_CURRENT_BINARY_DIR}/mage/postinst
+        @ONLY
+        FILE_PERMISSIONS
+            OWNER_READ OWNER_WRITE OWNER_EXECUTE
+            GROUP_READ GROUP_EXECUTE
+            WORLD_READ WORLD_EXECUTE)
+
+    # --- DEB ---
+    set(CPACK_DEBIAN_MAGE_PACKAGE_NAME "memgraph-mage")
+    set(CPACK_DEBIAN_MAGE_FILE_NAME
+        "memgraph-mage_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
+    set(CPACK_DEBIAN_MAGE_PACKAGE_SECTION "database")
+    # The dependency on memgraph is deliberately UNVERSIONED so daily and
+    # release builds of the two packages can be mixed.
+    # No libgomp1: the modules use the bundled toolchain libomp instead.
+    # Dependencies are declared manually (mirroring the retired
+    # tools/ci/mage-build/package/debian/control), so shlibdeps stays off —
+    # it can't resolve the bundled libomp.so to a distro package anyway.
+    set(CPACK_DEBIAN_MAGE_PACKAGE_DEPENDS
+        "memgraph, libcurl4, libpython3.12, openssl, python3, python3-pip, python3-setuptools, adduser, libaio1t64, libatomic1, libdw1t64 | libdw1")
+    set(CPACK_DEBIAN_MAGE_PACKAGE_SHLIBDEPS OFF)
+    # Both memgraph and memgraph-mage ship the mage/ python package files
+    # (see query_modules/CMakeLists.txt); dpkg needs Replaces to allow that.
+    set(CPACK_DEBIAN_MAGE_PACKAGE_REPLACES "memgraph")
+    set(CPACK_DEBIAN_MAGE_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_CURRENT_BINARY_DIR}/mage/postinst")
+    set(CPACK_DEBIAN_MAGE_DESCRIPTION
+        "Extra query modules for Memgraph
+ Additional query modules for Memgraph, installed under
+ /usr/lib/memgraph/query_modules/.")
+
+    # --- RPM ---
+    set(CPACK_RPM_MAGE_PACKAGE_NAME "memgraph-mage")
+    set(CPACK_RPM_MAGE_FILE_NAME
+        "memgraph-mage-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
+    set(CPACK_RPM_MAGE_USER_BINARY_SPECFILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph-mage.spec.in")
+    # Unversioned memgraph dep (see DEB comment). util-linux provides
+    # runuser for the %post scriptlet. No libgomp (bundled libomp instead).
+    set(CPACK_RPM_MAGE_PACKAGE_REQUIRES
+        "memgraph, libcurl, openssl, python3, python3-pip, python3-setuptools, libatomic, util-linux")
+    set(CPACK_RPM_MAGE_PACKAGE_AUTOREQ "no")
+    set(CPACK_RPM_MAGE_PACKAGE_SUMMARY "Extra query modules for Memgraph")
+    set(CPACK_RPM_MAGE_PACKAGE_DESCRIPTION
+        "Additional query modules for Memgraph, installed under
+/usr/lib/memgraph/query_modules/.")
+
+    if(MG_SPLIT_DEBUG)
+        list(APPEND CPACK_COMPONENTS_ALL mage_debuginfo)
+
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_PACKAGE_NAME "memgraph-mage-debuginfo")
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_FILE_NAME
+            "memgraph-mage-debuginfo_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
+        # Unlike the mage->memgraph dep, debug symbols only make sense for
+        # the exact matching build, so this one IS pinned.
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_PACKAGE_DEPENDS
+            "memgraph-mage (= ${MEMGRAPH_VERSION_DEB})")
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_PACKAGE_SECTION "debug")
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_PACKAGE_SHLIBDEPS OFF)
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_DESCRIPTION
+            "Debug symbols (.debug sidecars) for the matching memgraph-mage package.
+ Install alongside memgraph-mage for symbolicated stack traces; gdb
+ auto-locates each sidecar via .gnu_debuglink next to the corresponding
+ module.")
+
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_NAME "memgraph-mage-debuginfo")
+        set(CPACK_RPM_MAGE_DEBUGINFO_FILE_NAME
+            "memgraph-mage-debuginfo-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
+        # The debuginfo spec template is generic (all @CPACK_RPM_*@ tokens),
+        # so it serves both debuginfo components.
+        set(CPACK_RPM_MAGE_DEBUGINFO_USER_BINARY_SPECFILE
+            "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph-debuginfo.spec.in")
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_REQUIRES
+            "memgraph-mage = ${MEMGRAPH_VERSION_RPM}-1")
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_AUTOREQ "no")
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_SUMMARY
+            "Debug symbols for memgraph-mage")
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_DESCRIPTION
+            "Debug symbols (.debug sidecars) for the matching memgraph-mage package.")
+    endif()
+endif()
 
 # All variables must be set before including.
 include(CPack)

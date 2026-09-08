@@ -1,0 +1,5 @@
+query: >
+  MATCH ()-[r:R]->() RETURN map.set_key(r, "active", true) AS map;
+
+output:
+  - map: {since: 2020, active: true}

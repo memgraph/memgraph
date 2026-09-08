@@ -294,13 +294,17 @@ struct symbol_build_traits<symbol::Function> {
     }
     auto const &name = state.function_info[dis].name;
     auto args = children.get<slots::args>() | ranges::to<std::vector>;
-    return state.ast_storage.Create<Function>(name, args);
+    auto *function = state.ast_storage.Create<Function>(name, args);
+    if (function->IsUserDefined()) {
+      function->user_function_id_ = state.ast_storage.FindOrAddUserFunction(name);
+    }
+    return function;
   }
 };
 
 // Binary / unary trait specs - generated from the X-lists.
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
-#define MG_BUILD_BINARY_TRAIT(Name, AstOp)                                                      \
+#define MG_BUILD_BINARY_TRAIT(Name, AstOp, ...)                                                 \
   template <>                                                                                   \
   struct symbol_build_traits<symbol::Name> {                                                    \
     using result_type = Expression *;                                                           \
@@ -317,7 +321,7 @@ struct symbol_build_traits<symbol::Function> {
 EGRAPH_BINARY_OPS(MG_BUILD_BINARY_TRAIT)
 #undef MG_BUILD_BINARY_TRAIT
 
-#define MG_BUILD_UNARY_TRAIT(Name, AstOp)                                                       \
+#define MG_BUILD_UNARY_TRAIT(Name, AstOp, ...)                                                  \
   template <>                                                                                   \
   struct symbol_build_traits<symbol::Name> {                                                    \
     using result_type = Expression *;                                                           \

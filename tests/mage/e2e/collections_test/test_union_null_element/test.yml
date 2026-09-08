@@ -1,0 +1,7 @@
+query: >
+  WITH collections.union([1, null], [null, 2]) AS r UNWIND r AS e RETURN e ORDER BY e IS NULL, e;
+
+output:
+  - e: 1
+  - e: 2
+  - e: null

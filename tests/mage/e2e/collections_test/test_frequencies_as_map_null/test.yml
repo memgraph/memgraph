@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.frequencies_as_map(null) AS result;
+
+output:
+  - result: {}

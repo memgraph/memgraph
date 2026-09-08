@@ -831,6 +831,9 @@ constexpr bool is_canonical(TypedValue::Type type) {
   }
 }
 
+/// @throw TypedValueException unless the value is an Int or a Double.
+double ToDouble(const TypedValue &value);
+
 void to_json(nlohmann::json &j, TypedValue const &value);
 void from_json(nlohmann::json const &j, TypedValue &value);
 

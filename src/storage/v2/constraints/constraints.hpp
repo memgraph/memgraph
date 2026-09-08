@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/active_constraints_updater.hpp"

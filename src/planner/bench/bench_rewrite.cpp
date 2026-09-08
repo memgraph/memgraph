@@ -212,7 +212,7 @@ class RewriteFixture : public MatcherFixtureBase {
  protected:
   using benchmark::Fixture::SetUp;
   TestVMExecutor vm_executor_{egraph_};
-  TestRewriteContext ctx_{egraph_};
+  TestRewriteContext ctx_{typed_egraph_};
   TestRewriteRule rule_ = RuleDoubleNeg();
   int64_t num_chains_ = 0;
   int64_t chain_depth_ = 0;

@@ -1,0 +1,9 @@
+# A prefix with no label behind it can never match, so it is reported rather than applied.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {labelFilter: ['+'], maxHops: 5})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  Invalid labelFilter entry '+'

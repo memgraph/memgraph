@@ -1,0 +1,7 @@
+# A null label-property map is rejected, matching Neo4j+APOC (only a null value is allowed -> 0 rows).
+query: >
+  CALL search.node(null, 'exact', 'Bob') YIELD node
+  RETURN node;
+
+exception: >
+  label_property_map must not be null

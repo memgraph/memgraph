@@ -556,5 +556,13 @@ def test_correctness_parallel_execution_ordering(memgraph):
     assert values == [10, 20, 30, 40, 50]
 
 
+def test_plan_vertex_property_index_elimination(memgraph):
+    """ORDER BY n.prop eliminated when global vertex-property index provides ascending order."""
+    memgraph.execute("CREATE GLOBAL INDEX ON :(prop);")
+
+    plan = get_plan(memgraph, "MATCH (n) WHERE n.prop > 5 RETURN n ORDER BY n.prop")
+    assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated for vertex-property range scan"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

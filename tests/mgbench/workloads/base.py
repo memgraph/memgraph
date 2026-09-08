@@ -42,6 +42,11 @@ class Workload(ABC):
 
     SQL_URL_FILE = None
 
+    # URLs of remote durability snapshots of the dataset, per variant. A runner that can load one
+    # imports the dataset from it instead of replaying URL_FILE's queries. Optional, and unrelated
+    # to the query files: a variant without an entry here always takes the import-query path.
+    URL_SNAPSHOT_FILE = None
+
     # Index files
     LOCAL_INDEX_FILE = None
     URL_INDEX_FILE = None
@@ -111,6 +116,8 @@ class Workload(ABC):
         self._node_file = None
         self._edge_file = None
         self._file_index = None
+        self._snapshot_file = None
+        self._url_snapshot = self.URL_SNAPSHOT_FILE.get(variant, None) if self.URL_SNAPSHOT_FILE else None
 
         self.disk_workload: bool = disk_workload
 
@@ -327,12 +334,41 @@ class Workload(ABC):
         """Returns number of vertices/edges for the current variant."""
         return self._size
 
+    def get_snapshot_url(self):
+        """Remote durability snapshot for the current variant, or None when it has none."""
+        return self._url_snapshot
+
+    def prepare_snapshot(self, directory):
+        """
+        Caches the variant's durability snapshot and returns its path. Kept apart from prepare(),
+        because a run that loads a snapshot needs neither the dataset's import queries nor its index
+        file, and downloading either of them would cost more than the load it replaces.
+        """
+        if self._url_snapshot is None:
+            raise Exception("Workload {}/{} has no snapshot!".format(self.NAME, self._variant))
+        cached_snapshot, exists = directory.get_file("snapshot")
+        if not exists:
+            print("Downloading snapshot file:", self._url_snapshot)
+            downloaded_file = helpers.download_file(self._url_snapshot, directory.get_path())
+            print("Unpacking and caching file:", downloaded_file)
+            helpers.unpack_gz_and_move_file(downloaded_file, cached_snapshot)
+        print("Using cached snapshot file:", cached_snapshot)
+        self._snapshot_file = cached_snapshot
+        return cached_snapshot
+
+    def get_snapshot(self):
+        """Path to the cached durability snapshot. None until prepare_snapshot has run."""
+        return self._snapshot_file
+
     def custom_import(self, client) -> bool:
         print("Workload does not have a custom import")
         return False
 
     def dataset_generator(self) -> list:
-        print("Workload is not auto generated")
+        """
+        Overridden by workloads that generate their dataset. Workloads that import one from a file or
+        through custom_import inherit this, and an empty list is what routes them to the import path.
+        """
         return []
 
     # All tests should be query generator functions that output all of the

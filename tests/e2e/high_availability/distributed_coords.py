@@ -30,7 +30,7 @@ from common import (
     show_instances,
     show_replicas,
     update_tuple_value,
-    wait_until_main_writeable_assert_replica_down,
+    wait_until_main_writeable,
 )
 from mg_utils import (
     mg_sleep_and_assert,
@@ -293,21 +293,21 @@ def test_main_cannot_connect(test_name):
     interactive_mg_runner.kill(inner_instances_description, "instance_1")
 
     main_cursor = connect(host="localhost", port=7689).cursor()
-    try:
-        execute_and_fetch_all(main_cursor, "create ()")
-    except Exception as e:
-        assert "Failed to replicate to SYNC replica 'instance_1'" in str(e)
+    # A SYNC replica the main cannot connect to does not fail the write: the transaction commits on the main and
+    # the unreachable replica is reported through a notification instead.
+    execute_and_fetch_all(main_cursor, "create ()")
+    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
+
+    # instance_2, the SYNC replica that is still up, received the same commit: only the unreachable instance_1
+    # missed it.
+    instance_2_cursor = connect(host="localhost", port=7688).cursor()
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
 
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
 
     main_cursor = connect(host="localhost", port=7689).cursor()
-    try:
-        execute_and_fetch_all(main_cursor, "create ()")
-    except Exception as e:
-        # Depending on exact replication timing, there could be a different reason for a failure for instance_1 and instance_2, that's why we check for a failure in this way
-        assert "Failed to replicate to SYNC replica" in str(e)
-        assert "instance_1" in str(e)
-        assert "instance_2" in str(e)
+    execute_and_fetch_all(main_cursor, "create ()")
+    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
 
 
 def test_global_edge_index_drop_replication(test_name):
@@ -323,23 +323,14 @@ def test_global_edge_index_drop_replication(test_name):
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
-    # Exception because one SYNC replica is down
-    try:
-        execute_and_fetch_all(instance_3_cursor, "create global edge index on :(id)")
-    except:
-        pass
+    # instance_1 is a down SYNC replica; every one of these still commits on the main and is only reported
+    # through a notification.
+    execute_and_fetch_all(instance_3_cursor, "create global edge index on :(id)")
+    execute_and_fetch_all(instance_3_cursor, "create (n:Test {id: 1})")
+    execute_and_fetch_all(instance_3_cursor, "drop global edge index on :(id)")
 
-    # Exception because one SYNC replica is down
-    try:
-        execute_and_fetch_all(instance_3_cursor, "create (n:Test {id: 1})")
-    except:
-        pass
-
-    # Exception because one SYNC replica is down
-    try:
-        execute_and_fetch_all(instance_3_cursor, "drop global edge index on :(id)")
-    except:
-        pass
+    # The main holds the vertex and no index; the down replica converges to that state once restarted below.
+    assert get_vertex_count(instance_3_cursor) == 1
 
     interactive_mg_runner.start(inner_instances_description, "instance_1")
     instance_1_cursor = connect(host="localhost", port=7687).cursor()
@@ -479,17 +470,8 @@ def test_even_number_coords(test_name):
 
     assert "Writing to Raft log failed. Please retry the operation." in str(e.value)
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "unknown", "follower"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    mg_sleep_and_assert(follower_data, partial(show_instances, coord_cursor_3))
+    # Without a quorum there is no leader to forward the read to, so nothing is reported.
+    mg_sleep_and_assert([], partial(show_instances, coord_cursor_3))
 
     # 6
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
@@ -540,7 +522,7 @@ def test_old_main_comes_back_on_new_leader_as_replica(test_name):
 
     # Wait until failover happens
     wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_1", "instance_2"}, "main")
-    wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_3"}, "unknown")
+    wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_3"}, "replica")
 
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
     # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
@@ -550,7 +532,7 @@ def test_old_main_comes_back_on_new_leader_as_replica(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     leader_instance_3_down = find_instance_and_assert_instances(
@@ -701,7 +683,7 @@ def test_distributed_automatic_failover(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -772,7 +754,7 @@ def test_distributed_automatic_failover_with_leadership_change(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_1", "instance_2"}, "main")
@@ -885,17 +867,9 @@ def test_no_leader_after_leader_and_follower_die(test_name):
     interactive_mg_runner.kill(inner_memgraph_instances, "coordinator_3")
     interactive_mg_runner.kill(inner_memgraph_instances, "coordinator_2")
 
-    coord_1_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-    mg_sleep_and_assert(coord_1_data, partial(show_instances, coord_cursor_1))
+    # The remaining follower has no leader to forward the read to, so nothing is reported.
+    mg_sleep_and_assert([], partial(show_instances, coord_cursor_1))
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
@@ -1413,7 +1387,7 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert_collection(data, partial(show_instances, coord_cursor_1))
@@ -1428,9 +1402,9 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert_collection(data, partial(show_instances, coord_cursor_1))
@@ -1447,7 +1421,7 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
@@ -1464,8 +1438,8 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
@@ -1481,7 +1455,7 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    wait_until_main_writeable_assert_replica_down(instance_3_cursor, "CREATE ();")
+    wait_until_main_writeable(instance_3_cursor, "CREATE ();")
 
     # 12
     interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
@@ -1574,7 +1548,7 @@ def test_multiple_old_mains_single_failover(test_name):
     basic_instances = [
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     expected_data_on_coord = []
@@ -1605,7 +1579,7 @@ def test_multiple_old_mains_single_failover(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     coord2_leader_data = [
@@ -1614,7 +1588,7 @@ def test_multiple_old_mains_single_failover(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert_multiple(
@@ -1656,8 +1630,7 @@ def test_multiple_old_mains_single_failover(test_name):
     time_slept = 0
     failover_time = 5
     while time_slept < failover_time:
-        with pytest.raises(Exception):
-            execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
         vertex_count += 1
 
         assert vertex_count == execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0]
@@ -2147,10 +2120,10 @@ def test_all_coords_down_resume(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
-    wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_3"}, "unknown")
+    wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_3"}, "replica")
 
     leader = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
 
@@ -2248,7 +2221,7 @@ def test_one_coord_down_with_durability_resume(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
@@ -2347,18 +2320,14 @@ def test_main_reselected_to_become_main(test_name):
     interactive_mg_runner.kill(inner_instances_description, "instance_1")
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
 
-    # Wait until failover happens
+    # Both replicas are reported as down while keeping the replica role from the Raft log.
     leader_data = update_tuple_value(leader_data, "instance_1", 0, -2, "down")
-    leader_data = update_tuple_value(leader_data, "instance_1", 0, -1, "unknown")
     leader_data = update_tuple_value(leader_data, "instance_2", 0, -2, "down")
-    leader_data = update_tuple_value(leader_data, "instance_2", 0, -1, "unknown")
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
 
-    # write to main
+    # write to main; the down SYNC replicas are reported through a notification, not an error
     main_cursor = connect(host="localhost", port=7689).cursor()
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(main_cursor, "CREATE (n:Node {name: 'node'})")
-    assert "Failed to replicate to SYNC replica" in str(e.value)
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {name: 'node'})")
 
     # check it was written
     def check_data():
@@ -2514,7 +2483,7 @@ def test_demote_promote(test_name):
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
@@ -2531,13 +2500,21 @@ def test_yield_leadership(test_name):
     for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
-    # 2.
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor_1, "YIELD LEADERSHIP")
-    assert str(e.value) == "Only the current leader can yield the leadership!"
+    def get_leader():
+        leaders = [instance[0] for instance in show_instances(coord_cursor_1) if instance[5] == "leader"]
+        return leaders[0] if len(leaders) == 1 else None
 
-    # 3.
+    # 2. The leader resigns when asked directly.
+    mg_sleep_and_assert("coordinator_3", get_leader)
     execute_and_fetch_all(coord_cursor_3, "YIELD LEADERSHIP")
+    mg_sleep_and_assert_multiple(["coordinator_1", "coordinator_2"], [get_leader])
+
+    # 3. A follower forwards the request to the leader, which then resigns.
+    resigned_leader = get_leader()
+    execute_and_fetch_all(coord_cursor_3, "YIELD LEADERSHIP")
+    mg_sleep_and_assert_multiple(
+        [name for name in ["coordinator_1", "coordinator_2", "coordinator_3"] if name != resigned_leader], [get_leader]
+    )
 
 
 def test_distributed_automatic_failover_mixed_cluster(test_name):
@@ -2557,7 +2534,7 @@ def test_distributed_automatic_failover_mixed_cluster(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     # Instance 2 needs to become main because instance 1 is async replica
@@ -2652,6 +2629,17 @@ def test_coord_settings(test_name):
     assert settings[max_replica_read_lag] == "10"
     assert settings[deltas_batch_progress_size] == "10000"
     assert settings[instance_down_timeout_sec] == "15"
+    assert settings[instance_health_check_frequency_sec] == "3"
+
+    # 0 is not the usual "disable the scheduler" value here: a coordinator that never health-checks cannot detect
+    # failure, and StartStateCheck() aborts on it. The rejection happens before the Raft commit, so the previously
+    # committed value must still be readable afterwards.
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'instance_health_check_frequency_sec' to '0'")
+    assert "Invalid argument detected while trying to update setting instance_health_check_frequency_sec" in str(
+        e.value
+    )
+    settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[instance_health_check_frequency_sec] == "3"
 
 

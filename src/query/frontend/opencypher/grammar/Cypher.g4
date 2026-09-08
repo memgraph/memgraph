@@ -269,7 +269,9 @@ atom : listComprehension
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
      | ( EXISTS '(' existsExpression ')' )
-     | ( EXISTS '{' existsSubquery '}' )
+     | ( EXISTS '{' subqueryBody '}' )
+     | ( COUNT '{' subqueryBody '}' )
+     | ( COLLECT '{' subqueryBody '}' )
      | patternExpression
      | parenthesizedExpression
      | functionInvocation
@@ -313,9 +315,9 @@ extractExpression : idInColl '|' expression ;
 
 existsExpression : forcePatternPart | .* ;
 
-existsSubquery : forcePatternPart
-               | cypherQuery
-               ;
+subqueryBody : forcePatternPart
+             | cypherQuery
+             ;
 
 forcePatternPart : ( variable '=' relationshipsPattern )
                  | relationshipsPattern
@@ -393,6 +395,7 @@ cypherKeyword : ALL
               | CALL
               | CASE
               | COALESCE
+              | COLLECT
               | CONSTRAINT
               | CONTAINS
               | COUNT

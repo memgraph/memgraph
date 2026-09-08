@@ -12,10 +12,13 @@
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <chrono>
+#include <filesystem>
 #include <string_view>
 #include <thread>
 
 #include "flags/general.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -28,11 +31,14 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/settings.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -86,6 +92,24 @@ class VectorEdgeIndexTest : public testing::Test {
     return {from_vertex, to_vertex, edge};
   }
 
+  void CreateEdgeIndexNamed(std::string_view name, VectorMatchMode mode, std::uint16_t dimension,
+                            std::size_t capacity) {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto edge_type = unique_acc->NameToEdgeType(test_edge_type.data());
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    auto ids = mode == VectorMatchMode::WILDCARD ? std::vector<EdgeTypeId>{} : std::vector<EdgeTypeId>{edge_type};
+    auto spec = VectorEdgeIndexSpec{.index_name = std::string{name},
+                                    .edge_type_filter = VectorEdgeTypeFilter{.mode = mode, .ids = std::move(ids)},
+                                    .property = property,
+                                    .metric_kind = metric,
+                                    .dimension = dimension,
+                                    .resize_coefficient = resize_coefficient,
+                                    .capacity = capacity,
+                                    .scalar_kind = scalar_kind};
+    EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
  private:
   memgraph::storage::Config config_;
 };
@@ -102,6 +126,48 @@ TEST_F(VectorEdgeIndexTest, SimpleAddEdgeTest) {
   EXPECT_EQ(all_vector_indices.size(), 1);
 }
 
+TEST_F(VectorEdgeIndexTest, VectorIndexedPropertiesRespectsEdgeTypeFilter) {
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [f1, t1, indexed] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  auto [f2, t2, other] = this->CreateEdge(acc.get(), test_property, property_value, "other_edge_type");
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  EXPECT_EQ(indexed.VectorIndexedProperties(), (std::vector<PropertyId>{acc->NameToProperty(test_property.data())}));
+  EXPECT_TRUE(other.VectorIndexedProperties().empty());
+}
+
+TEST_F(VectorEdgeIndexTest, ToBoltEdgeOmitsVectorIndexedPropertyWhenFlagOn) {
+  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_edge_index_omit";
+  std::filesystem::remove_all(settings_dir);
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  const auto set_omit = [&](bool enabled) {
+    settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
+  };
+  // restore the process-global flag even if an assertion aborts the test early
+  memgraph::utils::OnScopeExit reset_flag{[&] { set_omit(false); }};
+
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [from, to, edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  ASSERT_TRUE(edge.SetProperty(acc->NameToProperty("weight"), PropertyValue(0.5)).has_value());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  set_omit(false);
+  auto with_prop = memgraph::glue::ToBoltEdge(edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(with_prop.has_value());
+  EXPECT_TRUE(with_prop->properties.contains(test_property.data()));
+
+  set_omit(true);
+  auto without_prop = memgraph::glue::ToBoltEdge(edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(without_prop.has_value());
+  EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
+  EXPECT_TRUE(without_prop->properties.contains("weight"));
+}
+
 TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   this->CreateEdgeIndex(2, 10);
   auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -111,6 +177,23 @@ TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, std::vector<float>{1.0, 1.0});
   EXPECT_EQ(result.size(), 1);
   EXPECT_EQ(std::get<0>(result[0]).Gid(), edge.Gid());
+}
+
+TEST_F(VectorEdgeIndexTest, SecondIndexBackfillsAlreadyIndexedEdge) {
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(0.0)});
+    this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateEdgeIndexNamed("idx_typed", VectorMatchMode::SINGLE, 2, 10);
+  this->CreateEdgeIndexNamed("idx_wild", VectorMatchMode::WILDCARD, 2, 10);
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  const auto typed = acc->VectorIndexSearchOnEdges("idx_typed", 1, std::vector<float>{1.0, 0.0});
+  const auto wild = acc->VectorIndexSearchOnEdges("idx_wild", 1, std::vector<float>{1.0, 0.0});
+  EXPECT_EQ(typed.size(), 1);
+  EXPECT_EQ(wild.size(), 1);
 }
 
 TEST_F(VectorEdgeIndexTest, InvalidDimensionTest) {
@@ -611,6 +694,7 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
                                            std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryVertexPropertyIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),

@@ -53,6 +53,103 @@ TEST(String, ToUpperCase) {
   EXPECT_EQ(ToUpperCase("\u0161memgraph"), "\u0161MEMGRAPH");
 }
 
+TEST(String, ReverseUtf8) {
+  // Escapes rather than typed characters: an accented character may reach the
+  // compiler precomposed or decomposed, and the two have different answers here.
+  EXPECT_EQ(ReverseUtf8(""), "");
+  EXPECT_EQ(ReverseUtf8("abc"), "cba");
+
+  // A multi-byte sequence moves as a unit. Reversing the underlying bytes would
+  // put a continuation byte ahead of its lead byte, which is not valid UTF-8.
+  EXPECT_EQ(ReverseUtf8("caf\u00E9"), "\u00E9fac");
+  EXPECT_EQ(ReverseUtf8("a\u4E2Db"), "b\u4E2Da");
+  EXPECT_EQ(ReverseUtf8("\u00E9"), "\u00E9");
+  EXPECT_EQ(ReverseUtf8("ab\u0107"), "\u0107ba");
+
+  // A combining mark is a code point in its own right, so it leads the result
+  // rather than staying attached to the character it followed.
+  EXPECT_EQ(ReverseUtf8("abc\u0301"), "\u0301cba");
+
+  EXPECT_EQ(ReverseUtf8(ReverseUtf8("a\u4E2Db\u00E9")), "a\u4E2Db\u00E9");
+}
+
+TEST(String, ReverseUtf8CountsCodePointsNotBytes) {
+  // The result holds as many code points as the input, each intact. Byte-wise
+  // reversal preserves the byte count too, so length alone proves nothing.
+  const std::string input = "a\u00E9\u4E2D";
+  const std::string reversed = ReverseUtf8(input);
+  ASSERT_EQ(reversed.size(), input.size());
+
+  auto const lead_bytes = [](std::string_view s) {
+    return std::ranges::count_if(s, [](char c) { return (static_cast<unsigned char>(c) & 0xC0U) != 0x80U; });
+  };
+  EXPECT_EQ(lead_bytes(reversed), 3);
+  EXPECT_EQ(lead_bytes(reversed), lead_bytes(input));
+  EXPECT_EQ(reversed, "\u4E2D\u00E9a");
+}
+
+TEST(String, CountUtf8CodePoints) {
+  EXPECT_EQ(CountUtf8CodePoints(""), 0);
+  EXPECT_EQ(CountUtf8CodePoints("abc"), 3);
+
+  // One code point however many bytes encode it.
+  EXPECT_EQ(CountUtf8CodePoints("\u00E9"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("\u4E2D"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("\U0001F600"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("a\u00E9b"), 3);
+
+  // The count is not the buffer size.
+  EXPECT_EQ(std::string_view("a\u00E9b").size(), 4);
+  EXPECT_EQ(CountUtf8CodePoints("a\u00E9b"), 3);
+
+  // A combining mark is a code point of its own, so a decomposed character
+  // counts as two. This is code points, not grapheme clusters.
+  EXPECT_EQ(CountUtf8CodePoints("e\u0301"), 2);
+}
+
+TEST(String, SubstrUtf8) {
+  // Positions and lengths are in code points, so a multi-byte character is
+  // never split.
+  EXPECT_EQ(SubstrUtf8("abc", 1), "bc");
+  EXPECT_EQ(SubstrUtf8("abc", 1, 1), "b");
+
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1, 1), "\u4E2D");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1), "\u4E2Db");
+  EXPECT_EQ(SubstrUtf8("\u00E9\u4E2D\U0001F600", 1, 1), "\u4E2D");
+  EXPECT_EQ(SubstrUtf8("\U0001F600\U0001F600", 0, 1), "\U0001F600");
+  EXPECT_EQ(SubstrUtf8("\U0001F600\U0001F600", 1, 1), "\U0001F600");
+
+  // Out of range clamps rather than throwing.
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 9), "");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1, 99), "\u4E2Db");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 0, 0), "");
+  EXPECT_EQ(SubstrUtf8("", 0, 3), "");
+}
+
+TEST(String, Utf8OffsetOfCodePoint) {
+  // Offsets are in bytes, indices in code points; the two only coincide while
+  // the text stays in ASCII.
+  EXPECT_EQ(Utf8OffsetOfCodePoint("abc", 0), 0);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("abc", 2), 2);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 1), 1);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 2), 4);
+  // Past the end yields the size, which makes a clamped substring empty.
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 3), 5);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 99), 5);
+}
+
+TEST(String, Utf8OffsetOfLastCodePoints) {
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("abc", 1), 2);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 2), 1);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("\U0001F600\U0001F600", 1), 4);
+
+  // Nothing requested is the empty tail; more than there is, is all of it.
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 0), 5);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 3), 0);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 99), 0);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("", 3), 0);
+}
+
 TEST(String, Join) {
   using namespace std::string_literals;
   EXPECT_EQ(Join(std::array<std::string, 0>{}, " "), "");

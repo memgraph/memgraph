@@ -170,21 +170,43 @@ class MemgraphInstanceRunner:
 
         return data
 
-    def execute_setup_queries(self, setup_queries=List):
+    def execute_setup_queries(self, setup_queries=List, ignore_failures=False, log_ignored_failures=True):
         """
         Executes setup queries. The element inside `setup_queries` can be a string or a list. Connection is closed at the end and cannot be
-        reused.
+        reused. When `ignore_failures` is set, failures of individual setup queries are logged and skipped, e.g. when
+        restarting an instance on which the queries were already applied. `log_ignored_failures` can be turned off when
+        those failures are expected on every restart and would otherwise bury the interesting output, as when a
+        benchmark restarts a cluster whose setup has already been applied.
         """
         conn = self.get_connection(self.username or "", self.password or "")
         conn.autocommit = True
         cursor = conn.cursor()
 
+        def execute_one(cursor, query):
+            try:
+                cursor.execute(query)
+                return cursor
+            except Exception as e:
+                if not ignore_failures:
+                    raise
+                if log_ignored_failures:
+                    log.warning(f"Ignoring failed setup query '{query}': {e}")
+                # The connection may be left in a bad state after a failed query, use a fresh one.
+                nonlocal conn
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = self.get_connection(self.username or "", self.password or "")
+                conn.autocommit = True
+                return conn.cursor()
+
         for query_coll in setup_queries:
             if isinstance(query_coll, str):
-                cursor.execute(query_coll)
+                cursor = execute_one(cursor, query_coll)
             elif isinstance(query_coll, list):
                 for query in query_coll:
-                    cursor.execute(query)
+                    cursor = execute_one(cursor, query)
 
         cursor.close()
         conn.close()
@@ -206,9 +228,14 @@ class MemgraphInstanceRunner:
         setup_queries=None,
         bolt_port: Optional[int] = None,
         storage_snapshot_on_exit: bool = False,
+        silence_output: bool = False,
     ):
         """
         Starts an instance which is not already running. Before doing anything, calls `stop` on instance.
+        When `silence_output` is set, the instance's stdout and stderr are discarded instead of inherited. Everything
+        Memgraph logs still reaches its `--log-file`; what is dropped is the startup banner, the flag deprecation
+        notices and the query module import notes, which a caller starting a whole cluster repeatedly would otherwise
+        see once per instance per start.
         """
         if not restart and self.is_running():
             return
@@ -228,11 +255,6 @@ class MemgraphInstanceRunner:
             "--storage-properties-on-edges",
             f"--storage-snapshot-on-exit={storage_snapshot_on_exit}",
         ]
-        # Default the metrics endpoint to OpenMetrics unless the workload opts out
-        # (e.g. tests that exercise the deprecated JSON format set --metrics-format
-        # explicitly, in which case their value wins).
-        if not any(arg.startswith("--metrics-format") for arg in self.args):
-            default_args.append("--metrics-format=OpenMetrics")
         args_mg = default_args + self.args
 
         if bolt_port:
@@ -250,7 +272,8 @@ class MemgraphInstanceRunner:
             print("Waiting for debugger to attach... (press Enter in gdb to continue)")
             print("=" * 80 + "\n")
 
-        self.proc_mg = subprocess.Popen(args_mg)
+        output = subprocess.DEVNULL if silence_output else None
+        self.proc_mg = subprocess.Popen(args_mg, stdout=output, stderr=output)
 
         # Use much longer timeout when debugging with gdb
         timeout = 3600 if self.gdb_port else 15

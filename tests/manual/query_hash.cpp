@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,8 +36,8 @@ int main(int argc, char **argv) {
   std::cout << fmt::format("Stripped query: {}\n", preprocessed.stripped_query().str());
   std::cout << fmt::format("Query hash: {}\n", preprocessed.stripped_query().hash());
   std::cout << fmt::format("Property values:\n");
-  for (int i = 0; i < preprocessed.literals().size(); ++i) {
-    std::cout << " " << preprocessed.literals().At(1).second;
+  for (const auto &[position, value] : preprocessed.literals()) {
+    std::cout << " " << value;
   }
   std::cout << std::endl;
 

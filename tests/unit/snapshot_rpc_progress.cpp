@@ -30,6 +30,7 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/observer.hpp"
@@ -62,10 +63,10 @@ using memgraph::storage::InMemoryUniqueConstraints;
 using memgraph::storage::LabelId;
 using memgraph::storage::Point2d;
 using memgraph::storage::PointIndexStorage;
+using memgraph::storage::ProgressCallback;
 using memgraph::storage::PropertyId;
 using memgraph::storage::PropertyPath;
 using memgraph::storage::PropertyValue;
-using memgraph::storage::SnapshotObserverInfo;
 using memgraph::storage::TypeConstraintKind;
 using memgraph::storage::TypeConstraints;
 using memgraph::storage::VectorIndex;
@@ -125,23 +126,27 @@ class SnapshotRpcProgressTest : public ::testing::Test {
 
   void InitActiveIndicesStore() {
     active_indices_store_.WithLock([](ActiveIndicesPtr &ai) {
-      ai = std::make_shared<ActiveIndices>(std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::VectorIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::VectorEdgeIndex::ActiveIndices>());
+      ai = std::make_shared<ActiveIndices>(
+          std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
+          std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
+          std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
+          std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
+          std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::InMemoryVertexPropertyIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),
+          std::make_shared<memgraph::storage::VectorIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::VectorEdgeIndex::ActiveIndices>());
     });
   }
 };
 
-class MockedSnapshotObserver final : public Observer<void> {
+// Standalone: progress is reported through a ProgressCallback, so there is no interface to implement. The tests wrap
+// this in a lambda and assert the call count, which is exactly the number of items the operation visits.
+class MockedSnapshotObserver final {
  public:
-  MOCK_METHOD(void, Update, (), (override));
+  MOCK_METHOD(void, Update, ());
 };
 
 constexpr int port{8184};
@@ -153,12 +158,11 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedNoVertices) {
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, snapshot_info));
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedVertices) {
@@ -177,11 +181,10 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedVertices) {
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 2);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(5);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, snapshot_info));
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelIndexMultiThreadedVertices) {
@@ -202,11 +205,10 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexMultiThreadedVertices) {
       .thread_count = 2};
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 2);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(5);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, snapshot_info));
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) {
@@ -217,13 +219,12 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
@@ -243,12 +244,11 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 2);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(5);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) {
@@ -270,9 +270,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) 
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 2);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(5);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(
       label_prop_idx.CreateIndexOnePass(label,
@@ -280,7 +279,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) 
                                         vertices.access(),
                                         par_schema_info,
                                         updater,
-                                        snapshot_info));
+                                        on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
@@ -302,12 +301,11 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
       .thread_count = 2};
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 2);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(5);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
@@ -331,9 +329,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
       .thread_count = 2};
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 2);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(5);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(
       label_prop_idx.CreateIndexOnePass(label,
@@ -341,7 +338,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
                                         vertices.access(),
                                         par_schema_info,
                                         updater,
-                                        snapshot_info));
+                                        on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
@@ -454,12 +451,11 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {
   auto etype = EdgeTypeId::FromUint(1);
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), updater, snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
@@ -478,12 +474,11 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
-  EXPECT_CALL(*mocked_observer, Update()).Times(3);
+  EXPECT_CALL(*mocked_observer, Update()).Times(11);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), updater, snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertices) {
@@ -493,12 +488,11 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertice
   auto prop = PropertyId::FromUint(1);
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), updater, snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesEdges) {
@@ -523,12 +517,11 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  EXPECT_CALL(*mocked_observer, Update()).Times(7);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), updater, snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), updater, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
@@ -538,12 +531,11 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
   auto prop = PropertyId::FromUint(1);
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   InitActiveIndicesStore();
-  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
+  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
@@ -567,11 +559,10 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 40);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(8);
   InitActiveIndicesStore();
-  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
+  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
@@ -592,12 +583,11 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   ASSERT_TRUE(
-      vector_idx.CreateIndex(spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), snapshot_info));
+      vector_idx.CreateIndex(spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
@@ -633,11 +623,10 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 4000);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(8);
   ASSERT_TRUE(
-      vector_idx.CreateIndex(spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), snapshot_info));
+      vector_idx.CreateIndex(spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices) {
@@ -645,13 +634,12 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices
   auto prop = PropertyId::FromUint(1);
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
   auto validation_result =
-      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
+      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, on_progress);
   ASSERT_TRUE(validation_result.has_value());
 }
 
@@ -675,12 +663,11 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 4);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(9);
 
   auto validation_result =
-      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
+      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, on_progress);
   ASSERT_TRUE(validation_result.has_value());
 }
 
@@ -704,16 +691,15 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(6);
 
   auto par_schema_info = ParallelizedSchemaCreationInfo{
       .vertex_recovery_info = std::vector<std::pair<Gid, uint64_t>>{{Gid::FromUint(1), 3}, {Gid::FromUint(4), 3}},
       .thread_count = 2};
 
-  auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
-      vertices.access(), label, prop, par_schema_info, snapshot_info);
+  auto validation_result =
+      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, par_schema_info, on_progress);
   ASSERT_TRUE(validation_result.has_value());
 }
 
@@ -723,14 +709,13 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(
-      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
+      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, on_progress)
           .value(),
       InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
@@ -756,13 +741,12 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 4);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(9);
 
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(
-      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
+      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, on_progress)
           .value(),
       InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
@@ -788,19 +772,18 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(6);
 
   auto par_schema_info = ParallelizedSchemaCreationInfo{
       .vertex_recovery_info = std::vector<std::pair<Gid, uint64_t>>{{Gid::FromUint(1), 3}, {Gid::FromUint(4), 3}},
       .thread_count = 2};
 
   InMemoryUniqueConstraints unique_constraints;
-  ASSERT_EQ(unique_constraints
-                .CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, par_schema_info, snapshot_info)
-                .value(),
-            InMemoryUniqueConstraints::CreationStatus::SUCCESS);
+  ASSERT_EQ(
+      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, par_schema_info, on_progress)
+          .value(),
+      InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
@@ -809,15 +792,14 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
   auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 3);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
   TypeConstraints type_constraints;
-  type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER);
+  ASSERT_TRUE(type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER));
   type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
-  ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), snapshot_info).has_value());
+  ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), on_progress).has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
@@ -841,12 +823,11 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  std::optional<SnapshotObserverInfo> snapshot_info;
-  snapshot_info.emplace(mocked_observer, 4);
-  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ProgressCallback on_progress = [mocked_observer] { mocked_observer->Update(); };
+  EXPECT_CALL(*mocked_observer, Update()).Times(9);
 
   TypeConstraints type_constraints;
-  type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER);
+  ASSERT_TRUE(type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER));
   type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
-  ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), snapshot_info).has_value());
+  ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), on_progress).has_value());
 }

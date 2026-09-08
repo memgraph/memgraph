@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <list>
 #include <map>
 #include <sstream>
 #include <string>
@@ -21,7 +20,6 @@
 
 using vec = std::vector<std::string>;
 
-using namespace std::string_literals;
 using namespace memgraph::utils;
 
 TEST(Algorithm, PrintIterable) {
@@ -54,11 +52,4 @@ TEST(Algorithm, PrintIterable) {
     PrintIterable(&oss, map.begin(), map.end(), ", ", map_streamer);
     EXPECT_EQ(oss.str(), "a: x, b: y");
   }
-}
-
-TEST(Algorithm, Reversed) {
-  EXPECT_EQ(Reversed(""s), ""s);
-  EXPECT_EQ(Reversed("abc"s), "cba"s);
-  EXPECT_EQ(Reversed(std::vector<int>({1, 2, 3, 4})), std::vector<int>({4, 3, 2, 1}));
-  EXPECT_EQ(Reversed(std::list<std::string>({"ab"s, "cd"s})), std::list<std::string>({"cd"s, "ab"s}));
 }

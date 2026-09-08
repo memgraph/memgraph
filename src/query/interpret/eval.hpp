@@ -20,6 +20,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "query/common.hpp"
@@ -27,6 +28,7 @@
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
@@ -35,6 +37,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
 
@@ -42,6 +45,36 @@ class VirtualNode;
 class VirtualEdge;
 
 class FineGrainedAuthChecker;
+
+struct SelectedFunction {
+  std::variant<const func_impl *, user_func> impl;
+
+  TypedValue operator()(const TypedValue *args, int64_t n, const FunctionContext &fctx) const {
+    return std::visit(utils::Overloaded{[&](const func_impl *f) { return (*f)(args, n, fctx); },
+                                        [&](const user_func &u) { return u.first(args, n, fctx); }},
+                      impl);
+  }
+};
+
+inline SelectedFunction SelectFunctionImpl(const Function &function, const EvaluationContext &ctx) {
+  if (!function.is_user_defined_) {
+    return {&function.function_};
+  }
+  const auto &resolved = ctx.resolved_user_functions;
+  if (resolved && function.user_function_id_ >= 0) {
+    const auto slot = static_cast<size_t>(function.user_function_id_);
+    if (slot >= resolved->functions.size()) [[unlikely]] {
+      // The plan's AstStorage is not the one these Function nodes were indexed into, so some
+      // clone path failed to carry user_functions_ across. Fail the query, not the process.
+      throw QueryRuntimeException("Function '{}' resolved to slot {}, outside a table of {} resolved functions.",
+                                  function.function_name_,
+                                  function.user_function_id_,
+                                  resolved->functions.size());
+    }
+    return {&resolved->functions[slot].first};
+  }
+  return {ResolveUserFunction(function.function_name_)};
+}
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
  public:
@@ -106,7 +139,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
   UNSUCCESSFUL_VISIT(ListComprehension);
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
-  UNSUCCESSFUL_VISIT(Exists);
+  UNSUCCESSFUL_VISIT(SubqueryExpression);
   UNSUCCESSFUL_VISIT(PatternComprehension);
   UNSUCCESSFUL_VISIT(EnumValueAccess);
 
@@ -161,6 +194,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
                                  .counters = &ctx_->counters,
                                  .view = storage::View::OLD};
     TypedValue res(ctx_->memory);
+    const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
       auto constructed_count = 0;
@@ -173,14 +207,14 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
         std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
         ++constructed_count;
       }
-      res = function.function_(arguments.as()->data(), static_cast<int64_t>(function.arguments_.size()), function_ctx);
+      res = impl(arguments.as()->data(), static_cast<int64_t>(function.arguments_.size()), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = function.function_(arguments.data(), static_cast<int64_t>(arguments.size()), function_ctx);
+      res = impl(arguments.data(), static_cast<int64_t>(arguments.size()), function_ctx);
     }
     return res;
   }
@@ -232,7 +266,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(ListComprehension)
   INVALID_VISIT(Identifier)
   INVALID_VISIT(RegexMatch)
-  INVALID_VISIT(Exists)
+  INVALID_VISIT(SubqueryExpression)
   INVALID_VISIT(PatternComprehension)
   INVALID_VISIT(EnumValueAccess)
 
@@ -266,7 +300,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
-  storage::NameIdMapper *GetNameIdMapper() const { return dba_->GetStorageAccessor()->GetNameIdMapper(); }
+  /// A query that opened no storage transaction evaluates with no accessor. No vertex, edge or path can
+  /// exist in one, since those come from a scan, an expand, or a procedure holding a graph, so the sites
+  /// below are unreachable rather than merely unused. They check instead of relying on that.
+  void RequireAccessor(std::string_view what) const {
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("{} requires a database accessor.", what);
+    }
+  }
+
+  storage::NameIdMapper *GetNameIdMapper() const {
+    RequireAccessor("Resolving a name");
+    return dba_->GetStorageAccessor()->GetNameIdMapper();
+  }
 
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
 
@@ -745,6 +791,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
+    // Implementations receive the accessor and are free to use it, so none may run without one.
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Function '{}' cannot be evaluated without a database accessor.",
+                                  function.function_name_);
+    }
     FunctionContext function_ctx{dba_,
                                  ctx_->memory,
                                  ctx_->timestamp,
@@ -761,6 +812,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     };
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
+    const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
@@ -775,14 +827,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         ++constructed_count;
       }
 
-      res = function.function_(arguments.as()->data(), function.arguments_.size(), function_ctx);
+      res = impl(arguments.as()->data(), function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = function.function_(arguments.data(), arguments.size(), function_ctx);
+      res = impl(arguments.data(), arguments.size(), function_ctx);
     }
     MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
@@ -863,8 +915,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
 
       auto predicate_result = list_comprehension.where_->expression_->Accept(*this);
+      // This predicate filters rather than being folded into one answer the way
+      // a quantifier's is, so an element whose predicate is NULL is left out and
+      // the rest of the list still stands. NULL is the only value besides a
+      // boolean a predicate may hold.
+      if (predicate_result.IsNull()) {
+        continue;
+      }
       if (!predicate_result.IsBool()) {
-        return TypedValue(ctx_->memory);
+        throw QueryRuntimeException("Predicate of a list comprehension must evaluate to boolean, got {}.",
+                                    predicate_result.type());
       }
       if (predicate_result.ValueBool()) {
         if (has_transformation) {
@@ -878,15 +938,28 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override {
-    TypedValue const &frame_exists_value = frame_->at(symbol_table_->at(exists));
-    if (!frame_exists_value.IsFunction()) [[unlikely]] {
+  TypedValue Visit(SubqueryExpression &subquery) override {
+    TypedValue const &frame_fold_value = frame_->at(symbol_table_->at(subquery));
+    // Exactly one arm applies per node: a forced fold wrote the answer, a deferred one wrote the closure that computes
+    // it. Past all four means neither operator ran and the slot was never written.
+    if (frame_fold_value.IsBool()) {
+      return TypedValue(frame_fold_value.ValueBool(), ctx_->memory);
+    }
+    if (frame_fold_value.IsInt()) {
+      return TypedValue(frame_fold_value.ValueInt(), ctx_->memory);
+    }
+    if (frame_fold_value.IsList()) {
+      return TypedValue(frame_fold_value.ValueList(), ctx_->memory);
+    }
+    if (!frame_fold_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
-          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
-          frame_exists_value.type());
+          "Unexpected behavior: nothing evaluated this {}, so its frame slot holds {}. Please report the problem on "
+          "GitHub issues",
+          subquery.FoldName(),
+          frame_fold_value.type());
     }
     TypedValue result(ctx_->memory);
-    frame_exists_value.ValueFunction()(&result);
+    frame_fold_value.ValueFunction()(&result);
     return result;
   }
 
@@ -966,7 +1039,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     if (non_empty_list && !has_value) {
       return TypedValue(ctx_->memory);
-    } else if (has_null_elements && !predicate_satisfied) {
+    } else if (has_null_elements) {
+      // Two matches already returned false above, so at most one definite match
+      // reached here and a null element could have been a second one.
       return TypedValue(ctx_->memory);
     } else {
       return TypedValue(predicate_satisfied, ctx_->memory);
@@ -1067,6 +1142,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(EnumValueAccess &enum_value_access) override {
+    // Enums are storage state, so there is nothing to resolve against without an accessor.
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Enum '{}' cannot be resolved without a database accessor.",
+                                  enum_value_access.enum_name_);
+    }
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
     if (!maybe_enum) [[unlikely]] {
       throw QueryRuntimeException(
@@ -1088,6 +1168,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
+    RequireAccessor("Reading a property");
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
@@ -1116,6 +1197,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
+    RequireAccessor("Reading a property");
     auto prop_id = dba_->NameToProperty(name);
     if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
     auto maybe_prop = record_accessor.GetProperty(view_, prop_id);
@@ -1182,11 +1264,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
-
-#ifdef MG_ENTERPRISE
-  bool CheckPropertyPermission(VertexAccessor const &accessor, storage::PropertyId prop) const;
-  bool CheckPropertyPermission(EdgeAccessor const &accessor, storage::PropertyId prop) const;
-#endif
 
   Frame *frame_;
   const SymbolTable *symbol_table_;

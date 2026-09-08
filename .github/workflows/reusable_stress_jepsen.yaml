@@ -53,12 +53,13 @@ env:
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
   CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
   CLUSTER_ENV: "ci-stress-jepsen"
-  OS: 'debian-12'
-  TOOLCHAIN: 'v7'
+  OS: 'ubuntu-24.04'
+  TOOLCHAIN: 'v8'
   NODES_NO: 6
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   ha-test:
@@ -183,7 +184,7 @@ jobs:
           fi
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
-            NEMESIS_SLEEP_SEC=$((90 * ${{ inputs.num-tenants }}))
+            NEMESIS_SLEEP_SEC=$((180 * ${{ inputs.num-tenants }}))
             ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --shutdown-signal ${{ inputs.shutdown-signal }} --intra-cluster-tls ${{ inputs.intra-cluster-tls }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
           else
             ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --shutdown-signal ${{ inputs.shutdown-signal }} --intra-cluster-tls ${{ inputs.intra-cluster-tls }} --recovery-time 600 --nemesis-start-sleep 25"

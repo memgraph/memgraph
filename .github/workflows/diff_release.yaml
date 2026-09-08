@@ -27,13 +27,17 @@ on:
         type: string
         description: "Should the stress and durability tests be run? Default is true."
         default: "true"
-      run_query_modules:
-        type: string
-        description: "Should the query modules tests be run? Default is true."
-        default: "true"
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
+        default: ""
+      python_build_version:
+        type: string
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python."
+        default: ""
+      python_runtime_version:
+        type: string
+        description: "After building, remove the build Python and swap in this version so tests run against a different libpython. Empty disables the swap."
         default: ""
       ref:
         description: "Branch or commit ref to run the workflow on"
@@ -47,7 +51,9 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: v7
+  PYTHON_BUILD_VERSION: ${{ inputs.python_build_version }}
+  PYTHON_RUNTIME_VERSION: ${{ inputs.python_runtime_version }}
+  TOOLCHAIN: v8
   DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: "benchmark_result.json"
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -65,7 +71,7 @@ jobs:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -86,12 +92,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -108,13 +112,19 @@ jobs:
 
       - name: Build release binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 12 \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --split-debug \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -177,6 +187,51 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
 
+      - name: Save ctest results
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        if: always()
+        with:
+          name: "ctest_results_Release${{ env.RUN_ID }}"
+          path: build/test-results/
+          if-no-files-found: ignore
+
+      - name: Run query modules unit tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          test-memgraph query_modules_unit
+
+      - name: Run query modules e2e tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph query_modules_e2e \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION}
+
+      - name: Copy query modules logs
+        if: failure()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --memgraph-logs --dest-dir build/memgraph-logs-query-modules
+
+      - name: Save query modules test data
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: failure()
+        with:
+          name: "Query modules tests(Release build)${{ env.RUN_ID }}"
+          path: build/memgraph-logs-query-modules
+
       - name: Create enterprise DEB package
         run: |
           ./release/package/mgbuild.sh \
@@ -200,6 +255,39 @@ jobs:
         with:
           name: "Enterprise DEB package"
           path: build/output/${{ env.OS }}/memgraph*.deb
+
+      - name: Resolve PR number for merge queue
+        if: ${{ github.event_name == 'merge_group' }}
+        id: get_pr
+        env:
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          PR_NUMBER=$(sed -n 's/.*pr-\([0-9]\+\).*/\1/p' <<<"$MERGE_GROUP_HEAD_REF")
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "::warning::Unable to resolve PR number from '$MERGE_GROUP_HEAD_REF'; skipping memgraph package upload to S3."
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "PR Number: $PR_NUMBER"
+
+      - name: Upload enterprise DEB packages to S3
+        if: ${{ github.event_name == 'merge_group' && steps.get_pr.outputs.pr_number != '' }}
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          S3_DEST_DIR: "pr-build/memgraph/pr${{ steps.get_pr.outputs.pr_number }}"
+        run: |
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt..."
+            if aws s3 sync "build/output/$OS" "s3://deps.memgraph.io/$S3_DEST_DIR/" \
+                 --exclude '*' --include 'memgraph*.deb'; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Failed to upload memgraph packages to S3 after 3 attempts" >&2
+          exit 1
 
       - name: Collect core dumps
         if: failure()
@@ -232,6 +320,8 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Release / Core tests"
 
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
@@ -258,12 +348,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -287,6 +375,8 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph \
           --split-debug \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -308,16 +398,6 @@ jobs:
           --cpuset-mems="0" \
           "mgbuild_${TOOLCHAIN}_${OS}"
 
-      - name: Run macro benchmarks
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph macro-benchmark
-
       - name: Get branch name
         shell: bash
         run: |
@@ -327,21 +407,6 @@ jobs:
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
 
-      - name: Upload macro benchmark results
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph upload-to-bench-graph \
-          --benchmark-name "macro_benchmark" \
-          --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-          --github-run-id ${{ github.run_id }} \
-          --github-run-number ${{ github.run_number }} \
-          --head-branch-name ${{ env.BRANCH_NAME }}
-
       - name: Run mgbench
         run: |
           ./release/package/mgbuild.sh \
@@ -350,7 +415,9 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench \
+          --no-authorization \
+          --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench results
         run: |
@@ -367,6 +434,35 @@ jobs:
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
+      - name: Run extended planner optimizations mgbench
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench \
+          --no-authorization \
+          --dataset pokec_planner_optimizations \
+          --size medium \
+          --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload extended planner optimizations mgbench results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "mgbench-planner-optimizations" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
       - name: Run mgbench-vector-search-index
         run: |
           ./release/package/mgbuild.sh \
@@ -375,7 +471,9 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-vector-search-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-vector-search-index \
+          --no-authorization \
+          --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-vector-search-index results
         run: |
@@ -400,7 +498,9 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-vector-search-edge-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-vector-search-edge-index \
+          --no-authorization \
+          --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-vector-search-edge-index results
         run: |
@@ -425,7 +525,9 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-text-search-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-text-search-index \
+          --no-authorization \
+          --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-text-search-index results
         run: |
@@ -450,7 +552,9 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-text-search-edge-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-text-search-edge-index \
+          --no-authorization \
+          --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-text-search-edge-index results
         run: |
@@ -466,6 +570,86 @@ jobs:
           --github-run-id "${{ github.run_id }}" \
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run supernode
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-supernode \
+          --no-authorization \
+          --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload supernode results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "supernode" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run load parquet
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-load-parquet \
+          --no-authorization \
+          --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload load parquet results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "load-parquet" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run macro benchmarks
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph macro-benchmark
+
+      - name: Upload macro benchmark results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "macro_benchmark" \
+          --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
+          --github-run-id ${{ github.run_id }} \
+          --github-run-number ${{ github.run_number }} \
+          --head-branch-name ${{ env.BRANCH_NAME }}
+
 
       - name: Collect core dumps
         if: failure()
@@ -498,12 +682,14 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Release / Benchmark"
 
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 110
+    timeout-minutes: 120
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -524,12 +710,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -546,13 +730,19 @@ jobs:
 
       - name: Build release binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 12 \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --split-debug \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -592,7 +782,8 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph e2e
+          test-memgraph e2e \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION}
 
       - name: Ensure localstack is down
         run: |
@@ -656,12 +847,14 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Release / End to end tests"
 
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -682,12 +875,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -704,13 +895,19 @@ jobs:
 
       - name: Build release binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 12 \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --split-debug \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -834,136 +1031,5 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-
-  query_modules:
-    if: ${{ inputs.run_query_modules == 'true' }}
-    name: "Query modules tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
-
-      - name: Build release binary
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          build-memgraph \
-          --split-debug \
-          --conan-remote $CONAN_REMOTE \
-          --conan-username $CONAN_USERNAME \
-          --conan-password $CONAN_PASSWORD
-
-      - name: Initialize tests
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          init-tests
-
-      - name: Run query modules unit tests
-        run: |
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            test-memgraph query_modules_unit
-
-      - name: Run query modules e2e tests
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph query_modules_e2e
-
-      - name: Copy memgraph logs
-        if: failure()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --memgraph-logs --dest-dir build/memgraph-logs-query-modules
-
-      - name: Save test data
-        continue-on-error: true
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: failure()
-        with:
-          name: "Query modules tests(Release build)${{ env.RUN_ID }}"
-          path: build/memgraph-logs-query-modules
-
-      - name: Collect core dumps
-        if: failure()
-        continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-        run: |
-          ./tools/ci/core-dumps/collect.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --run-id "${{ github.run_id }}" \
-          --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Stop mgbuild container
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          stop --remove
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
-        uses: ./.github/actions/cancel-on-failure-in-merge-queue
+          job-name: "Release / Stress tests"

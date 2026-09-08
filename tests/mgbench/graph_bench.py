@@ -320,7 +320,7 @@ def collect_all_results(vendor_name, dataset, dataset_size, dataset_group, worke
     json_object = json.dumps(summary, indent=4)
     print(json_object)
     with open(vendor_name + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_summary.json", "w") as f:
-        json.dump(summary, f)
+        json.dump(summary, f, indent=4)
 
 
 if __name__ == "__main__":

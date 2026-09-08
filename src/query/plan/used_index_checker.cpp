@@ -60,6 +60,11 @@ bool UsedIndexChecker::PreVisit(ScanAllByEdgePropertyRange &op) {
   return true;
 }
 
+bool UsedIndexChecker::PreVisit(ScanAllByVertexProperty &op) {
+  required_indices_.vertex_property_.emplace_back(op.property_);
+  return true;
+}
+
 bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypeProperty &op) {
   required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
   return true;
@@ -113,12 +118,7 @@ PRE_VISIT(Union)
 
 PRE_VISIT(Unwind)
 
-bool UsedIndexChecker::PreVisit(CallProcedure &op) {
-  if (op.is_write_) {
-    return true;
-  }
-  return true;
-}
+bool UsedIndexChecker::PreVisit(CallProcedure & /*unused*/) { return true; }
 
 bool UsedIndexChecker::PreVisit([[maybe_unused]] Foreach &op) { return true; }
 

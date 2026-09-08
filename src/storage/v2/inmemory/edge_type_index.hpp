@@ -11,21 +11,23 @@
 
 #pragma once
 
+#include <mutex>
+
 #include <map>
 #include <utility>
 
 #include "memory/db_arena_fwd.hpp"
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -220,17 +222,18 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
    private:
     std::shared_ptr<IndicesContainer const> index_container_;
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
+    mutable std::once_flag indexed_built_;
+    mutable std::vector<EdgeTypeId> indexed_;
   };
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   bool RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
 
@@ -244,7 +247,10 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   void RestoreIndex(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> evicted,
                     ActiveIndicesUpdater const &updater);
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// Sweeps nothing unless `arming` says an edge was created or removed, and returns how many
+  /// indexes that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   void DropGraphClearIndices() override;
 

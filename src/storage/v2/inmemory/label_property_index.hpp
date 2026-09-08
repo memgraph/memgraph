@@ -14,23 +14,25 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <tuple>
 #include <variant>
+#include <vector>
 
 #include "memory/db_arena_fwd.hpp"
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -73,8 +75,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     friend bool operator==(BasicEntry const &, BasicEntry const &) = default;
 
     bool operator<(std::vector<PropertyValue> const &rhs) const;
+    bool operator<(std::span<PropertyValue const> rhs) const;
     bool operator==(std::vector<PropertyValue> const &rhs) const;
+    bool operator==(std::span<PropertyValue const> rhs) const;
     bool operator<=(std::vector<PropertyValue> const &rhs) const;
+    bool operator<=(std::span<PropertyValue const> rhs) const;
   };
 
   template <std::size_t N = std::dynamic_extent>
@@ -262,8 +267,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool CreateIndexOnePass(LabelId label, PropertiesPaths const &properties,
                           utils::SkipListDb<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                           IndexOrder order = IndexOrder::ASC);
 
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
@@ -271,8 +275,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      IndexOrder order = IndexOrder::ASC, Transaction const *tx = nullptr,
                      CheckCancelFunction cancel_check = neverCancel) -> std::expected<void, IndexPopulateError>;
 
@@ -307,6 +310,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       typename utils::SkipListDb<EntryT>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
+      // Owned by the iterator rather than by each advance, so one buffer serves the whole sweep.
+      // Its width is the index's arity, so it stops growing after the first entry compared.
+      std::vector<bool> match_scratch_;
     };
 
     Iterator begin();
@@ -323,6 +329,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
+    /// Only the leading property's predicate is held: it is the one a group of equal values can be
+    /// skipped by, because the index orders on it first. The rest are answered by the post-filter.
+    PropertyValueRange::ValuePredicate leading_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -365,6 +374,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       typename utils::SkipListDb<EntryT>::ChunkedIterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_{nullptr};
+      // See the corresponding member on Iterable::Iterator.
+      std::vector<bool> match_scratch_;
     };
 
     class Chunk {
@@ -496,12 +507,20 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       return index_container_->Indices<EntryT::kOrder>();
     }
 
+    auto BuildAbortLookup() const -> LabelPropertyIndexAbortLookup;
+
     std::shared_ptr<IndexContainer const> index_container_;
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
+    mutable std::once_flag abort_lookup_built_;
+    mutable LabelPropertyIndexAbortLookup abort_lookup_;
   };
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// Sweeps only the indexes whose label or one of whose properties `arming` names, and
+  /// answers with how many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   // Captures the evicted asc/desc IndividualIndex shared_ptrs so the caller can
   // re-insert them on abort. Pair with RestoreIndex. The captured shared_ptrs

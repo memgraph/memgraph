@@ -56,8 +56,11 @@ class CoordinatorGlobalReadOnlySettingTest : public ::testing::Test {
   static auto GetShownSetting(CoordinatorInstance const &instance, std::string_view name)
       -> std::optional<std::string> {
     auto const settings = instance.ShowCoordinatorSettings();
-    auto const it = std::ranges::find(settings, name, &std::pair<std::string, std::string>::first);
-    if (it == settings.end()) {
+    if (!settings.has_value()) {
+      return std::nullopt;
+    }
+    auto const it = std::ranges::find(*settings, name, &std::pair<std::string, std::string>::first);
+    if (it == settings->end()) {
       return std::nullopt;
     }
     return it->second;

@@ -21,6 +21,7 @@
 #include "query/exceptions.hpp"
 // TODO: remove once ast has been split
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 
 namespace memgraph::query {
@@ -74,7 +75,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Match &) override;
   bool PreVisit(Foreach &) override;
   bool PostVisit(Foreach &) override;
-  bool PreVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(RemoveProperty & /*remove_property*/) override;
   bool PreVisit(SetLabels &) override;
@@ -105,8 +105,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Reduce &) override;
   bool PostVisit(Reduce &) override;
   bool PreVisit(Extract &) override;
-  bool PreVisit(Exists & /*exists*/) override;
-  bool PostVisit(Exists & /*exists*/) override;
+  bool PreVisit(SubqueryExpression & /*subquery*/) override;
+  bool PostVisit(SubqueryExpression & /*subquery*/) override;
   bool PreVisit(NamedExpression & /*unused*/) override;
   bool PreVisit(ListComprehension &) override;
   bool PostVisit(ListComprehension &) override;
@@ -148,16 +148,21 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_where{false};
     bool in_match{false};
     bool in_foreach{false};
-    bool in_exists_pattern{false};
-    bool in_exists_subquery{false};
+    bool in_subquery_pattern{false};
+    bool in_subquery_body{false};
+    /// Which construct opened the surrounding subquery, so its refusals name the spelling the user wrote.
+    SubqueryExpression::Fold subquery_fold{SubqueryExpression::Fold::kBool};
     bool in_reduce{false};
-    bool in_set_property{false};
     bool in_call_subquery{false};
     bool has_return{false};
     bool in_set_labels{false};
     bool in_remove_labels{false};
     bool in_pattern_comprehension{false};
     bool in_list_comprehension{false};
+    /// Nesting depth of expressions that bind a per-element identifier and evaluate a body once per element: a list
+    /// comprehension, all/any/none/single, extract, reduce, and an edge atom's filter/weight lambda. A depth so a
+    /// nested one does not clear its parent.
+    uint32_t element_lambda_depth{0};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
@@ -169,6 +174,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     std::map<std::string, Symbol> symbols;
     // Symbols imported into a `CALL (v1, v2, ...) { ... }` subquery scope.
     std::map<std::string, Symbol> call_subquery_imports;
+    // Index of the scope that opened the innermost enclosing `CALL {}`. A name resolving only below it belongs to
+    // the enclosing query and needs an explicit import.
+    std::optional<size_t> call_subquery_base;
     // Identifiers found in property maps of patterns or as variable length path
     // bounds in a single Match clause. They need to be checked after visiting
     // Match. Identifiers created by naming vertices, edges and paths are *not*
@@ -184,7 +192,12 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
-  bool HasSymbol(const std::string &name) const;
+  /// The positions an EXISTS may appear in - the ones the planner has a splice point for. Default-deny, because an
+  /// unlisted position leaves the frame slot unwritten and the expression reads it without an error.
+  static bool IsSupportedSubqueryPosition(const Scope &scope);
+
+  // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.
+  bool HasSymbol(const std::string &name, size_t from = 0) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
@@ -212,6 +225,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
   std::vector<Scope> scopes_;
   Scope global_scope_;
+  // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
+  // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
+  std::unordered_set<Symbol> create_clause_symbols_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
@@ -309,7 +325,7 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
 
   void Visit(Extract &op) override {}
 
-  void Visit(Exists &op) override {}
+  void Visit(SubqueryExpression &op) override {}
 
   void Visit(All &op) override {}
 
@@ -440,7 +456,7 @@ class PropertyLookupBaseIdentifierVisitor : public ExpressionVisitor<void> {
 
   void Visit(Extract &op) override {}
 
-  void Visit(Exists &op) override {}
+  void Visit(SubqueryExpression &op) override {}
 
   void Visit(All &op) override {}
 

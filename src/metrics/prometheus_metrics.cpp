@@ -40,7 +40,7 @@ namespace memgraph::metrics {
 namespace {
 
 bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
-  static constexpr std::array<std::string_view, 28> kLegacyCoordinatorDeltaMetrics{
+  static constexpr std::array<std::string_view, 26> kLegacyCoordinatorDeltaMetrics{
       "SuccessfulFailovers",
       "RaftFailedFailovers",
       "NoAliveInstanceFailedFailovers",
@@ -55,8 +55,6 @@ bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
       "StateCheckRpcSuccess",
       "UnregisterReplicaRpcFail",
       "UnregisterReplicaRpcSuccess",
-      "EnableWritingOnMainRpcFail",
-      "EnableWritingOnMainRpcSuccess",
       "PromoteToMainRpcFail",
       "PromoteToMainRpcSuccess",
       "DemoteMainToReplicaRpcFail",
@@ -236,6 +234,11 @@ PrometheusMetrics::PrometheusMetrics()
                                                .Name("memgraph_scan_all_by_edge_id_operator_total")
                                                .Help("Number of times ScanAllByEdgeId operator was used")
                                                .Register(registry_)},
+      scan_all_by_vertex_property_operator_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_scan_all_by_vertex_property_operator_total")
+              .Help("Number of times ScanAllByVertexProperty operator was used")
+              .Register(registry_)},
       scan_all_by_point_distance_operator_family_{prometheus::BuildCounter()
                                                       .Name("memgraph_scan_all_by_point_distance_operator_total")
                                                       .Help("Number of times ScanAllByPointDistance operator was used")
@@ -406,6 +409,10 @@ PrometheusMetrics::PrometheusMetrics()
                                                .Name("memgraph_active_edge_property_indices")
                                                .Help("Number of active edge property indices")
                                                .Register(registry_)},
+      active_vertex_property_indices_family_{prometheus::BuildGauge()
+                                                 .Name("memgraph_active_vertex_property_indices")
+                                                 .Help("Number of active vertex property indices")
+                                                 .Register(registry_)},
       active_point_indices_family_{prometheus::BuildGauge()
                                        .Name("memgraph_active_point_indices")
                                        .Help("Number of active point indices")
@@ -623,14 +630,6 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Name("memgraph_unregister_replica_rpc_fail_total")
                                               .Help("Number of failed UnregisterReplicaRpc calls")
                                               .Register(registry_)},
-      enable_writing_on_main_rpc_success_family_{prometheus::BuildCounter()
-                                                     .Name("memgraph_enable_writing_on_main_rpc_success_total")
-                                                     .Help("Number of successful EnableWritingOnMainRpc calls")
-                                                     .Register(registry_)},
-      enable_writing_on_main_rpc_fail_family_{prometheus::BuildCounter()
-                                                  .Name("memgraph_enable_writing_on_main_rpc_fail_total")
-                                                  .Help("Number of failed EnableWritingOnMainRpc calls")
-                                                  .Register(registry_)},
       promote_to_main_rpc_success_family_{prometheus::BuildCounter()
                                               .Name("memgraph_promote_to_main_rpc_success_total")
                                               .Help("Number of successful PromoteToMainRpc calls")
@@ -741,10 +740,6 @@ PrometheusMetrics::PrometheusMetrics()
                                                    .Name("memgraph_unregister_replica_rpc_seconds")
                                                    .Help("Latency of UnregisterReplicaRpc in seconds")
                                                    .Register(registry_)},
-      enable_writing_on_main_rpc_histogram_family_{prometheus::BuildHistogram()
-                                                       .Name("memgraph_enable_writing_on_main_rpc_seconds")
-                                                       .Help("Latency of EnableWritingOnMainRpc in seconds")
-                                                       .Register(registry_)},
       state_check_rpc_histogram_family_{prometheus::BuildHistogram()
                                             .Name("memgraph_state_check_rpc_seconds")
                                             .Help("Latency of StateCheckRpc in seconds")
@@ -797,6 +792,10 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Name("memgraph_gc_skiplist_cleanup_latency_seconds")
                                               .Help("GC skiplist cleanup latency in seconds")
                                               .Register(registry_)},
+      gc_index_sweeps_family_{prometheus::BuildCounter()
+                                  .Name("memgraph_gc_index_sweeps_total")
+                                  .Help("Individual indexes swept by GC index cleanup")
+                                  .Register(registry_)},
       snapshot_throughput_family_{prometheus::BuildHistogram()
                                       .Name("memgraph_snapshot_throughput_bytes_per_second")
                                       .Help("Throughput of snapshot sent to each replica during recovery, in bytes/s")
@@ -872,8 +871,6 @@ PrometheusMetrics::PrometheusMetrics()
   global.state_check_rpc_fail = &state_check_rpc_fail_family_.Add(no_labels);
   global.unregister_replica_rpc_success = &unregister_replica_rpc_success_family_.Add(no_labels);
   global.unregister_replica_rpc_fail = &unregister_replica_rpc_fail_family_.Add(no_labels);
-  global.enable_writing_on_main_rpc_success = &enable_writing_on_main_rpc_success_family_.Add(no_labels);
-  global.enable_writing_on_main_rpc_fail = &enable_writing_on_main_rpc_fail_family_.Add(no_labels);
   global.promote_to_main_rpc_success = &promote_to_main_rpc_success_family_.Add(no_labels);
   global.promote_to_main_rpc_fail = &promote_to_main_rpc_fail_family_.Add(no_labels);
   global.demote_main_to_replica_rpc_success = &demote_main_to_replica_rpc_success_family_.Add(no_labels);
@@ -902,8 +899,6 @@ PrometheusMetrics::PrometheusMetrics()
   global.register_replica_on_main_rpc_seconds =
       &register_replica_on_main_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.unregister_replica_rpc_seconds = &unregister_replica_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
-  global.enable_writing_on_main_rpc_seconds =
-      &enable_writing_on_main_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.state_check_rpc_seconds = &state_check_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.get_database_histories_rpc_seconds =
       &get_database_histories_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
@@ -939,14 +934,24 @@ StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(utils::UUID const &uui
   return StorageSnapshot{};
 }
 
-DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
+PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
   std::lock_guard const lock{databases_.mutex};
   if (name == dbms::kDefaultDB) {
     default_db_uuid_ = uuid;
   }
+
+  auto const existing =
+      r::find_if(databases_.entries, [&uuid, name](auto const &e) { return e.uuid == uuid && e.db_name == name; });
+  if (existing != databases_.entries.end()) {
+    ++existing->registrations;
+    return Registration{this, existing->id, existing->handles};
+  }
+
   prometheus::Labels const labels{{"database", std::string(name)}, {"uuid", std::string(uuid)}};
+  auto const entry_id = databases_.next_entry_id++;
   databases_.entries.push_back(
       {
+          .id = entry_id,
           .uuid = uuid,
           .db_name = std::string(name),
           .handles =
@@ -980,6 +985,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .scan_all_by_edge_property_range_operator = {&scan_all_by_edge_property_range_operator_family_.Add(
                       labels)},
                   .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
+                  .scan_all_by_vertex_property_operator = {&scan_all_by_vertex_property_operator_family_.Add(labels)},
                   .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
                   .scan_all_by_point_withinbbox_operator = {&scan_all_by_point_withinbbox_operator_family_.Add(labels)},
                   .expand_operator = {&expand_operator_family_.Add(labels)},
@@ -1022,6 +1028,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
                   .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
                   .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
+                  .active_vertex_property_indices = {&active_vertex_property_indices_family_.Add(labels)},
                   .active_point_indices = {&active_point_indices_family_.Add(labels)},
                   .active_text_indices = {&active_text_indices_family_.Add(labels)},
                   .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
@@ -1059,15 +1066,39 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
                   .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels,
                                                                                                    kLatencyBuckets)},
+                  .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
               },
       });
-  return databases_.entries.back().handles;
+  return Registration{this, entry_id, databases_.entries.back().handles};
 }
 
-void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
+PrometheusMetrics::Registration::~Registration() { Release(); }
+
+PrometheusMetrics::Registration::Registration(Registration &&other) noexcept
+    : registry_(std::exchange(other.registry_, nullptr)),
+      entry_id_(std::exchange(other.entry_id_, 0)),
+      handles_(std::exchange(other.handles_, DatabaseMetricHandles{})) {}
+
+auto PrometheusMetrics::Registration::operator=(Registration &&other) noexcept -> Registration & {
+  if (this == &other) return *this;
+  Release();
+  registry_ = std::exchange(other.registry_, nullptr);
+  entry_id_ = std::exchange(other.entry_id_, 0);
+  handles_ = std::exchange(other.handles_, DatabaseMetricHandles{});
+  return *this;
+}
+
+void PrometheusMetrics::Registration::Release() noexcept {
+  if (registry_ == nullptr) return;
+  std::exchange(registry_, nullptr)->ReleaseRegistration(entry_id_);
+  handles_ = {};
+}
+
+void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
   std::lock_guard const lock{databases_.mutex};
-  auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
+  auto it = r::find_if(databases_.entries, [entry_id](auto const &e) { return e.id == entry_id; });
   if (it == databases_.entries.end()) return;
+  if (--it->registrations != 0) return;
   auto &h = it->handles;
   vertex_count_family_.Remove(h.vertex_count.get());
   edge_count_family_.Remove(h.edge_count.get());
@@ -1093,6 +1124,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   scan_all_by_edge_property_value_operator_family_.Remove(h.scan_all_by_edge_property_value_operator.get());
   scan_all_by_edge_property_range_operator_family_.Remove(h.scan_all_by_edge_property_range_operator.get());
   scan_all_by_edge_id_operator_family_.Remove(h.scan_all_by_edge_id_operator.get());
+  scan_all_by_vertex_property_operator_family_.Remove(h.scan_all_by_vertex_property_operator.get());
   scan_all_by_point_distance_operator_family_.Remove(h.scan_all_by_point_distance_operator.get());
   scan_all_by_point_withinbbox_operator_family_.Remove(h.scan_all_by_point_withinbbox_operator.get());
   expand_operator_family_.Remove(h.expand_operator.get());
@@ -1135,6 +1167,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   active_edge_type_indices_family_.Remove(h.active_edge_type_indices.get());
   active_edge_type_property_indices_family_.Remove(h.active_edge_type_property_indices.get());
   active_edge_property_indices_family_.Remove(h.active_edge_property_indices.get());
+  active_vertex_property_indices_family_.Remove(h.active_vertex_property_indices.get());
   active_point_indices_family_.Remove(h.active_point_indices.get());
   active_text_indices_family_.Remove(h.active_text_indices.get());
   active_text_edge_indices_family_.Remove(h.active_text_edge_indices.get());
@@ -1169,7 +1202,8 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
-  if (default_db_uuid_ && *default_db_uuid_ == uuid) {
+  gc_index_sweeps_family_.Remove(h.gc_index_sweeps.get());
+  if (default_db_uuid_ && *default_db_uuid_ == it->uuid) {
     default_db_uuid_.reset();
   }
   databases_.entries.erase(it);
@@ -1426,6 +1460,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
       {"UnreleasedDeltaObjects", "Memory", "Gauge", static_cast<int64_t>(h.unreleased_delta_objects.Value())});
   AppendHistogramPercentiles(out, "GCLatency", "Memory", *h.gc_latency_seconds.get());
   AppendHistogramPercentiles(out, "GCSkiplistCleanupLatency", "Memory", *h.gc_skiplist_cleanup_latency_seconds.get());
+  out.push_back({"GCIndexSweeps", "Memory", "Counter", static_cast<int64_t>(h.gc_index_sweeps.Value())});
 
   // Operator
   out.push_back({"OnceOperator", "Operator", "Counter", static_cast<int64_t>(h.once_operator.Value())});
@@ -1473,6 +1508,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value())});
   out.push_back(
       {"ScanAllByEdgeIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value())});
+  out.push_back({"ScanAllByVertexPropertyOperator",
+                 "Operator",
+                 "Counter",
+                 static_cast<int64_t>(h.scan_all_by_vertex_property_operator.Value())});
   out.push_back({"ScanAllByPointDistanceOperator",
                  "Operator",
                  "Counter",
@@ -1550,6 +1589,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  static_cast<int64_t>(h.active_edge_type_property_indices.Value())});
   out.push_back(
       {"ActiveEdgePropertyIndices", "Index", "Gauge", static_cast<int64_t>(h.active_edge_property_indices.Value())});
+  out.push_back({"ActiveVertexPropertyIndices",
+                 "Index",
+                 "Gauge",
+                 static_cast<int64_t>(h.active_vertex_property_indices.Value())});
   out.push_back({"ActivePointIndices", "Index", "Gauge", static_cast<int64_t>(h.active_point_indices.Value())});
   out.push_back({"ActiveTextIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_indices.Value())});
   out.push_back({"ActiveTextEdgeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_edge_indices.Value())});
@@ -2100,14 +2143,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
                  "HighAvailability",
                  "Counter",
                  static_cast<int64_t>(global.unregister_replica_rpc_fail->Value())});
-  out.push_back({"EnableWritingOnMainRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(global.enable_writing_on_main_rpc_success->Value())});
-  out.push_back({"EnableWritingOnMainRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(global.enable_writing_on_main_rpc_fail->Value())});
   out.push_back({"PromoteToMainRpcSuccess",
                  "HighAvailability",
                  "Counter",
@@ -2174,8 +2209,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(
       out, "RegisterReplicaOnMainRpc", "HighAvailability", *global.register_replica_on_main_rpc_seconds);
   AppendHistogramPercentiles(out, "UnregisterReplicaRpc", "HighAvailability", *global.unregister_replica_rpc_seconds);
-  AppendHistogramPercentiles(
-      out, "EnableWritingOnMainRpc", "HighAvailability", *global.enable_writing_on_main_rpc_seconds);
   AppendHistogramPercentiles(out, "StateCheckRpc", "HighAvailability", *global.state_check_rpc_seconds);
   AppendHistogramPercentiles(
       out, "GetDatabaseHistoriesRpc", "HighAvailability", *global.get_database_histories_rpc_seconds);
@@ -2511,8 +2544,6 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"StateCheckRpcFail", static_cast<int64_t>(global.state_check_rpc_fail->Value())},
     {"UnregisterReplicaRpcSuccess", static_cast<int64_t>(global.unregister_replica_rpc_success->Value())},
     {"UnregisterReplicaRpcFail", static_cast<int64_t>(global.unregister_replica_rpc_fail->Value())},
-    {"EnableWritingOnMainRpcSuccess", static_cast<int64_t>(global.enable_writing_on_main_rpc_success->Value())},
-    {"EnableWritingOnMainRpcFail", static_cast<int64_t>(global.enable_writing_on_main_rpc_fail->Value())},
     {"PromoteToMainRpcSuccess", static_cast<int64_t>(global.promote_to_main_rpc_success->Value())},
     {"PromoteToMainRpcFail", static_cast<int64_t>(global.promote_to_main_rpc_fail->Value())},
     {"DemoteMainToReplicaRpcSuccess", static_cast<int64_t>(global.demote_main_to_replica_rpc_success->Value())},

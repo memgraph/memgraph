@@ -23,6 +23,7 @@
 #include "query/frontend/ast/ordering.hpp"
 #include "query/frontend/ast/query/binary_operator.hpp"
 #include "query/frontend/ast/query/expression.hpp"
+#include "query/frontend/ast/query/graph_access.hpp"
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/frontend/ast/query/pattern.hpp"
@@ -30,7 +31,6 @@
 #include "query/frontend/ast/query/where.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/procedure/module_fwd.hpp"
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
@@ -1284,8 +1284,8 @@ class Function : public Expression {
   std::vector<memgraph::query::Expression *> arguments_;
   std::string function_name_;
   std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> function_;
-  // This is needed to acquire the shared lock on the module so it doesn't get reloaded while the query is running
-  std::shared_ptr<procedure::Module> module_;
+  bool is_user_defined_{false};
+  int64_t user_function_id_{-1};
 
   Function *Clone(AstStorage *storage) const override {
     Function *object = storage->Create<Function>();
@@ -1295,13 +1295,14 @@ class Function : public Expression {
     }
     object->function_name_ = function_name_;
     object->function_ = function_;
-    object->module_ = module_;
+    object->is_user_defined_ = is_user_defined_;
+    object->user_function_id_ = user_function_id_;
     return object;
   }
 
-  bool IsBuiltin() const { return not bool(module_); }
+  bool IsBuiltin() const { return !is_user_defined_; }
 
-  bool IsUserDefined() const { return bool(module_); }
+  bool IsUserDefined() const { return is_user_defined_; }
 
  protected:
   Function(const std::string &function_name, const std::vector<Expression *> &arguments)
@@ -1309,14 +1310,8 @@ class Function : public Expression {
     auto func_result = NameToFunction(function_name_);
 
     std::visit(utils::Overloaded{
-                   [this](func_impl function) {
-                     function_ = function;
-                     module_.reset();
-                   },
-                   [this](std::pair<func_impl, std::shared_ptr<procedure::Module>> &function) {
-                     function_ = function.first;
-                     module_ = std::move(function.second);
-                   },
+                   [this](func_impl &function) { function_ = std::move(function); },
+                   [this](user_func & /*function*/) { is_user_defined_ = true; },
                    [&](std::monostate) { throw SemanticException("Function '{}' doesn't exist.", function_name); }},
                func_result);
   }
@@ -1817,6 +1812,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     WEIGHTED_SHORTEST_PATH,
     ALL_SHORTEST_PATHS,
     KSHORTEST,
+    PRUNING_BFS,
   };
 
   enum class Direction : uint8_t { IN, OUT, BOTH };
@@ -1884,6 +1880,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       case Type::WEIGHTED_SHORTEST_PATH:
       case Type::ALL_SHORTEST_PATHS:
       case Type::KSHORTEST:
+      case Type::PRUNING_BFS:
         return true;
       case Type::SINGLE:
         return false;
@@ -2071,7 +2068,7 @@ struct IndexHint {
 
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  enum class IndexType { LABEL, LABEL_PROPERTIES, POINT };
+  enum class IndexType { LABEL, LABEL_PROPERTIES, POINT, VERTEX_PROPERTY };
 
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_ix_;
@@ -2226,6 +2223,7 @@ class IndexQuery : public memgraph::query::Query {
   // For CREATE: absent/empty => IndexOrder::ASC.
   // For DROP:   absent/empty => drop both ASC and DESC for (label, properties).
   std::unordered_map<Expression *, Expression *> config_;
+  bool is_global_ = false;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
@@ -2239,6 +2237,7 @@ class IndexQuery : public memgraph::query::Query {
     for (auto const &[key_expr, value_expr] : config_) {
       object->config_.emplace(key_expr->Clone(storage), value_expr->Clone(storage));
     }
+    object->is_global_ = is_global_;
     return object;
   }
 
@@ -2570,8 +2569,10 @@ class CallProcedure : public memgraph::query::Clause {
   std::vector<memgraph::query::Identifier *> result_identifiers_;
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
-  bool is_write_;
   bool void_procedure_{false};
+  /// Copied from the procedure's own declaration so that later phases need not take the registry lock
+  /// again.
+  memgraph::query::GraphAccess graph_access_{memgraph::query::GraphAccess::Read};
   memgraph::query::Where *where_{nullptr};
 
   CallProcedure *Clone(AstStorage *storage) const override {
@@ -2588,8 +2589,8 @@ class CallProcedure : public memgraph::query::Clause {
     }
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
-    object->is_write_ = is_write_;
     object->void_procedure_ = void_procedure_;
+    object->graph_access_ = graph_access_;
     object->where_ = where_ ? where_->Clone(storage) : nullptr;
     return object;
   }
@@ -3289,7 +3290,8 @@ class CoordinatorQuery : public memgraph::query::Query {
     SET_COORDINATOR_SETTING,
     SHOW_COORDINATOR_SETTINGS,
     SHOW_REPLICATION_LAG,
-    UPDATE_CONFIG
+    UPDATE_CONFIG,
+    SHOW_ROUTING_TABLE
   };
 
   enum class SyncMode : uint8_t { SYNC, ASYNC, STRICT_SYNC };
@@ -4452,6 +4454,7 @@ class DescriptionQuery : public memgraph::query::Query {
   std::vector<LabelIx> to_labels_;
   std::string database_name_;
   std::string description_;
+  Expression *value_{nullptr};
 
   DescriptionQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<DescriptionQuery>();
@@ -4464,6 +4467,7 @@ class DescriptionQuery : public memgraph::query::Query {
     object->to_labels_ = to_labels_;
     object->database_name_ = database_name_;
     object->description_ = description_;
+    object->value_ = value_ ? value_->Clone(storage) : nullptr;
     return object;
   }
 

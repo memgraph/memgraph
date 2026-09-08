@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
@@ -93,8 +94,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     return id;
   }
 
-  Exists *CreateExistsWithValue(std::string name, TypedValue &&value) {
-    auto id = storage.template Create<Exists>();
+  SubqueryExpression *CreateSubqueryWithValue(std::string name, TypedValue &&value) {
+    auto id = storage.template Create<SubqueryExpression>();
     auto symbol = symbol_table.CreateSymbol(name, true);
     id->MapTo(symbol);
     auto frame_writer = FrameWriter(frame, nullptr, ctx.memory);
@@ -178,7 +179,7 @@ TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
 
     auto *op = this->storage.template Create<AndOperator>(
         this->storage.template Create<PrimitiveLiteral>(false),
-        this->CreateExistsWithValue("anon1", std::move(func_should_not_evaluate)));
+        this->CreateSubqueryWithValue("anon1", std::move(func_should_not_evaluate)));
     auto value = this->Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
@@ -190,10 +191,70 @@ TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
 
     auto *op =
         this->storage.template Create<AndOperator>(this->storage.template Create<PrimitiveLiteral>(true),
-                                                   this->CreateExistsWithValue("anon1", std::move(should_evaluate)));
+                                                   this->CreateSubqueryWithValue("anon1", std::move(should_evaluate)));
     auto value = this->Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedBoolFold) {
+  // A deferred fold leaves a closure in the frame slot for the Filter to call; a forced one leaves the answer itself,
+  // because the RollUpApply below already ran the branch. Both spellings have to evaluate.
+  {
+    auto *exists = this->CreateSubqueryWithValue("anon1", TypedValue(true, this->ctx.memory));
+    EXPECT_EQ(this->Eval(exists).ValueBool(), true);
+  }
+  {
+    auto *exists = this->CreateSubqueryWithValue("anon2", TypedValue(false, this->ctx.memory));
+    EXPECT_EQ(this->Eval(exists).ValueBool(), false);
+  }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, SubqueryReadsAForcedCountFold) {
+  // The count fold writes an integer where the bool fold writes a bool, and both are read from the same slot by the
+  // same visitor, so the integer arm needs its own case.
+  auto *count = this->CreateSubqueryWithValue("anon1", TypedValue(int64_t{3}, this->ctx.memory));
+  count->fold_ = memgraph::query::SubqueryExpression::Fold::kCount;
+  EXPECT_EQ(this->Eval(count).ValueInt(), 3);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, SubqueryReadsAForcedListFold) {
+  // COLLECT's forced fold writes a list into the same slot, so the visitor needs a list arm too - and the empty list
+  // has to come back as an empty list, which is what a body with no rows leaves there.
+  auto *collected = this->CreateSubqueryWithValue(
+      "anon1", TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1}), TypedValue(int64_t{2})}, this->ctx.memory));
+  collected->fold_ = memgraph::query::SubqueryExpression::Fold::kList;
+  auto value = this->Eval(collected);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 2U);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 1);
+  EXPECT_EQ(value.ValueList()[1].ValueInt(), 2);
+
+  auto *empty = this->CreateSubqueryWithValue("anon2", TypedValue(std::vector<TypedValue>{}, this->ctx.memory));
+  empty->fold_ = memgraph::query::SubqueryExpression::Fold::kList;
+  auto empty_value = this->Eval(empty);
+  ASSERT_TRUE(empty_value.IsList());
+  EXPECT_TRUE(empty_value.ValueList().empty());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, SubqueryRefusesAnUnexpectedFrameValueByConstruct) {
+  // Neither a value nor a closure. Asserting the type alone would pass with either fold, so the construct name in the
+  // message is the whole point of the test.
+  auto expect_named = [this](memgraph::query::SubqueryExpression::Fold fold, std::string_view construct) {
+    auto *subquery = this->CreateSubqueryWithValue("anon1", TypedValue("not a fold", this->ctx.memory));
+    subquery->fold_ = fold;
+    try {
+      this->Eval(subquery);
+      FAIL() << "expected a throw for " << construct;
+    } catch (const QueryRuntimeException &e) {
+      EXPECT_NE(std::string(e.what()).find(construct), std::string::npos)
+          << "the message should name " << construct << ", got: " << e.what();
+    }
+  };
+
+  expect_named(memgraph::query::SubqueryExpression::Fold::kCount, "COUNT");
+  expect_named(memgraph::query::SubqueryExpression::Fold::kBool, "EXISTS");
+  expect_named(memgraph::query::SubqueryExpression::Fold::kList, "COLLECT");
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, AndOperatorNull) {
@@ -1141,6 +1202,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
+  // One definite match alongside a null: the match count is either one or two,
+  // so the result is null rather than true.
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
@@ -1148,8 +1211,33 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
   auto value = this->Eval(single);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementBeforeMatch) {
+  // Same as above with the null first: element order must not change the result.
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(true)), WHERE(ident_x));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(single);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleTwoMatchesWithNullIsFalse) {
+  // Two definite matches settle the answer whatever the null turns out to be.
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE(
+      "x", LIST(LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(true), LITERAL(true)), WHERE(ident_x));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(single);
   ASSERT_TRUE(value.IsBool());
-  EXPECT_TRUE(value.ValueBool());
+  EXPECT_FALSE(value.ValueBool());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
@@ -1324,6 +1412,100 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneWhereWrongType) {
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   EXPECT_THROW(this->Eval(none), QueryRuntimeException);
+}
+
+// A list comprehension filters, so an element whose predicate is NULL is left
+// out and the rest of the list still comes back. This is what separates it from
+// the quantifiers above, which fold a NULL into their answer.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionKeepsElementsPastANullPredicate) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(0))),
+                         nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 2);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 1);
+  EXPECT_EQ(value.ValueList()[1].ValueInt(), 3);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionDropsTheElementWhosePredicateIsNull) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(2))),
+                         nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 1);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 3);
+}
+
+// A predicate that is null for every element leaves an empty list, the same as
+// one that is false for every element.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionOverAlwaysNullPredicateIsEmpty) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension = LIST_COMPREHENSION(
+      ident_x, LIST(LITERAL(1), LITERAL(2)), WHERE(LITERAL(memgraph::storage::ExternalPropertyValue())), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  EXPECT_TRUE(value.ValueList().empty());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionAppliesItsExpressionPastANullPredicate) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(0))),
+                         ADD(ident_x, LITERAL(10)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 2);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 11);
+  EXPECT_EQ(value.ValueList()[1].ValueInt(), 13);
+}
+
+// NULL is the only non-boolean a predicate may hold; anything else is still a
+// mistake in the query rather than an element to skip.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionWhereWrongType) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension = LIST_COMPREHENSION(ident_x, LIST(LITERAL(1)), WHERE(LITERAL(2)), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  EXPECT_THROW(this->Eval(list_comprehension), QueryRuntimeException);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionOverNullList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x, LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  EXPECT_TRUE(this->Eval(list_comprehension).IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionReduce) {
@@ -1831,6 +2013,18 @@ class FunctionTest : public ExpressionEvaluatorTest<StorageType> {
 
 TYPED_TEST_SUITE(FunctionTest, StorageTypes);
 
+// A slot outside the resolved table means the plan's AstStorage is not the one its Function
+// nodes were indexed into. That is a broken invariant, and it is contained to the query.
+TYPED_TEST(FunctionTest, OutOfRangeUserFunctionSlotThrows) {
+  auto *op = this->storage.template Create<Function>("SIZE", std::vector<Expression *>{});
+  op->is_user_defined_ = true;
+  op->user_function_id_ = 0;
+  // Non-null but empty, so slot 0 is out of range rather than falling back to resolution by name.
+  this->ctx.resolved_user_functions = std::make_shared<memgraph::query::ResolvedUserFunctions>();
+
+  EXPECT_THROW(this->Eval(op), QueryRuntimeException);
+}
+
 template <class... TArgs>
 static TypedValue MakeTypedValueList(TArgs &&...args) {
   return TypedValue(std::vector<TypedValue>{TypedValue(args)...});
@@ -1951,6 +2145,22 @@ TYPED_TEST(FunctionTest, Size) {
   path.Expand(*edge);
   path.Expand(v1);
   EXPECT_EQ(this->EvaluateFunction("SIZE", path).ValueInt(), 1);
+}
+
+TYPED_TEST(FunctionTest, SizeCountsCodePoints) {
+  // size() of a string is its length in code points, not the size of its UTF-8
+  // buffer. Escapes keep the normalisation of the input explicit.
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "\u00E9").ValueInt(), 1);
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "\u4E2D").ValueInt(), 1);
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "a\u00E9b").ValueInt(), 3);
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "\U0001F600").ValueInt(), 1);
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "").ValueInt(), 0);
+
+  // A decomposed character is two code points, so it counts as two.
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "e\u0301").ValueInt(), 2);
+
+  // ASCII is unaffected.
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "john").ValueInt(), 4);
 }
 
 TYPED_TEST(FunctionTest, StartNode) {
@@ -2091,6 +2301,65 @@ TYPED_TEST(FunctionTest, ToInteger) {
   ASSERT_THROW(this->EvaluateFunction("TOINTEGER", MakeTypedValueList(1, 2, 3)), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("TOINTEGER", TypedValue(std::map<std::string, TypedValue>{})),
                QueryRuntimeException);
+}
+
+TYPED_TEST(FunctionTest, ToIntegerPreservesFullInt64Range) {
+  // Every int64 survives the conversion, including values near the limits that
+  // a double cannot represent, and adjacent inputs stay distinct.
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "9223372036854775807").ValueInt(), std::numeric_limits<int64_t>::max());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "9223372036854775806").ValueInt(),
+            std::numeric_limits<int64_t>::max() - 1);
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "-9223372036854775808").ValueInt(),
+            std::numeric_limits<int64_t>::min());
+  ASSERT_NE(this->EvaluateFunction("TOINTEGER", "9223372036854775807").ValueInt(),
+            this->EvaluateFunction("TOINTEGER", "9223372036854775806").ValueInt());
+
+  // A string naming a value with no integer counterpart is an error: it named
+  // a number exactly, and silently returning some other one would be worse
+  // than saying so. This holds however the number is written.
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "9223372036854775808"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "99999999999999999999"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "1e30"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "-99999999999999999999"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "9223372036854775808.5"), QueryRuntimeException);
+
+  // Text naming no number at all is null rather than an error: nothing was
+  // asked for that could not be given.
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "banana").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "   ").IsNull());
+
+  // A floating point argument saturates instead, and NaN converts to zero.
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", 1.0e30).ValueInt(), std::numeric_limits<int64_t>::max());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", -1.0e30).ValueInt(), std::numeric_limits<int64_t>::min());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", std::nan("")).ValueInt(), 0);
+
+  // The bottom of the range is exactly representable as a double and belongs to
+  // it, so it converts rather than saturating into place by luck. The top is
+  // not representable, which is why the bound above it is the one tested.
+  const auto lowest = static_cast<double>(std::numeric_limits<int64_t>::min());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", lowest).ValueInt(), std::numeric_limits<int64_t>::min());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "-9223372036854775808.0").ValueInt(),
+            std::numeric_limits<int64_t>::min());
+
+  // Forms that only a floating-point parse accepts keep working.
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", " -3.5 \n\t").ValueInt(), -3);
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "1e3").ValueInt(), 1000);
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "\n\t3X ").IsNull());
+}
+
+TYPED_TEST(FunctionTest, ToIntegerOrNullOnOutOfRange) {
+  // The OrNull form reports every failure the same way, so a value out of
+  // range is null here rather than the error the strict form raises.
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "99999999999999999999").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "9223372036854775808").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "1e30").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "not a number").IsNull());
+
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", "9223372036854775807").ValueInt(),
+            std::numeric_limits<int64_t>::max());
+  // A floating point argument still saturates rather than going null.
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", 1.0e30).ValueInt(), std::numeric_limits<int64_t>::max());
 }
 
 TYPED_TEST(FunctionTest, ToBooleanOrNull) {
@@ -2487,7 +2756,12 @@ TYPED_TEST(FunctionTest, Rand) {
 TYPED_TEST(FunctionTest, StartsWith) {
   EXPECT_THROW(this->EvaluateFunction(kStartsWith), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kStartsWith, TypedValue(), 1.3), QueryRuntimeException);
+  // A non-string on either side compares to Null, so the answer cannot depend on whether an index
+  // narrowed the subject to strings before the comparison ran.
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abc", 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, 1.3, "abc").IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, true, "abc").IsNull());
   EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abcdef", "abc").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kStartsWith, "abcdef", "aBc").ValueBool());
@@ -2497,7 +2771,9 @@ TYPED_TEST(FunctionTest, StartsWith) {
 TYPED_TEST(FunctionTest, EndsWith) {
   EXPECT_THROW(this->EvaluateFunction(kEndsWith), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kEndsWith, TypedValue(), 1.3), QueryRuntimeException);
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abc", 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, 1.3, "abc").IsNull());
   EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abcdef", "def").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kEndsWith, "abcdef", "dEf").ValueBool());
@@ -2507,7 +2783,9 @@ TYPED_TEST(FunctionTest, EndsWith) {
 TYPED_TEST(FunctionTest, Contains) {
   EXPECT_THROW(this->EvaluateFunction(kContains), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kContains, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kContains, TypedValue(), 1.3), QueryRuntimeException);
+  EXPECT_TRUE(this->EvaluateFunction(kContains, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kContains, "abc", 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kContains, 1.3, "abc").IsNull());
   EXPECT_TRUE(this->EvaluateFunction(kContains, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kContains, "abcde", "bcd").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kContains, "cde", "abcdef").ValueBool());
@@ -2881,6 +3159,20 @@ TYPED_TEST(FunctionTest, Reverse) {
   EXPECT_THROW(this->EvaluateFunction("REVERSE", "x", "y"), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, ReverseNonAscii) {
+  // Escapes rather than typed characters: an accented character may reach the
+  // compiler precomposed or as a base plus a combining mark, and the two forms
+  // have different correct answers here.
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "caf\u00E9").ValueString(), "\u00E9fac");
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "a\u4E2Db").ValueString(), "b\u4E2Da");
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "\u00E9").ValueString(), "\u00E9");
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "ab\u0107").ValueString(), "\u0107ba");
+  // Decomposed: the combining mark is a code point of its own, so it leads the
+  // result rather than staying with the character it followed.
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "abc\u0301").ValueString(), "\u0301cba");
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "").ValueString(), "");
+}
+
 TYPED_TEST(FunctionTest, Replace) {
   EXPECT_THROW(this->EvaluateFunction("REPLACE"), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction("REPLACE", TypedValue(), "l", "w").IsNull());
@@ -2912,6 +3204,28 @@ TYPED_TEST(FunctionTest, Split) {
   EXPECT_EQ(result.ValueList()[1].ValueString(), "two");
 }
 
+TYPED_TEST(FunctionTest, SplitEmptyString) {
+  // Splitting a non-null string always yields at least one element, so the
+  // empty string splits to a single empty field rather than to no fields.
+  auto empty_input = this->EvaluateFunction("SPLIT", "", ",");
+  ASSERT_TRUE(empty_input.IsList());
+  ASSERT_EQ(empty_input.ValueList().size(), 1);
+  EXPECT_EQ(empty_input.ValueList()[0].ValueString(), "");
+
+  // A delimiter with nothing either side of it already produced empty fields;
+  // the empty input is the same rule applied to a string with no delimiter.
+  auto lone_delimiter = this->EvaluateFunction("SPLIT", ",", ",");
+  ASSERT_TRUE(lone_delimiter.IsList());
+  ASSERT_EQ(lone_delimiter.ValueList().size(), 2);
+  EXPECT_EQ(lone_delimiter.ValueList()[0].ValueString(), "");
+  EXPECT_EQ(lone_delimiter.ValueList()[1].ValueString(), "");
+
+  auto no_delimiter_present = this->EvaluateFunction("SPLIT", "abc", ",");
+  ASSERT_TRUE(no_delimiter_present.IsList());
+  ASSERT_EQ(no_delimiter_present.ValueList().size(), 1);
+  EXPECT_EQ(no_delimiter_present.ValueList()[0].ValueString(), "abc");
+}
+
 TYPED_TEST(FunctionTest, Substring) {
   EXPECT_THROW(this->EvaluateFunction("SUBSTRING"), QueryRuntimeException);
 
@@ -2927,6 +3241,26 @@ TYPED_TEST(FunctionTest, Substring) {
   EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "hello", 1, 3).ValueString(), "ell");
   EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "hello", 1, 4).ValueString(), "ello");
   EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "hello", 1, 10).ValueString(), "ello");
+}
+
+TYPED_TEST(FunctionTest, SubstringLeftRightCountCodePoints) {
+  // Positions and lengths follow size(): a multi-byte character is one unit,
+  // and is never cut in half into invalid UTF-8 as byte offsets would do.
+  EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "a\u4E2Db", 1, 1).ValueString(), "\u4E2D");
+  EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\U0001F600\U0001F600", 0, 1).ValueString(), "\U0001F600");
+  EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\u00E9\u4E2D", 1).ValueString(), "\u4E2D");
+  EXPECT_EQ(this->EvaluateFunction("LEFT", "\U0001F600\U0001F600", 1).ValueString(), "\U0001F600");
+  EXPECT_EQ(this->EvaluateFunction("RIGHT", "\U0001F600\U0001F600", 1).ValueString(), "\U0001F600");
+  EXPECT_EQ(this->EvaluateFunction("RIGHT", "a\u4E2Db", 2).ValueString(), "\u4E2Db");
+  EXPECT_EQ(this->EvaluateFunction("LEFT", "a\u4E2Db", 2).ValueString(), "a\u4E2D");
+
+  // Asking for more than there is yields the whole string, not a broken one.
+  EXPECT_EQ(this->EvaluateFunction("RIGHT", "\u4E2D", 5).ValueString(), "\u4E2D");
+  EXPECT_EQ(this->EvaluateFunction("LEFT", "\u4E2D", 5).ValueString(), "\u4E2D");
+  EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\u4E2D", 5).ValueString(), "");
+
+  // The functions agree with each other on what one unit is.
+  EXPECT_EQ(this->EvaluateFunction("SIZE", this->EvaluateFunction("LEFT", "\U0001F600\U0001F600", 1)).ValueInt(), 1);
 }
 
 TYPED_TEST(FunctionTest, ToLower) {
@@ -3148,6 +3482,29 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                                                                       {"timezone", TypedValue("America/Los_Angeles")}});
   EXPECT_EQ(this->EvaluateFunction("DATETIME", map_param).ValueZonedDateTime(), zdt);
 
+  // A UTC offset is accepted for the timezone field, in the same forms the
+  // string constructor takes.
+  auto with_offset = [&](const char *timezone) {
+    return this
+        ->EvaluateFunction("DATETIME",
+                           TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(2024)},
+                                                                        {"month", TypedValue(6)},
+                                                                        {"day", TypedValue(22)},
+                                                                        {"hour", TypedValue(12)},
+                                                                        {"timezone", TypedValue(timezone)}}))
+        .ValueZonedDateTime();
+  };
+  EXPECT_EQ(with_offset("+01:00").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{60}));
+  EXPECT_EQ(with_offset("-05:30").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{-330}));
+  EXPECT_EQ(with_offset("+0100").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{60}));
+  EXPECT_EQ(with_offset("Z").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{0}));
+
+  // A timezone that cannot be understood is a problem with the argument, so it
+  // has to be reported as one rather than escaping as an internal error.
+  EXPECT_THROW(with_offset("not/a/zone"), memgraph::utils::BasicException);
+  EXPECT_THROW(with_offset("+99:00"), memgraph::utils::BasicException);
+  EXPECT_THROW(with_offset(""), memgraph::utils::BasicException);
+
   const auto one_sec_in_microseconds = 1'000'000;
   const auto today = memgraph::utils::CurrentZonedDateTime();
   EXPECT_NEAR(this->EvaluateFunction("DATETIME").ValueZonedDateTime().SysMicrosecondsSinceEpoch().count(),
@@ -3203,6 +3560,61 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                 {{2025, 1, 22}, {10, 33, 23, 42, 123}, memgraph::utils::Timezone("America/Los_Angeles")}));
 
   EXPECT_TRUE(this->EvaluateFunction("DATETIME", TypedValue()).IsNull());
+}
+
+// A query that opened no storage transaction evaluates its expressions with no accessor. Whatever it
+// evaluates must either succeed without one or say so; it must never reach through the null accessor.
+class NoAccessorEvaluatorTest : public ::testing::Test {
+ protected:
+  AstStorage storage;
+  memgraph::utils::MonotonicBufferResource mem{1024};
+  ExecutionContext execution_context{
+      .db_accessor = nullptr, .evaluation_context = {.memory = &mem, .timestamp = memgraph::query::QueryTimestamp()}};
+  Frame frame{128};
+  ExpressionEvaluator eval{&frame, execution_context, memgraph::storage::View::OLD};
+};
+
+TEST_F(NoAccessorEvaluatorTest, ArithmeticEvaluates) {
+  auto *expr = storage.Create<memgraph::query::AdditionOperator>(storage.Create<memgraph::query::PrimitiveLiteral>(2),
+                                                                 storage.Create<memgraph::query::PrimitiveLiteral>(3));
+  EXPECT_EQ(expr->Accept(eval).ValueInt(), 5);
+}
+
+TEST_F(NoAccessorEvaluatorTest, FunctionCallThrows) {
+  auto *expr = storage.Create<memgraph::query::Function>(
+      "TOSTRING", std::vector<memgraph::query::Expression *>{storage.Create<memgraph::query::PrimitiveLiteral>(1)});
+  EXPECT_THROW(expr->Accept(eval), QueryRuntimeException);
+}
+
+// A record cannot exist without an accessor, so the paths that read a property off one are unreachable
+// on a query that opened no transaction. They refuse rather than rely on that: the value here is a real
+// vertex, put in the frame by hand, which is the state the guard exists for.
+TYPED_TEST(ExpressionEvaluatorTest, RecordPropertyWithoutAccessorThrows) {
+  auto vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(vertex.SetProperty(this->dba.NameToProperty("prop"), memgraph::storage::PropertyValue(1)));
+
+  auto *identifier = this->CreateIdentifierWithValue("n", TypedValue(vertex));
+
+  ExecutionContext no_accessor_context{
+      .db_accessor = nullptr,
+      .symbol_table = this->symbol_table,
+      .evaluation_context = {.memory = &this->mem, .timestamp = memgraph::query::QueryTimestamp()}};
+  ExpressionEvaluator no_accessor_eval{&this->frame, no_accessor_context, memgraph::storage::View::OLD};
+
+  // n["prop"] resolves the property name at run time, so the name never reaches the AST's property list.
+  auto *by_string = this->storage.template Create<memgraph::query::SubscriptOperator>(
+      identifier, this->storage.template Create<memgraph::query::PrimitiveLiteral>("prop"));
+  EXPECT_THROW(by_string->Accept(no_accessor_eval), QueryRuntimeException);
+
+  // n.prop names the property at parse time and takes the other path into the same accessor.
+  auto *by_name =
+      this->storage.template Create<memgraph::query::PropertyLookup>(identifier, this->storage.GetPropertyIx("prop"));
+  EXPECT_THROW(by_name->Accept(no_accessor_eval), QueryRuntimeException);
+}
+
+TEST_F(NoAccessorEvaluatorTest, EnumValueAccessThrows) {
+  auto *expr = storage.Create<memgraph::query::EnumValueAccess>("Color", "RED");
+  EXPECT_THROW(expr->Accept(eval), QueryRuntimeException);
 }
 
 }  // namespace

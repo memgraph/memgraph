@@ -21,7 +21,7 @@ from common import (
     get_data_path,
     get_logs_path,
     show_instances,
-    wait_until_main_writeable_assert_replica_down,
+    wait_until_main_writeable,
 )
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_until_role_change
 
@@ -232,6 +232,72 @@ def test_global_read_only():
     mg_sleep_and_assert(True, partial(write_accepted, instance3_cursor))
 
 
+def test_set_coordinator_setting_forwarded_from_follower():
+    # A coordinator setting write (SET COORDINATOR SETTING) issued against a follower coordinator must be forwarded to
+    # the leader and committed, instead of failing locally with a Raft-write error. We drive 'global_read_only' from
+    # both followers and confirm each change is committed (visible on the leader) and reconciles to the main.
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+    )
+    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+    )
+
+    expected_cluster_coord3 = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_cluster_coord3, partial(show_instances, coordinator3_cursor))
+
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+    mg_sleep_and_assert(True, partial(write_accepted, instance3_cursor))
+
+    # Enable read-only via follower coordinator_1. The forwarded write commits synchronously, so the leader immediately
+    # reports the new value, and the main rejects writes within a reconciliation cycle.
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+    execute_and_fetch_all(coordinator1_cursor, "SET COORDINATOR SETTING 'global_read_only' TO 'true'")
+    settings = dict(execute_and_fetch_all(coordinator3_cursor, "SHOW COORDINATOR SETTINGS"))
+    assert settings["global_read_only"] == "true"
+    mg_sleep_and_assert(True, partial(write_rejected_with_read_only_message, instance3_cursor))
+
+    # Clear read-only via the other follower coordinator_2: writes are re-enabled on the main.
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
+    execute_and_fetch_all(coordinator2_cursor, "SET COORDINATOR SETTING 'global_read_only' TO 'false'")
+    settings = dict(execute_and_fetch_all(coordinator3_cursor, "SHOW COORDINATOR SETTINGS"))
+    assert settings["global_read_only"] == "false"
+    mg_sleep_and_assert(True, partial(write_accepted, instance3_cursor))
+
+    # A rejected write must surface the leader's exact reason on the follower, not a generic forwarding error.
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coordinator1_cursor, "SET COORDINATOR SETTING 'no_such_setting' TO 'true'")
+    assert "Setting no_such_setting doesn't exist on coordinators." in str(e.value)
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coordinator2_cursor, "SET COORDINATOR SETTING 'global_read_only' TO 'maybe'")
+    assert "Invalid argument detected while trying to update setting global_read_only" in str(e.value)
+
+    # The failed writes must not have changed the committed value.
+    settings = dict(execute_and_fetch_all(coordinator3_cursor, "SHOW COORDINATOR SETTINGS"))
+    assert settings["global_read_only"] == "false"
+
+
 def test_global_read_only_honored_across_failover():
     # A cluster that is in read-only mode when its main dies must promote a new main that is also read-only, instead of
     # silently starting to accept writes. Clearing read-only afterwards must re-enable writes on the promoted main.
@@ -260,7 +326,7 @@ def test_global_read_only_honored_across_failover():
     expected_cluster_after_failover = [
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
     mg_sleep_and_assert(expected_cluster_after_failover, partial(show_instances, coordinator_cursor))
 
@@ -270,10 +336,11 @@ def test_global_read_only_honored_across_failover():
     mg_sleep_and_assert(True, partial(write_rejected_with_read_only_message, new_main_cursor))
 
     # Clearing read-only mode re-enables writes on the promoted main within a reconciliation cycle. instance_3 (the
-    # promoted main's SYNC replica) is still down, so a successful local write surfaces as a SYNC-replication error;
-    # the helper treats that as "main is writeable", which is what we assert here.
+    # promoted main's SYNC replica) is still down, but that only produces a notification, so the write succeeds
+    # once the main is writeable again.
     execute_and_fetch_all(coordinator_cursor, "SET COORDINATOR SETTING 'global_read_only' TO 'false'")
-    wait_until_main_writeable_assert_replica_down(new_main_cursor, "CREATE (n:Node {name: 'after_clear'})")
+    wait_until_main_writeable(new_main_cursor, "CREATE (n:Node {name: 'after_clear'})")
+    assert execute_and_fetch_all(new_main_cursor, "MATCH (n:Node {name: 'after_clear'}) RETURN count(n);")[0][0] == 1
 
 
 if __name__ == "__main__":

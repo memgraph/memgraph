@@ -32,6 +32,8 @@
 #include <utility>
 #include <vector>
 
+#include "page_cache_probe.hpp"
+
 #include "communication/buffer.hpp"
 #include "communication/session.hpp"
 #include "flags/general.hpp"
@@ -199,7 +201,7 @@ class RpcFileFraming : public ::testing::Test {
         std::ofstream f{root_ / "wal" / name, std::ios::binary};
         f.write(content.data(), static_cast<std::streamsize>(content.size()));
       }
-      encoder.WriteFile(root_ / "wal" / name, fs::path{"wal"} / name);
+      encoder.WriteFile(root_ / "wal" / name, fs::path{"wal"} / name, memgraph::utils::PageCachePolicy::kKeep);
       w.expected.emplace_back(name, std::move(content));
     }
     builder.Finalize();
@@ -319,4 +321,56 @@ TEST_F(RpcFileFraming, SequentialMessagesOnOneConnection) {
   ASSERT_EQ(counts.size(), 2U);
   EXPECT_EQ(counts[0], 1U) << "first message";
   EXPECT_EQ(counts[1], 2U) << "second message (state leaked from first?)";
+}
+
+// Sending a snapshot to a replica reads it once, front to back, and the main has no use for it
+// afterwards. The WAL segment sent alongside it is the one still being appended to, so the two
+// have to be distinguishable, and nothing about the file itself distinguishes them: the caller
+// says which it is and the encoder acts on that.
+class ReplicationEncoderPageCache : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    root_ = fs::temp_directory_path() / "mg_repl_page_cache";
+    fs::remove_all(root_);
+    fs::create_directories(root_ / "wal");
+  }
+
+  void TearDown() override { fs::remove_all(root_); }
+
+  // Sends `file` through an Encoder that discards the wire, and reports how much of the file is
+  // left in the page cache. Large enough that residency is measured over many pages.
+  std::optional<double> ResidencyAfterSending(const fs::path &file, memgraph::utils::PageCachePolicy page_cache) {
+    const std::vector<uint8_t> content(8U << 20, 'x');
+    {
+      memgraph::utils::OutputFile out;
+      out.Open(file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+      out.Write(content.data(), content.size());
+      // Clean pages are the only ones DONTNEED can evict, and a snapshot on disk is long since
+      // synced by the time a replica asks for it.
+      out.Sync();
+      out.Close();
+    }
+
+    Builder builder([](const uint8_t *, size_t, bool) {});
+    Encoder encoder{&builder};
+    EXPECT_TRUE(encoder.WriteFile(file, file.filename(), page_cache));
+    builder.Finalize();
+    return memgraph::test::ResidentFraction(file);
+  }
+
+  fs::path root_;
+};
+
+TEST_F(ReplicationEncoderPageCache, DroppingLeavesTheSentFileEvicted) {
+  if (!memgraph::test::PageCacheEvictionObservable(root_ / "probe.bin")) {
+    GTEST_SKIP() << "page cache eviction is not observable under " << root_;
+  }
+
+  const auto kept = ResidencyAfterSending(root_ / "wal" / "kept.bin", memgraph::utils::PageCachePolicy::kKeep);
+  ASSERT_TRUE(kept.has_value());
+  EXPECT_GT(*kept, 0.9) << "sending reads the whole file, so keeping should leave it resident";
+
+  const auto dropped = ResidencyAfterSending(root_ / "wal" / "dropped.bin", memgraph::utils::PageCachePolicy::kDrop);
+  ASSERT_TRUE(dropped.has_value());
+  EXPECT_LT(*dropped, 0.05) << "kDrop left " << (*dropped * 100) << "% of the sent file resident";
 }

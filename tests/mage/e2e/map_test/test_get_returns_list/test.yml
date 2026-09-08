@@ -1,0 +1,5 @@
+query: >
+  RETURN map.get({items: [1, 2, 3]}, "items") AS value;
+
+output:
+  - value: [1, 2, 3]

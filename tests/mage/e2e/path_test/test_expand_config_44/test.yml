@@ -1,0 +1,11 @@
+# The first step is spent on the hop out of the start node, so a filter with only one step leaves
+# nothing to repeat and the walk would stop after one hop. Named rather than answered: the caller
+# either meant more steps or meant to leave the key alone.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {maxHops: 3, beginSequenceAtStart: false, relationshipFilter: 'NEXT>'})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  the relationship steps of 'relationshipFilter' need a further one to repeat

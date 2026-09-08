@@ -21,11 +21,11 @@ namespace rewrite = core::rewrite;
 using rewrite::Match;
 using rewrite::RewriteConfig;
 
-using TestRewriteRule = rewrite::RewriteRule<Op, NoAnalysis>;
-using TestRuleSet = rewrite::RuleSet<Op, NoAnalysis>;
-using TestRewriter = rewrite::Rewriter<Op, NoAnalysis>;
-using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
-using TestRewriteContext = rewrite::RewriteContext<Op, NoAnalysis>;
+using TestRewriteRule = rewrite::RewriteRule<TypedTestEGraph>;
+using TestRuleSet = rewrite::RuleSet<TypedTestEGraph>;
+using TestRewriter = rewrite::Rewriter<TypedTestEGraph>;
+using TestRuleContext = rewrite::RuleContext<TypedTestEGraph>;
+using TestRewriteContext = rewrite::RewriteContext<TypedTestEGraph>;
 
 using pattern::dsl::Var;
 
@@ -71,9 +71,9 @@ inline auto RuleWideJoin() {
 class RewriterFixtureBase : public MatcherFixtureBase {
  protected:
   std::unique_ptr<TestRewriter> rewriter_;
-  TestRewriteContext rewrite_context_{egraph_};
+  TestRewriteContext rewrite_context_{typed_egraph_};
 
-  void CreateRewriter(TestRuleSet const &rules) { rewriter_ = std::make_unique<TestRewriter>(egraph_, rules); }
+  void CreateRewriter(TestRuleSet const &rules) { rewriter_ = std::make_unique<TestRewriter>(typed_egraph_, rules); }
 
   template <typename BuilderFn>
   void SetupGraphAndRewriter(BuilderFn &&build_fn, TestRuleSet const &rules) {

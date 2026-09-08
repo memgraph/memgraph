@@ -13,11 +13,10 @@ jobs:
     runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 720
     env:
-      THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: ubuntu-24.04
-      TOOLCHAIN: v7
+      TOOLCHAIN: v8
       ARCH: amd
       BUILD_TYPE: RelWithDebInfo
 
@@ -42,12 +41,10 @@ jobs:
             password: ${{ secrets.DOCKERHUB_TOKEN }}
 
         - name: Spin up mgbuild container
+          env:
+            GITHUB_TOKEN: ${{ github.token }}
           run: |
-            if [[ "$OS" == "ubuntu-24.04" ]]; then
-              USE_CUSTOM_MIRROR=true
-            else
-              USE_CUSTOM_MIRROR=false
-            fi
+            USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
             ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
@@ -69,7 +66,6 @@ jobs:
             --os $OS \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
-            --threads $THREADS \
             build-memgraph --split-debug
 
         - name: Get branch name (merge)

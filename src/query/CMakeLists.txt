@@ -49,6 +49,7 @@ target_sources(mg-query
     frontend/ast/cypher_main_visitor.cpp
     frontend/ast/pretty_print.cpp
     frontend/parsing.cpp
+    frontend/semantic/graph_free.cpp
     frontend/semantic/required_privileges.cpp
     frontend/semantic/rw_checker.cpp
     frontend/semantic/symbol_generator.cpp
@@ -63,6 +64,7 @@ target_sources(mg-query
     interpreter.cpp
     jsonl/reader.cpp
     metadata.cpp
+    parse_config_map.cpp
     plan/hint_provider.cpp
     plan/operator_type_info.cpp
     plan/operator.cpp
@@ -72,6 +74,7 @@ target_sources(mg-query
     plan/read_write_type_checker.cpp
     plan/rewrite/general.cpp
     plan/rewrite/index_lookup.cpp
+    plan/rewrite/pruning_bfs.cpp
     plan/rewrite/range.cpp
     plan/rule_based_planner.cpp
     plan/used_index_checker.cpp
@@ -83,7 +86,9 @@ target_sources(mg-query
     plan_v2/frontend/builder.cpp
     plan_v2/cost/cost_model.cpp
     plan_v2/rewrite/rewrites.cpp
+    plan_v2/rewrite/fold.cpp
     plan_v2/egraph/symbol_make_traits.cpp
+    plan_v2/resolve/analysis.cpp
     plan/parallel_checker.cpp
     procedure/mg_procedure_impl.cpp
     procedure/callable_alias_mapper.cpp
@@ -91,8 +96,8 @@ target_sources(mg-query
     procedure/mg_procedure_helpers.cpp
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
-    procedure/py_module.cpp
     query_user.cpp
+    relations/equality.cpp
     serialization/property_value.cpp
     stream/common.cpp
     stream/sources.cpp
@@ -107,12 +112,13 @@ target_sources(mg-query
     FILES
     dependant_symbol_visitor.hpp
     plan_v2/rewrite/rewrites.hpp
+    plan_v2/rewrite/fold.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
     frontend/ast/query/aggregation.hpp
     frontend/ast/query/auth_query.hpp
     frontend/ast/query/binary_operator.hpp
-    frontend/ast/query/exists.hpp
+    frontend/ast/query/subquery_expression.hpp
     frontend/ast/query/expression.hpp
     frontend/ast/query/identifier.hpp
     frontend/ast/query/named_expression.hpp
@@ -141,6 +147,8 @@ target_sources(mg-query
     TYPE HEADERS
     FILES
     plan_v2/frontend/builder.hpp
+    plan_v2/resolve/analysis.hpp
+    plan_v2/resolve/constant_identity.hpp
     plan_v2/resolve/extraction_env.hpp
     plan_v2/resolve/resolver.hpp
     plan_v2/egraph/symbol.hpp
@@ -159,12 +167,111 @@ target_sources(mg-query-cppm
 )
 target_link_libraries(mg-query-cppm PUBLIC mg-aws mg::storage)
 
+# Everything Python lives behind MG_PYTHON_SUPPORT: with it OFF, mg-query
+# skips py_module.cpp and links no libpython at all.
+set(MG_PYTHON_LINK_TARGET "")
+if(MG_PYTHON_SUPPORT)
+
+target_sources(mg-query PRIVATE procedure/py_module.cpp)
+
+if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
+    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
+elseif(NOT DEFINED Python3_ROOT_DIR)
+    # The toolchain sysroot ships a Python install solely for GDB --with-python.
+    # Without a hint, FindPython3 picks it up first (sysroot leads
+    # CMAKE_FIND_ROOT_PATH) and the resulting binary's NEEDED libpython is the
+    # toolchain's, not the host's — cmake even warns about the runtime shadow.
+    # Force the host Python (matches what the deploy distro will ship).
+    set(Python3_ROOT_DIR "/usr")
+endif()
+set(Python3_FIND_STRATEGY LOCATION)
+
+# FindPython3 hints go through find_path/find_library, which re-root absolute
+# paths against CMAKE_FIND_ROOT_PATH — so Python3_ROOT_DIR=/usr gets re-rooted
+# to ${SYSROOT}/usr and the sysroot Python wins anyway. Flip include/library
+# find modes to NEVER for the duration of this find_package so /usr stays /usr.
+set(_mg_saved_include_mode "${CMAKE_FIND_ROOT_PATH_MODE_INCLUDE}")
+set(_mg_saved_library_mode "${CMAKE_FIND_ROOT_PATH_MODE_LIBRARY}")
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)
+
+# Build against the Python stable ABI (abi3) so the resulting binary works
+# against any libpython3 with version >= MG_PYTHON_STABLE_ABI_FLOOR.
+# Compile-time headers only need to exist for *some* compatible Python; the
+# runtime libpython is resolved via the version-less SONAME (libpython3.so).
+if("${MG_PYTHON_VERSION}" STREQUAL "")
+    find_package(Python3 3.10 REQUIRED COMPONENTS Development)
+else()
+    find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
+endif()
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE "${_mg_saved_include_mode}")
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY "${_mg_saved_library_mode}")
+
+
+# Hex form of the floor version: 3.10 = 0x030a0000.
+# 3.10 is the earliest floor where `Py_TYPE`, `Py_INCREF`, and `Py_DECREF` are
+# proper stable-ABI functions instead of macros that touch struct internals.
+set(MG_PYTHON_STABLE_ABI_FLOOR "0x030a0000" CACHE STRING
+    "Minimum Python version we promise to run on (Py_LIMITED_API value)")
+
+# Always link against the full versioned libpython (`Python3::Python`, e.g.
+# `libpython3.12.so`). It defines the complete symbol set, so the link
+# always resolves — unlike the bare unversioned `libpython3.so`, which on
+# some distros (notably RHEL/CentOS 10) is a stub that does NOT export the
+# stable-ABI symbols and breaks the link with `undefined symbol` errors.
+#
+# Runtime version-portability is achieved separately: a POST_BUILD step
+# (see cmake/RewriteDtNeededAbi3.cmake, invoked via mg_apply_python_abi3_rewrite
+# in src/CMakeLists.txt) rewrites the binary's DT_NEEDED from the versioned
+# SONAME the linker recorded (`libpython3.X.so.1.0`) to the unversioned abi3
+# SONAME `libpython3.so`. Combined with `Py_LIMITED_API` below, the binary
+# then loads against any libpython3 >= the floor at runtime.
+set(MG_PYTHON_LINK_TARGET Python3::Python)
+
+# The host libpython was built against the HOST glibc, which may be newer than
+# the sysroot's pinned glibc — its undefined symbols (pthread_create@GLIBC_2.34,
+# ...) then can't resolve at link time and lld's --no-allow-shlib-undefined
+# rejects the link (observed with Arch's libpython3.14). At runtime this is
+# moot: the DT_NEEDED rewrite loads the target machine's own python, which
+# always matches that machine's glibc. Relax the check for consumers.
+target_link_options(Python3::Python INTERFACE "-Wl,--allow-shlib-undefined")
+
+target_compile_definitions(mg-query PUBLIC
+    "Py_LIMITED_API=${MG_PYTHON_STABLE_ABI_FLOOR}")
+
+# Debian/Ubuntu split pyconfig.h between /usr/include/pythonX.Y/pyconfig.h
+# (a redirect: `#include <triple/pythonX.Y/pyconfig.h>`) and
+# /usr/include/<triple>/pythonX.Y/pyconfig.h (the real one). cmake's
+# FindPython3 returns only the first path, and the toolchain sysroot blocks
+# the redirect target's resolution through the default /usr/include search.
+# Do NOT expose all of host /usr/include (e.g. via -idirafter) to bridge
+# this — that changes libstdc++'s compile-time glibc feature detection
+# (__has_include of host-glibc-only headers) and emits symbols the sysroot
+# glibc cannot satisfy. Instead, mirror cmake/FindReadline.cmake: a shim
+# include dir exposing ONLY the multiarch pythonX.Y directory.
+set(_mg_py_ver "python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}")
+foreach(_mg_multiarch x86_64-linux-gnu aarch64-linux-gnu)
+    set(_mg_pyconfig_dir "/usr/include/${_mg_multiarch}/${_mg_py_ver}")
+    if(EXISTS "${_mg_pyconfig_dir}/pyconfig.h")
+        set(_mg_py_shim "${CMAKE_BINARY_DIR}/pyconfig-include-shim")
+        file(MAKE_DIRECTORY "${_mg_py_shim}/${_mg_multiarch}")
+        if(NOT EXISTS "${_mg_py_shim}/${_mg_multiarch}/${_mg_py_ver}")
+            file(CREATE_LINK "${_mg_pyconfig_dir}"
+                 "${_mg_py_shim}/${_mg_multiarch}/${_mg_py_ver}" SYMBOLIC)
+        endif()
+        set_property(TARGET Python3::Python APPEND PROPERTY
+                     INTERFACE_INCLUDE_DIRECTORIES "${_mg_py_shim}")
+    endif()
+endforeach()
+
+endif() # MG_PYTHON_SUPPORT
+
 target_link_libraries(mg-query
     PUBLIC
     dl
     cppitertools::cppitertools
     range-v3::range-v3
-    Python3::Python
+    ${MG_PYTHON_LINK_TARGET}
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage
@@ -189,16 +296,6 @@ target_link_libraries(mg-query
     ctre::ctre
     simdjson::simdjson
 )
-
-if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
-    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
-endif()
-
-if("${MG_PYTHON_VERSION}" STREQUAL "")
-    find_package(Python3 3.5 REQUIRED COMPONENTS Development)
-else()
-    find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
-endif()
 
 # Generate Antlr openCypher parser
 set(opencypher_frontend ${CMAKE_CURRENT_SOURCE_DIR}/frontend/opencypher)

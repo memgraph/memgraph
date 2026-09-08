@@ -1,0 +1,12 @@
+# NODE_PATH forbids a node repeating within one path, not across the walk, so D is returned once per
+# route that reaches it. A walk keeping one graph-wide visited set would return only the first.
+query: >
+  MATCH (s:Node {name: "S"})
+  CALL path.expand_config(s, {bfs: true, uniqueness: "NODE_PATH", minHops: 2, maxHops: 2})
+  YIELD result
+  WITH result ORDER BY [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["S", "A", "D"]
+  - names: ["S", "B", "D"]

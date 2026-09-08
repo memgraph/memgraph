@@ -14,6 +14,7 @@
 #include <optional>
 #include <ranges>
 
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
@@ -79,8 +80,11 @@ class EdgeMetadataIndex {
   }
 
   // The only path that populates the index during recovery.
+  // `on_progress` is invoked once per vertex examined, not per edge inserted: a long run of vertices with no out-edges
+  // is still work, and reporting only on insertions would go silent exactly there.
   void RebuildFrom(utils::SkipListDb<Vertex> &vertices,
-                   std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info);
+                   std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
+                   ProgressCallback const &on_progress = {});
 
   void Clear() { data_.clear(); }
 

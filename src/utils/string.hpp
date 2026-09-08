@@ -119,6 +119,116 @@ inline std::string ToLowerCase(const std::string_view s) {
 }
 
 /**
+ * Whether `c` continues a UTF-8 sequence rather than starting one.
+ *
+ * Exactly one byte per code point is not a continuation, so code points can be
+ * counted and sought without decoding their values.
+ */
+constexpr bool IsUtf8Continuation(const char c) { return (static_cast<unsigned char>(c) & 0xC0U) == 0x80U; }
+
+/**
+ * Reverse the order of the UTF-8 code points of `s` and store the result in
+ * `out`.
+ *
+ * A combining mark is a code point of its own and does not travel with the
+ * character it follows. Bytes that do not introduce a well-formed sequence are
+ * carried across as they are, so malformed input is reordered, not rejected.
+ *
+ * `out` must not share storage with `s`.
+ *
+ * @return pointer to `out`.
+ */
+template <class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *ReverseUtf8(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view s) {
+  // Reading forwards while placing from the back keeps this to one pass over
+  // the input, with each output byte written exactly once.
+  out->resize_and_overwrite(s.size(), [s](char *buffer, const size_t size) {
+    auto *tail = buffer + size;
+    for (const auto *sequence = s.begin(); sequence != s.end();) {
+      const auto *const next = std::find_if_not(std::next(sequence), s.end(), IsUtf8Continuation);
+      tail -= std::distance(sequence, next);
+      std::copy(sequence, next, tail);
+      sequence = next;
+    }
+    return size;
+  });
+  return out;
+}
+
+/**
+ * Reverse the order of the UTF-8 code points of `s`.
+ */
+inline std::string ReverseUtf8(const std::string_view s) {
+  std::string res;
+  ReverseUtf8(&res, s);
+  return res;
+}
+
+/**
+ * Count the UTF-8 code points of `s`.
+ *
+ * A code point counts once however many bytes encode it. A combining mark is a
+ * code point of its own, so a decomposed character counts as more than one.
+ *
+ * Bytes that do not introduce a well-formed sequence each count once, so a
+ * malformed string still yields a length rather than an error.
+ */
+inline size_t CountUtf8CodePoints(const std::string_view s) {
+  return static_cast<size_t>(std::ranges::count_if(s, [](char c) { return !IsUtf8Continuation(c); }));
+}
+
+/**
+ * Byte offset at which the code point numbered `index` starts, or the size of
+ * `s` when it holds fewer than `index + 1` of them.
+ *
+ * Reaching the n-th code point means reading what precedes it, which a
+ * variable-width encoding leaves no way around.
+ */
+inline size_t Utf8OffsetOfCodePoint(const std::string_view s, const size_t index) {
+  size_t seen = 0;
+  for (size_t offset = 0; offset != s.size(); ++offset) {
+    if (IsUtf8Continuation(s[offset])) continue;
+    if (seen == index) return offset;
+    ++seen;
+  }
+  return s.size();
+}
+
+/**
+ * Byte offset at which the last `count` code points of `s` begin, or 0 when it
+ * holds no more than that many.
+ *
+ * Walking back from the end costs only what it returns, where counting the
+ * whole string and subtracting would cost its whole length.
+ */
+inline size_t Utf8OffsetOfLastCodePoints(const std::string_view s, const size_t count) {
+  if (count == 0) return s.size();
+  size_t seen = 0;
+  size_t offset = s.size();
+  while (offset != 0) {
+    --offset;
+    if (IsUtf8Continuation(s[offset])) continue;
+    if (++seen == count) return offset;
+  }
+  return 0;
+}
+
+/**
+ * Substring of `s` starting at code point `pos` and running for at most `count`
+ * code points, so a multi-byte character is never cut in half.
+ *
+ * Out-of-range positions and lengths clamp rather than throw.
+ */
+inline std::string_view SubstrUtf8(const std::string_view s, const size_t pos,
+                                   const size_t count = std::string_view::npos) {
+  const auto begin = Utf8OffsetOfCodePoint(s, pos);
+  if (count == std::string_view::npos) return s.substr(begin);
+  const auto rest = s.substr(begin);
+  return rest.substr(0, Utf8OffsetOfCodePoint(rest, count));
+}
+
+/**
  * Uppercase all characters of a string and store the result in `out`.
  * Transformation is locale independent.
  * @return pointer to `out`.

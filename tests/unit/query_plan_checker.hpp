@@ -123,6 +123,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByEdgePropertyValue);
   PRE_VISIT(ScanAllByEdgePropertyRange);
   PRE_VISIT(ScanAllByEdgeId);
+  PRE_VISIT(ScanAllByVertexProperty);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
@@ -226,6 +227,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanParallelByEdgeProperty);
   PRE_VISIT(ScanParallelByEdgePropertyValue);
   PRE_VISIT(ScanParallelByEdgePropertyRange);
+  PRE_VISIT(ScanParallelByVertexProperty);
   PRE_VISIT(ScanChunk);
   PRE_VISIT(ScanChunkByEdge);
 
@@ -294,6 +296,25 @@ class ExpectScanAllById : public OpChecker<ScanAllById> {
 using ExpectExpand = OpChecker<Expand>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
+
+// Asserts which columns a Produce projects, where plan shape alone does not discriminate.
+class ExpectProduceColumns : public OpChecker<Produce> {
+ public:
+  explicit ExpectProduceColumns(std::vector<std::string> names) : names_(std::move(names)) {}
+
+  void ExpectOp(Produce &produce, const SymbolTable &) override {
+    std::vector<std::string> actual;
+    actual.reserve(produce.named_expressions_.size());
+    for (auto *named_expr : produce.named_expressions_) {
+      actual.emplace_back(named_expr->name_);
+    }
+    EXPECT_THAT(actual, testing::UnorderedElementsAreArray(names_));
+  }
+
+ private:
+  std::vector<std::string> names_;
+};
+
 using ExpectEmptyResult = OpChecker<EmptyResult>;
 using ExpectSetProperty = OpChecker<SetProperty>;
 using ExpectSetProperties = OpChecker<SetProperties>;
@@ -306,7 +327,19 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
-using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+
+/// The deferred fold. @p Fold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectEvaluatePatternFilterWithFold : public OpChecker<EvaluatePatternFilter> {
+ public:
+  void ExpectOp(EvaluatePatternFilter &op, const SymbolTable & /*symbol_table*/) override {
+    EXPECT_EQ(op.fold_, TFold) << "unexpected EvaluatePatternFilter fold";
+  }
+};
+
+using ExpectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kCount>;
+using ExpectCollectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kList>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
 using ExpectLoadParquet = OpChecker<LoadParquet>;
@@ -327,6 +360,7 @@ using ExpectScanParallelByEdgeTypePropertyRange = OpChecker<ScanParallelByEdgeTy
 using ExpectScanParallelByEdgeProperty = OpChecker<ScanParallelByEdgeProperty>;
 using ExpectScanParallelByEdgePropertyValue = OpChecker<ScanParallelByEdgePropertyValue>;
 using ExpectScanParallelByEdgePropertyRange = OpChecker<ScanParallelByEdgePropertyRange>;
+using ExpectScanParallelByVertexProperty = OpChecker<ScanParallelByVertexProperty>;
 using ExpectScanChunk = OpChecker<ScanChunk>;
 using ExpectScanChunkByEdge = OpChecker<ScanChunkByEdge>;
 
@@ -395,14 +429,14 @@ class ExpectFilter : public OpChecker<Filter> {
 
     auto it = filter_expressions.begin();
     for (; it != filter_expressions.end(); it++) {
-      if ((*it)->GetTypeInfo().name == query::Exists::kType.name) {
+      if ((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name) {
         break;
       }
     }
     while (it != filter_expressions.end()) {
-      ASSERT_TRUE((*it)->GetTypeInfo().name == query::Exists::kType.name)
-          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '" << query::Exists::kType.name
-          << "'!";
+      ASSERT_TRUE((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name)
+          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '"
+          << query::SubqueryExpression::kType.name << "'!";
       it++;
     }
   }
@@ -617,6 +651,7 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
 
     auto const compare_expression_range = [&](auto &&lhs, auto &&rhs) {
       if (lhs.type_ != rhs.type_) return false;
+      if ((lhs.membership_list_ == nullptr) != (rhs.membership_list_ == nullptr)) return false;
       return compare_bound_expression(lhs.lower_, rhs.lower_) && compare_bound_expression(lhs.upper_, rhs.upper_);
     };
 
@@ -711,6 +746,47 @@ class ExpectScanAllByEdgePropertyValue : public OpChecker<ScanAllByEdgePropertyV
  private:
   memgraph::storage::PropertyId property_;
   memgraph::query::Expression *expression_;
+};
+
+class ExpectScanAllByVertexProperty : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexProperty(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanAllByVertexPropertyValue : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexPropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::EQUAL);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanAllByVertexPropertyRange : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexPropertyRange(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::RANGE);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
 };
 
 class ExpectCartesian : public OpChecker<Cartesian> {
@@ -817,12 +893,16 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   }
 
   void ExpectOp(RollUpApply &op, const SymbolTable &symbol_table) override {
+    EXPECT_EQ(op.fold_, expected_fold_) << "unexpected RollUpApply fold";
     PlanChecker input_checker(input_ptrs_, symbol_table);
     op.input_->Accept(input_checker);
     ASSERT_TRUE(op.list_collection_branch_);
     PlanChecker list_collection_branch_checker(list_collection_branch_ptrs_, symbol_table);
     op.list_collection_branch_->Accept(list_collection_branch_checker);
   }
+
+ protected:
+  RollUpApply::Fold expected_fold_{RollUpApply::Fold::kList};
 
  private:
   // Owned storage (when using Checkers constructor)
@@ -832,6 +912,23 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   std::list<BaseOpChecker *> input_ptrs_;
   std::list<BaseOpChecker *> list_collection_branch_ptrs_;
 };
+
+/// A RollUpApply carrying one of the column-less folds - what an EXISTS or a COUNT in a projection, an ORDER BY or a
+/// WITH's WHERE is planned as. @p TFold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectRollUpApplyWithFold : public ExpectRollUpApply {
+ public:
+  /// Constrained so the pack cannot hijack this type's own copy/move construction.
+  template <typename... TArgs>
+    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectRollUpApplyWithFold> || ...))
+  explicit ExpectRollUpApplyWithFold(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
+    expected_fold_ = TFold;
+  }
+};
+
+using ExpectExistsRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kCount>;
+using ExpectCollectRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kList>;
 
 class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
  public:
@@ -1009,6 +1106,28 @@ class FakeDbAccessor {
     return edge_property_index_.find(property) != edge_property_index_.end();
   }
 
+  bool VertexPropertyIndexReady(memgraph::storage::PropertyId property) const {
+    return vertex_property_index_.contains(property);
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId property) const {
+    auto found = vertex_property_index_.find(property);
+    if (found != vertex_property_index_.end()) return found->second;
+    return 0;
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property*/,
+                        const memgraph::storage::PropertyValue & /*value*/) const {
+    return 0;
+  }
+
+  int64_t VerticesCount(
+      memgraph::storage::PropertyId /*property*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*lower*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*upper*/) const {
+    return 0;
+  }
+
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
     return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
@@ -1059,6 +1178,10 @@ class FakeDbAccessor {
   }
 
   void SetIndexCount(memgraph::storage::PropertyId property, int64_t count) { edge_property_index_[property] = count; }
+
+  void SetVertexPropertyIndexCount(memgraph::storage::PropertyId property, int64_t count) {
+    vertex_property_index_[property] = count;
+  }
 
   memgraph::storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
@@ -1133,6 +1256,7 @@ class FakeDbAccessor {
   std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
       edge_type_property_index_;
   std::unordered_map<memgraph::storage::PropertyId, int64_t> edge_property_index_;
+  std::unordered_map<memgraph::storage::PropertyId, int64_t> vertex_property_index_;
 };
 
 }  // namespace memgraph::query::plan

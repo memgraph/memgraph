@@ -48,7 +48,10 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteFileData(utils::InputFile *file);
 
-  bool WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write);
+  /// Sends `path` to the replica, disposing of its pages afterwards as `page_cache` says. Pass
+  /// `kKeep` for a file that is still being written to, or that something else is going to read.
+  bool WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write,
+                 utils::PageCachePolicy page_cache);
 
   uint64_t GetPosition() override;
 

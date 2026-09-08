@@ -53,22 +53,29 @@ class Resource {
   // Should this fail?
   void UpdateLimit(T limit) { limit_.store(limit, std::memory_order_release); }
 
-  IncrementResult Increment(T size, bool can_throw = true) {
-    auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;
+  IncrementResult Increment(T size) {
+    return Increment(size, [] { return true; });
+  }
 
-    if (!can_throw) {
-      // NOTE: This is needed because we have paths that block exceptions
-      return {true, current, {}};
-    }
+  // may_refuse is consulted only once the limit has been exceeded, since answering it can allocate.
+  // A caller that cannot act on a refusal is accounted for but never held to the limit: refusing it
+  // would fail something with no way to recover.
+  template <typename MayRefuse>
+  IncrementResult Increment(T size, MayRefuse &&may_refuse) {
+    auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;
 
     const auto limit =
         limit_.load(std::memory_order_relaxed);  // Could miss updates to limit, but allowing stale values for now
-    if (current > limit) {
-      allocated_.fetch_sub(size, std::memory_order_acq_rel);  // Rollback increment
-      return {false, current, limit};
+    if (current <= limit) [[likely]] {
+      return {true, current, limit};
     }
 
-    return {true, current, limit};
+    if (!may_refuse()) {
+      return {true, current, {}};
+    }
+
+    allocated_.fetch_sub(size, std::memory_order_acq_rel);  // Rollback increment
+    return {false, current, limit};
   }
 
   // Decrementing cannot fail

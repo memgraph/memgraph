@@ -1,10 +1,15 @@
 #!/bin/bash
 set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-source "$DIR/../util.sh"
+source "$DIR/lib.sh"
 
-check_operating_system "todo-os-name"
-check_architecture "todo-arch-name"
+# Copy this file to <os>-<version>.sh -- the filename IS the OS name (one
+# script serves all architectures), used for the OS check and check-packages.py.
+# Fill in the package arrays; lib.sh provides list/check/install and the
+# dispatch. For distro-specific extras (extra repos, packages that need a
+# non-repo install, post-install fixups) define the optional hooks documented
+# in lib.sh: setup_repos, SPECIAL_PACKAGES + install_special_package,
+# post_install. Remember to add the new OS to test.sh's image map.
 
 TOOLCHAIN_BUILD_DEPS=(
     pkg
@@ -18,34 +23,13 @@ MEMGRAPH_BUILD_DEPS=(
     pkg
 )
 
+# Extra packages on top of MEMGRAPH_BUILD_DEPS needed to run the test suites.
 MEMGRAPH_TEST_DEPS=(
-  pkg
+    pkg
 )
 
 MEMGRAPH_RUN_DEPS=(
     pkg
 )
 
-# NEW_DEPS is useful when you won't to test the installation of a new package.
-# During the test you can put here packages like wget curl tar gzip
-NEW_DEPS=(
-  pkg
-)
-
-list() {
-    echo "$1"
-}
-
-check() {
-    echo "TODO: Implement ${FUNCNAME[0]}."
-    exit 1
-}
-
-install() {
-    echo "TODO: Implement ${FUNCNAME[0]}."
-    exit 1
-}
-
-# http://ahmed.amayem.com/bash-indirect-expansion-exploration
-deps=$2"[*]"
-"$1" "${!deps}"
+main "$@"

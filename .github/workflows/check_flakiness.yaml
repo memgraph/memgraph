@@ -11,37 +11,55 @@ on:
       community_core:
         type: boolean
         default: true
-        description: ""
+        description: "Community: Core"
       coverage_core:
         type: boolean
         default: true
-        description: ""
+        description: "Coverage: Core"
       debug_core:
         type: boolean
         default: true
-        description: ""
+        description: "Debug: Core"
       debug_integration:
         type: boolean
         default: true
-        description: ""
+        description: "Debug: Integration"
       jepsen_core:
         type: boolean
         default: true
-        description: ""
-      release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules)'
-        default: 'core,e2e,stress,query_modules'
-      malloc_build:
+        description: "Jepsen: Core"
+      release_core:
         type: boolean
         default: true
-      mage:
-        type: string
-        default: 'amd'
-        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: false
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: false
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: false
+        description: "MAGE: CUDA"
       mgcxx_unit:
         type: boolean
         default: true
-        description: "Run the mgcxx tests."
+        description: "MGCXX: Unit"
       flakiness_runs:
         type: number
         default: 3
@@ -61,8 +79,6 @@ jobs:
       run_release_benchmark: ${{ steps.setup.outputs.run_release_benchmark}}
       run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
-      run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
-      run_malloc_build: ${{ steps.setup.outputs.run_malloc_build }}
       run_mage_amd: ${{ steps.setup.outputs.run_mage_amd }}
       run_mage_arm: ${{ steps.setup.outputs.run_mage_arm }}
       run_mage_cuda: ${{ steps.setup.outputs.run_mage_cuda }}
@@ -108,6 +124,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Coverage:
@@ -124,6 +141,7 @@ jobs:
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Debug:
@@ -140,6 +158,7 @@ jobs:
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Jepsen:
@@ -153,6 +172,7 @@ jobs:
     with:
       run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Release:
@@ -170,23 +190,8 @@ jobs:
       run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark =='true' && github.event_name == 'workflow_dispatch' }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
-      run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
       run_id: "${{ matrix.run_no }}"
-    secrets: inherit
-
-  Malloc:
-    needs: DiffSetup
-    strategy:
-      fail-fast: false
-      max-parallel: 3
-      matrix:
-        run_no: ${{ fromJSON(needs.DiffSetup.outputs.runs) }}
-    uses: ./.github/workflows/diff_malloc.yaml
-    with:
-      arch: 'amd'
-      os: 'ubuntu-24.04'
-      run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
-      run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Mage:
@@ -202,6 +207,7 @@ jobs:
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   MGCXX:
@@ -215,4 +221,30 @@ jobs:
     with:
       run_test: ${{ needs.DiffSetup.outputs.run_mgcxx_unit == 'true' }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
+
+  # The repeats above are only useful if someone reads all of them together.
+  # This gathers every run's ctest results into one per-test failure count, so a
+  # flake rate is visible without opening any job log.
+  FlakeSummary:
+    needs: [Community, Coverage, Debug, Release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+      - name: Download ctest results from every run
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          pattern: ctest_results_*
+          path: ctest-results
+      - name: Summarise failures across the runs
+        run: |
+          # Without pipefail the step takes tee's status, so the summariser
+          # could fail and still leave the step green.
+          set -euo pipefail
+          python3 tools/ci/summarize_ctest_results.py ctest-results | tee -a "$GITHUB_STEP_SUMMARY"

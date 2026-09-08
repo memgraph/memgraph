@@ -23,6 +23,8 @@
 #include <array>
 #include <concepts>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/transform.hpp>
 #include <ranges>
@@ -41,9 +43,9 @@ struct LabelPropertyIndexAbortProcessor;
  *            both bounds to the same inclusive value, BOUNDED can also be used
  *            to check for exact property equality.
  * - IS_NOT_NULL: including every non-null value.
- * - INVALID: a range no property value can ever match, caused by different
- *            types for lower and upper bounds. For example:
- *            n.a > 42 and n.a < "hello".
+ * - INVALID: a range no property value can ever match. Bounds of different types
+ *            describe one, for example n.a > 42 and n.a < "hello", and so does a
+ *            predicate that is already known to hold for nothing.
  */
 enum class PropertyRangeType { BOUNDED, IS_NOT_NULL, INVALID };
 
@@ -54,6 +56,9 @@ struct PropertyValueRange {
     return {Type::INVALID, std::move(lower), std::move(upper)};
   };
 
+  /// A range for a predicate that no value satisfies, where no pair of bounds expresses it.
+  static auto Empty() -> PropertyValueRange { return {Type::INVALID, std::nullopt, std::nullopt}; }
+
   static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
                       std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
     return {Type::BOUNDED, std::move(lower), std::move(upper)};
@@ -61,7 +66,19 @@ struct PropertyValueRange {
 
   static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
+  using ValuePredicateFn = std::function<bool(PropertyValue const &)>;
+  /// Held by pointer: a scan hands the same predicate to every iterator it makes, and one carrying
+  /// a compiled pattern is expensive to copy.
+  using ValuePredicate = std::shared_ptr<ValuePredicateFn const>;
+
+  void SetValuePredicate(ValuePredicate predicate) { value_predicate_ = std::move(predicate); }
+
+  ValuePredicate const &GetValuePredicate() const { return value_predicate_; }
+
   bool IsValueInRange(PropertyValue const &value) const {
+    // A range nothing can match admits nothing, whatever its bounds happen to be: an empty one
+    // carries none at all, and reading those as unbounded would admit every value.
+    if (type_ == Type::INVALID) return false;
     if (lower_) {
       if (lower_->IsInclusive()) {
         if (value < lower_->value()) return false;
@@ -93,6 +110,8 @@ struct PropertyValueRange {
   PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
                      std::optional<utils::Bound<PropertyValue>> upper)
       : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
+
+  ValuePredicate value_predicate_;
 };
 
 /** A non-owning view over property values known to be in *index* order (the
@@ -260,10 +279,13 @@ struct PropertiesPermutationHelper {
       -> std::vector<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
-   * values. This returns a vector of boolean flags indicating per-element
-   * equality (in monotonic property id order.)
+   * values. Fills `out` with per-element equality flags, in monotonic property id order.
+   *
+   * `out` is supplied by the caller rather than returned, because both callers walk index
+   * entries in a loop and so pay for the storage once instead of once per entry. Its previous
+   * contents are discarded.
    */
-  auto MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values) const -> std::vector<bool>;
+  void MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values, std::vector<bool> &out) const;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).
@@ -317,11 +339,20 @@ class LabelPropertyIndex {
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };
 
-struct LabelPropertyIndexAbortProcessor {
-  // TODO: this is a filter for only relevant indicies? If so it should be based off the ActiveIndices
-  //       + via constructor
+/// Which indexes a label or a property appears in, so that an aborting transaction can find the
+/// entries it has to undo without looking through every index. It points into the set of indexes
+/// it was built from and is owned by that set, so it is built once and shared by every abort that
+/// runs against the same set.
+struct LabelPropertyIndexAbortLookup {
   std::map<LabelId, std::map<PropertyId, std::vector<LabelPropertyIndex::IndexInfo>>> l2p;
   std::map<PropertyId, std::map<LabelId, std::vector<LabelPropertyIndex::IndexInfo>>> p2l;
+};
+
+struct LabelPropertyIndexAbortProcessor {
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life. A raw
+  /// pointer rather than a shared_ptr, because a reference count touched by every abort would be
+  /// contention in place of the work this saves.
+  LabelPropertyIndexAbortLookup const *lookup{nullptr};
 
   void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
   void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);

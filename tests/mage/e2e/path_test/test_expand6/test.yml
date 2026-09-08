@@ -1,0 +1,12 @@
+# A max hop count of -1 means "no limit"; it must not be taken literally and yield nothing.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand(a, [], [], 0, -1)
+  YIELD result
+  WITH result ORDER BY size(nodes(result)), [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "B", "C"]

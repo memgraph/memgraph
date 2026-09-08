@@ -19,9 +19,12 @@
 #include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_node_map.hpp>
 
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
+#include "query/plan_v2/resolve/analysis.hpp"
+#include "query/plan_v2/resolve/constant_identity.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/small_vector.hpp"
 
@@ -30,14 +33,35 @@ import memgraph.planner.core.typed_egraph;
 
 namespace memgraph::query::plan::v2 {
 
+/// What every `symbol_make_traits<S>::make` returns: a lowered e-node plus the
+/// analysis seed for the e-class it lands in. The seed gives a new e-class the
+/// variant arm for its kind (the make half of e-class analysis) rather than a
+/// default-constructed one.
+using seeded_node = planner::core::MakeResult<analysis>;
+
+/// The empty analysis seed for `S`: the variant arm matching its e-class kind.
+/// Facts (e.g. a Literal's value) are layered on by the symbol's own `make`.
+template <symbol S>
+auto default_analysis_seed() -> analysis {
+  if constexpr (is_symbol_kind_v<S>) {
+    return analysis{SymbolAnalysis{}};
+  } else if constexpr (is_operator_kind_v<S>) {
+    return analysis{OperatorAnalysis{}};
+  } else {
+    static_assert(is_expression_kind_v<S>);
+    return analysis{ExpressionAnalysis{}};
+  }
+}
+
 // ========================================================================
 // symbol_make_traits - per-symbol lowering for the TypedEGraph protocol.
 //
 // Each specialisation provides:
 //   - storage_type: per-symbol side-data (interning maps, counters, ...);
 //     empty struct if none.
-//   - static auto make(storage_type&, user_args...) -> planner::core::LoweredNode:
-//     lowers user arguments to (children, optional disambiguator).
+//   - static auto make(storage_type&, user_args...) -> seeded_node:
+//     lowers user arguments to (children, optional disambiguator) and the
+//     analysis seed for the new e-class.
 //
 // The protocol talks in raw planner::core::EClassId; the plan_v2 strong-typed
 // `eclass` is converted at the facade boundary in egraph.cpp.
@@ -53,7 +77,7 @@ struct symbol_make_traits<symbol::Once> {
     uint64_t counter = 0;
   };
 
-  static auto make(storage_type &s) -> planner::core::LoweredNode;
+  static auto make(storage_type &s) -> seeded_node;
 };
 
 /// Symbol: position -> name mapping
@@ -63,7 +87,7 @@ struct symbol_make_traits<symbol::Symbol> {
     std::map<int32_t, std::string> store;
   };
 
-  static auto make(storage_type &s, int32_t pos, std::string_view name) -> planner::core::LoweredNode;
+  static auto make(storage_type &s, int32_t pos, std::string_view name) -> seeded_node;
 };
 
 /// Literal: value <-> id mapping.  `store` (value -> id) is the hash-consing
@@ -74,11 +98,16 @@ struct symbol_make_traits<symbol::Symbol> {
 template <>
 struct symbol_make_traits<symbol::Literal> {
   struct storage_type {
-    std::map<storage::ExternalPropertyValue, uint64_t> store;
+    // Hash-consed value -> id. Node-stable (not flat) so `info`'s pointers stay
+    // valid; O(1) hashing vs the ordered map's operator<=> chain. Keyed on
+    // constant identity, the relation the analysis merge uses: finer than
+    // `operator<=>`, whose coercion would intern `1` and `1.0` as one literal,
+    // and where NaN is one constant rather than never-equal-to-itself.
+    boost::unordered_node_map<storage::ExternalPropertyValue, uint64_t, ConstantIdentityHash, ConstantIdentityEq> store;
     std::vector<storage::ExternalPropertyValue const *> info;
   };
 
-  static auto make(storage_type &s, storage::ExternalPropertyValue const &value) -> planner::core::LoweredNode;
+  static auto make(storage_type &s, storage::ExternalPropertyValue const &value) -> seeded_node;
 };
 
 /// ParamLookup: no storage, position IS the disambiguator
@@ -86,7 +115,7 @@ template <>
 struct symbol_make_traits<symbol::ParamLookup> {
   struct storage_type {};
 
-  static auto make(storage_type &, int32_t pos) -> planner::core::LoweredNode;
+  static auto make(storage_type &, int32_t pos) -> seeded_node;
 };
 
 /// Bind: no storage, just children
@@ -95,7 +124,7 @@ struct symbol_make_traits<symbol::Bind> {
   struct storage_type {};
 
   static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId sym,
-                   planner::core::EClassId expr) -> planner::core::LoweredNode;
+                   planner::core::EClassId expr) -> seeded_node;
 };
 
 /// Identifier: no storage, just child
@@ -103,7 +132,7 @@ template <>
 struct symbol_make_traits<symbol::Identifier> {
   struct storage_type {};
 
-  static auto make(storage_type &, planner::core::EClassId sym) -> planner::core::LoweredNode;
+  static auto make(storage_type &, planner::core::EClassId sym) -> seeded_node;
 };
 
 /// Output: no storage, prepends input to children
@@ -111,7 +140,7 @@ template <>
 struct symbol_make_traits<symbol::Output> {
   struct storage_type {};
 
-  static auto make(storage_type &, utils::small_vector<planner::core::EClassId> children) -> planner::core::LoweredNode;
+  static auto make(storage_type &, utils::small_vector<planner::core::EClassId> children) -> seeded_node;
 };
 
 /// NamedOutput: name <-> id mapping + children.  `store` (name -> id) is the
@@ -127,7 +156,7 @@ struct symbol_make_traits<symbol::NamedOutput> {
   };
 
   static auto make(storage_type &s, std::string_view name, planner::core::EClassId sym, planner::core::EClassId expr)
-      -> planner::core::LoweredNode;
+      -> seeded_node;
 };
 
 /// Function: interns the name to a stable id (the disambiguator) and caches its
@@ -150,7 +179,7 @@ struct symbol_make_traits<symbol::Function> {
 
   /// args is the complete children list (the function arguments).
   static auto make(storage_type &s, std::string_view name, utils::small_vector<planner::core::EClassId> args)
-      -> planner::core::LoweredNode;
+      -> seeded_node;
 };
 
 /// Unwind: no storage, mirrors Bind's [input, sym, list_expr] shape so the
@@ -160,7 +189,7 @@ struct symbol_make_traits<symbol::Unwind> {
   struct storage_type {};
 
   static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId sym,
-                   planner::core::EClassId list_expr) -> planner::core::LoweredNode;
+                   planner::core::EClassId list_expr) -> seeded_node;
 };
 
 /// Subquery: no storage; children are [outer_input, inner_root, exposed_syms...].
@@ -171,7 +200,7 @@ template <>
 struct symbol_make_traits<symbol::Subquery> {
   struct storage_type {};
 
-  static auto make(storage_type &, utils::small_vector<planner::core::EClassId> children) -> planner::core::LoweredNode;
+  static auto make(storage_type &, utils::small_vector<planner::core::EClassId> children) -> seeded_node;
 };
 
 /// Binary operator: no storage, just two children
@@ -180,9 +209,9 @@ template <symbol S>
 struct symbol_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs)
-      -> planner::core::LoweredNode {
-    return {.children = utils::small_vector{lhs, rhs}, .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs) -> seeded_node {
+    return {.lowered = {.children = utils::small_vector{lhs, rhs}, .disambiguator = std::nullopt},
+            .seed = default_analysis_seed<S>()};
   }
 };
 
@@ -192,8 +221,9 @@ template <symbol S>
 struct symbol_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, planner::core::EClassId operand) -> planner::core::LoweredNode {
-    return {.children = utils::small_vector{operand}, .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, planner::core::EClassId operand) -> seeded_node {
+    return {.lowered = {.children = utils::small_vector{operand}, .disambiguator = std::nullopt},
+            .seed = default_analysis_seed<S>()};
   }
 };
 

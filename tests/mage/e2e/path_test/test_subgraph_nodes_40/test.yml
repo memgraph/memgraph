@@ -1,0 +1,16 @@
+# `beginSequenceAtStart` reaches the subgraph walk on the same terms as the expand one: the first
+# relationship step is spent on the hop out of the start node and the rest repeat from there.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.subgraph_nodes(p, {maxHops: 4, beginSequenceAtStart: false,
+                               relationshipFilter: 'NEXT>,<FROM,POSTED>,NEXT>'})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name;
+
+output:
+  - name: "A1"
+  - name: "P1"
+  - name: "P2"
+  - name: "R1"
+  - name: "R2"
+  - name: "RB"

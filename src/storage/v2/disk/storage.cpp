@@ -47,6 +47,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/transaction.hpp"
@@ -208,15 +209,32 @@ bool VertexHasEqualPropertyValue(const Vertex &vertex, PropertyId property_id, P
   return GetVertexProperty(vertex, property_id, transaction, view) == property_value;
 }
 
+// True when the pair is the marker for an entire type: that type's own lower bound together with an
+// exclusive upper bound of the following type (see LowerBoundForType/UpperBoundForType). Its two
+// bounds have different types on purpose, and the pair already confines the range to one type.
+bool BoundsSpanWholeType(const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                         const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
+  if (!lower_bound || !upper_bound || !lower_bound->IsInclusive() || !upper_bound->IsExclusive()) return false;
+  auto const type_lower = LowerBoundForType(lower_bound->value().type());
+  auto const type_upper = UpperBoundForType(lower_bound->value().type());
+  return type_lower && type_upper && lower_bound->value() == type_lower->value() &&
+         upper_bound->value() == type_upper->value();
+}
+
 bool IsPropertyValueWithinInterval(const PropertyValue &value,
                                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                    const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
-  if (lower_bound && (!AreComparableTypes(value.type(), lower_bound->value().type()) || value < lower_bound->value() ||
-                      (lower_bound->IsExclusive() && value == lower_bound->value()))) {
+  // Requiring each bound to share the value's type is how a one-sided range is kept inside its own
+  // type here, but it rejects every value of a whole-type range, whose bounds are two types by
+  // construction. Comparing against the bounds is enough there: the pair *is* the type segment.
+  bool const spans_whole_type = BoundsSpanWholeType(lower_bound, upper_bound);
+
+  if (lower_bound && ((!spans_whole_type && !AreComparableTypes(value.type(), lower_bound->value().type())) ||
+                      value < lower_bound->value() || (lower_bound->IsExclusive() && value == lower_bound->value()))) {
     return false;
   }
-  if (upper_bound && (!AreComparableTypes(value.type(), upper_bound->value().type()) || value > upper_bound->value() ||
-                      (upper_bound->IsExclusive() && value == upper_bound->value()))) {
+  if (upper_bound && ((!spans_whole_type && !AreComparableTypes(value.type(), upper_bound->value().type())) ||
+                      value > upper_bound->value() || (upper_bound->IsExclusive() && value == upper_bound->value()))) {
     return false;
   }
   return true;
@@ -287,19 +305,9 @@ DiskStorage::~DiskStorage() {
   kvstore_->options_.comparator = nullptr;
 }
 
-DiskStorage::DiskAccessor::DiskAccessor(Accessor::SharedAccess tag, DiskStorage *storage,
-                                        IsolationLevel isolation_level, StorageMode storage_mode,
-                                        StorageAccessType rw_type)
-    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, /*no timeout*/ std::nullopt) {
-  rocksdb::WriteOptions write_options;
-  auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
-  transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
-  transaction_.disk_transaction_->SetReadTimestampForValidation(transaction_.start_timestamp);
-}
-
-DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
-                                        StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode, /*no timeout*/ std::nullopt) {
+DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, std::optional<IsolationLevel> override_isolation_level,
+                                        utils::ResourceLockGuard guard)
+    : Accessor(storage, override_isolation_level, std::move(guard)) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -1823,6 +1831,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
           throw utils::NotYetImplemented(
               "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
+        case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Global vertex property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
             return std::unexpected{StorageManipulationError{PersistenceError{}}};
@@ -1846,6 +1858,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
         case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
           throw utils::NotYetImplemented(
               "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
+        case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Global vertex property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
           throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
@@ -2312,7 +2328,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreatePointIndex(
-    storage::LabelId /*label*/, storage::PropertyId /*property*/) {
+    storage::LabelId /*label*/, storage::PropertyId /*property*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
@@ -2324,13 +2340,13 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorIndex(
-    VectorIndexSpec /*spec*/) {
+    VectorIndexSpec /*spec*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropVectorIndex(
-    std::string_view /*index_name*/) {
+    std::string_view /*index_name*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
@@ -2347,13 +2363,13 @@ utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(V
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
-    VectorEdgeIndexSpec /*spec*/) {
+    VectorEdgeIndexSpec /*spec*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateExistenceConstraint(
-    LabelId label, PropertyId property) {
+    LabelId label, PropertyId property, CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Creating existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
@@ -2390,7 +2406,8 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
 }
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                  CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
@@ -2427,7 +2444,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateTypeConstraint(
-    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/, CheckCancelFunction /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
@@ -2517,7 +2534,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_, rw_type});
+      new DiskAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, std::nullopt)});
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
@@ -2526,8 +2543,8 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<Isola
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
+  return std::unique_ptr<DiskAccessor>(new DiskAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::UNIQUE, std::nullopt)});
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
@@ -2536,8 +2553,8 @@ std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<Iso
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
+  return std::unique_ptr<DiskAccessor>(new DiskAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, std::nullopt)});
 }
 
 bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,
@@ -2579,6 +2596,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
       .edge_type = {/* edge type indices */},
       .edge_type_property = {/* edge_type_property */},
       .edge_property = {/*edge property*/},
+      .vertex_property = {/*vertex property*/},
       .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = {/* text edge indices */},
       .point_label_property = {/* point indices */},

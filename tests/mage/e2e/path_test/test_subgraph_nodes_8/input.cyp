@@ -1,0 +1,1 @@
+CREATE (A:Node:Target {name: 'A'}) CREATE (B:Node {name: 'B'}) CREATE (C:Node {name: 'C'}) CREATE (D:Node:Target {name: 'D'}) CREATE (A)-[:R]->(B) CREATE (B)-[:R]->(A) CREATE (B)-[:R]->(C) CREATE (C)-[:R]->(B) CREATE (C)-[:R]->(D) CREATE (D)-[:R]->(C);

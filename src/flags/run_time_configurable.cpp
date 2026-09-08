@@ -113,6 +113,10 @@ DEFINE_string(aws_endpoint_url, "", "Define AWS endpoint url for the AWS integra
 // Storage flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_gc_aggressive, false, "Enable aggressive garbage collection.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_omit_vector_index_properties_on_return, false,
+            "If set to true, properties backed by a vector index are omitted when a whole node or relationship is "
+            "returned. They remain accessible via explicit property access.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_uint64(file_download_conn_timeout_sec, 10,
               "Define a timeout for establishing a connection with a remote server during a file download.");
@@ -160,6 +164,9 @@ constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
 constexpr auto kStorageGcAggressiveSettingKey = "storage-gc-aggressive";
 constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
 
+constexpr auto kOmitVectorIndexPropertiesOnReturnSettingKey = "storage.omit_vector_index_properties_on_return";
+constexpr auto kOmitVectorIndexPropertiesOnReturnGFlagsKey = "storage_omit_vector_index_properties_on_return";
+
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
@@ -197,6 +204,7 @@ std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
+std::atomic<bool> omit_vector_index_properties_on_return_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
 std::atomic<int64_t> log_min_duration_ms_{-1};
@@ -456,6 +464,16 @@ void Initialize(utils::Settings &settings) {
       ValidBoolStr);
 
   /*
+   * Register omit vector index properties on return flag
+   */
+  register_flag(
+      kOmitVectorIndexPropertiesOnReturnGFlagsKey,
+      kOmitVectorIndexPropertiesOnReturnSettingKey,
+      kRestore,
+      [](const std::string &val) { omit_vector_index_properties_on_return_ = val == "true"; },
+      ValidBoolStr);
+
+  /*
    * Register timezone setting
    */
   register_flag(
@@ -603,6 +621,8 @@ bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 bool GetDebugQueryPlans() { return debug_query_plans_; }
 
 bool GetStorageGcAggressive() { return storage_gc_aggressive_; }
+
+bool GetOmitVectorIndexPropertiesOnReturn() { return omit_vector_index_properties_on_return_; }
 
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
 

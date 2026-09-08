@@ -17,3 +17,4 @@ class BenchmarkResults:
         self.in_memory_txn_results = helpers.RecursiveDict()
         self.in_memory_analytical_results = helpers.RecursiveDict()
         self.disk_results = helpers.RecursiveDict()
+        self.ha_results = helpers.RecursiveDict()

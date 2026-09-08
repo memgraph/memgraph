@@ -115,11 +115,11 @@ void EraseEntriesAtKey(Acc &acc, IndexOrderedValuesVector const &values, Vertex 
 // given label and properties.
 bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, PropertiesPermutationHelper const &helper,
                                       IndexOrderedValuesView values, Transaction *transaction, View view,
-                                      bool use_cache = true) {
+                                      std::vector<bool> &scratch, bool use_cache = true) {
   bool exists = true;
   bool deleted = false;
   bool has_label = false;
-  auto current_values_equal_to_value = std::vector<bool>{};
+  auto &current_values_equal_to_value = scratch;
   const Delta *delta = nullptr;
   auto guard = std::shared_lock{vertex.lock};
   delta = vertex.delta();
@@ -127,7 +127,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   if (!delta && deleted) return false;
   has_label = std::ranges::contains(vertex.labels, label);
   if (!delta && !has_label) return false;
-  current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+  helper.MatchesValues(vertex.properties, values, current_values_equal_to_value);
 
   // If vertex has non-sequential deltas, hold lock while applying them
   if (!vertex.has_uncommitted_non_sequential_deltas()) {
@@ -211,12 +211,12 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
 /// properties values.
 inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, std::span<PropertyPath const> key,
                                          PropertiesPermutationHelper const &helper, IndexOrderedValuesView values,
-                                         uint64_t timestamp) {
+                                         uint64_t timestamp, std::vector<bool> &scratch) {
   Delta const *delta;
   bool exists = true;
   bool deleted;
   bool has_label;
-  auto current_values_equal_to_value = std::vector<bool>{};
+  auto &current_values_equal_to_value = scratch;
   {
     auto guard = std::shared_lock{vertex.lock};
     delta = vertex.delta();
@@ -224,7 +224,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
     if (delta == nullptr && deleted) return false;
     has_label = std::ranges::contains(vertex.labels, label);
     if (delta == nullptr && !has_label) return false;
-    current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+    helper.MatchesValues(vertex.properties, values, current_values_equal_to_value);
   }
 
   if (exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{})) {
@@ -259,7 +259,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                         auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
                         const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
-                        bool use_cache = true, bool reverse_iteration = false) {
+                        std::vector<bool> &match_scratch, bool use_cache = true, bool reverse_iteration = false) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -361,6 +361,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
                                          index_iterator->values.as_view(),
                                          transaction,
                                          view,
+                                         match_scratch,
                                          use_cache)) {
       current_vertex = index_iterator->vertex;
       current_vertex_accessor = VertexAccessor(current_vertex, storage, transaction);
@@ -371,10 +372,10 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
 }  // namespace
 
-template <IndexOrder Order, std::size_t N>
-bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<(std::vector<PropertyValue> const &rhs) const {
-  auto const prefix = values | std::views::take(std::min(rhs.size(), values.size()));
-  // In DESC, "less than" in skip-list terms means "greater than" in value terms.
+namespace {
+template <IndexOrder Order, typename Range, typename Values>
+bool EntryLessThan(Values const &values, Range const &rhs) {
+  auto const prefix = values | std::views::take(std::min(std::ranges::size(rhs), values.size()));
   if constexpr (Order == IndexOrder::DESC) {
     return std::ranges::lexicographical_compare(rhs, prefix);
   } else {
@@ -382,9 +383,30 @@ bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<(std::vector<Pro
   }
 }
 
+template <typename Range, typename Values>
+bool EntryEqual(Values const &values, Range const &rhs) {
+  return std::ranges::equal(values | std::views::take(std::min(std::ranges::size(rhs), values.size())), rhs);
+}
+}  // namespace
+
+template <IndexOrder Order, std::size_t N>
+bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<(std::vector<PropertyValue> const &rhs) const {
+  return EntryLessThan<Order>(values, rhs);
+}
+
+template <IndexOrder Order, std::size_t N>
+bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<(std::span<PropertyValue const> rhs) const {
+  return EntryLessThan<Order>(values, rhs);
+}
+
 template <IndexOrder Order, std::size_t N>
 bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator==(std::vector<PropertyValue> const &rhs) const {
-  return std::ranges::equal(values | std::views::take(std::min(rhs.size(), values.size())), rhs);
+  return EntryEqual(values, rhs);
+}
+
+template <IndexOrder Order, std::size_t N>
+bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator==(std::span<PropertyValue const> rhs) const {
+  return EntryEqual(values, rhs);
 }
 
 template <IndexOrder Order, std::size_t N>
@@ -392,13 +414,15 @@ bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<=(std::vector<Pr
   return *this < rhs || *this == rhs;
 }
 
+template <IndexOrder Order, std::size_t N>
+bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<=(std::span<PropertyValue const> rhs) const {
+  return *this < rhs || *this == rhs;
+}
+
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor,
-                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                          auto &&index_accessor, ProgressCallback const &on_progress) {
   // observe regardless
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
+  if (on_progress) on_progress();
 
   if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
     return;
@@ -414,13 +438,10 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor,
-                                          std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                          auto &&index_accessor, ProgressCallback const &on_progress,
                                           Transaction const &tx) {
   // observe regardless
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
+  if (on_progress) on_progress();
 
   bool exists = true;
   bool deleted = false;
@@ -468,12 +489,14 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
     LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order) {
+    ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress, IndexOrder order) {
   auto res = RegisterIndex(label, properties, updater, order);
   if (!res) return false;
-  auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, updater, snapshot_info, order);
+  auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, updater, on_progress, order);
   if (!res2) {
-    MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
+    MG_ASSERT(false,
+              "CreateIndexOnePass never cancels: population only fails via a cancel check, and this entry point "
+              "passes none. The trailing callback reports progress and cannot stop the build.");
   }
   return PublishIndex(label, properties, 0, order);
 }
@@ -565,8 +588,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order,
-    Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
+    ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress, IndexOrder order, Transaction const *tx,
+    CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
   auto populate = [&](auto index) {
     if (!index) {
       MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -578,12 +601,12 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
     if (tx) {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info, *tx);
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, on_progress, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info);
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, on_progress);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }
@@ -649,11 +672,14 @@ auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, Proper
 
 void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                                  const Transaction &tx) {
-  auto const prop_ids = vertex_after_update->properties.ExtractPropertyIds();
+  // Decoded on first use: extracting the ids walks the whole property store, and a label
+  // with no index on it never reaches the filter below.
+  auto prop_ids = std::optional<std::vector<PropertyId>>{};
 
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
-    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(prop_ids, index_prop); };
+    if (!prop_ids) prop_ids = vertex_after_update->properties.ExtractPropertyIds();
+    auto vector_has_property = [&](PropertyId index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
 
@@ -682,11 +708,13 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId remo
   // that sweep is gated on vertex deletions — so reclaim eagerly here.
   if (tx.storage_mode != StorageMode::IN_MEMORY_ANALYTICAL) return;
 
-  auto const prop_ids = vertex_before_update->properties.ExtractPropertyIds();
+  // Decoded on first use; see UpdateOnAddLabel.
+  auto prop_ids = std::optional<std::vector<PropertyId>>{};
 
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
-    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(prop_ids, index_prop); };
+    if (!prop_ids) prop_ids = vertex_before_update->properties.ExtractPropertyIds();
+    auto vector_has_property = [&](PropertyId index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
 
@@ -1065,16 +1093,23 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndicesImpl(uint64_t start_t
   return ret;
 }
 
-void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                           std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
 
+  auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
+
+  uint64_t swept = 0;
   auto const remove_from = [&](auto const &all_indexes) {
     for (auto &all_entry : *all_indexes) {
       if (token.stop_requested()) return;
       auto const &label_id = all_entry.label_;
       auto const &property_paths = all_entry.properties_;
+      // A sweep walks the whole index whether or not it has anything to collect.
+      if (!arming.arms_vertex_index_on(label_id, property_paths)) continue;
+      ++swept;
 
       bool const stop = WithIndex(all_entry.index_, [&](auto &index) -> bool {
         auto const &permutationHelper = index.permutations_helper;
@@ -1082,6 +1117,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
         auto it = index_acc.begin();
         auto end_it = index_acc.end();
         if (it == end_it) return false;
+        auto match_scratch = std::vector<bool>{};
         while (true) {
           if (maybe_stop() && token.stop_requested()) return true;
 
@@ -1089,14 +1125,15 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
           ++next_it;
 
           const bool has_next = next_it != end_it;
-          if (it->timestamp < oldest_active_start_timestamp) {
+          if (!preserve_recent_entries || it->timestamp < oldest_active_start_timestamp) {
             const bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
             if (redundant_duplicate || !AnyVersionHasLabelProperties(*it->vertex,
                                                                      label_id,
                                                                      property_paths,
                                                                      permutationHelper,
                                                                      it->values.as_view(),
-                                                                     oldest_active_start_timestamp)) {
+                                                                     oldest_active_start_timestamp,
+                                                                     match_scratch)) {
               index_acc.remove(*it);
             }
           }
@@ -1110,7 +1147,13 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
   };
 
   auto data = all_indices_.ReadCopy();
+  if (data.asc->empty() && data.desc->empty()) return 0;
+
+  // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
+  auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
+
   data.ForEach(remove_from);
+  return swept;
 }
 
 template <typename EntryT>
@@ -1134,20 +1177,38 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::operator++() {
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = EntryT::kOrder == IndexOrder::DESC;
-  AdvanceUntilValid_(index_iterator_,
-                     self_->index_accessor_.end(),
-                     current_vertex_,
-                     current_vertex_accessor_,
-                     self_->storage_,
-                     self_->transaction_,
-                     self_->view_,
-                     self_->label_,
-                     self_->lower_bound_,
-                     self_->upper_bound_,
-                     self_->permutation_helper_,
-                     self_->max_gid_,
-                     /*use_cache=*/true,
-                     /*reverse_iteration=*/is_desc);
+  auto const *leading_predicate = self_->leading_predicate_.get();
+
+  while (true) {
+    AdvanceUntilValid_(index_iterator_,
+                       self_->index_accessor_.end(),
+                       current_vertex_,
+                       current_vertex_accessor_,
+                       self_->storage_,
+                       self_->transaction_,
+                       self_->view_,
+                       self_->label_,
+                       self_->lower_bound_,
+                       self_->upper_bound_,
+                       self_->permutation_helper_,
+                       self_->max_gid_,
+                       match_scratch_,
+                       /*use_cache=*/true,
+                       /*reverse_iteration=*/is_desc);
+
+    if (!leading_predicate || index_iterator_ == self_->index_accessor_.end()) break;
+
+    auto const &leading_value = index_iterator_->values[0];
+    if ((*leading_predicate)(leading_value)) break;
+
+    // Only seek when the group turns out to hold more than the one entry: a seek costs more than
+    // the step that has already left a single-entry group behind.
+    ++index_iterator_;
+    if (index_iterator_ != self_->index_accessor_.end() && index_iterator_->values[0] == leading_value) {
+      index_iterator_ = self_->index_accessor_.find_greater(std::span<PropertyValue const>{&leading_value, 1});
+    }
+    current_vertex_ = nullptr;
+  }
 }
 
 template <typename EntryT>
@@ -1167,6 +1228,9 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       transaction_(transaction),
       max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
+  if (!ranges.empty()) {
+    leading_predicate_ = ranges[0].GetValuePredicate();
+  }
 }
 
 template <typename EntryT>
@@ -1424,7 +1488,12 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
-  AbortProcessor res{};
+  std::call_once(abort_lookup_built_, [this] { abort_lookup_ = BuildAbortLookup(); });
+  return LabelPropertyIndex::AbortProcessor{.lookup = &abort_lookup_};
+}
+
+auto InMemoryLabelPropertyIndex::ActiveIndices::BuildAbortLookup() const -> LabelPropertyIndexAbortLookup {
+  auto res = LabelPropertyIndexAbortLookup{};
 
   auto const collect_from = [&](auto &indices_map) {
     for (const auto &[label, per_properties] : indices_map) {
@@ -1510,6 +1579,7 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
                      self_->upper_bound_,
                      self_->permutation_helper_,
                      self_->max_gid_,
+                     match_scratch_,
                      /*use_cache=*/false,
                      /*reverse_iteration=*/is_desc);
 }

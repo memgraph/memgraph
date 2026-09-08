@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_lists(["a", "b"], [1, null]) AS result;
+
+output:
+  - result: {a: 1, b: null}

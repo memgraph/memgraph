@@ -1,18 +1,8 @@
-set(node2vec_online_utils
-    ${CMAKE_CURRENT_SOURCE_DIR}/node2vec_online_utils/w2v_learners.py
-    ${CMAKE_CURRENT_SOURCE_DIR}/node2vec_online_utils/walk_sampling.py
-    ${CMAKE_CURRENT_SOURCE_DIR}/node2vec_online_utils/__init__.py
-)
+find_package(Threads REQUIRED)
 
-file(MAKE_DIRECTORY ${QUERY_MODULES_BUILD_DIR}/node2vec_online_utils)
+set(node2vec_online_src
+    node2vec_online_module.cpp)
 
-mg_add_stamped_custom_target(copy_node2vec_online_modules ALL
-    STAMP_DIR ${QUERY_MODULES_BUILD_DIR}
-    COMMANDS
-        COMMAND ${CMAKE_COMMAND} -E copy ${node2vec_online_utils} ${QUERY_MODULES_BUILD_DIR}/node2vec_online_utils
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/node2vec_online.py ${QUERY_MODULES_BUILD_DIR}
-    DEPENDS ${node2vec_online_utils} ${CMAKE_CURRENT_SOURCE_DIR}/node2vec_online.py
-)
+add_query_module(node2vec_online 1 "${node2vec_online_src}")
 
-install(FILES ${node2vec_online_utils} DESTINATION ${QUERY_MODULES_DIR}/node2vec_online_utils)
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/node2vec_online.py DESTINATION ${QUERY_MODULES_DIR})
+target_link_libraries(node2vec_online PRIVATE Threads::Threads)

@@ -1,0 +1,12 @@
+# A filter may be written as one '|'-separated string instead of a list of entries.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: 'R>', labelFilter: 'Node', maxHops: 2})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "B", "C"]

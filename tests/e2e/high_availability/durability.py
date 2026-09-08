@@ -21,7 +21,6 @@ from common import (
     connect,
     count_files,
     execute_and_fetch_all,
-    execute_and_ignore_dead_replica,
     get_data_path,
     get_logs_path,
     get_vertex_count,
@@ -311,10 +310,10 @@ def test_branching_point_snapshot_recovery(test_name):
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
-    execute_and_ignore_dead_replica(instance1_cursor, "UNWIND RANGE(1, 5) AS i CREATE (:Single {id :i});")
+    execute_and_fetch_all(instance1_cursor, "UNWIND RANGE(1, 5) AS i CREATE (:Single {id :i});")
 
     # 3.
     # Assert there is only a single WAL (current) present and no snapshots on the current main
@@ -333,7 +332,7 @@ def test_branching_point_snapshot_recovery(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
@@ -420,11 +419,11 @@ def test_branching_point_wal_files_recovery(test_name, enable_backup_dir):
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
-    execute_and_ignore_dead_replica(instance1_cursor, "CREATE (:Single {prop: range(1, 128)});")
-    execute_and_ignore_dead_replica(instance1_cursor, "CREATE (:Single {prop: range(1, 128)});")
+    execute_and_fetch_all(instance1_cursor, "CREATE (:Single {prop: range(1, 128)});")
+    execute_and_fetch_all(instance1_cursor, "CREATE (:Single {prop: range(1, 128)});")
     assert count_files(wal_dir_instance_1) == 3
     assert count_files(wal_dir_instance_2) == 1
 

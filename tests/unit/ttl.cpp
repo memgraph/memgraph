@@ -10,8 +10,10 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 #include <chrono>
 #include <filesystem>
+#include <string>
 #include <thread>
 #include <tuple>
 #include <type_traits>
@@ -32,8 +34,19 @@
 #include "utils/settings.hpp"
 
 namespace {
+// The storage directories here are emptied wholesale, so their names must be private to this
+// process: a name shared with a concurrently running test deletes that test's storage out from
+// under it. Resolved once, so a directory is removed under the name it was created under even if
+// the process forks in between.
+const std::string &ProcessId() {
+  static const std::string id = std::to_string(static_cast<int>(getpid()));
+  return id;
+}
+
+std::filesystem::path GetDataDirectory() { return std::filesystem::temp_directory_path() / ("ttl-" + ProcessId()); }
+
 std::filesystem::path GetCleanDataDirectory() {
-  const auto path = std::filesystem::temp_directory_path() / "ttl";
+  const auto path = GetDataDirectory();
   std::filesystem::remove_all(path);
   return path;
 }
@@ -109,6 +122,14 @@ template <typename DbAccess>
 bool WaitForVertexCount(DbAccess &db, size_t expected_count,
                         std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
   return WaitForCondition([&]() { return CountVisibleVertices(db) == expected_count; }, timeout);
+}
+
+// Poll for <=, not ==: a single reap batch can delete several expired vertices at once and skip
+// straight past an intermediate count that WaitForVertexCount would wait for forever.
+template <typename DbAccess>
+bool WaitForVertexCountAtMost(DbAccess &db, size_t expected_count,
+                              std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+  return WaitForCondition([&]() { return CountVisibleVertices(db) <= expected_count; }, timeout);
 }
 
 // Helper function to wait for specific vertex and edge counts
@@ -403,12 +424,15 @@ TYPED_TEST(TTLFixture, StartTime) {
       << "TTL ran before the configured start time (expected to wait 3 seconds)";
 
   // After 3 seconds, TTL should start running (interval is 100ms)
-  // Wait for first deletion
-  ASSERT_TRUE(WaitForVertexCount(this->db_, 5, std::chrono::milliseconds(1500)))
+  // Wait for first deletion. Use <= because v5 (already expired) and v6 (expires ~1s later) can both be
+  // reaped by a single batch if the scheduler starts late, taking the count 6 -> 4 without pausing at 5.
+  ASSERT_TRUE(WaitForVertexCountAtMost(this->db_, 5, std::chrono::milliseconds(1500)))
       << "Failed to observe first TTL deletion after start time";
 
-  // Wait for second deletion (newer timestamp is 4s in future from test start)
-  ASSERT_TRUE(WaitForVertexCount(this->db_, 4, std::chrono::seconds(2))) << "Failed to observe second TTL deletion";
+  // Wait for second deletion (newer timestamp is 4s in future from test start). 4 is the terminal steady
+  // state (v1-v4 are never eligible), so <= 4 is exact here.
+  ASSERT_TRUE(WaitForVertexCountAtMost(this->db_, 4, std::chrono::seconds(2)))
+      << "Failed to observe second TTL deletion";
 }
 
 TYPED_TEST(TTLFixture, Edge) {
@@ -496,9 +520,9 @@ TYPED_TEST(TTLFixture, Edge) {
 
 // Needs user-defined timezone
 TEST(TtlInfo, PersistentTimezone) {
-  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all("/tmp/ttl"); });
+  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all(GetDataDirectory()); });
   {
-    memgraph::utils::Settings settings("/tmp/ttl");
+    memgraph::utils::Settings settings(GetDataDirectory());
     memgraph::flags::run_time::Initialize(settings);
     // Default value
     EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Etc/UTC");
@@ -508,7 +532,7 @@ TEST(TtlInfo, PersistentTimezone) {
   }
   {
     // Recover previous value
-    memgraph::utils::Settings settings("/tmp/ttl");
+    memgraph::utils::Settings settings(GetDataDirectory());
     memgraph::flags::run_time::Initialize(settings);
     EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
   }
@@ -516,8 +540,8 @@ TEST(TtlInfo, PersistentTimezone) {
 
 // Needs user-defined timezone
 TEST(TtlInfo, String) {
-  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all("/tmp/ttl"); });
-  memgraph::utils::Settings settings("/tmp/ttl");
+  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all(GetDataDirectory()); });
+  memgraph::utils::Settings settings(GetDataDirectory());
   memgraph::flags::run_time::Initialize(settings);
 
   {
@@ -591,7 +615,7 @@ TEST(TtlInfo, String) {
 TEST(TTLUserCheckTest, UserCheckFunctionality) {
   // Create a simple storage for testing
   memgraph::storage::Config config{};
-  config.durability.storage_directory = std::filesystem::temp_directory_path() / "ttl_user_check_test";
+  config.durability.storage_directory = std::filesystem::temp_directory_path() / ("ttl_user_check_test-" + ProcessId());
   std::filesystem::remove_all(config.durability.storage_directory);
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};

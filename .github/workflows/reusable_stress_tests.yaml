@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 180
     env:
       OS: ubuntu-24.04
-      TOOLCHAIN: v7
+      TOOLCHAIN: v8
       ARCH: amd
       THREADS: 24
       BUILD_TYPE: RelWithDebInfo
@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
       - name: Clean up Docker
         if: always()
@@ -77,12 +77,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -184,7 +182,7 @@ jobs:
     timeout-minutes: 180
     env:
       OS: ubuntu-24.04
-      TOOLCHAIN: v7
+      TOOLCHAIN: v8
       ARCH: amd
       THREADS: 24
       BUILD_TYPE: RelWithDebInfo
@@ -193,7 +191,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
       - name: Clean up Docker
         if: always()
@@ -208,12 +206,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -322,7 +318,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
       - name: Clean up Docker
         if: always()
@@ -440,7 +436,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
       - name: Clean up Docker
         if: always()
@@ -545,6 +541,7 @@ jobs:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload stress test logs
         if: always()

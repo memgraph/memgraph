@@ -1,0 +1,12 @@
+# A label sequence tests each depth against its own step. An end or termination filter in any one step
+# puts every step in end-nodes-only mode, so only the nodes in the Admin position come back -- P1 and
+# R1 are walked through rather than returned, even though their steps allowlist them.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {minHops: 0, maxHops: 4, labelFilter: 'Post,Reply,>Admin'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["P1", "R1", "A1"]

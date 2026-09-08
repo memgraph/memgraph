@@ -11,9 +11,7 @@
 
 #pragma once
 
-#include <algorithm>
-#include <utility>
-#include <vector>
+#include <unordered_map>
 
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
@@ -32,7 +30,7 @@ struct Parameters {
    * @param position Token position in query of value.
    * @param value
    */
-  void Add(int position, const storage::ExternalPropertyValue &value) { storage_.emplace_back(position, value); }
+  void Add(int position, const storage::ExternalPropertyValue &value) { storage_.emplace(position, value); }
 
   /**
    *  Returns the value found for the given token position.
@@ -41,25 +39,11 @@ struct Parameters {
    *  @return Value for the given token position.
    */
   const storage::ExternalPropertyValue &AtTokenPosition(int position) const {
-    // TODO: make it not a linear scan
-    auto found = std::ranges::find_if(storage_, [&](const auto &a) { return a.first == position; });
+    const auto found = storage_.find(position);
     MG_ASSERT(found != storage_.end(), "Token position must be present in container");
     return found->second;
   }
 
-  /**
-   * Returns the position-th stripped value. Asserts that this
-   * container has at least (position + 1) elements.
-   *
-   * @param position Which stripped param is sought.
-   * @return Token position and value for sought param.
-   */
-  const std::pair<int, storage::ExternalPropertyValue> &At(int position) const {
-    MG_ASSERT(position < static_cast<int>(storage_.size()), "Invalid position");
-    return storage_[position];
-  }
-
-  /** Returns the number of arguments in this container */
   auto size() const { return storage_.size(); }
 
   auto begin() const { return storage_.begin(); }
@@ -67,7 +51,7 @@ struct Parameters {
   auto end() const { return storage_.end(); }
 
  private:
-  std::vector<std::pair<int, storage::ExternalPropertyValue>> storage_;
+  std::unordered_map<int, storage::ExternalPropertyValue> storage_;
 };
 
 }  // namespace memgraph::query

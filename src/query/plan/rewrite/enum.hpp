@@ -176,7 +176,7 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
 
   void Visit(Extract &op) override { AcceptExpression(op.expression_); }
 
-  void Visit(Exists &op) override {}
+  void Visit(SubqueryExpression &op) override {}
 
   void Visit(All &op) override {}
 

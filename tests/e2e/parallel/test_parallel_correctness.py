@@ -157,6 +157,18 @@ class TestParallelCorrectness:
             populated_db, "MATCH (n) RETURN count(*), sum(n.p), avg(n.p), min(n.p), max(n.p)"
         )
 
+    def test_aggregations_over_bound_variable(self, populated_db):
+        """Count a bound variable, which is answered from the frame rather than from a built value."""
+        verify_parallel_matches_serial(populated_db, "MATCH (n) RETURN count(n)")
+        verify_parallel_matches_serial(populated_db, "MATCH (n) RETURN count(DISTINCT n)")
+        verify_parallel_matches_serial(populated_db, "MATCH (n) RETURN count(n), count(DISTINCT n), count(*)")
+
+    def test_aggregations_over_null_bound_variable(self, populated_db):
+        """A variable that is Null for some rows: it is neither counted nor reaches the DISTINCT set."""
+        verify_parallel_matches_serial(
+            populated_db, "MATCH (n) OPTIONAL MATCH (n)-[]->(m) RETURN count(m), count(DISTINCT m)"
+        )
+
     def test_aggregations_grouped(self, populated_db):
         """Test grouped aggregations."""
         # Group by label (though we mostly have :A and :B and :Person)
@@ -264,6 +276,8 @@ class TestParallelIndices:
         memgraph.execute_query("CREATE INDEX ON :KNOWS;")
         # 4. Edge Type Property Index
         memgraph.execute_query("CREATE INDEX ON :KNOWS(since);")
+        # 5. Global Vertex Property Index
+        memgraph.execute_query("CREATE GLOBAL INDEX ON :(age);")
 
         return memgraph
 
@@ -299,6 +313,30 @@ class TestParallelIndices:
         """Test edge property index for all values."""
         verify_parallel_matches_serial(indexed_db, "MATCH ()-[e:KNOWS]->() WHERE e.since IS NOT NULL RETURN e")
 
+    def test_global_vertex_property_index_specific(self, indexed_db):
+        """Test global vertex property index with specific value."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age = 30 RETURN n")
+
+    def test_global_vertex_property_index_range(self, indexed_db):
+        """Test global vertex property index with range."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age > 25 RETURN n")
+
+    def test_global_vertex_property_index_all(self, indexed_db):
+        """Test global vertex property index for all values (IS NOT NULL)."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age IS NOT NULL RETURN n")
+
+    def test_global_vertex_property_index_null_range(self, indexed_db):
+        """Parallel range scan with null bounds returns no results."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age > head([]) RETURN count(n)")
+
+    def test_global_vertex_property_index_null_value(self, indexed_db):
+        """Parallel value scan with null on global vertex property index returns no results."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age = head([]) RETURN count(n)")
+
+    def test_label_property_index_null_value(self, indexed_db):
+        """Parallel value scan with null on label-property index returns no results."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n:Person) WHERE n.age = head([]) RETURN count(n)")
+
     @pytest.fixture
     def desc_indexed_db(self, memgraph):
         """Database with a DESC-ordered label+property index only."""
@@ -321,6 +359,34 @@ class TestParallelIndices:
     def test_vertex_property_index_desc_all(self, desc_indexed_db):
         """DESC index IS NOT NULL scan — parallel matches serial."""
         verify_parallel_matches_serial(desc_indexed_db, "MATCH (n:Person) WHERE n.age IS NOT NULL RETURN n")
+
+    def test_global_edge_property_index_null_value(self, memgraph):
+        """Parallel scan with null value on global edge property index returns no results.
+        Uses head([]) instead of literal null so the planner selects the index scan."""
+        setup_thread_count_db(memgraph, thread_count=100)
+        memgraph.execute_query("UNWIND range(1, 100) AS i CREATE (:A)-[:REL {val: i}]->(:B)")
+        memgraph.execute_query("CREATE GLOBAL EDGE INDEX ON :(val);")
+        try:
+            verify_parallel_matches_serial(
+                memgraph,
+                "MATCH ()-[e]->() WHERE e.val = head([]) RETURN count(e)",
+            )
+        finally:
+            memgraph.execute_query("DROP GLOBAL EDGE INDEX ON :(val);")
+
+    def test_edge_type_property_index_null_value(self, memgraph):
+        """Parallel scan with null value on edge-type property index returns no results.
+        Uses head([]) instead of literal null so the planner selects the index scan."""
+        setup_thread_count_db(memgraph, thread_count=100)
+        memgraph.execute_query("UNWIND range(1, 100) AS i CREATE (:A)-[:REL {val: i}]->(:B)")
+        memgraph.execute_query("CREATE EDGE INDEX ON :REL(val);")
+        try:
+            verify_parallel_matches_serial(
+                memgraph,
+                "MATCH ()-[e:REL]->() WHERE e.val = head([]) RETURN count(e)",
+            )
+        finally:
+            memgraph.execute_query("DROP EDGE INDEX ON :REL(val);")
 
     def test_vertex_property_index_both_orders(self, memgraph):
         """Both ASC and DESC indices exist on same (label, prop) — parallel matches serial."""

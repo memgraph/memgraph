@@ -11,17 +11,22 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstdint>
+#include <list>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
+#include "storage/v2/batched_list.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/gc_status.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -45,6 +50,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 import memgraph.utils.aws;
@@ -60,46 +66,6 @@ struct ReplicationHandler;
 namespace memgraph::storage {
 
 using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
-
-struct IndexPerformanceTracker {
-  void update(Delta::Action action) {
-    switch (action) {
-      using enum Delta::Action;
-      case DELETE_DESERIALIZED_OBJECT:
-      case DELETE_OBJECT:
-      case RECREATE_OBJECT: {
-        // can impact correctness, but does not matter for performance
-        return;
-      }
-      case SET_PROPERTY: {
-        // without following the deltas parents to the object we do not know which vertex/edge this delta is for
-        impacts_vertex_indexes_ = true;
-        impacts_edge_indexes_ = true;
-        return;
-      }
-      case ADD_LABEL:
-      case REMOVE_LABEL: {
-        impacts_vertex_indexes_ = true;
-        return;
-      }
-      case ADD_IN_EDGE:
-      case ADD_OUT_EDGE:
-      case REMOVE_IN_EDGE:
-      case REMOVE_OUT_EDGE: {
-        impacts_edge_indexes_ = true;
-        return;
-      }
-    }
-  }
-
-  bool impacts_vertex_indexes() { return impacts_vertex_indexes_; }
-
-  bool impacts_edge_indexes() { return impacts_edge_indexes_; }
-
- private:
-  bool impacts_vertex_indexes_ = false;
-  bool impacts_edge_indexes_ = false;
-};
 
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
@@ -122,9 +88,11 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryEdgeTypeIndex;
   friend class InMemoryEdgeTypePropertyIndex;
   friend class InMemoryEdgePropertyIndex;
+  friend class InMemoryVertexPropertyIndex;
+  friend class InMemoryUniqueConstraints;
 
  public:
-  using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
+  using free_mem_fn = std::function<void(utils::ResourceLockGuard, bool)>;
 
   /// Light-weight wrapper around DbAwareAllocator<Edge> for light-edge
   /// allocation and destruction. DbAwareAllocator is stateless (reads the
@@ -184,22 +152,31 @@ class InMemoryStorage final : public Storage {
 
   ~InMemoryStorage() override;
 
+  /// Identifies one edge to delete without holding an EdgeAccessor for it. These are exactly the fields a WAL
+  /// edge-delete record carries, so a replica can ask for a deletion straight from what it decoded.
+  struct EdgeDeleteSpec {
+    Gid edge_gid;
+    Gid from_gid;
+    Gid to_gid;
+    EdgeTypeId edge_type;
+  };
+
   class InMemoryAccessor : public Storage::Accessor {
    private:
     friend class InMemoryStorage;
 
-    explicit InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode, StorageAccessType rw_type,
-                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode,
-                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+    /// Takes ownership of a hold the caller acquired; see Accessor's constructor.
+    explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
+                              utils::ResourceLockGuard guard);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
     std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
 
     void CheckForFastDiscardOfDeltas();
+
+    // Hands this transaction's noted arming to the next collection cycle; see the definition.
+    void PublishIndexArming();
 
     std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
                                                    DeltaChainState from_state, DeltaChainState to_state,
@@ -245,6 +222,23 @@ class InMemoryStorage final : public Storage {
     VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                             std::span<storage::PropertyValueRange const> property_ranges, View view,
                                             size_t num_chunks, IndexOrder order) override;
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId property, View view, size_t num_chunks) override;
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId property, const PropertyValue &value, View view,
+                                            size_t num_chunks) override;
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId property,
+                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                                            size_t num_chunks) override;
+
+    VerticesIterable Vertices(PropertyId property, View view) override;
+
+    VerticesIterable Vertices(PropertyId property, PropertyValue const &value, View view) override;
+
+    VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
+                              std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
@@ -319,6 +313,19 @@ class InMemoryStorage final : public Storage {
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValueRange const> bounds) const override {
       return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, bounds);
+    }
+
+    uint64_t ApproximateVertexCount(PropertyId property) const override {
+      return transaction_.active_indices_->vertex_property_->ApproximateVertexCount(property);
+    }
+
+    uint64_t ApproximateVertexCount(PropertyId property, PropertyValue const &value) const override {
+      return transaction_.active_indices_->vertex_property_->ApproximateVertexCount(property, value);
+    }
+
+    uint64_t ApproximateVertexCount(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower,
+                                    std::optional<utils::Bound<PropertyValue>> const &upper) const override {
+      return transaction_.active_indices_->vertex_property_->ApproximateVertexCount(property, lower, upper);
     }
 
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }
@@ -433,6 +440,14 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_->edge_property_->IndexReady(property);
     }
 
+    bool VertexPropertyIndexExists(PropertyId property) const override {
+      return transaction_.active_indices_->vertex_property_->IndexExists(property);
+    }
+
+    bool VertexPropertyIndexReady(PropertyId property) const override {
+      return transaction_.active_indices_->vertex_property_->IndexReady(property);
+    }
+
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
@@ -452,7 +467,9 @@ class InMemoryStorage final : public Storage {
 
     std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
-    void AbortAndResetCommitTs();
+    // `on_progress` is reported per delta undone. An interrupted 2PC leaves a transaction whose abort is
+    // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
+    void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
 
     // Represents the 2nd phase of the 2PC protocol
     // NOTE: Needs to be called while holding the engine lock
@@ -463,11 +480,23 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     void Abort() override;
 
+    // Same as Abort(), reporting progress per delta undone. Non-virtual so the Accessor interface, and every
+    // caller that aborts without a peer waiting on it, stays unchanged.
+    void Abort(ProgressCallback const &on_progress);
+
     void FinalizeTransaction() override;
 
     // Bring base class convenience overloads into scope (they provide default neverCancel)
+    using Storage::Accessor::CreateExistenceConstraint;
     using Storage::Accessor::CreateGlobalEdgeIndex;
+    using Storage::Accessor::CreateGlobalVertexIndex;
     using Storage::Accessor::CreateIndex;
+    using Storage::Accessor::CreatePointIndex;
+    using Storage::Accessor::CreateTypeConstraint;
+    using Storage::Accessor::CreateUniqueConstraint;
+    using Storage::Accessor::CreateVectorEdgeIndex;
+    using Storage::Accessor::CreateVectorIndex;
+    using Storage::Accessor::DropVectorIndex;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -510,6 +539,9 @@ class InMemoryStorage final : public Storage {
     std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
                                                                            CheckCancelFunction cancel_check) override;
 
+    std::expected<void, StorageIndexDefinitionError> CreateGlobalVertexIndex(PropertyId property,
+                                                                             CheckCancelFunction cancel_check) override;
+
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
@@ -542,20 +574,26 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
 
+    std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId property) override;
+
     std::expected<void, StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
-                                                                      storage::PropertyId property) override;
+                                                                      storage::PropertyId property,
+                                                                      ProgressCallback const &on_progress) override;
 
     std::expected<void, StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
                                                                     storage::PropertyId property) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) override;
+    std::expected<void, StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec,
+                                                                       ProgressCallback const &on_progress) override;
 
     utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) override;
 
     utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const override;
-    std::expected<void, StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) override;
+    std::expected<void, StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name,
+                                                                     ProgressCallback const &on_progress) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
+    std::expected<void, StorageIndexDefinitionError> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
@@ -564,7 +602,7 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     /// @throw std::length_error
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
-        LabelId label, PropertyId property) override;
+        LabelId label, PropertyId property, CheckCancelFunction cancel_check) override;
 
     /// Drop an existing existence constraint.
     /// Returns void if the existence constraint has been dropped.
@@ -583,7 +621,7 @@ class InMemoryStorage final : public Storage {
     /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
     /// @throw std::bad_alloc
     std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> CreateUniqueConstraint(
-        LabelId label, const std::set<PropertyId> &properties) override;
+        LabelId label, const std::set<PropertyId> &properties, CheckCancelFunction cancel_check) override;
 
     /// Removes an existing unique constraint.
     /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
@@ -598,7 +636,7 @@ class InMemoryStorage final : public Storage {
     /// Create type constraint,
     /// Returns error result if already exists, or if constraint is already violated
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind kind) override;
+        LabelId label, PropertyId property, TypeConstraintKind kind, CheckCancelFunction cancel_check) override;
 
     /// Drop type constraint,
     /// Returns error result if constraint does not exist.
@@ -661,7 +699,7 @@ class InMemoryStorage final : public Storage {
         if (repl_args.is_main) {
           // Only if MAIN, do we proactivly make indexes
           // REPLICA will recieve deltas from MAIN that will create the indexes
-          if (GetCreationStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+          if (GetPinnedStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
             // Use non-blocking async indexer
             auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
             // Async index creation -> happens in separate transaction
@@ -725,12 +763,22 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
+    /// Deletes edges identified only by gid, in one DetachDelete, and returns how many were deleted.
+    ///
+    /// Each edge is resolved by the cheapest route this storage config allows, so a caller holding nothing but
+    /// decoded WAL data never pays for the adjacency scan and accessor vector that FindEdge would build:
+    ///   - properties off: no Edge object exists, the EdgeRef is the gid itself, so nothing is looked up;
+    ///   - heavy edges:    the edges_ skip list is keyed by gid;
+    ///   - light edges:    only adjacency can produce the Edge*, so each edge is resolved from whichever of its
+    ///                     two endpoints has the shorter list, with edges picking the same vertex sharing a pass.
+    /// @throw std::bad_alloc
+    Result<size_t> DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges);
+
     /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
-    void GCRapidDeltaCleanup(std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
-                             std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
-                             IndexPerformanceTracker &impact_tracker);
+    void GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges, BatchedList<Gid> &current_deleted_vertices,
+                             IndexArming &arming);
     SalientConfig::Items config_;
 
     // Bookkeeping
@@ -748,7 +796,24 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) override;
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
+  /// Acquires an accessor in mode `rw_type` if `main_lock_` admits it right now, returning nullptr
+  /// if it does not. Never blocks, never throws, and creates no transaction when it fails.
+  ///
+  /// Admission, not just "is it free": a waiting UNIQUE gates the shared modes, so this reports
+  /// failure while one is pending even though nobody holds the lock. That yields to the waiter
+  /// rather than jumping ahead of it.
+  ///
+  /// One probe, so it grants no priority of its own: a caller looping on this is an ordinary
+  /// contender each time and can be starved by a stream of compatible holders. A caller that needs
+  /// to be preferred while it retries holds a UniquePendingScope or ReadOnlyPendingScope across the
+  /// whole loop.
+  ///
+  /// InMemoryStorage's alone: DiskStorage has no probe rather than one that always fails, so a
+  /// caller polling it would spin instead of learning that it should just block.
+  std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
+                                      std::optional<IsolationLevel> override_isolation_level = {});
+
+  void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -812,15 +877,60 @@ class InMemoryStorage final : public Storage {
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
   // Wipe all storage state. Caller must hold main_lock_ exclusively.
-  void Clear();
+  // Tearing down a large vertex/edge set takes minutes and reports nothing on its own, so `on_progress` lets a caller
+  // that owes liveness to somebody else (an RPC handler under a peer timeout) observe that this is still advancing.
+  void Clear(std::function<void()> const &on_progress = {});
+
+  // How many objects the stores still hold, including ones already deleted but not yet collected.
+  // Lets a test see when an object actually leaves storage, as opposed to when it stops being
+  // visible to queries.
+  [[nodiscard]] uint64_t EdgeStoreSize() const { return edges_.size(); }
+
+  [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
 
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
+  void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
+
+  // Objects leave storage only through these, and only from a collection pass. An index entry
+  // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same
+  // pass has removed every index entry naming it.
+  template <std::ranges::input_range TRange>
+    requires std::same_as<std::ranges::range_value_t<TRange>, Gid>
+  void RetireVertices(TRange &&gids) {
+    auto acc = vertices_.access();
+    for (auto const gid : gids) {
+      MG_ASSERT(acc.remove(gid), "Invalid database state!");
+    }
+  }
+
+  template <std::ranges::input_range TRange>
+    requires std::same_as<std::ranges::range_value_t<TRange>, Gid>
+  void RetireEdges(TRange &&gids) {
+    auto acc = edges_.access();
+    for (auto const gid : gids) {
+      MG_ASSERT(acc.remove(gid), "Invalid database state!");
+    }
+  }
+
+  // Light edges are not skip-list nodes, so retiring one hands it to the graveyard drain. The
+  // epoch is read here, as the retirement happens: it is what orders a reader that opened earlier
+  // ahead of the drain that frees these.
+  void RetireLightEdges(BatchedList<Edge *> &&edges) {
+    auto const guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
+    // The move is constant time however many edges are being retired, so the lock is held briefly.
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.emplace_back(guard_epoch, std::move(edges)); });
+  }
 
   bool InitializeWalFile(std::string_view epoch_id);
   void FinalizeWalFile();
+
+  // Archives every durability file superseded by `keep_snapshot` into a `.old` sub-directory of its own
+  // directory, or deletes it when --storage-backup-dir-enabled=false. Leaves `keep_snapshot` as the only
+  // snapshot and the WAL directory empty. Returns whether the WAL directory really did end up empty:
+  // restarting the WAL sequence numbering is only safe once no pre-existing file can collide with it.
+  bool ArchiveSupersededDurabilityFiles(std::filesystem::path const &keep_snapshot);
 
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo() override;
@@ -845,7 +955,7 @@ class InMemoryStorage final : public Storage {
   // (noexcept via MG_ASSERT), std::list::swap (noexcept), and clear(); the
   // vertices_.access() ctor calls SkipList::gc_.AllocateId() which is a plain
   // atomic fetch_add — no heap allocation, no throw.
-  void ClearLightEdges() noexcept;
+  void ClearLightEdges(std::function<void()> const &on_progress = {}) noexcept;
   // Free deleted light Edge* referenced ONLY by un-GC'd RECREATE_OBJECT deltas in
   // committed_transactions_/waiting_gc_deltas_ at teardown (GC never unlinked them
   // because an older txn was active at delete time). noexcept: the walk only reads
@@ -877,10 +987,8 @@ class InMemoryStorage final : public Storage {
   // guard_epoch confirms every pre-existing reader has released its epoch.
   struct LightEdgeGraveyardEntry {
     uint64_t guard_epoch{0};
-    // std::list (not vector): current_deleted_edges is std::move'd in under the
-    // light_edge_graveyard_ lock, so the transfer must be an O(1) list move, not
-    // an O(batch) copy. The drain iterates it once, off the lock.
-    std::list<Edge *, memory::DbAwareAllocator<Edge *>> edges;
+    // Moved in under the light_edge_graveyard_ lock, so the transfer must not be an O(batch) copy.
+    BatchedList<Edge *> edges;
   };
 
   // Returns a pin that keeps edge-index iterables' underlying Edge memory alive
@@ -894,6 +1002,10 @@ class InMemoryStorage final : public Storage {
     }
     return edges_.access();
   }
+
+  // Keeps vertices_ objects alive for the accessor's lifetime. Vertices are always
+  // heavy, so (unlike MakeEdgePin) there is no light-mode variant.
+  [[nodiscard]] auto MakeVertexPin() const { return vertices_.access(); }
 
   utils::SkipListDb<Edge> edges_;
   // Present iff salient.items.enable_edges_metadata && salient.items.properties_on_edges.
@@ -945,21 +1057,23 @@ class InMemoryStorage final : public Storage {
 
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,
-             uint64_t transaction_id)
+             uint64_t transaction_id, PropertyWriteTargets wrote_properties_on)
         : mark_timestamp_{mark_timestamp},
           deltas_{std::move(deltas)},
           commit_info_{std::move(commit_info)},
           unlinkable_timestamp_{commit_info_ ? commit_info_->timestamp.load(std::memory_order_acquire) : 0},
-          transaction_id_{transaction_id} {}
+          transaction_id_{transaction_id},
+          wrote_properties_on_{wrote_properties_on} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
 
-    uint64_t mark_timestamp_{};                  //!< a timestamp no active transaction currently has
-    delta_container deltas_;                     //!< the deltas that need cleaning
-    std::unique_ptr<CommitInfo> commit_info_{};  //!< the commit info the deltas are pointing at
-    uint64_t unlinkable_timestamp_{};            //!< earliest timestamp when these deltas can be safely unlinked
-    uint64_t transaction_id_{};                  //!< the transaction ID that created these deltas
+    uint64_t mark_timestamp_{};                   //!< a timestamp no active transaction currently has
+    delta_container deltas_;                      //!< the deltas that need cleaning
+    std::unique_ptr<CommitInfo> commit_info_{};   //!< the commit info the deltas are pointing at
+    uint64_t unlinkable_timestamp_{};             //!< earliest timestamp when these deltas can be safely unlinked
+    uint64_t transaction_id_{};                   //!< the transaction ID that created these deltas
+    PropertyWriteTargets wrote_properties_on_{};  //!< what this transaction set properties on
   };
 
   utils::Synchronized<std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>, utils::SpinLock>
@@ -973,21 +1087,34 @@ class InMemoryStorage final : public Storage {
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  utils::Synchronized<std::list<Gid, memory::DbAwareAllocator<Gid>>, utils::SpinLock> deleted_vertices_;
+  utils::Synchronized<BatchedList<Gid>, utils::SpinLock> deleted_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage. A std::list (not vector) so the under-lock handover is an O(1)
   // splice: the FastDiscard/Abort critical sections must not do O(batch) work
   // while holding this SpinLock. The GC consume side runs off the lock.
-  utils::Synchronized<std::list<Edge *, memory::DbAwareAllocator<Edge *>>, utils::SpinLock> deleted_edges_;
+  utils::Synchronized<BatchedList<Edge *>, utils::SpinLock> deleted_edges_;
 
   // Deleted light edges awaiting deferred free (see DrainLightEdgeGraveyard).
   utils::Synchronized<std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>>,
                       utils::SpinLock>
       light_edge_graveyard_;
 
-  std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
-  std::atomic<bool> gc_index_cleanup_edge_performance_ = false;
+  // What writes whose deltas were discarded outside a collection cycle could have left stale in
+  // the indexes, for the next cycle to act on. Has its own lock rather than using the collection
+  // lock: the code publishing here happens to hold that one today, but is not required to.
+  utils::Synchronized<IndexArming, utils::SpinLock> pending_index_arming_;
+
+  // Where a collection cycle takes the above, by swapping this empty one in rather than moving,
+  // so that both keep the memory they have already allocated: writers publish into the one above
+  // while holding a spin lock on the commit path, and must not allocate there. Only ever touched
+  // by a collection cycle, which the collection lock serializes.
+  IndexArming claimed_index_arming_;
+
+  // What the deltas a cycle unlinks say about the indexes, merged into the above once the walk
+  // is done. Held here rather than built on the stack for the same reason: reset keeps the words
+  // it has grown, so a cycle does not pay to grow them again. Serialized the same way.
+  IndexArming cycle_index_arming_;
 
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
@@ -1060,6 +1187,11 @@ class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
     return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
   }
 
+  /// @throw std::bad_alloc
+  Result<size_t> DeleteEdgesEx(std::span<InMemoryStorage::EdgeDeleteSpec const> edges) {
+    return InMemoryAccessor::DeleteEdgesEx(edges);
+  }
+
   auto GetCommitTimestamp() -> std::optional<uint64_t> & { return commit_timestamp_; }
 
   void ResetCommitTimestamp() { commit_timestamp_.reset(); }
@@ -1075,7 +1207,6 @@ struct SingleTxnDeltasProcessingResult {
   std::unique_ptr<ReplicationAccessor> commit_acc;
   uint64_t current_delta_idx;
   uint64_t num_txns_committed;
-  uint32_t current_batch_counter;
 };
 
 }  // namespace memgraph::storage

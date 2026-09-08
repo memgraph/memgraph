@@ -9,10 +9,106 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import multiprocessing
 import sys
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 from common import connect, execute_and_fetch_all, get_file_path
+
+# Long enough that a slow machine still gets the transfer under way before the abort is due, since
+# an abort landing first would prove nothing about a download.
+QUERY_TIMEOUT_SECONDS = 5
+TRICKLE_STEP_BYTES = 8
+TRICKLE_STEP_SECONDS = 0.25
+
+
+def _serve_until_released(body: bytes, ports, sent, release):
+    """Announces the length of `body`, hands over a fraction of it, then stops sending."""
+    # Far short of the announced length, so no amount of waiting completes the transfer.
+    limit = len(body) // 2
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                while sent.value < limit and not release.is_set():
+                    chunk = body[sent.value : sent.value + TRICKLE_STEP_BYTES]
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                    sent.value += len(chunk)
+                    time.sleep(TRICKLE_STEP_SECONDS)
+                release.wait()
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the client gave up, which is what this test is about
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    ports.put(server.server_port)
+    server.serve_forever()
+
+
+def serve_a_transfer_that_never_finishes(body: bytes):
+    """Starts the server of `_serve_until_released` in a process of its own.
+
+    Returns the process, its port, an event that releases the held connection, and a count of the
+    bytes handed over.
+    """
+    ports = multiprocessing.Queue()
+    sent = multiprocessing.Value("i", 0)
+    release = multiprocessing.Event()
+    server = multiprocessing.Process(target=_serve_until_released, args=(body, ports, sent, release), daemon=True)
+    server.start()
+    return server, ports.get(timeout=30), release, sent
+
+
+def _load_and_report(url: str, outcome):
+    try:
+        cursor = connect(host="localhost", port=7687).cursor()
+        execute_and_fetch_all(cursor, f"LOAD PARQUET FROM '{url}' AS row CREATE (n:N {{id: row.id}})")
+        outcome.put(("completed", ""))
+    except Exception as e:
+        outcome.put(("error", str(e)))
+
+
+def test_a_download_that_cannot_finish_is_stopped_by_an_abort():
+    with open(get_file_path("nodes_100.parquet"), "rb") as fixture:
+        body = fixture.read()
+    server, port, release, sent = serve_a_transfer_that_never_finishes(body)
+    url = f"http://127.0.0.1:{port}/nodes_100.parquet"
+
+    cursor = connect(host="localhost", port=7687).cursor()
+    previous_timeout = dict(execute_and_fetch_all(cursor, "SHOW DATABASE SETTINGS"))["query.timeout"]
+    execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'query.timeout' TO '{QUERY_TIMEOUT_SECONDS}'")
+
+    # The client blocks in a driver call that holds the interpreter lock for as long as the load
+    # runs, so this waits on a process rather than a thread. A thread would leave nothing here able
+    # to run, including the wait meant to bound it.
+    outcome = multiprocessing.Queue()
+    loader = multiprocessing.Process(target=_load_and_report, args=(url, outcome), daemon=True)
+    loader.start()
+    try:
+        # The transfer is checked for an abort as it runs, so the load ends on the query timeout
+        # rather than on the bytes it is waiting for, which never arrive.
+        loader.join(timeout=60.0)
+        assert not loader.is_alive(), "the load kept waiting on a transfer that can never finish"
+        assert sent.value > 0, "the download never reached the server"
+        result, message = outcome.get(timeout=10.0)
+        assert result == "error", f"expected the load to fail, got {result}"
+        assert "abort" in message.lower(), message
+    finally:
+        release.set()
+        loader.terminate()
+        loader.join(timeout=10.0)
+        server.terminate()
+        server.join(timeout=10.0)
+        execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'query.timeout' TO '{previous_timeout}'")
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
 
 def test_non_existing_file_err_ms():
@@ -204,6 +300,40 @@ def test_small_file_nodes_with_limit():
     load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_100.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}}) RETURN n LIMIT 1"
     execute_and_fetch_all(cursor, load_query)
     execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+def test_out_of_range_temporal_does_not_crash():
+    # Regression test: 'time_overflow.parquet' has a TIME64[us] column whose second value is 24h (86400000000 us),
+    # which is out of LocalTime's [0h, 24h) range. Converting it throws temporal::InvalidArgumentException inside the
+    # reader's background prefetcher thread. That exception used to escape the thread's top-level function and call
+    # std::terminate, crashing the whole server. It must instead surface as a regular query error, and the server must
+    # keep serving.
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD PARQUET FROM '{get_file_path('time_overflow.parquet')}' AS row RETURN row.col_time64_us;"
+    with pytest.raises(Exception) as exc_info:
+        execute_and_fetch_all(cursor, load_query)
+    assert "Error while loading PARQUET file" in str(exc_info.value)
+
+    # The server must still be alive (it did not std::terminate): a fresh connection can run a query.
+    liveness_cursor = connect(host="localhost", port=7687).cursor()
+    assert execute_and_fetch_all(liveness_cursor, "RETURN 1 AS ok;")[0][0] == 1
+
+
+# One fixture per unit->microseconds multiply, since the reader converts a batch column-by-column and throws on the
+# first bad column: 'ms' exercises the TIMESTAMP[ms] x1000 path, 's' the DURATION[s] x1000000 path. Each file's second
+# value overflows int64 when scaled to microseconds.
+@pytest.mark.parametrize("fixture", ["temporal_overflow_ms.parquet", "temporal_overflow_s.parquet"])
+def test_temporal_unit_overflow_errors_cleanly(fixture):
+    # Regression test: the unit->microseconds conversion used to overflow silently (signed overflow UB) and store a
+    # bogus value; it must instead raise a clear error, and the server must keep serving.
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD PARQUET FROM '{get_file_path(fixture)}' AS row RETURN row;"
+    with pytest.raises(Exception) as exc_info:
+        execute_and_fetch_all(cursor, load_query)
+    assert "does not fit into the supported microsecond range" in str(exc_info.value)
+
+    liveness_cursor = connect(host="localhost", port=7687).cursor()
+    assert execute_and_fetch_all(liveness_cursor, "RETURN 1 AS ok;")[0][0] == 1
 
 
 if __name__ == "__main__":

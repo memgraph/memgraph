@@ -1,0 +1,5 @@
+query: >
+  MATCH (n:Person) RETURN map.get(n, "name") AS value;
+
+output:
+  - value: "Alice"

@@ -29,7 +29,7 @@ CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(
 CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
   if (rpc_server_.Shutdown()) {
     try {
-      spdlog::trace("Closing CoordinatorInstanceManagementServer");
+      spdlog::info("Closing CoordinatorInstanceManagementServer");
       // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (std::exception const &e) {
     }

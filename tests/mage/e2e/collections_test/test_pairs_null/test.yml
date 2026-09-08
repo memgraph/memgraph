@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.pairs(null) AS result;
+
+output:
+  - result: null

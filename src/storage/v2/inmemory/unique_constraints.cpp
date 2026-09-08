@@ -21,6 +21,8 @@
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/counter.hpp"
@@ -435,8 +437,8 @@ auto InMemoryUniqueConstraints::GetCreationFunction(
 
 auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
+    const LabelId &label, const std::set<PropertyId> &properties, ProgressCallback const &on_progress,
+    CheckCancelFunction const &cancel_check) const -> std::expected<void, ConstraintViolation> {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
   MG_ASSERT(!vertex_batches.empty(),
@@ -445,6 +447,8 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
+  std::atomic<bool> cancelled = false;
+  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> oom{};
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> result{};
   {
     std::vector<memory::DbAwareThread> threads;
@@ -458,41 +462,60 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                             &constraint_accessor,
                             &label,
                             &properties,
-                            &snapshot_info]() {
+                            &on_progress,
+                            &cancel_check,
+                            &cancelled,
+                            &oom]() {
                              do_per_thread_validation(result,
                                                       DoValidate,
                                                       vertex_batches,
                                                       batch_counter,
                                                       vertex_accessor,
-                                                      snapshot_info,
+                                                      on_progress,
+                                                      cancel_check,
+                                                      cancelled,
+                                                      oom,
                                                       constraint_accessor,
                                                       label,
                                                       properties);
                            });
     }
   }
-  return *result.Lock();
+  // Out of memory first: unlike the other two it means the answer is unknown rather than known-and-negative.
+  if (auto failure = oom.Lock(); failure->has_value()) {
+    throw *std::move(*failure);
+  }
+  // A violation is a real answer about the data, so it outranks having been asked to stop.
+  auto validation_result = *result.Lock();
+  if (!validation_result.has_value()) {
+    return validation_result;
+  }
+  if (cancelled.load(std::memory_order_relaxed)) {
+    throw PopulateCancel{};
+  }
+  return validation_result;
 }
 
 auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
+    const LabelId &label, const std::set<PropertyId> &properties, ProgressCallback const &on_progress,
+    CheckCancelFunction const &cancel_check) const -> std::expected<void, ConstraintViolation> {
   for (const Vertex &vertex : vertex_accessor) {
+    if (cancel_check()) {
+      throw PopulateCancel{};
+    }
     if (auto result = DoValidate(vertex, constraint_accessor, label, properties); !result.has_value()) {
       return result;
     }
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::VERTICES);
-    }
+    if (on_progress) on_progress();
   }
   return {};
 }
 
 auto InMemoryUniqueConstraints::CreateConstraint(
     LabelId label, const std::set<PropertyId> &properties, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
-    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) -> std::expected<CreationStatus, ConstraintViolation> {
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info, ProgressCallback const &on_progress,
+    CheckCancelFunction const &cancel_check) -> std::expected<CreationStatus, ConstraintViolation> {
   // TODO: we should do the proper register -> populate(with cancel + parallel) -> publish pattern
 
   if (properties.empty()) {
@@ -514,10 +537,10 @@ auto InMemoryUniqueConstraints::CreateConstraint(
       auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
       return std::visit(
-          [&vertex_accessor, &constraint_accessor, &label, &properties, &snapshot_info](
+          [&vertex_accessor, &constraint_accessor, &label, &properties, &on_progress, &cancel_check](
               auto &multi_single_thread_processing) {
             return multi_single_thread_processing(
-                vertex_accessor, constraint_accessor, label, properties, snapshot_info);
+                vertex_accessor, constraint_accessor, label, properties, on_progress, cancel_check);
           },
           multi_single_thread_processing);
     });
@@ -528,6 +551,11 @@ auto InMemoryUniqueConstraints::CreateConstraint(
     }
     return CreationStatus::SUCCESS;
   } catch (const utils::OutOfMemoryException &) {
+    (void)DropConstraint(label, properties);
+    throw;
+  } catch (const PopulateCancel &) {
+    // The constraint was installed before validation started, so it has to come back out before the cancellation
+    // reaches the caller -- otherwise a half-validated constraint stays visible.
     (void)DropConstraint(label, properties);
     throw;
   }
@@ -639,26 +667,37 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
   return {};
 }
 
-void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t const oldest_active_start_timestamp,
-                                                      const std::stop_token &token) {
+uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
+                                                          uint64_t const oldest_active_start_timestamp,
+                                                          const std::stop_token &token, IndexArming const &arming) {
   auto container = container_.ReadCopy();
+  if (container->empty()) return 0;
   auto maybe_stop = utils::ResettableCounter(2048);
 
+  // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
+  auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
+
+  auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
+
+  uint64_t swept = 0;
   for (const auto &[label, map] : *container) {
     for (const auto &[properties, individual_constraint] : map) {
       // before starting constraint, check if stop_requested
-      if (token.stop_requested()) return;
+      if (token.stop_requested()) return swept;
+      // A sweep walks the whole constraint whether or not it has anything to collect.
+      if (!arming.arms_vertex_index_on(label, properties)) continue;
+      ++swept;
 
       auto acc = individual_constraint->skiplist.access();
       for (auto it = acc.begin(); it != acc.end();) {
         // Hot loop, don't check stop_requested every time
-        if (maybe_stop() && token.stop_requested()) return;
+        if (maybe_stop() && token.stop_requested()) return swept;
 
         auto next_it = it;
         ++next_it;
 
         // Cannot delete it yet
-        if (it->timestamp >= oldest_active_start_timestamp) {
+        if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
           it = next_it;
           continue;
         }
@@ -671,17 +710,50 @@ void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t const oldest_acti
       }
     }
   }
+  return swept;
 }
 
 void InMemoryUniqueConstraints::Clear() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
+  ReleaseRetiredConstraints();
 }
 
 void InMemoryUniqueConstraints::DropGraphClearConstraints() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
+  ReleaseRetiredConstraints();
+}
+
+void InMemoryUniqueConstraints::RetireConstraint(IndividualConstraintPtr evicted) {
+  if (!evicted) return;
+  // Release the gauge now rather than letting ~ScopedGauge do it: the constraint stops being active the moment the
+  // DROP commits, whereas the object below outlives that until GC reclaims it. Leaving them coupled would report a
+  // dropped constraint as still active for as long as reclamation is outstanding.
+  evicted->gauge_ = {};
+  retired_.WithLock([&evicted](auto &retired) { retired.push_back(std::move(evicted)); });
+}
+
+void InMemoryUniqueConstraints::ReclaimRetiredConstraints() {
+  // Move the reapable entries out under the lock and let them die after it is released: destroying one walks its whole
+  // skiplist, and holding the lock for that would stall every concurrent drop and restore.
+  std::vector<IndividualConstraintPtr> reapable;
+  retired_.WithLock([&reapable](auto &retired) {
+    for (auto &constraint : retired) {
+      // Only this list still points at it, so no reader snapshot can reach it any more.
+      if (constraint.use_count() == 1) reapable.push_back(std::move(constraint));
+    }
+    std::erase(retired, nullptr);
+  });
+}
+
+void InMemoryUniqueConstraints::ReleaseRetiredConstraints() {
+  // Swap out under the lock and destroy after releasing it, as ReclaimRetiredConstraints does: destroying one walks
+  // its whole skiplist.
+  std::vector<IndividualConstraintPtr> pending;
+  retired_.WithLock([&pending](auto &retired) { pending.swap(retired); });
 }
 
 void InMemoryUniqueConstraints::RunGC() {
+  ReclaimRetiredConstraints();
   const auto container = container_.ReadCopy();
   for (const auto &map : *container | std::views::values) {
     for (const auto &individual_constraint : map | std::views::values) {

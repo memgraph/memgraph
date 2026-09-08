@@ -517,6 +517,10 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   return std::move(properties);
 }
 
+std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {
+  return transaction_->active_indices_->vector_edge_->IndexedProperties(edge_type_);
+}
+
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyIds(
     std::span<PropertyId const> properties, View view) const {
   bool exists = true;

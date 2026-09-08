@@ -27,6 +27,7 @@ void ReplicationClient::Shutdown() const {
   // Scheduler::Stop() would join a thread stuck mid-callback, deadlocking before we ever reach Abort.
   rpc_client_.Abort();
   replica_checker_.Stop();
+  maintenance_pool_.ShutDown();
   thread_pool_.ShutDown();
   rpc_client_.Shutdown();
 }
@@ -34,7 +35,7 @@ void ReplicationClient::Shutdown() const {
 ReplicationClient::~ReplicationClient() {
   auto const &endpoint = rpc_client_.Endpoint();
   try {
-    spdlog::trace("Closing replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
+    spdlog::info("Closing replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }

@@ -1,0 +1,7 @@
+# `search.node` deduplicates by id across all labels, so the two-label node is returned once, not twice.
+query: >
+  CALL search.node({P: 'name', M: 'title'}, 'exact', 'x') YIELD node
+  RETURN count(node) AS c;
+
+output:
+  - c: 3

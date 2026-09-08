@@ -21,6 +21,7 @@
 
 #include "parameters/parameters.hpp"
 #include "query/config.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
@@ -33,7 +34,6 @@
 #include "utils/priority_thread_pool.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #ifdef MG_ENTERPRISE
@@ -47,8 +47,6 @@ class DbmsHandler;
 }  // namespace memgraph::dbms
 
 namespace memgraph::query {
-
-struct QueryCacheEntry;
 
 constexpr uint64_t kInterpreterTransactionInitialId = 1ULL << 63U;
 
@@ -70,7 +68,7 @@ struct InterpreterContext {
   // Internal
   const InterpreterConfig config;
   std::atomic<bool> is_shutting_down{false};  // TODO: Do we even need this, since there is a global one also
-  utils::SkipList<QueryCacheEntry> ast_cache;
+  AstCache ast_cache;
 
   // GLOBAL
   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *repl_state;
@@ -104,6 +102,14 @@ struct InterpreterContext {
   std::vector<std::vector<TypedValue>> TerminateTransactions(
       const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,
       QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+
+  /// Terminates every transaction the caller is authorized to kill, across all databases.
+  /// `self` is the issuing interpreter and is skipped: terminating it would make its own
+  /// commit throw, so the caller would never see which transactions it killed. Returns one
+  /// row per terminated transaction, ordered by ascending transaction id.
+  static std::vector<std::vector<TypedValue>> TerminateAllTransactions(
+      const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
+      std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);

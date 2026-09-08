@@ -16,6 +16,7 @@
 #include "storage/v2/temporal.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -74,31 +75,48 @@ inline std::string_view TypeConstraintKindToString(TypeConstraintKind type) {
   std::unreachable();
 }
 
-inline PropertyStoreType TypeConstraintsKindToPropertyStoreType(TypeConstraintKind type) {
+/// The stored types a value of this constraint kind may be held as.
+///
+/// One kind can have more than one encoding: a zoned datetime is stored differently depending
+/// on whether its timezone is a name or a numeric offset, and a list is stored out of line when
+/// a vector index holds it. Each is the same type to the user, so each satisfies the constraint.
+inline std::span<PropertyStoreType const> TypeConstraintsKindToPropertyStoreType(TypeConstraintKind type) {
+  static constexpr PropertyStoreType kString[] = {PropertyStoreType::STRING};
+  static constexpr PropertyStoreType kBool[] = {PropertyStoreType::BOOL};
+  static constexpr PropertyStoreType kInt[] = {PropertyStoreType::INT};
+  static constexpr PropertyStoreType kDouble[] = {PropertyStoreType::DOUBLE};
+  static constexpr PropertyStoreType kList[] = {PropertyStoreType::LIST, PropertyStoreType::VECTOR};
+  static constexpr PropertyStoreType kMap[] = {PropertyStoreType::MAP};
+  static constexpr PropertyStoreType kTemporal[] = {PropertyStoreType::TEMPORAL_DATA};
+  static constexpr PropertyStoreType kZonedTemporal[] = {PropertyStoreType::ZONED_TEMPORAL_DATA,
+                                                         PropertyStoreType::OFFSET_ZONED_TEMPORAL_DATA};
+  static constexpr PropertyStoreType kEnum[] = {PropertyStoreType::ENUM};
+  static constexpr PropertyStoreType kPoint[] = {PropertyStoreType::POINT};
+
   switch (type) {
     case TypeConstraintKind::STRING:
-      return PropertyStoreType::STRING;
+      return kString;
     case TypeConstraintKind::BOOLEAN:
-      return PropertyStoreType::BOOL;
+      return kBool;
     case TypeConstraintKind::INTEGER:
-      return PropertyStoreType::INT;
+      return kInt;
     case TypeConstraintKind::FLOAT:
-      return PropertyStoreType::DOUBLE;
+      return kDouble;
     case TypeConstraintKind::LIST:
-      return PropertyStoreType::LIST;
+      return kList;
     case TypeConstraintKind::MAP:
-      return PropertyStoreType::MAP;
+      return kMap;
     case TypeConstraintKind::DURATION:
     case TypeConstraintKind::DATE:
     case TypeConstraintKind::LOCALTIME:
     case TypeConstraintKind::LOCALDATETIME:
-      return PropertyStoreType::TEMPORAL_DATA;
+      return kTemporal;
     case TypeConstraintKind::ZONEDDATETIME:
-      return PropertyStoreType::ZONED_TEMPORAL_DATA;
+      return kZonedTemporal;
     case TypeConstraintKind::ENUM:
-      return PropertyStoreType::ENUM;
+      return kEnum;
     case TypeConstraintKind::POINT:
-      return PropertyStoreType::POINT;
+      return kPoint;
   }
   std::unreachable();
 }

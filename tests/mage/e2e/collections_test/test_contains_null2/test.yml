@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.contains([1], null) AS result;
+
+output:
+  - result: false

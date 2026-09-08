@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 
+#include "test_support/op_make_traits.hpp"
 #include "test_support/types.hpp"
 
 import memgraph.planner.core.egraph;
@@ -38,7 +39,10 @@ namespace memgraph::planner::core::test {
 
 class EGraphTestBase : public ::testing::Test {
  public:
-  TestEGraph egraph;
+  // The rewrite engine drives a TypedEGraph; `egraph` aliases the core it owns
+  // so the building DSL and direct core queries share one graph.
+  TypedTestEGraph typed_egraph;
+  TestEGraph &egraph = typed_egraph.core();
   TestMatcherIndex matcher{egraph};
   ProcessingContext<Op> proc_ctx_;
 

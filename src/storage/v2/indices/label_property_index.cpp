@@ -82,7 +82,9 @@ void PropertiesPermutationHelper::Update(PropertyId outer_prop_id, PropertyValue
   auto const &sorted_positions = it->second;
   for (auto const &pos : sorted_positions) {
     auto const *nested_value = ReadNestedPropertyValue(value, sorted_properties_[pos] | rv::drop(1));
-    extracted_values[pos] = *nested_value;
+    // The path need not resolve: `value` may not be a map, or may be one without the property.
+    // No value at the path means a null index key.
+    extracted_values[pos] = nested_value ? *nested_value : PropertyValue{};
   }
 }
 
@@ -120,9 +122,9 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
   return relevant_paths | rv::transform(is_match) | r::to_vector;
 }
 
-auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values) const
-    -> std::vector<bool> {
-  return properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_);
+void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
+                                                std::vector<bool> &out) const {
+  properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
 }
 
 size_t PropertyValueRange::hash() const noexcept {
@@ -138,8 +140,8 @@ size_t PropertyValueRange::hash() const noexcept {
 }
 
 void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
-  const auto &it = p2l.find(propId);
-  if (it == p2l.end()) return;
+  const auto &it = lookup->p2l.find(propId);
+  if (it == lookup->p2l.end()) return;
 
   for (auto const &[label, index_info] : it->second) {
     if (!std::ranges::contains(vertex->labels, label)) continue;
@@ -155,8 +157,8 @@ void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId
 }
 
 void LabelPropertyIndexAbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
-  const auto &it = l2p.find(label);
-  if (it == l2p.end()) return;
+  const auto &it = lookup->l2p.find(label);
+  if (it == lookup->l2p.end()) return;
 
   auto dedup = std::set<LabelPropertyIndex::IndexInfo>{};
   for (const auto &[property, index_info] : it->second) {

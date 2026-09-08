@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 
 namespace memgraph::storage {
 
@@ -33,7 +34,8 @@ enum class DescriptionTargetKind : uint8_t {
   EDGE_TYPE_PROPERTY,
   PROPERTY,
   EDGE_TYPE_PATTERN,
-  EDGE_TYPE_PATTERN_PROPERTY
+  EDGE_TYPE_PATTERN_PROPERTY,
+  PROPERTY_VALUE
 };
 
 struct DescriptionEntry {
@@ -44,6 +46,7 @@ struct DescriptionEntry {
   std::string description;
   LabelIds from_labels;
   LabelIds to_labels;
+  ExternalPropertyValue value{};
 };
 
 class DescriptionStore {
@@ -106,6 +109,22 @@ class DescriptionStore {
   std::optional<std::string> GetProperty(PropertyId prop) const {
     auto it = property_descriptions_.find(prop);
     if (it == property_descriptions_.end()) return std::nullopt;
+    return it->second;
+  }
+
+  using PropertyValueKey = std::pair<PropertyId, ExternalPropertyValue>;
+
+  void SetPropertyValue(PropertyId prop, ExternalPropertyValue value, std::string_view desc) {
+    property_value_descriptions_[{prop, std::move(value)}] = desc;
+  }
+
+  bool DeletePropertyValue(PropertyId prop, ExternalPropertyValue const &value) {
+    return property_value_descriptions_.erase({prop, value}) > 0;
+  }
+
+  std::optional<std::string> GetPropertyValue(PropertyId prop, ExternalPropertyValue const &value) const {
+    auto it = property_value_descriptions_.find({prop, value});
+    if (it == property_value_descriptions_.end()) return std::nullopt;
     return it->second;
   }
 
@@ -192,6 +211,11 @@ class DescriptionStore {
     for (auto const &[prop_id, desc] : property_descriptions_) {
       result.push_back({.kind = DescriptionTargetKind::PROPERTY, .property = prop_id, .description = desc});
     }
+    for (auto const &[key, desc] : property_value_descriptions_) {
+      auto const &[prop_id, value] = key;
+      result.push_back(
+          {.kind = DescriptionTargetKind::PROPERTY_VALUE, .property = prop_id, .description = desc, .value = value});
+    }
     for (auto const &[key, desc] : edge_type_pattern_descriptions_) {
       auto const &[from, et, to] = key;
       result.push_back({.kind = DescriptionTargetKind::EDGE_TYPE_PATTERN,
@@ -218,8 +242,8 @@ class DescriptionStore {
   size_t Size() const {
     return label_descriptions_.size() + edge_type_descriptions_.size() + label_property_descriptions_.size() +
            edge_type_property_descriptions_.size() + property_descriptions_.size() +
-           edge_type_pattern_descriptions_.size() + edge_type_pattern_property_descriptions_.size() +
-           (database_description_ ? 1 : 0);
+           property_value_descriptions_.size() + edge_type_pattern_descriptions_.size() +
+           edge_type_pattern_property_descriptions_.size() + (database_description_ ? 1 : 0);
   }
 
   void Clear() {
@@ -228,6 +252,7 @@ class DescriptionStore {
     label_property_descriptions_.clear();
     edge_type_property_descriptions_.clear();
     property_descriptions_.clear();
+    property_value_descriptions_.clear();
     edge_type_pattern_descriptions_.clear();
     edge_type_pattern_property_descriptions_.clear();
     database_description_.reset();
@@ -245,6 +270,7 @@ class DescriptionStore {
   std::map<LabelPropertyKey, std::string> label_property_descriptions_;
   std::map<EdgeTypePropertyKey, std::string> edge_type_property_descriptions_;
   std::map<PropertyId, std::string> property_descriptions_;
+  std::map<PropertyValueKey, std::string> property_value_descriptions_;
   std::map<EdgeTypePatternKey, std::string> edge_type_pattern_descriptions_;
   std::map<EdgeTypePatternPropertyKey, std::string> edge_type_pattern_property_descriptions_;
   std::optional<std::string> database_description_;

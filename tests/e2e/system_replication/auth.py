@@ -679,10 +679,7 @@ def test_auth_replication(connection, test_name):
 
     # 1/
     def check(f, expected_data):
-        # mg_sleep_and_assert(
-        # REPLICA 1 is SYNC, should already be ready
-        assert expected_data == f(cursor_replica1)()
-        # )
+        mg_sleep_and_assert(expected_data, f(cursor_replica1))
         mg_sleep_and_assert(expected_data, f(cursor_replica2))
 
     # CREATE USER
@@ -1113,9 +1110,7 @@ def test_user_profile_replication(connection, test_name):
     cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
 
     def check(f, expected_data):
-        # REPLICA 1 is SYNC, should already be ready
-        assert expected_data == f(cursor_replica1)()
-        # REPLICA 2 is ASYNC, should wait for it
+        mg_sleep_and_assert(expected_data, f(cursor_replica1))
         mg_sleep_and_assert(expected_data, f(cursor_replica2))
 
     def resource_check(instance_name, instance_type, username, expected_usage):

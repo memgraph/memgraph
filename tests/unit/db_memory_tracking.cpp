@@ -34,6 +34,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace {
@@ -1285,6 +1286,36 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_PerDbArenaIndicesAboveEveryPossibleCpuId)
   const unsigned idx = memgraph::memory::GlobalArenaPool::Instance().Acquire();
   EXPECT_GT(idx, max_cpu_id) << "per-DB arenas must be unreachable by percpu binding";
   memgraph::memory::GlobalArenaPool::Instance().Release(idx);
+}
+
+// ---------------------------------------------------------------------------
+// The tenant limit is enforced by the arena's extent hook, which refuses an
+// allocation by returning null. Only the allocator that turns that null into an
+// exception may refuse, so an arena allocation must carry that declaration down
+// to the hook.
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, TenantLimitRefusesArenaAllocation) {
+  auto dir = data_dir_ / "tenant_limit";
+  std::filesystem::create_directories(dir);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
+  auto acc = db_gk.access();
+  ASSERT_TRUE(acc);
+  auto *db = acc->get();
+  ASSERT_NE(db->Arena().idx(), 0U);
+
+  StabilizeDbMemoryBaseline(db);
+
+  static constexpr int64_t kHeadroom = 1L << 20;
+  static constexpr std::size_t kOverLimit = 64UL << 20;
+  db->SetTenantMemoryLimit(db->DbMemoryUsage() + kHeadroom);
+
+  const memgraph::memory::DbArenaScope scope{&db->Arena()};
+  const memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+
+  EXPECT_THROW(memgraph::memory::DbAllocateBytes(
+                   kOverLimit, memgraph::memory::tls_db_arena_state.arena, alignof(std::max_align_t)),
+               memgraph::utils::OutOfMemoryException);
 }
 
 #endif  // USE_JEMALLOC

@@ -1,0 +1,5 @@
+query: >
+  CALL collections.split([1, null, 2, null, 3], null) YIELD splitted RETURN splitted;
+
+output:
+  - splitted: [1, null, 2, null, 3]

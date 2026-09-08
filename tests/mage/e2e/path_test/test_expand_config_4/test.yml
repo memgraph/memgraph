@@ -1,0 +1,13 @@
+# Uniqueness is per relationship, not per node, so going right round the cycle revisits A.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: ['R>'], maxHops: 3})
+  YIELD result
+  WITH result ORDER BY size(nodes(result)), [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "B", "C"]
+  - names: ["A", "B", "C", "A"]

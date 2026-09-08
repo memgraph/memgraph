@@ -11,65 +11,133 @@ on:
       community_core:
         type: boolean
         default: true
-      coverage:
-        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
-        default: 'core,clang_tidy'
+        description: "Community: Core"
+      coverage_core:
+        type: boolean
+        default: true
+        description: "Coverage: Core"
+      coverage_clang_tidy:
+        type: boolean
+        default: true
+        description: "Coverage: Clang-Tidy"
       debug_core:
         type: boolean
         default: true
+        description: "Debug: Core"
       debug_integration:
         type: boolean
         default: true
+        description: "Debug: Integration"
       jepsen_core:
         type: boolean
         default: true
-      release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules). Use "none" to skip all release tests.'
-        default: 'core,benchmark,e2e,stress,query_modules'
-      malloc_build:
+        description: "Jepsen: Core"
+      release_core:
         type: boolean
         default: true
-      mage:
-        type: string
-        default: 'amd,arm,cuda'
-        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: true
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: true
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: true
+        description: "MAGE: CUDA"
       mgcxx_unit:
         type: boolean
         default: true
-        description: "Run the mgcxx tests."
+        description: "MGCXX: Unit"
+      python_build_version:
+        type: string
+        default: ''
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the default Python inside each build container."
+      python_runtime_version:
+        type: string
+        default: ''
+        description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
   workflow_call:
     inputs:
       community_core:
         type: boolean
         default: true
-      coverage:
-        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
-        default: 'core,clang_tidy'
-        type: string
+        description: "Community: Core"
+      coverage_core:
+        type: boolean
+        default: true
+        description: "Coverage: Core"
+      coverage_clang_tidy:
+        type: boolean
+        default: true
+        description: "Coverage: Clang-Tidy"
       debug_core:
         type: boolean
         default: true
+        description: "Debug: Core"
       debug_integration:
         type: boolean
         default: true
+        description: "Debug: Integration"
       jepsen_core:
         type: boolean
         default: true
-      release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules). Use "none" to skip all release tests.'
-        default: 'core,benchmark,e2e,stress,query_modules'
-        type: string
-      malloc_build:
+        description: "Jepsen: Core"
+      release_core:
         type: boolean
         default: true
-      mage:
-        type: string
-        default: 'amd,arm,cuda'
-        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: true
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: true
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: true
+        description: "MAGE: CUDA"
       mgcxx_unit:
         type: boolean
         default: true
-        description: "Run the mgcxx tests."
+        description: "MGCXX: Unit"
+      python_build_version:
+        type: string
+        default: ''
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the default Python inside each build container."
+      python_runtime_version:
+        type: string
+        default: ''
+        description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -90,8 +158,6 @@ jobs:
       run_release_benchmark: ${{ steps.setup.outputs.run_release_benchmark}}
       run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
-      run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
-      run_malloc_build: ${{ steps.setup.outputs.run_malloc_build }}
       run_mage_amd: ${{ steps.setup.outputs.run_mage_amd }}
       run_mage_arm: ${{ steps.setup.outputs.run_mage_arm }}
       run_mage_cuda: ${{ steps.setup.outputs.run_mage_cuda }}
@@ -119,6 +185,8 @@ jobs:
       arch: 'amd'
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
+      python_build_version: ${{ inputs.python_build_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Coverage:
@@ -130,6 +198,8 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_clang_tidy }}
+      python_build_version: ${{ inputs.python_build_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Debug:
@@ -141,6 +211,8 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
+      python_build_version: ${{ inputs.python_build_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Jepsen:
@@ -162,17 +234,8 @@ jobs:
       run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
-      run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
-    secrets: inherit
-
-  Malloc:
-    needs: DiffSetup
-    uses: ./.github/workflows/diff_malloc.yaml
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      arch: 'amd'
-      os: 'ubuntu-24.04'
-      run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
+      python_build_version: ${{ inputs.python_build_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Mage:
@@ -184,6 +247,9 @@ jobs:
       run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
+      # Mage only overrides the build-time Python; runtime stays the image
+      # default, so no python_runtime_version (no swap) is forwarded.
+      python_build_version: ${{ inputs.python_build_version }}
     secrets: inherit
 
   MGCXX:

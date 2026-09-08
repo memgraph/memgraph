@@ -46,7 +46,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
-#include "query/frontend/ast/query/exists.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "utils/string.hpp"
 
 #include "storage/v2/inmemory/storage.hpp"
@@ -640,6 +640,28 @@ auto GetCallSubquery(AstStorage &storage, CypherQuery *subquery) {
   return call_subquery;
 }
 
+// `CALL (v1, v2, ...) { ... }`. Each import builds as `NEXPR(name, IDENT(name))`, which is what
+// SymbolGenerator::PreVisit(CallSubquery) expects. There is no aliased form: the grammar's
+// scopeClause is `ASTERISK | variable (',' variable)*`, so `CALL (v AS w)` does not parse.
+template <typename TSubquery>
+auto GetCallSubqueryScoped(AstStorage &storage, TSubquery *subquery, const std::vector<std::string> &imports) {
+  auto *call_subquery = GetCallSubquery(storage, subquery);
+  call_subquery->has_variable_scope_ = true;
+  for (const auto &name : imports) {
+    call_subquery->scoped_variables_.push_back(storage.Create<NamedExpression>(name, storage.Create<Identifier>(name)));
+  }
+  return call_subquery;
+}
+
+// `CALL (*) { ... }`: imports every user-declared outer variable.
+template <typename TSubquery>
+auto GetCallSubqueryScopedAll(AstStorage &storage, TSubquery *subquery) {
+  auto *call_subquery = GetCallSubquery(storage, subquery);
+  call_subquery->has_variable_scope_ = true;
+  call_subquery->all_variables_scoped_ = true;
+  return call_subquery;
+}
+
 auto GetCallPeriodicSubquery(AstStorage &storage, SingleQuery *subquery, CommitFrequency commit_frequency) {
   auto *periodic_subquery = storage.Create<memgraph::query::CallSubquery>();
 
@@ -666,10 +688,34 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 }
 
 auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
-  auto *exists_subquery = storage.Create<query::Exists>();
+  auto *exists_subquery = storage.Create<query::SubqueryExpression>();
   exists_subquery->content_ = std::move(subquery);
 
   return exists_subquery;
+}
+
+/// `COUNT { subquery }` - the same node as EXISTS_SUBQUERY, carrying the count fold instead of the bool one.
+auto GetCountSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *count_subquery = GetExistsSubquery(storage, subquery);
+  count_subquery->fold_ = query::SubqueryExpression::Fold::kCount;
+
+  return count_subquery;
+}
+
+/// `COLLECT { subquery }` - the same node again, carrying the list fold.
+auto GetCollectSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *collect_subquery = GetExistsSubquery(storage, subquery);
+  collect_subquery->fold_ = query::SubqueryExpression::Fold::kList;
+
+  return collect_subquery;
+}
+
+/// `COUNT { pattern }` - the pattern form of the count fold, the COUNT counterpart of the EXISTS macro.
+auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
+  auto *count_pattern = storage.Create<query::SubqueryExpression>(pattern);
+  count_pattern->fold_ = query::SubqueryExpression::Fold::kCount;
+
+  return count_pattern;
 }
 
 }  // namespace memgraph::query::test_common
@@ -825,8 +871,11 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define EXTRACT(variable, list, expr)                      \
   this->storage.template Create<memgraph::query::Extract>( \
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
-#define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
+#define EXISTS(pattern) this->storage.template Create<memgraph::query::SubqueryExpression>(pattern)
 #define EXISTS_SUBQUERY(...) memgraph::query::test_common::GetExistsSubquery(this->storage, __VA_ARGS__)
+#define COUNT_SUBQUERY(...) memgraph::query::test_common::GetCountSubquery(this->storage, __VA_ARGS__)
+#define COUNT_PATTERN(pattern) memgraph::query::test_common::GetCountPattern(this->storage, pattern)
+#define COLLECT_SUBQUERY(...) memgraph::query::test_common::GetCollectSubquery(this->storage, __VA_ARGS__)
 #define AUTH_QUERY(action,                                           \
                    user,                                             \
                    role,                                             \
@@ -855,6 +904,8 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
 #define CALL_PERIODIC_SUBQUERY(...) memgraph::query::test_common::GetCallPeriodicSubquery(this->storage, __VA_ARGS__)
+#define CALL_SUBQUERY_SCOPED(...) memgraph::query::test_common::GetCallSubqueryScoped(this->storage, __VA_ARGS__)
+#define CALL_SUBQUERY_SCOPED_ALL(...) memgraph::query::test_common::GetCallSubqueryScopedAll(this->storage, __VA_ARGS__)
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
 #define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)

@@ -38,6 +38,9 @@ target_link_libraries(${test_prefix}skip_list_insert mg-utils mg-memory)
 add_concurrent_test(skip_list_insert_competitive.cpp)
 target_link_libraries(${test_prefix}skip_list_insert_competitive mg-utils mg-memory)
 
+add_concurrent_test(skip_list_estimate.cpp)
+target_link_libraries(${test_prefix}skip_list_estimate mg-utils mg-memory)
+
 add_concurrent_test(skip_list_mixed.cpp)
 target_link_libraries(${test_prefix}skip_list_mixed mg-utils mg-memory)
 
@@ -58,3 +61,6 @@ target_link_libraries(${test_prefix}storage_indices mg-utils mg::storage)
 
 add_concurrent_test(storage_unique_constraints.cpp)
 target_link_libraries(${test_prefix}storage_unique_constraints mg-utils mg::storage)
+
+add_concurrent_test(storage_gc_soak.cpp)
+target_link_libraries(${test_prefix}storage_gc_soak mg-utils mg::storage)

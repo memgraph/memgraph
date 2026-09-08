@@ -19,6 +19,14 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
+      python_build_version:
+        type: string
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python."
+        default: ''
+      python_runtime_version:
+        type: string
+        description: "After building, remove the build Python and swap in this version so tests run against a different libpython. Empty disables the swap."
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -31,10 +39,13 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: v7
+  PYTHON_BUILD_VERSION: ${{ inputs.python_build_version }}
+  PYTHON_RUNTIME_VERSION: ${{ inputs.python_runtime_version }}
+  TOOLCHAIN: v8
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 
 jobs:
@@ -42,7 +53,7 @@ jobs:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -63,12 +74,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -85,13 +94,19 @@ jobs:
 
       - name: Build community binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 12 \
           build-memgraph --community \
+          --link-threads $LINK_THREADS \
           --split-debug \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -113,6 +128,15 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
+
+      - name: Save ctest results
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        if: always()
+        with:
+          name: "ctest_results_Community${{ env.RUN_ID }}"
+          path: build/test-results/
+          if-no-files-found: ignore
 
       - name: Collect core dumps
         if: failure()
@@ -150,3 +174,5 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Community / Core tests"

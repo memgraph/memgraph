@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <functional>
 #include <unordered_set>
 #include <variant>

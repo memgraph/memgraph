@@ -14,12 +14,18 @@ function operating_system() {
             ubuntu-24.*|ubuntu-25.*)
                 echo "ubuntu-24.04"
                 ;;
+            ubuntu-26.*)
+                echo "ubuntu-26.04"
+                ;;
             # Linux Mint mappings
             linuxmint-20*|linuxmint-21*)
                 echo "ubuntu-22.04"
                 ;;
             linuxmint-22*)
                 echo "ubuntu-24.04"
+                ;;
+            linuxmint-23*)
+                echo "ubuntu-26.04"
                 ;;
             # Direct mappings
             debian-11|debian-12|debian-13|centos-9|centos-10|fedora-41|fedora-42)
@@ -86,6 +92,13 @@ check_architecture() {
 function check_custom_package() {
     local pkg="$1"
 
+    # Check against the invoking user's home when running under sudo. $USER is
+    # NOT used as a fallback: it is set by login/su but absent in e.g.
+    # `docker exec` shells, and the distro scripts run with `set -u`.
+    local target_user="${SUDO_USER:-$(id -un)}"
+    local user_home
+    user_home="$(getent passwd "$target_user" | cut -d: -f6)"
+
     case "$pkg" in
         custom-maven*)
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
@@ -98,7 +111,14 @@ function check_custom_package() {
             fi
             ;;
         custom-rust)
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            if [ ! -x "$user_home/.cargo/bin/rustup" ]; then
+                echo "$pkg"
+            fi
+            ;;
+        custom-node)
+            # nvm-based install (install_node); nvm has no fixed binary path,
+            # so probe for any node on PATH or an nvm dir.
+            if ! command -v node >/dev/null 2>&1 && [ ! -d "$user_home/.nvm" ]; then
                 echo "$pkg"
             fi
             ;;
@@ -109,22 +129,67 @@ function check_custom_package() {
     return 0
 }
 
+# Retry wrapper for the network-dependent install_* functions below.
+#
+# Usage: retry_install <command> [args...]
+#   e.g. retry_install install_rust "1.89"
+#
+# Retries up to RETRY_INSTALL_ATTEMPTS times (default 3), sleeping
+# RETRY_INSTALL_DELAY seconds (default 10) after a failure and doubling the delay
+# on each subsequent one. Returns the exit status of the last attempt, so a
+# caller running under `set -e` still aborts once the retries are exhausted.
+function retry_install() {
+    if [ "$#" -eq 0 ]; then
+        echo "retry_install: no command given" >&2
+        return 2
+    fi
+
+    local attempts="${RETRY_INSTALL_ATTEMPTS:-3}"
+    local delay="${RETRY_INSTALL_DELAY:-10}"
+    local attempt=1
+    local status
+
+    echo "retry_install: installing '$*' (up to $attempts attempt(s))"
+
+    while true; do
+        # Left side of `||`, so errexit is suspended for the whole call - even
+        # inside the callee, which carries on past a failing step and returns its
+        # last command's status. Hence the `&&` chains and postcondition checks
+        # in the install_* functions: one ending in a plain `echo` always looks
+        # like a success and would never be retried.
+        status=0
+        "$@" || status=$?
+        if [[ "$status" -eq 0 ]]; then
+            echo "retry_install: '$*' succeeded on attempt $attempt/$attempts"
+            return 0
+        fi
+        if [[ "$attempt" -ge "$attempts" ]]; then
+            echo "retry_install: '$*' failed after $attempts attempt(s), last exit status $status" >&2
+            return "$status"
+        fi
+        echo "retry_install: '$*' failed with exit status $status, retrying in ${delay}s (attempt $((attempt + 1))/$attempts)" >&2
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+    done
+}
+
 function install_custom_packages() {
     local packages=("$@")
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
             custom-maven*)
-                install_custom_maven "3.9.3"
+                retry_install install_custom_maven "3.9.3"
                 ;;
             custom-golang*)
-                install_custom_golang "1.18.9"
+                retry_install install_custom_golang "1.18.9"
                 ;;
             custom-rust)
-                install_rust "1.85"
+                retry_install install_rust "1.97.1"
                 ;;
             custom-node)
-                install_node "20"
+                retry_install install_node "24.19.0"
                 ;;
         esac
     done
@@ -182,9 +247,14 @@ function install_custom_golang() {
     GOINSTALLDIR="/opt/go$GOVERSION"
     GOROOT="$GOINSTALLDIR/go" # GOPATH=$HOME/go
     if [ ! -f "$GOROOT/bin/go" ]; then
-      curl -LO https://go.dev/dl/go$GOVERSION.linux-$GOARCH.tar.gz
-      mkdir -p "$GOINSTALLDIR"
-      tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-$GOARCH.tar.gz
+      curl -fLO --proto '=https' --proto-redir '=https' \
+      https://go.dev/dl/go$GOVERSION.linux-$GOARCH.tar.gz \
+        && mkdir -p "$GOINSTALLDIR" \
+        && tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-$GOARCH.tar.gz
+    fi
+    if [ ! -f "$GOROOT/bin/go" ]; then
+      echo "go $GOVERSION installation failed, $GOROOT/bin/go is missing" >&2
+      return 1
     fi
     echo "go $GOVERSION installed under $GOROOT"
 }
@@ -195,8 +265,12 @@ function install_custom_maven() {
   MVNURL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/maven/apache-maven-$MVNVERSION-bin.tar.gz"
   if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
     echo "Downloading maven from $MVNURL"
-    curl -LO "$MVNURL"
-    tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
+    curl -fLO --proto '=https' --proto-redir '=https' "$MVNURL" \
+      && tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
+  fi
+  if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
+    echo "maven $MVNVERSION installation failed, $MVNINSTALLDIR/bin/mvn is missing" >&2
+    return 1
   fi
   echo "maven $MVNVERSION installed under $MVNINSTALLDIR"
 }
@@ -208,29 +282,107 @@ function install_dotnet_sdk ()
   if [ ! -d $DOTNETSDKINSTALLDIR ]; then
     mkdir -p $DOTNETSDKINSTALLDIR
   fi
-  if [ ! -f "$DOTNETSDKINSTALLDIR/.dotnet/dotnet" ]; then
-    wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
-    chmod +x ./dotnet-install.sh
-    ./dotnet-install.sh --channel 8.0 --install-dir $DOTNETSDKINSTALLDIR
-    rm dotnet-install.sh
-    ln -sf $DOTNETSDKINSTALLDIR/dotnet /usr/bin/dotnet
+  if [ ! -f "$DOTNETSDKINSTALLDIR/dotnet" ]; then
+    wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
+      && chmod +x ./dotnet-install.sh \
+      && ./dotnet-install.sh --channel 8.0 --install-dir $DOTNETSDKINSTALLDIR \
+      && rm dotnet-install.sh \
+      && ln -sf $DOTNETSDKINSTALLDIR/dotnet /usr/bin/dotnet
+  fi
+  if [ ! -f "$DOTNETSDKINSTALLDIR/dotnet" ]; then
+    echo "dotnet sdk $DOTNETSDKVERSION installation failed, $DOTNETSDKINSTALLDIR/dotnet is missing" >&2
+    return 1
   fi
   echo "dotnet sdk $DOTNETSDKVERSION installed under $DOTNETSDKINSTALLDIR"
 }
 
-function install_rust () {
-  RUST_VERSION="$1"
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && . "$HOME/.cargo/env" \
-    && rustup default ${RUST_VERSION}
+function install_rust() {
+  local rust_version="$1"
+  local target_user="${SUDO_USER:-$(id -un)}"
+  local target_home
+
+  target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+
+  # Drop privileges only when there is someone to drop to — when the target
+  # user IS the current user (no sudo, e.g. inside a container), run directly:
+  # the sudo binary may not even exist there.
+  local -a run_as=()
+  if [[ "$target_user" != "$(id -un)" ]]; then
+    run_as=(sudo -u "$target_user")
+  fi
+
+  "${run_as[@]}" env HOME="$target_home" \
+    bash -c '
+      set -euo pipefail
+
+      curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs |
+        sh -s -- -y
+
+      . "$HOME/.cargo/env"
+      rustup default "$1"
+    ' bash "$rust_version"
 }
 
-function install_node () {
-  NODE_VERSION="$1"
-  curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
-      && . ~/.nvm/nvm.sh \
-      && nvm install ${NODE_VERSION} \
-      && nvm use ${NODE_VERSION}
+function install_node() {
+  local node_version="$1"
+  local target_user="${SUDO_USER:-$(id -un)}"
+  local target_home
+
+  target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+
+  # See install_rust: skip sudo when already running as the target user.
+  local -a run_as=()
+  if [[ "$target_user" != "$(id -un)" ]]; then
+    run_as=(sudo -u "$target_user")
+  fi
+
+  "${run_as[@]}" env HOME="$target_home" \
+    bash -c '
+      set -euo pipefail
+
+      export NVM_DIR="$HOME/.nvm"
+
+      curl -fsSL --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh |
+        bash
+
+      . "$NVM_DIR/nvm.sh"
+
+      nvm install "$1"
+      nvm use "$1"
+      nvm alias default "$1"
+    ' bash "$node_version"
+}
+
+# Resolve a Python interpreter >= 3.10 and print its absolute path. Some
+# distros default to an older python3 but ship a newer versioned binary
+# alongside (e.g. centos-9: python3 = 3.9, python3.12 installed) — prefer the
+# default python3 when it qualifies, otherwise fall back to the newest
+# versioned executable. $MG_PYTHON overrides the search entirely; if it is set
+# but too old, that is a hard error rather than a silent fallback.
+function resolve_python() {
+    local check='import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'
+    if [[ -n "${MG_PYTHON:-}" ]]; then
+        if ! command -v "$MG_PYTHON" >/dev/null 2>&1; then
+            echo "Error: MG_PYTHON='$MG_PYTHON' not found" >&2
+            return 1
+        fi
+        if ! "$MG_PYTHON" -c "$check" 2>/dev/null; then
+            echo "Error: MG_PYTHON='$MG_PYTHON' is $("$MG_PYTHON" --version 2>&1), but >= 3.10 is required" >&2
+            return 1
+        fi
+        command -v "$MG_PYTHON"
+        return 0
+    fi
+    local candidate
+    for candidate in python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
+        if command -v "$candidate" >/dev/null 2>&1 \
+            && "$candidate" -c "$check" 2>/dev/null; then
+            command -v "$candidate"
+            return 0
+        fi
+    done
+    echo "Error: no Python >= 3.10 found (searched python3, python3.14..python3.10; set MG_PYTHON to override)" >&2
+    return 1
 }
 
 function parse_operating_system() {
@@ -254,6 +406,63 @@ function parse_operating_system() {
 
     echo "OS: $OS"
     echo "VER: $VER"
+}
+
+# Ensure the unversioned `libpython3.so` SONAME exists in the system library
+# directory so that:
+#   1. CMake's find_library(MG_LIBPYTHON3_SO python3) picks it up at build
+#      time and links memgraph against it.
+#   2. The patchelf POST_BUILD step that rewrites DT_NEEDED to libpython3.so
+#      produces a binary that can actually load (the rewritten binary needs
+#      this file to exist on the dynamic linker's search path).
+#
+# Some distros (Fedora, RHEL, conda, manylinux) ship a real abi3 stub library
+# with SONAME=libpython3.so — in that case we do nothing. Debian/Ubuntu ship
+# only versioned libpython files and leave this symlink to the system admin;
+# we create one pointing at the highest-numbered installed libpython3.X.
+#
+# Idempotent: if libpython3.so already exists (real stub or prior symlink),
+# this is a no-op. Pass `--force` to overwrite an existing symlink (e.g. to
+# repoint at a different minor version).
+function ensure_libpython3_so_symlink() {
+    local force=false
+    if [[ "${1:-}" == "--force" ]]; then
+        force=true
+    fi
+
+    # Locate the highest-numbered versioned libpython wherever the distro keeps
+    # it, then create the symlink next to it. We deliberately do NOT rely on
+    # dpkg-architecture (it ships in dpkg-dev, which is not guaranteed to be
+    # installed) to guess a single library directory: on Debian/Ubuntu libpython
+    # lives in a multiarch subdir (e.g. /usr/lib/x86_64-linux-gnu), so guessing
+    # /usr/lib or /usr/lib64 would miss it and wrongly conclude none exists.
+    # Instead search the loader cache plus the common locations directly,
+    # covering multiarch subdirs and flat libdirs (Fedora/RHEL /usr/lib64).
+    # sort -V handles 3.10 > 3.9 correctly.
+    local target
+    target="$( { ldconfig -p 2>/dev/null | grep -oE '/[^ ]*libpython3\.[0-9]+[a-z]*\.so\.1\.0';
+                 ls -1 /usr/lib/*/libpython3.*.so.1.0 \
+                       /lib/*/libpython3.*.so.1.0 \
+                       /usr/lib64/libpython3.*.so.1.0 \
+                       /usr/lib/libpython3.*.so.1.0 2>/dev/null; } \
+               | sort -V | tail -1 )"
+    if [[ -z "$target" ]]; then
+        echo "ensure_libpython3_so_symlink: no libpython3.*.so.1.0 found on the system; skipping"
+        return 0
+    fi
+
+    # Create the abi3 SONAME symlink alongside the versioned library. Distros
+    # that ship a real abi3 stub (Fedora, RHEL, conda, manylinux) already have a
+    # libpython3.so here, so we no-op unless --force is given.
+    local libdir
+    libdir="$(dirname "$target")"
+    if [[ -e "$libdir/libpython3.so" && "$force" == false ]]; then
+        echo "ensure_libpython3_so_symlink: $libdir/libpython3.so already present; nothing to do"
+        return 0
+    fi
+
+    ln -sf "$(basename "$target")" "$libdir/libpython3.so"
+    echo "ensure_libpython3_so_symlink: $libdir/libpython3.so -> $(basename "$target")"
 }
 
 # Function to parse --skip-check flag from command line arguments

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <spdlog/spdlog.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <range/v3/all.hpp>
@@ -41,6 +42,7 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/exit_codes.hpp"
 #include "utils/file_owner.hpp"
@@ -172,12 +174,25 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 
   std::error_code error_code;
 
-  // TODO: (andi) Inefficient to use I/O again, you already read infos.
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!ValidateDurabilityFile(item)) continue;
 
     try {
-      auto info = ReadWalInfo(item.path());
+      auto header = ReadWalHeader(item.path());
+      if ((!uuid.empty() && header.uuid != uuid) || (current_seq_num && header.seq_num >= *current_seq_num)) {
+        spdlog::trace("Wal file {} won't be used. UUID: {}. Header UUID: {}. Current seq num: {}. Header seq num: {}.",
+                      item.path(),
+                      uuid,
+                      header.uuid,
+                      current_seq_num,
+                      header.seq_num);
+        continue;
+      }
+
+      // A file holding no complete transaction has no timestamps to offer, and ReadWalContents throwing for it is
+      // how it gets dropped here.
+      auto info = ReadWalContents(item.path(), std::move(header));
+
       spdlog::trace(
           "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
           "{}, "
@@ -189,22 +204,13 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
           info.from_timestamp,
           info.to_timestamp,
           info.seq_num);
-      if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
-        wal_files.emplace_back(info.seq_num,
-                               info.from_timestamp,
-                               info.to_timestamp,
-                               std::move(info.uuid),
-                               std::move(info.epoch_id),
-                               item.path());
-        spdlog::trace("Wal file {} will be used.", item.path());
-      } else {
-        spdlog::trace("Wal file {} won't be used. UUID: {}. Info UUID: {}. Current seq num: {}. Info seq num: {}.",
-                      item.path(),
-                      uuid,
-                      info.uuid,
-                      current_seq_num,
-                      info.seq_num);
-      }
+      wal_files.emplace_back(info.seq_num,
+                             info.from_timestamp,
+                             info.to_timestamp,
+                             std::move(info.uuid),
+                             std::move(info.epoch_id),
+                             item.path());
+      spdlog::trace("Wal file {} will be used.", item.path());
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read WAL file {}. Error: {}", item.path(), e.what());
     }
@@ -226,25 +232,23 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 namespace {
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                                  utils::SkipListDb<Vertex> *, NameIdMapper *,
-                                 const std::optional<ParallelizedSchemaCreationInfo> &,
-                                 std::optional<SnapshotObserverInfo> const &);
+                                 const std::optional<ParallelizedSchemaCreationInfo> &, ProgressCallback const &);
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                               utils::SkipListDb<Vertex> *, NameIdMapper *,
-                              const std::optional<ParallelizedSchemaCreationInfo> &,
-                              std::optional<SnapshotObserverInfo> const &);
+                              const std::optional<ParallelizedSchemaCreationInfo> &, ProgressCallback const &);
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                             utils::SkipListDb<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
-                            std::optional<SnapshotObserverInfo> const &);
+                            ProgressCallback const &);
 
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                        ProgressCallback const &on_progress) {
   RecoverExistenceConstraints(
-      constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info, snapshot_info);
+      constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info, on_progress);
   RecoverUniqueConstraints(
-      constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info, snapshot_info);
-  RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_info);
+      constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info, on_progress);
+  RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, on_progress);
 
   // Publish recovered constraints to active_constraints_
   auto updater = constraints->MakeUpdater();
@@ -256,14 +260,14 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                            std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                            ProgressCallback const &on_progress) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   auto updater = indices->MakeUpdater();
   // Recover label indices.
   {
     spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
     for (const auto &item : indices_metadata.label) {
-      if (!mem_label_index->CreateIndexOnePass(item, vertices->access(), parallel_exec_info, updater, snapshot_info)) {
+      if (!mem_label_index->CreateIndexOnePass(item, vertices->access(), parallel_exec_info, updater, on_progress)) {
         throw RecoveryFailure("The label index must be created here!");
       }
       spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -287,7 +291,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
     for (auto const &[label, properties] : indices_metadata.label_properties) {
       if (!mem_label_property_index->CreateIndexOnePass(
-              label, properties, vertices->access(), parallel_exec_info, updater, snapshot_info))
+              label, properties, vertices->access(), parallel_exec_info, updater, on_progress))
         throw RecoveryFailure("The label+property index must be created here!");
       spdlog::info("Index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(label.AsUint()),
@@ -302,7 +306,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                  indices_metadata.label_properties_desc.size());
     for (auto const &[label, properties] : indices_metadata.label_properties_desc) {
       if (!mem_label_property_index->CreateIndexOnePass(
-              label, properties, vertices->access(), parallel_exec_info, updater, snapshot_info, IndexOrder::DESC))
+              label, properties, vertices->access(), parallel_exec_info, updater, on_progress, IndexOrder::DESC))
         throw RecoveryFailure("The DESC label+property index must be created here!");
       spdlog::info("DESC index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(label.AsUint()),
@@ -334,7 +338,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
 
     for (const auto &item : indices_metadata.edge) {
       // TODO: parallel execution
-      if (!mem_edge_type_index->CreateIndexOnePass(item, vertices->access(), updater, snapshot_info)) {
+      if (!mem_edge_type_index->CreateIndexOnePass(item, vertices->access(), updater, on_progress)) {
         throw RecoveryFailure("The edge-type index must be created here!");
       }
       spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -351,7 +355,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   for (const auto &item : indices_metadata.edge_type_property) {
     // TODO: parallel execution
     if (!mem_edge_type_property_index->CreateIndexOnePass(
-            item.first, item.second, vertices->access(), updater, snapshot_info)) {
+            item.first, item.second, vertices->access(), updater, on_progress)) {
       throw RecoveryFailure("The edge-type property index must be created here!");
     }
     spdlog::info("Index on :{} + {} is recreated from metadata",
@@ -367,12 +371,24 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   auto *mem_edge_property_index = static_cast<InMemoryEdgePropertyIndex *>(indices->edge_property_index_.get());
   for (const auto &property : indices_metadata.edge_property) {
     // TODO: parallel execution
-    if (!mem_edge_property_index->CreateIndexOnePass(property, vertices->access(), updater, snapshot_info)) {
+    if (!mem_edge_property_index->CreateIndexOnePass(property, vertices->access(), updater, on_progress)) {
       throw RecoveryFailure("The global edge property index must be created here!");
     }
     spdlog::info("Edge index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
   }
   spdlog::info("Global edge property indices are recreated.");
+
+  // Recover global vertex property indices.
+  spdlog::info("Recreating {} global vertex property indices from metadata.", indices_metadata.vertex_property.size());
+  auto *mem_vertex_property_index = static_cast<InMemoryVertexPropertyIndex *>(indices->vertex_property_index_.get());
+  for (const auto &property : indices_metadata.vertex_property) {
+    if (!mem_vertex_property_index->CreateIndexOnePass(
+            property, vertices->access(), parallel_exec_info, updater, on_progress)) {
+      throw RecoveryFailure("The global vertex property index must be created here!");
+    }
+    spdlog::info("Vertex index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
+  }
+  spdlog::info("Global vertex property indices are recreated.");
 
   // Text idx
   auto recover_text_indices = [&](auto &text_index,
@@ -384,7 +400,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     for (const auto &index_info : index_metadata) {
       try {
         // TODO: parallel execution
-        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, updater, snapshot_info);
+        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, updater, on_progress);
       } catch (...) {
         throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
       }
@@ -410,7 +426,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
     for (const auto &[label, property] : indices_metadata.point_label_property) {
       // TODO: parallel execution
-      if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), snapshot_info)) {
+      if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), on_progress)) {
         throw RecoveryFailure("The point index must be created here!");
       }
       indices->point_index_.PublishActiveIndices(updater);
@@ -425,7 +441,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, updater, snapshot_info);
+      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, updater, on_progress);
       spdlog::info("Vector index {} is recreated from metadata", recovery_info.spec.index_name);
     }
     spdlog::info("Vector indices are recreated.");
@@ -435,7 +451,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_edge_indices) {
-      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, updater, snapshot_info);
+      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, updater, on_progress);
       spdlog::info("Vector edge index {} is recreated from metadata", recovery_info.spec.index_name);
     }
     spdlog::info("Vector edge indices are recreated.");
@@ -448,7 +464,7 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
                                  Constraints *constraints, utils::SkipListDb<Vertex> *vertices,
                                  NameIdMapper *name_id_mapper,
                                  const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                                 std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                 ProgressCallback const &on_progress) {
   spdlog::info("Recreating {} existence constraints from metadata.", constraints_metadata.existence.size());
   for (const auto &[label, property] : constraints_metadata.existence) {
     // Register creates the constraint entry in the map
@@ -457,7 +473,7 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
     }
 
     if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
-            vertices->access(), label, property, parallel_exec_info, snapshot_info);
+            vertices->access(), label, property, parallel_exec_info, on_progress);
         !validation_result.has_value()) [[unlikely]] {
       (void)constraints->existence_constraints_->DropConstraint(label, property);
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
@@ -476,13 +492,13 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
                               Constraints *constraints, utils::SkipListDb<Vertex> *vertices,
                               NameIdMapper *name_id_mapper,
                               const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                              ProgressCallback const &on_progress) {
   spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
 
   for (const auto &[label, properties] : constraints_metadata.unique) {
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
     auto ret = mem_unique_constraints->CreateConstraint(
-        label, properties, vertices->access(), parallel_exec_info, snapshot_info);
+        label, properties, vertices->access(), parallel_exec_info, on_progress);
     if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
@@ -506,7 +522,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                             Constraints *constraints, utils::SkipListDb<Vertex> *vertices,
                             const std::optional<ParallelizedSchemaCreationInfo> & /**/,
-                            std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                            ProgressCallback const &on_progress) {
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
@@ -515,7 +531,7 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
     }
   }
 
-  if (auto validation_result = constraints->type_constraints_->ValidateAllVertices(vertices->access(), snapshot_info);
+  if (auto validation_result = constraints->type_constraints_->ValidateAllVertices(vertices->access(), on_progress);
       !validation_result.has_value()) {
     throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
   }
@@ -533,11 +549,11 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
                          NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
                          RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
                          RecoveredIndicesAndConstraints &indices_constraints, EdgeMetadataIndex *edges_metadata,
-                         bool properties_on_edges, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                         bool properties_on_edges, ProgressCallback const &on_progress) {
   // Rebuild the edge metadata index from the fully recovered adjacency before any
   // other derived structure observes it.
   if (edges_metadata) {
-    edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool));
+    edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool), on_progress);
     if (config.salient.items.storage_light_edge) {
       // Light edges live only in the vertex adjacency (pool-allocated); the edges_
       // skiplist is intentionally empty after recovery. RebuildFrom derives metadata
@@ -559,13 +575,13 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
                          name_id_mapper,
                          properties_on_edges,
                          GetParallelExecInfo(recovery_info, config, db_arena_pool),
-                         snapshot_info);
+                         on_progress);
   RecoverConstraints(indices_constraints.constraints,
                      constraints,
                      vertices,
                      name_id_mapper,
                      GetParallelExecInfo(recovery_info, config, db_arena_pool),
-                     snapshot_info);
+                     on_progress);
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
@@ -607,6 +623,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
   std::optional<uint64_t> snapshot_durable_timestamp;
+  std::vector<WalDurabilityInfo> wal_files;
   if (!snapshot_files.empty()) {
     spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory_);
 
@@ -655,65 +672,48 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
+
+    auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+    if (!maybe_wal_files.has_value()) {
+      throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
+    }
+    wal_files = std::move(*maybe_wal_files);
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
-    std::error_code error_code;
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
 
-    // We use this smaller struct that contains only a subset of information
-    // necessary for the rest of the recovery function.
-    // Also, the struct is sorted primarily on the path it contains.
-    struct WalFileInfo {
-      explicit WalFileInfo(std::filesystem::path path, std::string uuid, std::string epoch_id)
-          : path(std::move(path)), uuid(std::move(uuid)), epoch_id(std::move(epoch_id)) {}
-
-      std::filesystem::path path;
-      std::string uuid;
-      std::string epoch_id;
-
-      auto operator<=>(const WalFileInfo &) const = default;
-    };
-
-    std::vector<WalFileInfo> wal_files;
-    for (const auto &item : std::filesystem::directory_iterator(wal_directory_, error_code)) {
-      if (!item.is_regular_file()) {
-        spdlog::trace("Non-regular WAL file {} found in the wal directory. Skipping it.", item.path());
-        continue;
-      }
-      try {
-        auto info = ReadWalInfo(item.path());
-        wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
-      } catch (const RecoveryFailure &e) {
-        spdlog::error("Recovery failure while reading wal file: {}", e.what());
-      }
+    // The UUID isn't known yet, so every file in the directory is collected and the unrelated ones dropped below.
+    auto maybe_wal_files = GetWalFiles(wal_directory_);
+    if (!maybe_wal_files.has_value()) {
+      throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
     }
-    if (error_code) {
-      throw RecoveryFailure("Couldn't recover data because an error occurred: {}!", error_code.message());
-    }
+    wal_files = std::move(*maybe_wal_files);
 
     if (wal_files.empty()) {
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
     }
 
-    // sort by path
-    std::ranges::sort(wal_files);
-
-    // UUID used for durability is the UUID of the last WAL file.
-    // Same for the epoch id.
-    uuid.set(wal_files.back().uuid);
-    repl_storage_state.epoch_.SetEpoch(std::move(wal_files.back().epoch_id));
+    // The UUID and the epoch id used for durability are the ones of the most recently created WAL file. WAL file
+    // names are prefixed with a zero-padded microsecond timestamp, so the greatest path is the newest file.
+    // Sequence numbers can't be used to find it because they restart from 0 whenever the storage UUID changes.
+    auto const &newest_wal_file = *std::ranges::max_element(wal_files, {}, &WalDurabilityInfo::path);
+    uuid.set(newest_wal_file.uuid);
+    repl_storage_state.epoch_.SetEpoch(newest_wal_file.epoch_id);
     spdlog::trace("UUID of the last WAL file: {}. Epoch id from the last WAL file: {}.",
                   std::string{uuid},
                   repl_storage_state.epoch_.id());
-  }
-  auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  if (!maybe_wal_files.has_value()) {
-    throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
+
+    std::erase_if(wal_files, [uuid_str = std::string{uuid}](auto const &wal_file) {
+      if (wal_file.uuid == uuid_str) return false;
+      spdlog::trace(
+          "Wal file {} won't be used. Wanted UUID: {}. File UUID: {}.", wal_file.path, uuid_str, wal_file.uuid);
+      return true;
+    });
   }
 
-  if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
+  if (!wal_files.empty()) {
     spdlog::info("Checking WAL files.");
     r::for_each(wal_files,
                 [](auto &&wal_file) { spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num); });

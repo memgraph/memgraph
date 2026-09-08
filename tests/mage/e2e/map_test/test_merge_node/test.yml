@@ -1,0 +1,5 @@
+query: >
+  MATCH (n:Person) RETURN map.merge(n, {x: 1}) AS result;
+
+output:
+  - result: {name: "Alice", age: 30, x: 1}

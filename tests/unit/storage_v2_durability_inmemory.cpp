@@ -1402,6 +1402,16 @@ class DurabilityTest : public ::testing::TestWithParam<DurabilityParam> {
                         memgraph::storage::durability::kWalDirectory);
   }
 
+  // Files superseded by a new durability base (a storage mode switch, RECOVER SNAPSHOT) are archived
+  // into a .old sub-directory of the directory they came from, not into kBackupDirectory.
+  std::vector<std::filesystem::path> GetArchivedSnapshotsList() {
+    return GetFilesList(storage_directory / memgraph::storage::durability::kSnapshotDirectory / ".old");
+  }
+
+  std::vector<std::filesystem::path> GetArchivedWalsList() {
+    return GetFilesList(storage_directory / memgraph::storage::durability::kWalDirectory / ".old");
+  }
+
   void RestoreBackups() {
     {
       auto backup_snapshots = GetBackupSnapshotsList();
@@ -1429,6 +1439,9 @@ class DurabilityTest : public ::testing::TestWithParam<DurabilityParam> {
     for (auto &item : std::filesystem::directory_iterator(path, ec)) {
       // Parallel snapshot creation creates additional temporary files; these need to be ignored for the test
       if (item.path().filename().string().find("_part_") != std::string::npos) continue;
+      // A durability file is never a directory; this skips the .old archive sub-directory, which is
+      // listed through GetArchived*List instead.
+      if (item.is_directory()) continue;
       ret.push_back(item.path());
     }
     std::sort(ret.begin(), ret.end());
@@ -2538,6 +2551,84 @@ TEST_P(DurabilityTest, WalBasic) {
   }
 }
 
+// With no snapshot to take the storage UUID from, recovery adopts the UUID of the most recently created WAL file
+// and ignores every file belonging to another storage. "Most recent" has to be decided by file name, not by
+// sequence number, because sequence numbers restart from 0 whenever the UUID changes.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, WalMixedUUID) {
+  // Create unrelated WALs, with no snapshot so that recovery has to fall back to the WAL files for the UUID.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto acc = db.Access(memgraph::storage::WRITE);
+    for (uint64_t i = 0; i < 1000; ++i) {
+      acc->CreateVertex();
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Starting without recovery moves the unrelated WALs aside and writes new ones under a fresh UUID.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    CreateBaseDataset(db.storage(), GetParam());
+    CreateExtendedDataset(db.storage());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetBackupWalsList().size(), 1);
+
+  // Put the unrelated WALs back, so the directory holds two storages' files and no snapshot at all.
+  RestoreBackups();
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recovery must pick the newer storage and skip the unrelated files entirely.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
+
+  // Try to use the storage.
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalBackup) {
   // Create WALs.
@@ -2588,6 +2679,86 @@ TEST_P(DurabilityTest, WalBackup) {
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
   ASSERT_EQ(GetBackupWalsList().size(), num_wals);
+}
+
+// The snapshot taken when leaving analytical mode is a new durability base: the analytical writes are in
+// no WAL, so nothing written before it can be chained onto it. Everything superseded is archived and the
+// WAL numbering restarts, which together keep the resulting directory recoverable.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, StorageModeSwitchBackArchivesSupersededFilesAndRestartsWalSeqNum) {
+  static constexpr size_t kNumTransactionalVertices = 100;
+  static constexpr size_t kNumAnalyticalVertices = 50;
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .snapshot_wal_mode =
+                         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                     // One vertex per transaction with a 1 KiB cap gives several WAL files to archive.
+                     .wal_file_size_kibibytes = 1},
+      .salient = {.items = {.properties_on_edges = GetParam(), .storage_light_edge = GetParam().light_edge}},
+  };
+
+  {
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+    auto const create_vertices = [&](size_t count) {
+      for (size_t i = 0; i < count; ++i) {
+        auto acc = db.Access(memgraph::storage::WRITE);
+        acc->CreateVertex();
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+    };
+
+    // A pre-analytical history: WAL files, with a snapshot on top of them.
+    create_vertices(kNumTransactionalVertices);
+    ASSERT_TRUE(mem_storage->CreateSnapshot({}).has_value());
+
+    auto const num_pre_switch_snapshots = GetSnapshotsList().size();
+    auto const num_pre_switch_wals = GetWalsList().size();
+    ASSERT_EQ(num_pre_switch_snapshots, 1);
+    ASSERT_GT(num_pre_switch_wals, 1);
+    ASSERT_EQ(GetArchivedSnapshotsList().size(), 0);
+    ASSERT_EQ(GetArchivedWalsList().size(), 0);
+
+    // Bulk import under analytical mode: none of it reaches a WAL.
+    mem_storage->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+    create_vertices(kNumAnalyticalVertices);
+    ASSERT_EQ(GetWalsList().size(), num_pre_switch_wals);
+
+    mem_storage->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+    // The switch-back snapshot is the only file left in place; the rest moved into .old.
+    ASSERT_EQ(GetSnapshotsList().size(), 1);
+    ASSERT_EQ(GetWalsList().size(), 0);
+    ASSERT_EQ(GetArchivedSnapshotsList().size(), num_pre_switch_snapshots);
+    ASSERT_EQ(GetArchivedWalsList().size(), num_pre_switch_wals);
+
+    // One more commit, so the restarted numbering shows up in a file.
+    create_vertices(1);
+  }
+
+  // Recovery accepts a WAL chain whose first file has a non-zero sequence number only when some WAL
+  // predates the snapshot -- and every such WAL was just archived. Restarting at 0 is what keeps the
+  // chain valid, and it cannot collide with the archived files' numbers now that they are out of the way.
+  auto const wals = GetWalsList();
+  ASSERT_EQ(wals.size(), 1);
+  ASSERT_EQ(memgraph::storage::durability::ReadWalInfo(wals.front()).seq_num, 0);
+
+  // The analytical writes survive, via the snapshot alone.
+  {
+    memgraph::storage::Config recovery_config{
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+        .salient = {.items = {.properties_on_edges = GetParam(), .storage_light_edge = GetParam().light_edge}},
+    };
+    memgraph::dbms::Database db{recovery_config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto acc = db.Access(memgraph::storage::READ);
+    ASSERT_EQ(CountVertices(*acc, memgraph::storage::View::OLD),
+              kNumTransactionalVertices + kNumAnalyticalVertices + 1);
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -3478,7 +3649,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_P(DurabilityTest, WalCorruptLastTransaction) {
+TEST_P(DurabilityTest, WalFinalizedFileCorruptLastTransactionCrashes) {
   // Create WALs
   {
     memgraph::storage::Config config{
@@ -3512,30 +3683,24 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
     DestroyWalSuffix(wal_file);
   }
 
-  // Recover WALs.
-  memgraph::storage::Config config{
-      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(),
-                            .enable_schema_info = true,
-                            .storage_light_edge = GetParam().light_edge}},
-  };
-  memgraph::dbms::Database db{config};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  // The extended dataset shouldn't be recovered because its WAL transaction was
-  // corrupt.
-  VerifyDataset(db.storage(),
-                DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS,
-                GetParam(),
-                config.salient.items.enable_schema_info);
-
-  // Try to use the storage.
-  {
-    auto acc = db.Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
+  // The damaged file was finalized, which means it had been fsynced before being renamed, so its transactions were
+  // durable and acknowledged. Coming up short of what its header states is media damage, not an interrupted write,
+  // and recovering only the prefix would silently drop acknowledged data - worse still if a later WAL file in the
+  // chain then built on it. Recovery therefore refuses.
+  //
+  // The graceful case, a tail torn by a crash, leaves an unfinalized file with no summary and is covered by
+  // WalDeathResilience.
+  ASSERT_THROW(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(),
+                                           .enable_schema_info = true,
+                                           .storage_light_edge = GetParam().light_edge}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -5347,6 +5512,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
       acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
       acc->SetDatabaseDescription("Test database");
       acc->SetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels, "Person knows person");
+      acc->SetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}, "Male");
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
@@ -5362,7 +5528,9 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
       ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
       ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
       ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
-      ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
+      ASSERT_EQ(acc->GetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}),
+                "Male");
+      ASSERT_EQ(acc->GetAllDescriptions().size(), 8);
     }
   }
 
@@ -5388,7 +5556,9 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
     ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
     ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
     ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
-    ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
+    ASSERT_EQ(acc->GetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}),
+              "Male");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 8);
   }
 }
 
@@ -5416,6 +5586,14 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
       acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
       acc->SetDatabaseDescription("Test database");
       acc->SetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels, "Person knows person");
+      acc->SetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}, "Male");
+      acc->SetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"2"}}, "Female");
+      acc->SetPropertyValueDescription(
+          "tags",
+          memgraph::storage::ExternalPropertyValue{
+              memgraph::storage::ExternalPropertyValue::list_t{memgraph::storage::ExternalPropertyValue{int64_t{1}},
+                                                               memgraph::storage::ExternalPropertyValue{int64_t{2}}}},
+          "Pair");
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
@@ -5424,6 +5602,8 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
       auto acc = db.Access(memgraph::storage::WRITE);
       std::vector<std::string> person_labels{"Person"};
       ASSERT_TRUE(acc->DeleteLabelDescription(person_labels));
+      ASSERT_TRUE(
+          acc->DeletePropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"2"}}));
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
@@ -5448,7 +5628,17 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
     ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
     ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
     ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
-    ASSERT_EQ(acc->GetAllDescriptions().size(), 5);
+    ASSERT_EQ(acc->GetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}),
+              "Male");
+    ASSERT_EQ(acc->GetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"2"}}),
+              std::nullopt);
+    ASSERT_EQ(acc->GetPropertyValueDescription(
+                  "tags",
+                  memgraph::storage::ExternalPropertyValue{memgraph::storage::ExternalPropertyValue::list_t{
+                      memgraph::storage::ExternalPropertyValue{int64_t{1}},
+                      memgraph::storage::ExternalPropertyValue{int64_t{2}}}}),
+              "Pair");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
   }
 }
 

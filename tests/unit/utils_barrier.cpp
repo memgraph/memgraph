@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,10 @@
 #include <thread>
 
 #include "utils/barrier.hpp"
+
+// Each test below starts kN threads per iteration. The PROCESSORS property on this test in
+// tests/unit/CMakeLists.txt mirrors that count, so ctest does not schedule a machine's worth of
+// other tests alongside it; the two have to be changed together.
 
 TEST(Barrier, Wait) {
   using namespace memgraph::utils;

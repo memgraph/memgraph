@@ -19,7 +19,7 @@
 
 #include <range/v3/view/zip.hpp>
 
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
 #include "query/frontend/ast/ordering.hpp"

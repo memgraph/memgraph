@@ -45,16 +45,28 @@ def get_binary_path(path, base=""):
 
 
 def download_file(url, path):
-    ret = subprocess.run(
-        ["wget", "-nv", "--content-disposition", "--no-check-certificate", url],
-        stderr=subprocess.PIPE,
-        cwd=path,
-        check=True,
-    )
-    data = ret.stderr.decode("utf-8")
-    tmp = data.split("->")[1]
-    name = tmp[tmp.index('"') + 1 : tmp.rindex('"')]
-    return os.path.join(path, name)
+    # Download into a scratch directory and move the finished file into place, so an
+    # interrupted download leaves nothing behind. wget refuses to overwrite, so a
+    # surviving partial file would make the retry land on "<name>.1", which
+    # unpack_gz_and_move_file does not recognise as compressed and would cache as-is.
+    scratch = os.path.join(path, ".download")
+    shutil.rmtree(scratch, ignore_errors=True)
+    os.makedirs(scratch)
+    try:
+        ret = subprocess.run(
+            ["wget", "-nv", "--content-disposition", "--no-check-certificate", url],
+            stderr=subprocess.PIPE,
+            cwd=scratch,
+            check=True,
+        )
+        data = ret.stderr.decode("utf-8")
+        tmp = data.split("->")[1]
+        name = tmp[tmp.index('"') + 1 : tmp.rindex('"')]
+        final = os.path.join(path, name)
+        os.replace(os.path.join(scratch, name), final)
+        return final
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def unpack_gz_and_move_file(input_path, output_path):
@@ -193,13 +205,16 @@ def match_patterns(workload, variant, group, query, is_default_variant, patterns
 
 
 def filter_workloads(available_workloads: dict, benchmark_context: BenchmarkContext) -> list:
-    patterns = benchmark_context.benchmark_target_workload
-    for i in range(len(patterns)):
-        pattern = patterns[i].split("/")
+    # Split into a local list rather than writing back into the context. Writing back left the
+    # caller's patterns as component lists, so a second call raised AttributeError on str.split, and
+    # validation.py works around it by passing a copy.
+    patterns = []
+    for target_workload in benchmark_context.benchmark_target_workload:
+        pattern = target_workload.split("/")
         if len(pattern) > 5 or len(pattern) == 0:
-            raise Exception("Invalid benchmark description '" + pattern + "'!")
+            raise Exception("Invalid benchmark description '" + target_workload + "'!")
         pattern.extend(["", "*", "*"][len(pattern) - 1 :])
-        patterns[i] = pattern
+        patterns.append(pattern)
 
     filtered = []
     for workload in sorted(available_workloads.keys()):
@@ -285,8 +300,10 @@ class RecursiveDict:
 
 
 class Cache:
-    def __init__(self):
-        self._directory = os.path.join(SCRIPT_DIR, ".cache")
+    def __init__(self, directory=None):
+        # A directory outside the repo keeps query
+        # counts and downloaded datasets alive between runs.
+        self._directory = directory if directory else os.path.join(SCRIPT_DIR, ".cache")
         ensure_directory(self._directory)
         self._config = os.path.join(self._directory, "config.json")
 
@@ -303,9 +320,17 @@ class Cache:
     def load_config(self):
         if not os.path.isfile(self._config):
             return RecursiveDict()
-        with open(self._config) as f:
-            return RecursiveDict(json.load(f))
+        try:
+            with open(self._config) as f:
+                return RecursiveDict(json.load(f))
+        except (json.JSONDecodeError, OSError) as e:
+            # protect against reading a corrupted cache
+            log.warning("Ignoring unreadable cache config {}: {}".format(self._config, e))
+            return RecursiveDict()
 
     def save_config(self, config):
-        with open(self._config, "w") as f:
-            json.dump(config.get_data(), f)
+        # Write and rename so readers never observe a half-written file.
+        tmp_config = self._config + ".tmp"
+        with open(tmp_config, "w") as f:
+            json.dump(config.get_data(), f, indent=2)
+        os.replace(tmp_config, self._config)

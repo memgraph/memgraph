@@ -1,0 +1,4 @@
+query: >
+  CALL collections.partition(null, 2) YIELD result RETURN result;
+
+output: []

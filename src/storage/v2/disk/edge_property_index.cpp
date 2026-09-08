@@ -61,7 +61,7 @@ uint64_t DiskEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(
 }
 
 EdgePropertyIndex::AbortProcessor DiskEdgePropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  return AbortProcessor({});
+  return AbortProcessor{};
 }
 
 void DiskEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,

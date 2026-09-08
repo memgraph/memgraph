@@ -1,0 +1,1 @@
+CREATE (A:Node {name: 'A'}) CREATE (B:Node {name: 'B'}) CREATE (C:Node {name: 'C'}) CREATE (A)-[:R {seq: 1}]->(B) CREATE (B)-[:R {seq: 2}]->(A) CREATE (B)-[:R {seq: 3}]->(C) CREATE (C)-[:R {seq: 4}]->(B);

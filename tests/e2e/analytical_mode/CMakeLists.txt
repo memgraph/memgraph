@@ -5,5 +5,6 @@ endfunction()
 copy_analytical_mode_e2e_python_files(common.py)
 copy_analytical_mode_e2e_python_files(free_memory.py)
 copy_analytical_mode_e2e_python_files(analytical_data_instance.py)
+copy_analytical_mode_e2e_python_files(storage_mode_stress.py)
 
 copy_e2e_files(analytical_mode workloads.yaml)

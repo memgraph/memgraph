@@ -16,7 +16,7 @@
 #include <set>
 #include <utility>
 
-#include <storage/v2/snapshot_observer_info.hpp>
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -114,7 +114,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveCons
 // --- TypeConstraints methods ---
 
 [[nodiscard]] auto TypeConstraints::ValidateAllVertices(utils::SkipListDb<Vertex>::Accessor vertices,
-                                                        std::optional<SnapshotObserverInfo> const &snapshot_info) const
+                                                        ProgressCallback const &on_progress) const
     -> std::expected<void, ConstraintViolation> {
   auto container = container_.ReadCopy();
   if (container->constraints_.empty()) {
@@ -124,20 +124,23 @@ auto TypeConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveCons
     if (auto validation_result = ValidateVertex(vertex, container); !validation_result.has_value()) {
       return validation_result;
     }
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::VERTICES);
-    }
+    if (on_progress) on_progress();
   }
   return {};
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
-    utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type) {
+    utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type,
+    ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check) {
   auto validator = TypeConstraintsValidator{};
   auto constraint = absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}};
   validator.add(label, constraint);
 
   for (auto const &vertex : vertices) {
+    if (cancel_check()) {
+      throw PopulateCancel{};
+    }
+    if (on_progress) on_progress();
     if (vertex.deleted()) continue;
     if (!std::ranges::contains(vertex.labels, label)) continue;
 
@@ -272,6 +275,9 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     case PropertyValueType::IntList:
     case PropertyValueType::DoubleList:
     case PropertyValueType::NumericList:
+    // A vector index holds its list out of line and leaves this in the record's place. It is the
+    // same list to the user, so it answers the same constraint kind.
+    case PropertyValueType::VectorIndexId:
       return TypeConstraintKind::LIST;
     case PropertyValueType::Map:
       return TypeConstraintKind::MAP;
@@ -295,8 +301,6 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     case PropertyValueType::Point2d:
     case PropertyValueType::Point3d:
       return TypeConstraintKind::POINT;
-    case PropertyValueType::VectorIndexId:
-      MG_ASSERT(false, "VectorIndexId is not supported for type constraints");
     case PropertyValueType::Null:
       MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
   }

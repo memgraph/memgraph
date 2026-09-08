@@ -100,20 +100,22 @@ class TerminatedMustAbortException : public MustAbortException {
 
 class ShutdownMustAbortException : public MustAbortException {
  public:
-  explicit ShutdownMustAbortException() : MustAbortException("Query was asked to because of server shutdown.") {}
+  explicit ShutdownMustAbortException()
+      : MustAbortException("Query was asked to terminate because of server shutdown.") {}
 };
 
 class TimeoutMustAbortException : public MustAbortException {
  public:
-  explicit TimeoutMustAbortException() : MustAbortException("Query was asked to because of timeout was hit.") {}
+  explicit TimeoutMustAbortException()
+      : MustAbortException("Query was asked to terminate because the timeout was hit.") {}
 };
 
 class ExceptionMustAbortException : public MustAbortException {
  public:
   explicit ExceptionMustAbortException()
       : MustAbortException(
-            "Query was asked to because of an exception occurred. Please contact Memgraph support as this scenario "
-            "should not happen!") {}
+            "Query was asked to terminate because an exception occurred. Please contact Memgraph support as this "
+            "scenario should not happen!") {}
 };
 
 // Forward declarations
@@ -747,6 +749,9 @@ class Node {
 
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(const mgp_vertex *const_ptr);
+
+  /// @brief returns the mgp_vertex pointer
+  mgp_vertex *GetPtr() const;
 
   Node(const Node &other);
   Node(Node &&other) noexcept;
@@ -1788,6 +1793,8 @@ class Result {
   inline void SetValue(const Point3d &point);
   /// @brief Sets an @ref Enum value to be returned.
   inline void SetValue(const Enum &enum_v);
+  /// @brief Sets an arbitrary @ref Value to be returned.
+  inline void SetValue(const Value &value);
 
   void SetErrorMessage(std::string_view error_msg) const;
 
@@ -3179,6 +3186,8 @@ inline Node::~Node() {
 }
 
 inline bool Node::IsDeleted() const { return mgp::vertex_is_deleted(ptr_); }
+
+inline mgp_vertex *Node::GetPtr() const { return ptr_; }
 
 inline mgp::Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
 
@@ -5208,6 +5217,11 @@ inline void Result::SetValue(const Enum &enum_v) {
   mgp::value_destroy(mgp_val);
 }
 
+inline void Result::SetValue(const Value &value) {
+  // func_result_set_value copies the value, so passing the wrapped pointer directly is safe.
+  mgp::MemHandlerCallback(func_result_set_value, result_, value.ptr());
+}
+
 inline void Result::SetErrorMessage(const std::string_view error_msg) const {
   mgp::MemHandlerCallback(func_result_set_error_msg, result_, error_msg.data());
 }
@@ -5403,6 +5417,22 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
     throw ValueException("Couldn't list all label+property indices");
   }
   return List(label_property_indices, StealType{});
+}
+
+inline bool CreateVertexPropertyIndex(mgp_graph *memgraph_graph, const std::string_view property) {
+  return create_vertex_property_index(memgraph_graph, property.data());
+}
+
+inline bool DropVertexPropertyIndex(mgp_graph *memgraph_graph, const std::string_view property) {
+  return drop_vertex_property_index(memgraph_graph, property.data());
+}
+
+inline List ListAllVertexPropertyIndices(mgp_graph *memgraph_graph) {
+  auto *indices = mgp::MemHandlerCallback(list_all_vertex_property_indices, memgraph_graph);
+  if (indices == nullptr) {
+    throw ValueException("Couldn't list all vertex-property indices");
+  }
+  return List(indices, StealType{});
 }
 
 inline constexpr std::string_view kErrorMsgKey = "error_msg";

@@ -20,6 +20,7 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
@@ -31,6 +32,14 @@
 #include <atomic>
 
 namespace memgraph::storage {
+
+/// A sweep leaves entries at or past the oldest active start timestamp alone, so that a transaction
+/// which started before such an entry was written can still reach the version it names. Analytical
+/// keeps no versions to reach: a write is applied in place, and a delete removes the object from
+/// storage in the same collection pass whose sweep would have been leaving its entry alone, so the
+/// entry is left naming freed memory for every later reader of that index. Callers hold the main
+/// lock, which is what keeps the answer true for the length of a sweep.
+inline bool SweepPreservesRecentEntries(StorageMode mode) { return mode == StorageMode::IN_MEMORY_TRANSACTIONAL; }
 
 namespace details {
 
@@ -162,17 +171,18 @@ inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
 
 /// Helper function for edgetype-property index garbage collection. Returns true if
 /// there's a reachable version of the edge that has the given property value.
-inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value, uint64_t timestamp) {
+template <typename TEntity>
+inline bool AnyVersionHasProperty(TEntity const &entity, PropertyId key, PropertyValue const &value,
+                                  uint64_t timestamp) {
   Delta const *delta;
   bool deleted;
   bool current_value_equal_to_value;
   {
-    auto guard = std::shared_lock{edge.lock};
-    delta = edge.delta();
-    deleted = edge.deleted();
-    // Avoid IsPropertyEqual if already not possible
+    auto guard = std::shared_lock{entity.lock};
+    delta = entity.delta();
+    deleted = entity.deleted();
     if (delta == nullptr && deleted) return false;
-    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
+    current_value_equal_to_value = entity.properties.IsPropertyEqual(key, value);
   }
 
   if (!deleted && current_value_equal_to_value) {
@@ -184,7 +194,7 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
                                                   Delta::Action::DELETE_DESERIALIZED_OBJECT,
                                                   Delta::Action::DELETE_OBJECT>{};
   return details::AnyVersionSatisfiesPredicate<interesting>(
-      timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](const Delta &delta) {
+      timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](Delta const &delta) {
         switch (delta.action) {
           case Delta::Action::SET_PROPERTY:
             if (delta.property.key == key) {
@@ -214,31 +224,27 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
       });
 }
 
-// Helper function for iterating through label-property index. Returns true if
-// this transaction can see the given vertex, and the visible version has the
-// given label and property.
-inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value,
-                                          Transaction *transaction, View view) {
+template <typename TEntity>
+inline bool CurrentVersionHasProperty(TEntity const &entity, PropertyId key, PropertyValue const &value,
+                                      Transaction *transaction, View view) {
   bool exists = true;
   bool deleted = false;
   bool current_value_equal_to_value = value.IsNull();
-  const Delta *delta = nullptr;
+  Delta const *delta = nullptr;
   {
-    auto guard = std::shared_lock{edge.lock};
-    deleted = edge.deleted();
-    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
-    delta = edge.delta();
+    auto guard = std::shared_lock{entity.lock};
+    deleted = entity.deleted();
+    current_value_equal_to_value = entity.properties.IsPropertyEqual(key, value);
+    delta = entity.delta();
   }
 
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the vertex is correct.
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
+    ApplyDeltasForRead(transaction, delta, view, [&, key](Delta const &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
         Exists_ActionMethod(exists),
-        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
+        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key, value)
       });
       // clang-format on
     });
@@ -261,6 +267,10 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
             "creation!");
 
   std::atomic<uint64_t> batch_counter = 0;
+  // A cancel check throwing inside a worker would escape the thread function and terminate the process, so it is
+  // caught per worker and re-thrown from this thread once they have all joined. That keeps cancellation identical
+  // whether population ran on one thread or many.
+  std::atomic<bool> cancelled = false;
 
   // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   auto maybe_error = utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock>{};
@@ -271,7 +281,7 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(parallel_exec_info.arena_pool, [&, func /*local copy incase there is local state*/]() {
         auto acc = accessor_factory();
-        while (!maybe_error.Lock()->has_value()) {
+        while (!maybe_error.Lock()->has_value() && !cancelled.load(std::memory_order_relaxed)) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
             return;
@@ -287,14 +297,20 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
           } catch (utils::OutOfMemoryException &failure) {
             utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
             *maybe_error.Lock() = std::move(failure);
+          } catch (PopulateCancel const &) {
+            cancelled.store(true, std::memory_order_relaxed);
           }
         }
       });
     }
   }
+  // Out of memory wins over cancellation: it is the more specific failure and the caller unwinds it differently.
   auto error = maybe_error.Lock();
   if (error->has_value()) {
     throw *std::move(*error);
+  }
+  if (cancelled.load(std::memory_order_relaxed)) {
+    throw PopulateCancel{};
   }
 }
 
@@ -308,8 +324,6 @@ inline void PopulateIndexOnSingleThread(TVerticesAccessor &vertices, TSkipListAc
     func(vertex, acc);
   }
 }
-
-struct PopulateCancel : std::exception {};
 
 template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
 inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
@@ -335,74 +349,6 @@ inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessor
   }
 }
 
-// @TODO Is `Create` the correct term here? Should this be `PopulateIndexOnSingleThread`?
-template <typename TVerticesAccessor, typename TSkiplistIter, typename TIndex, typename TFunc>
-inline void CreateIndexOnSingleThread(TVerticesAccessor &vertices, TSkiplistIter it, TIndex &index, const TFunc &func) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-
-  try {
-    auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
-      func(vertex, acc);
-    }
-  } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    index.erase(it);
-    throw;
-  }
-}
-
-template <typename TVerticesAccessor, typename TIndex, typename TSKiplistIter, typename TFunc>
-inline void CreateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSKiplistIter skiplist_iter, TIndex &index,
-                                         const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
-                                         const TFunc &func) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-
-  const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
-  const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
-
-  MG_ASSERT(!vertex_batches.empty(),
-            "The size of batches should always be greater than zero if you want to use the parallel version of index "
-            "creation!");
-
-  std::atomic<uint64_t> batch_counter = 0;
-
-  // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
-  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
-  {
-    std::vector<memory::DbAwareThread> threads;
-    threads.reserve(thread_count);
-
-    for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(parallel_exec_info.arena_pool, [&]() {
-        while (!maybe_error.Lock()->has_value()) {
-          const auto batch_index = batch_counter++;
-          if (batch_index >= vertex_batches.size()) {
-            return;
-          }
-          const auto &batch = vertex_batches[batch_index];
-          auto index_accessor = skiplist_iter->second.access();
-          auto it = vertices.find(batch.first);
-
-          try {
-            for (auto i{0U}; i < batch.second; ++i, ++it) {
-              func(*it, index_accessor);
-            }
-
-          } catch (utils::OutOfMemoryException &failure) {
-            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-            index.erase(skiplist_iter);  // TODO(composite_index): make this safe...only should only be called once
-            *maybe_error.Lock() = std::move(failure);
-          }
-        }
-      });
-    }
-  }
-  if (maybe_error.Lock()->has_value()) {
-    throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
-  }
-}
-
 // Helper function that determines, if a transaction has an original start timestamp
 // (for example in a periodic commit when it is necessary to preserve initial index iterators)
 // whether we are allowed to see the entity in the index data structures
@@ -419,8 +365,29 @@ inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction 
   return insertion_timestamp <= original_start_timestamp;
 }
 
+// A range covering a whole type is expressed as the type's own lower bound together with an
+// exclusive upper bound of the *following* type (see LowerBoundForType/UpperBoundForType), so that
+// one shape legitimately has bounds of differing types. Both ends must match for it to be that
+// marker rather than a user-written range that merely reaches the same boundary value; every other
+// type mismatch describes an empty range.
+inline bool AreComparableBounds(utils::Bound<PropertyValue> const &lower_bound,
+                                utils::Bound<PropertyValue> const &upper_bound) {
+  if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) return true;
+  if (upper_bound.IsInclusive() || !lower_bound.IsInclusive()) return false;
+  auto const lower_bound_for_type = LowerBoundForType(lower_bound.value().type());
+  auto const upper_bound_for_type = UpperBoundForType(lower_bound.value().type());
+  return lower_bound_for_type && upper_bound_for_type && lower_bound.value() == lower_bound_for_type->value() &&
+         upper_bound.value() == upper_bound_for_type->value();
+}
+
+// `allow_whole_type_span` admits the bound pair that marks an entire type (see AreComparableBounds).
+// Only pass it where the query layer has already discarded a user range whose bounds cannot be
+// compared -- a scan driven by an ExpressionRange, which is marked INVALID in that case. Scans that
+// carry raw bounds, i.e. every edge scan, have no such marking and must stay strict, or a range like
+// `e.p >= -inf AND e.p < ''` is mistaken for the marker and returns every number.
 inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                           std::optional<utils::Bound<PropertyValue>> &upper_bound) {
+                           std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                           bool allow_whole_type_span = false) {
   // Handle the bounds that the user provided to us. If the user
   // provided only one bound we should make sure that only values of that type
   // are returned by the iterator. We ensure this by supplying either an
@@ -436,8 +403,10 @@ inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bou
 
   // Check whether the bounds are of comparable types if both are supplied.
   if (lower_bound && upper_bound) {
-    if (!AreComparableTypes(lower_bound->value().type(), upper_bound->value().type()) ||
-        lower_bound->value() > upper_bound->value()) {
+    auto const comparable = allow_whole_type_span
+                                ? AreComparableBounds(*lower_bound, *upper_bound)
+                                : AreComparableTypes(lower_bound->value().type(), upper_bound->value().type());
+    if (!comparable || lower_bound->value() > upper_bound->value()) {
       return false;
     }
   }
@@ -479,20 +448,9 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
       upper_bound = std::nullopt;
     }
 
-    auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
-      if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
-        return true;
-      } else if (upper_bound.IsInclusive()) {
-        return false;
-      } else {
-        auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound.value().type());
-        return upper_bound_for_lower_bound_type && upper_bound.value() == upper_bound_for_lower_bound_type->value();
-      };
-    };
-
     // If both bounds are set, but are incomparable types, then this is an
     // invalid range and will yield an empty result set.
-    if (lower_bound && upper_bound && !are_comparable_ranges(*lower_bound, *upper_bound)) {
+    if (lower_bound && upper_bound && !AreComparableBounds(*lower_bound, *upper_bound)) {
       return {std::nullopt, std::nullopt, false};
     }
 

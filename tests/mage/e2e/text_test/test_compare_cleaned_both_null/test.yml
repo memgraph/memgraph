@@ -1,0 +1,4 @@
+query: >
+  RETURN text.compare_cleaned(null,null) AS result;
+output:
+  - result: false

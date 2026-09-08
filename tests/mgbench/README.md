@@ -108,6 +108,7 @@ Listed below are the main scripts used to run the benchmarks:
 - `client.cpp` - Client for querying the database.
 - `graph_bench.py` - Script that starts all tests from Benchgraph.
 - `compare_results.py` - Script that visually compares benchmark results.
+- `ha_cluster.yaml` - Cluster description for the replication benchmarks: the per-instance flags and the cluster setup queries for a main with one SYNC replica behind three coordinators. Used only with `--installation-type ha`.
 
 Except for these scripts, the project also includes query files, dataset files and index configuration files. Once the first test is executed, those files can be located in the newly generated `.cache` and `.temp` folders.
 
@@ -157,6 +158,185 @@ In a production environment, database query caches are usually warmed from usage
 - ***Vulcanic run*** - The workload is executed twice. The first time is used to pre-warm the database, and the second time is used to take measurements. The workload does not change between the two runs.
 
 The details specification of warmup procedure is visible in the `benchmark.py` file, `warmup` function.
+
+### Replication benchmarks (high availability)
+
+Benchgraph can run against a coordinator-managed HA cluster instead of a single instance, so the
+cost of synchronous replication can be read off as the difference between two otherwise identical
+runs. The same client binary and the same measurement loop are used, so the throughput number means
+the same thing in both.
+
+The cluster is a main and one SYNC replica behind three coordinators, all on localhost and
+distinguished by port. It is described by `ha_cluster.yaml`, which holds each instance's flags and
+the cluster setup queries, and is the file to edit to change the topology or the replication mode.
+Four descriptions ship, differing only in the replica count and replication mode:
+
+| File | Replicas | Main registered as | Nightly suite |
+|---|---|---|---|
+| `ha_cluster.yaml` | SYNC | SYNC | `mgbench-ha` |
+| `ha_cluster_2_replicas.yaml` | SYNC, SYNC | SYNC | `mgbench-ha-2-replicas` |
+| `ha_cluster_async.yaml` | ASYNC | SYNC | `mgbench-ha-async` |
+| `ha_cluster_strict_sync.yaml` | STRICT_SYNC | STRICT_SYNC | `mgbench-ha-strict-sync` |
+| `ha_cluster_2_strict_sync.yaml` | STRICT_SYNC, STRICT_SYNC | STRICT_SYNC | `mgbench-ha-2-strict-sync` |
+| `ha_cluster_2_async.yaml` | ASYNC, ASYNC | SYNC | `mgbench-ha-2-async` |
+| `ha_cluster_sync_async.yaml` | SYNC, ASYNC | SYNC | `mgbench-ha-sync-async` |
+| `ha_cluster_strict_sync_async.yaml` | STRICT_SYNC, ASYNC | STRICT_SYNC | `mgbench-ha-strict-sync-async` |
+
+The "main registered as" column is not decoration. A cluster cannot hold both STRICT_SYNC and SYNC
+replicas — `REGISTER INSTANCE` rejects it — and the instance promoted to main counts towards that
+check even though its own mode goes unused while it is main. So any description with a STRICT_SYNC
+replica registers main STRICT_SYNC too. Where no STRICT_SYNC is involved, main keeps the default,
+which also leaves a failover target, since failover to an ASYNC replica is forbidden by default.
+
+Each runs once per nightly job rather than repeating: the workflow's `loop_count` input does not apply
+to them, since one iteration already restarts a cluster per measurement and eight suites take hours,
+while the rest of that job does scale with it.
+
+The four topologies containing an ASYNC replica run **weekly**, on Sunday, at the same hour as every
+other night. They are the slow ones — draining a replica after each measurement is what costs — and
+together they are about 106 of the eight suites' 226 minutes. A manual `workflow_dispatch` runs them
+whatever the day.
+That is worth knowing when reading the series — a point is a single sample, not an average, so
+run-to-run variance is visible rather than smoothed.
+
+Pass one by name with `--vendor-specific ha-cluster-yaml=<file> --`; the trailing `--` matters, since
+that option takes several values and would otherwise swallow the positional workload arguments. Each
+runs as its own nightly suite and series, so the cost of a second acknowledgement, of dropping the
+acknowledgement altogether, or of refusing to commit without it, is the difference between two series
+measured minutes apart on the same machine.
+
+**ASYNC is measured differently, on purpose.** Main does not wait for the replica at commit, so the
+throughput approaches a single instance's and the replication work shows up as lag instead. The runner
+therefore waits for the replica to drain before stopping the cluster — the workload is not finished
+while replication is still outstanding — but that wait happens *after* the client has computed and
+returned its throughput, so it never enters that number. It is reported separately, as
+`Replicas caught up in Ns, which is not counted in the throughput`, and it does count towards the
+run's wall clock. If a replica never drains, the run fails rather than reporting a finished workload.
+The wait is unconditional, and for SYNC and STRICT_SYNC it costs one query, since those are caught up
+at commit by definition.
+Data directories are not in that file: the runner assigns them, pinned for the duration of a run so
+the imported dataset survives the cluster restarts between phases, and fresh for the next run so no
+run ever benchmarks the previous one's data.
+
+High availability is its own axis rather than an installation type, since a cluster is a topology and
+not a way of installing Memgraph. `--ha-only` measures only a cluster; `--run-ha` measures a single
+instance and then a cluster in one invocation. Either way the vendor name stays `memgraph`, and
+neither combines with `--installation-type docker` or `external`, because the cluster is started from
+binaries on this machine.
+
+To measure only a cluster:
+
+```bash
+./benchmark.py --ha-only --num-workers-for-benchmark 6 \
+  --export-results benchmark_result_ha.json \
+  pokec/medium/create/pattern \
+  pokec/medium/create/vertex_big \
+  pokec/medium/arango/single_vertex_write \
+  pokec/medium/arango/single_edge_write \
+  pokec/medium/basic/single_vertex_property_update_update \
+  pokec/medium/arango/single_vertex_read
+```
+
+In CI this runs as its own nightly suite, which is also how the build script drives it:
+
+```bash
+./release/package/mgbuild.sh --os ubuntu-24.04 --toolchain v7 --arch amd \
+  test-memgraph mgbench-ha --size medium
+```
+
+That is `--ha-only`, so it reports under its own `mgbench-ha` benchmark name rather than as a field
+of the standalone measurement. The combined form is still supported — `--run-ha` measures both legs
+in one invocation and uploads the cluster results as `ha_results` on the same measurement, which has
+the advantage that both legs then share one query count calibration by construction rather than by
+depending on which ran first. It is not what CI does today.
+
+The legs do not share a target set: `--run-ha` selects the leg, `--export-results-ha` says where its
+results go, and `--ha-target-workload` narrows what it measures, because every query measured against
+a cluster restarts every instance in it. Repeat that flag per pattern — it takes one value at a time
+so that it cannot swallow the positional workload arguments.
+
+The fine-grained authorization pass measures each query a second time as an authorized user, which
+roughly doubles a leg's runtime. For a single instance it is on by default, and `--no-authorization`
+turns it off. On the cluster leg added by `--run-ha` it is **off** by default, because there the second
+measurement also pays a second cluster restart; `--ha-authorization` turns it on. With `--ha-only` the
+cluster is the whole run, so `--authorization` governs it as usual.
+
+Supporting it needs one thing from the runner, which is worth knowing if the probe ever misbehaves:
+the pass runs `CREATE USER` partway through a run and only tells the benchmark client the new
+credentials, so from that point the cluster refuses anonymous connections while the runner still has
+its own reason to connect — checking that the cluster is ready. The readiness probe therefore tries
+the credentials the cluster description gives it, then the benchmark's own, and uses whichever the
+instance currently accepts. Both states occur in a single run, since the pass drops the user again
+when it finishes.
+
+Anything involving a cluster drives `tests/e2e/interactive_mg_runner.py`, which needs `mgclient`, so
+run it from the `tests/ve3` virtualenv that `init-test` builds from `tests/requirements.txt` — the
+same one the e2e and stress suites use. The single-instance path does not need it, which is why CI
+only started failing once the cluster leg was added.
+
+**High availability is an enterprise feature**, so `MEMGRAPH_ENTERPRISE_LICENSE` and
+`MEMGRAPH_ORGANIZATION_NAME` have to be set in the environment. The runner refuses to start without
+them rather than letting cluster setup fail later.
+
+Every log line carries a wall-clock timestamp, and the cluster reports how long it took to start,
+converge and stop, plus what it is still waiting for while converging. Between those and the import
+and query lines, a stretch of silence can be attributed to a phase rather than guessed at.
+
+When running non-interactively — in CI, or piped to a file — export `PYTHONUNBUFFERED=1`. Python
+block-buffers stdout when it is not a terminal, so a run that spends several minutes importing or
+waiting for a cluster to converge prints nothing at all and looks hung. The `mgbench-ha` suite command
+sets it for that reason.
+
+Instance logs go to `ha_logs/`. Note that Memgraph uses a daily file sink, so the file on disk
+carries a date suffix — `mgbench_ha_instance_1_2026-08-18.log` — and is opened in append mode, so
+every restart in a run adds to the same file. The instances' console output is discarded instead of
+inherited, because a run restarts every instance once per measurement and each start would otherwise
+print a banner, a flag deprecation notice and a query module import note. Nothing Memgraph logs is lost;
+set `silence_output: false` on an instance in `ha_cluster.yaml` to watch it start.
+
+A few things about this mode are worth knowing before reading its numbers:
+
+- The target set is every distinct write shape in pokec plus two reads. The reads are a control
+  rather than a subject: reads on main are unaffected by synchronous replication, so if they show a
+  delta against the standalone series then the harness or the coordinator health checks are
+  perturbing the measurement, not replication.
+- The cluster is restarted once per query, which dominates the added wall-clock, so the runtime
+  grows with the size of the target set.
+- The dataset is imported through the fully attached cluster, so the import is itself replicated and
+  slower than a standalone import. Its throughput is reported as well.
+- Reported memory and CPU are main's alone.
+- **Run the standalone suite before this one.** The query-count cache in `.cache/config.json` is
+  keyed on workload, variant, group and query with no vendor or installation type, so both legs share
+  it — which is exactly what makes them execute the same number of queries, and what
+  `compare_results.py` requires. Whichever leg calibrates a query first authors its count, and this
+  one is slower per commit, so it would author a smaller count. Running the standalone suite first
+  keeps it the author; that is also why the CI job orders the two suites that way. If the calibration
+  ever needs resetting, delete `.cache/config.json` — it holds only the counts, so the cached
+  datasets next to it are not re-downloaded — and run the standalone suite again first.
+
+#### Reading the replication cost
+
+The replication cost is the difference between two runs, so produce both and diff them. Run the
+standalone suite first, because it is the leg that calibrates and persists the per-query counts:
+
+```bash
+./benchmark.py --installation-type native --num-workers-for-benchmark 6 \
+  --export-results standalone.json pokec/medium/*/*
+# then the HA run above, writing benchmark_result_replication.json
+./compare_results.py --compare standalone.json benchmark_result_replication.json \
+  --output replication_cost.html
+```
+
+Do not pass `--different-vendors`: both legs are Memgraph, and the comparison relies on the checks
+that flag would switch off. `compare_results.py` refuses to diff two runs whose `count` or
+`num_workers` differ, which is the real reason the query-count cache is shared between the legs — it
+is what makes the two runs execute the same number of queries and therefore comparable at all. If
+you see `Incompatible results!`, the two legs calibrated separately: delete `.cache/config.json` and
+run them again in this order.
+
+When reading the output, the control reads come first: they should show close to no difference. A
+systematic delta on `single_vertex_read` or `aggregate` means something other than replication is
+being measured, and the write numbers should not be trusted until that is understood.
 
 ### Comparing results
 
@@ -314,7 +494,7 @@ AWS EC2 `r7a.4xlarge`
 ## :nut_and_bolt: Supported databases
 
 Due to current [database compatibility](link) requirements, the only supported database systems at the moment are:
-1. Memgraph 
+1. Memgraph
 2. Neo4j Community Edition
 
 ### Database notes
@@ -344,7 +524,7 @@ Benchgraph is currently a passive benchmark since resource usage and saturation 
 
 Latest version: https://memgraph.com/benchgraph
 
-### Release v4 (latest) - 2024-25-07 
+### Release v4 (latest) - 2024-25-07
 
  - Updated benchmarks with the run on AWS EC2 instances: `r7i.4xlarge`  and `r7a.4xlarge`
  - Dropped the BI dataset run (due to optimization)

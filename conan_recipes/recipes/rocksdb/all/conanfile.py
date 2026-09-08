@@ -126,6 +126,7 @@ class RocksDBConan(ConanFile):
 
     def generate(self):
         tc = CMakeToolchain(self)
+        tc.extra_cxxflags.append("-include cstdint")
         tc.variables["FAIL_ON_WARNINGS"] = False
         tc.variables["WITH_TESTS"] = False
         tc.variables["WITH_TOOLS"] = False

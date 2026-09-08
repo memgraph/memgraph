@@ -1,0 +1,8 @@
+# Inverted window (minHops > maxHops) yields no nodes rather than throwing.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {relationshipFilter: ['R>'], minHops: 5, maxHops: 3})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output: []

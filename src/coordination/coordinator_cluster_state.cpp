@@ -13,6 +13,7 @@
 
 #include "coordination/coordinator_cluster_state.hpp"
 
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <libnuraft/buffer.hxx>
 #include <libnuraft/buffer_serializer.hxx>
@@ -28,6 +29,41 @@
 
 namespace memgraph::coordination {
 
+namespace {
+// Older versions allowed re-adding an already existing coordinator id, so persisted state can contain duplicate
+// entries. All id-based lookups and updates always operated on the first occurrence, so keep it and drop the rest.
+auto DedupCoordinatorInstances(std::vector<CoordinatorInstanceContext> instances)
+    -> std::vector<CoordinatorInstanceContext> {
+  std::vector<CoordinatorInstanceContext> result;
+  result.reserve(instances.size());
+  for (auto &instance : instances) {
+    if (!std::ranges::contains(result, instance.id, &CoordinatorInstanceContext::id)) {
+      result.push_back(std::move(instance));
+    }
+  }
+  return result;
+}
+
+// Older versions accepted instance_health_check_frequency_sec = 0, so persisted state can contain a value the read
+// side treats as fatal: StartStateCheck() MG_ASSERTs on it, aborting every coordinator that recovers it, on every
+// restart. Clamping on the way in is a deterministic function of the log, so all coordinators running this version
+// still agree, and it lets a cluster that is already crash-looping come back up. An unpatched peer derives 0 instead
+// and keeps aborting — but that is what it does today regardless, so there is no divergence this creates.
+auto ClampInstanceHealthCheckFreqSec(uint32_t const check_freq_sec) -> uint32_t {
+  if (check_freq_sec >= kMinInstanceHealthCheckFreqSec) {
+    return check_freq_sec;
+  }
+  spdlog::warn(
+      "Recovered {}={}, which is below the supported minimum; using {} instead. Persist a valid value with "
+      "SET COORDINATOR SETTING '{}' TO '<value>'.",
+      kInstanceHealthCheckFreqSec,
+      check_freq_sec,
+      kMinInstanceHealthCheckFreqSec,
+      kInstanceHealthCheckFreqSec);
+  return kMinInstanceHealthCheckFreqSec;
+}
+}  // namespace
+
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other) {
   auto lock = std::lock_guard{other.app_lock_};
   // NOLINTBEGIN
@@ -42,6 +78,7 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
+  roles_ = other.roles_;
   // NOLINTEND
 }
 
@@ -62,6 +99,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
+  roles_ = other.roles_;
   return *this;
 }
 
@@ -76,7 +114,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
       deltas_batch_progress_size_(other.deltas_batch_progress_size_),
       instance_down_timeout_sec_(other.instance_down_timeout_sec_),
       instance_health_check_frequency_sec_(other.instance_health_check_frequency_sec_),
-      global_read_only_(other.global_read_only_) {}
+      global_read_only_(other.global_read_only_),
+      roles_(std::move(other.roles_)) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -96,6 +135,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
+  roles_ = std::move(other.roles_);
   return *this;
 }
 
@@ -129,7 +169,7 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
     data_instances_ = std::move(*delta_state.data_instances_);
   }
   if (delta_state.coordinator_instances_.has_value()) {
-    coordinator_instances_ = std::move(*delta_state.coordinator_instances_);
+    coordinator_instances_ = DedupCoordinatorInstances(std::move(*delta_state.coordinator_instances_));
   }
   if (delta_state.current_main_uuid_.has_value()) {
     current_main_uuid_ = *delta_state.current_main_uuid_;
@@ -158,11 +198,16 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
   }
 
   if (delta_state.instance_health_check_frequency_sec_.has_value()) {
-    instance_health_check_frequency_sec_ = *delta_state.instance_health_check_frequency_sec_;
+    instance_health_check_frequency_sec_ =
+        ClampInstanceHealthCheckFreqSec(*delta_state.instance_health_check_frequency_sec_);
   }
 
   if (delta_state.global_read_only_.has_value()) {
     global_read_only_ = *delta_state.global_read_only_;
+  }
+
+  if (delta_state.roles_.has_value()) {
+    roles_ = std::move(*delta_state.roles_);
   }
 }
 
@@ -249,9 +294,14 @@ auto CoordinatorClusterState::GetGlobalReadOnly() const -> bool {
   return global_read_only_;
 }
 
+auto CoordinatorClusterState::GetRoles() const -> std::vector<CoordinatorRole> {
+  auto lock = std::shared_lock{app_lock_};
+  return roles_;
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::lock_guard{app_lock_};
-  coordinator_instances_ = std::move(coordinator_instances);
+  coordinator_instances_ = DedupCoordinatorInstances(std::move(coordinator_instances));
 }
 
 void CoordinatorClusterState::SetDataInstances(std::vector<DataInstanceContext> data_instances) {
@@ -296,12 +346,26 @@ void CoordinatorClusterState::SetInstanceDownTimeoutSec(uint32_t const timeout_s
 
 void CoordinatorClusterState::SetInstanceHealthCheckFreqSec(uint32_t const check_freq_sec) {
   auto lock = std::lock_guard{app_lock_};
-  instance_health_check_frequency_sec_ = check_freq_sec;
+  instance_health_check_frequency_sec_ = ClampInstanceHealthCheckFreqSec(check_freq_sec);
 }
 
 void CoordinatorClusterState::SetGlobalReadOnly(bool const global_read_only) {
   auto lock = std::lock_guard{app_lock_};
   global_read_only_ = global_read_only;
+}
+
+void CoordinatorClusterState::SetRoles(std::vector<CoordinatorRole> roles) {
+  auto lock = std::lock_guard{app_lock_};
+  roles_ = std::move(roles);
+}
+
+void to_json(nlohmann::json &j, CoordinatorRole const &role) {
+  j = nlohmann::json{{kRoleName.data(), role.name}, {kRolePermissions.data(), role.permissions}};
+}
+
+void from_json(nlohmann::json const &j, CoordinatorRole &role) {
+  j.at(kRoleName.data()).get_to(role.name);
+  role.permissions = j.value(kRolePermissions.data(), uint64_t{0});
 }
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
@@ -318,7 +382,9 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      // Added in 3.10.0 version
                      {kInstanceDownTimeoutSec.data(), state.GetInstanceDownTimeoutSec()},
                      {kInstanceHealthCheckFreqSec.data(), state.GetInstanceHealthCheckFrequencySec().count()},
-                     {kGlobalReadOnly.data(), state.GetGlobalReadOnly()}};
+                     {kGlobalReadOnly.data(), state.GetGlobalReadOnly()},
+                     // Coordinator role list, added for SSO on coordinators
+                     {kRoles.data(), state.GetRoles()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -359,13 +425,19 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   }
 
   {
-    uint32_t const check_freq_sec = j.value(kInstanceHealthCheckFreqSec.data(), 1);
+    // The default covers a snapshot serialized before this key existed; an explicit out-of-range value is clamped by
+    // the setter, not by this default.
+    uint32_t const check_freq_sec = j.value(kInstanceHealthCheckFreqSec.data(), kMinInstanceHealthCheckFreqSec);
     instance_state.SetInstanceHealthCheckFreqSec(check_freq_sec);
   }
 
   // global_read_only defaults to false for clusters serialized before this feature
   bool const global_read_only = j.value(kGlobalReadOnly.data(), false);
   instance_state.SetGlobalReadOnly(global_read_only);
+
+  // roles defaults to an empty list for clusters serialized before coordinator SSO. An older coordinator ignores the
+  // unknown key; a newer coordinator reading an older snapshot sees an empty role set.
+  instance_state.SetRoles(j.value(kRoles.data(), std::vector<CoordinatorRole>{}));
 }
 
 }  // namespace memgraph::coordination

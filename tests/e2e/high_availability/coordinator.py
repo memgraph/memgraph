@@ -140,6 +140,13 @@ def test_enable_show_config_queries(test_name):
     execute_and_fetch_all(cursor, "SHOW CONFIG")
 
 
+def test_enable_show_version_queries(test_name):
+    cursor = setup_test(test_name=test_name)
+    results = execute_and_fetch_all(cursor, "SHOW VERSION")
+    assert len(results) == 1
+    assert results[0][0]
+
+
 def test_disable_cypher_queries(test_name):
     cursor = setup_test(test_name=test_name)
 

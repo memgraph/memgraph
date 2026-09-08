@@ -32,7 +32,6 @@ using memgraph::communication::CreateClientContext;
 using memgraph::communication::CreateServerContext;
 using memgraph::communication::ServerContext;
 using memgraph::coordination::DemoteMainToReplicaRpc;
-using memgraph::coordination::EnableWritingOnMainRpc;
 using memgraph::coordination::GetDatabaseHistoriesRpc;
 using memgraph::coordination::PromoteToMainRpc;
 using memgraph::coordination::RegisterReplicaOnMainRpc;
@@ -269,7 +268,7 @@ void RegisterRpcCallback(Server &rpc_server) {
                             auto *req_reader,
                             auto /* *res_builder */) {
     typename T::Request req;
-    if constexpr (!std::is_same_v<T, EnableWritingOnMainRpc> && !std::is_same_v<T, GetDatabaseHistoriesRpc>) {
+    if constexpr (!std::is_same_v<T, GetDatabaseHistoriesRpc>) {
       memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     }
     rpc_akn.wait(true);    // Wait for the timeout
@@ -302,7 +301,6 @@ TYPED_TEST(RpcTimeoutTest, Timeouts) {
   RegisterRpcCallback<PromoteToMainRpc>(rpc_server);
   RegisterRpcCallback<RegisterReplicaOnMainRpc>(rpc_server);
   RegisterRpcCallback<UnregisterReplicaRpc>(rpc_server);
-  RegisterRpcCallback<EnableWritingOnMainRpc>(rpc_server);
   RegisterRpcCallback<GetDatabaseHistoriesRpc>(rpc_server);
   RegisterRpcCallback<StateCheckRpc>(rpc_server);
   RegisterRpcCallback<SwapMainUUIDRpc>(rpc_server);
@@ -318,7 +316,6 @@ TYPED_TEST(RpcTimeoutTest, Timeouts) {
       std::make_pair("PromoteToMainReq"sv, 200),
       std::make_pair("RegisterReplicaOnMainReq"sv, 200),
       std::make_pair("UnregisterReplicaReq"sv, 200),
-      std::make_pair("EnableWritingOnMainReq"sv, 200),
       std::make_pair("GetDatabaseHistoriesReq"sv, 200),
       std::make_pair("StateCheckReq"sv, 200),
       std::make_pair("SwapMainUUIDReq"sv, 200),
@@ -335,7 +332,6 @@ TYPED_TEST(RpcTimeoutTest, Timeouts) {
   SendAndAssert<DemoteMainToReplicaRpc>(client);
   SendAndAssert<PromoteToMainRpc>(client);
   SendAndAssert<UnregisterReplicaRpc>(client);
-  SendAndAssert<EnableWritingOnMainRpc>(client);
   SendAndAssert<GetDatabaseHistoriesRpc>(client);
   SendAndAssert<StateCheckRpc>(client);
   SendAndAssert<SwapMainUUIDRpc>(client);

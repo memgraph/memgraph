@@ -91,7 +91,6 @@ def get_memgraph_instances_description(test_name: str):
                 "--management-port",
                 "10121",
                 "--metrics-port=9095",
-                "--metrics-format=OpenMetrics",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",

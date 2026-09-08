@@ -29,6 +29,7 @@ DIMENSION = 256
 TOLERANCE_MIB = 10.0
 INDEX_VECTOR_COUNT = 1000
 INDEX_CAPACITY = 50_000
+PAYLOAD_BYTES = 4096
 
 INSTANCE_200MB = {
     "vector_index_test": {
@@ -197,6 +198,13 @@ def test_delete_vertices_graph_down_vector_index_unchanged():
     interactive_mg_runner.start_all(INSTANCE_200MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
+    # A vector is charged to the index rather than to the graph, so vertices holding nothing else
+    # free too little on deletion to tell apart from the run-to-run variation in the reported
+    # figure. The payload gives them a graph footprint the assertion can actually see.
+    execute_and_fetch_all(cursor, "MATCH (n:Embedding) SET n.payload = $payload", {"payload": "x" * PAYLOAD_BYTES})
+    # Settle first, so the baseline measures the vertices rather than what setting the payload left
+    # behind.
+    execute_and_fetch_all(cursor, "FREE MEMORY")
 
     info_before = get_storage_info(cursor)
     graph_before = parse_mib(info_before["graph_memory_tracked"])
@@ -213,9 +221,13 @@ def test_delete_vertices_graph_down_vector_index_unchanged():
         f"vector_index_memory_tracked changed after deleting vertices: "
         f"before={vi_before:.2f} MiB, after={vi_after:.2f} MiB"
     )
-    assert graph_after < graph_before, (
-        f"graph_memory_tracked should decrease after deleting vertices: "
-        f"before={graph_before:.2f} MiB, after={graph_after:.2f} MiB"
+    # Half the payload that was deleted: comfortably above the noise, comfortably below the whole
+    # of what deleting the vertices frees.
+    minimum_freed_mib = (INDEX_VECTOR_COUNT * PAYLOAD_BYTES) / (1024 * 1024) / 2
+    freed = graph_before - graph_after
+    assert freed > minimum_freed_mib, (
+        f"graph_memory_tracked should drop by more than {minimum_freed_mib:.2f} MiB after deleting vertices: "
+        f"before={graph_before:.2f} MiB, after={graph_after:.2f} MiB, freed={freed:.2f} MiB"
     )
 
 

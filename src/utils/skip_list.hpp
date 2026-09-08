@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -59,6 +60,13 @@ enum class GCPolicy : uint8_t { Random, DoNotRun };
 /// small. Also, the internal implementation can handle a maximum height of 32
 /// primarily becase of the height generator (see the `gen_height` function).
 constexpr uint64_t kSkipListMaxHeight = 32;
+
+/// Bitmask controlling how often `clear()` reports progress: one call per 2^12 destroyed nodes. Sized for the worst
+/// case rather than the typical one -- node teardown cost varies with what the node owns and with allocator pressure,
+/// and a caller reporting liveness to a peer needs the guarantee to hold under load, not just on a good day. Lowering
+/// it does not change the per-node cost, which is an increment, a mask and a predicted-not-taken branch either way;
+/// it only makes the (already amortised) callback fire more often.
+constexpr uint64_t kClearProgressMask = (1UL << 12) - 1;
 
 /// This is the height that a node that is accessed from the list has to have in
 /// order for garbage collection to be triggered. This causes the garbage
@@ -1013,6 +1021,18 @@ class SkipList final : detail::SkipListNode_base {
       return skiplist_->find_equal_or_greater(key);
     }
 
+    /// Finds the first key strictly greater than the given key.
+    template <typename TKey>
+    Iterator find_greater(const TKey &key) {
+      return skiplist_->find_greater(key);
+    }
+
+    /// Finds the first key strictly greater than the given key.
+    template <typename TKey>
+    ConstIterator find_greater(const TKey &key) const {
+      return skiplist_->find_greater(key);
+    }
+
     /// Estimates the number of items that are contained in the list that are
     /// identical to the key determined using the equality operator. The default
     /// layer is chosen to optimize duration vs. precision. The lower the layer
@@ -1163,6 +1183,11 @@ class SkipList final : detail::SkipListNode_base {
     }
 
     template <typename TKey>
+    ConstIterator find_greater(const TKey &key) const {
+      return skiplist_->find_greater(key);
+    }
+
+    template <typename TKey>
     uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->estimate_count(key, max_layer_for_estimation);
     }
@@ -1257,19 +1282,25 @@ class SkipList final : detail::SkipListNode_base {
   /// This function removes all elements from the list.
   /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
-  void clear() {
+  /// `on_progress`, when set, is invoked every kClearProgressMask+1 nodes. Tearing down a large list takes minutes
+  /// and reports nothing on its own -- `size_` is only reset once the walk below completes -- so a caller that owes
+  /// liveness to somebody else has no other way to observe that this is still advancing.
+  void clear(std::function<void()> const &on_progress = {}) {
 #ifndef NDEBUG
     auto const alive = gc_.AliveAccessors();
     DMG_ASSERT(alive == 0, "SkipList::clear() called with {} live accessor(s)", alive);
 #endif
     auto alloc = gc_.get_allocator();
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
+    uint64_t destroyed = 0;
     while (curr != nullptr) {
       TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*curr);
       curr->~TNode();
       detail::deallocate_bytes(alloc, curr, bytes, SkipListNodeAlign<TObj>());
       curr = succ;
+      // Mask first so the common path is an increment and a predicted-not-taken branch.
+      if (((++destroyed & kClearProgressMask) == 0) && on_progress) on_progress();
     }
     for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
       head_->nexts[layer] = nullptr;
@@ -1436,6 +1467,36 @@ class SkipList final : detail::SkipListNode_base {
   }
 
   template <typename TKey>
+  void find_node_strict_greater(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                                std::array<TNode *, kSkipListMaxHeight> &succs) const {
+    TNode *pred = head_;
+    for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
+      TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
+      while (curr != nullptr && curr->obj <= key) {
+        pred = curr;
+        curr = pred->nexts[layer].load(std::memory_order_acquire);
+      }
+      preds[layer] = pred;
+      succs[layer] = curr;
+    }
+  }
+
+  template <typename TKey>
+  Iterator find_greater_(const TKey &key) const {
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
+    find_node_strict_greater(key, preds, succs);
+    while (true) {
+      if (!succs[0]) return Iterator{nullptr};
+      auto valid =
+          succs[0]->fully_linked.load(std::memory_order_acquire) && !succs[0]->marked.load(std::memory_order_acquire);
+      if (valid) return Iterator{succs[0]};
+      // Entry was marked/not fully linked; advance linearly to the next valid node
+      succs[0] = succs[0]->nexts[0].load(std::memory_order_acquire);
+    }
+  }
+
+  template <typename TKey>
   Iterator find_equal_or_greater_(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
                                   std::array<TNode *, kSkipListMaxHeight> &succs) const {
     while (true) {
@@ -1468,6 +1529,16 @@ class SkipList final : detail::SkipListNode_base {
   template <typename TKey>
   ConstIterator find_equal_or_greater(const TKey &key) const {
     return ConstIterator{find_equal_or_greater_(key)};
+  }
+
+  template <typename TKey>
+  Iterator find_greater(const TKey &key) {
+    return Iterator{find_greater_(key)};
+  }
+
+  template <typename TKey>
+  ConstIterator find_greater(const TKey &key) const {
+    return ConstIterator{find_greater_(key)};
   }
 
   template <typename TKey>
@@ -1514,15 +1585,19 @@ class SkipList final : detail::SkipListNode_base {
     std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = -1;
     if (lower) {
+      // find_node reports the layer holding the key, or -1 when the list has no such key. It fills
+      // the predecessors either way, and those -- the last node before the bound at each layer --
+      // are all the walk below needs. A range is described by where its bounds fall between the
+      // keys, so a bound matching no element still has elements above it to count.
       layer_found = find_node(lower->value(), preds, succs);
+      if (layer_found == -1) {
+        layer_found = kSkipListMaxHeight - 1;
+      }
     } else {
       for (auto &pred : preds) {
         pred = head_;
       }
       layer_found = kSkipListMaxHeight - 1;
-    }
-    if (layer_found == -1) {
-      return 0;
     }
 
     uint64_t count = 0;

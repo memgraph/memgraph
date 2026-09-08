@@ -18,6 +18,12 @@ if (ENABLE_JEMALLOC)
   target_compile_definitions(mg-memory-utils PUBLIC USE_JEMALLOC=1)
   target_link_libraries(mg-memory PRIVATE jemalloc::jemalloc ${CMAKE_DL_LIBS} mg-memory-utils fmt::fmt)
   target_compile_definitions(mg-memory PUBLIC USE_JEMALLOC=1)
+  # malloc is interposed here and reads thread-locals its caller sets. The compiler's model of a
+  # standard allocation function says it cannot touch caller-visible memory, which would let it
+  # drop those stores, so the allocation functions this file defines are not treated as builtins.
+  target_compile_options(mg-memory PRIVATE
+                         -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc
+                         -fno-builtin-free -fno-builtin-aligned_alloc)
 else()
   target_link_libraries(mg-memory-utils PRIVATE mg-utils)
   target_compile_definitions(mg-memory-utils PUBLIC USE_JEMALLOC=0)

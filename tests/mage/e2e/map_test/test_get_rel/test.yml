@@ -1,0 +1,5 @@
+query: >
+  MATCH ()-[r:R]->() RETURN map.get(r, "since") AS value;
+
+output:
+  - value: 2020

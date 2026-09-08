@@ -55,7 +55,7 @@ class OrderByEliminator {
 
   using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
                                     const ScanAllByEdgePropertyRange *, const ScanAllByEdgeTypePropertyValue *,
-                                    const ScanAllByEdgePropertyValue *>;
+                                    const ScanAllByEdgePropertyValue *, const ScanAllByVertexProperty *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
@@ -195,7 +195,7 @@ class OrderByEliminator {
            type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeTypePropertyValue::kType ||
            type_info == ScanAllByEdgeTypePropertyRange::kType || type_info == ScanAllByEdgeProperty::kType ||
            type_info == ScanAllByEdgePropertyValue::kType || type_info == ScanAllByEdgePropertyRange::kType ||
-           type_info == ScanAllByEdgeId::kType;
+           type_info == ScanAllByEdgeId::kType || type_info == ScanAllByVertexProperty::kType;
   }
 
   /// Check if a mutation operator (SetProperty, RemoveProperty) modifies a property
@@ -291,7 +291,7 @@ class OrderByEliminator {
                 // NULL first, but ORDER BY places NULL last, so the index order
                 // only matches ORDER BY when the sort column cannot be NULL. A
                 // column is guaranteed non-null when it carries a filter (every
-                // filter type -- EQUAL/RANGE/REGEX/IN/IS_NOT_NULL -- excludes
+                // filter type -- EQUAL/RANGE/REGEX/IN/IS_NOT_NULL/STARTS_WITH/CONTAINS/ENDS_WITH -- excludes
                 // NULL); an unconstrained column (no range entry) may be NULL.
                 if (i >= s->expression_ranges_.size()) return false;
                 ++ob_ptr;

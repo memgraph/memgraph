@@ -1029,7 +1029,7 @@ class TriggerStoreTest : public ::testing::Test {
 
   std::optional<memgraph::query::DbAccessor> dba;
 
-  memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
+  memgraph::query::AstCache ast_cache{1000};
   memgraph::query::AllowEverythingAuthChecker auth_checker;
 
  private:

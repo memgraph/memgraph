@@ -42,8 +42,6 @@ class DataInstanceManagementServerHandlers {
 
   static void UnregisterReplicaHandler(replication::ReplicationHandler &replication_handler, uint64_t request_version,
                                        slk::Reader *req_reader, slk::Builder *res_builder);
-  static void EnableWritingOnMainHandler(replication::ReplicationHandler &replication_handler, uint64_t request_version,
-                                         slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void GetDatabaseHistoriesHandler(replication::ReplicationHandler const &replication_handler,
                                           uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);

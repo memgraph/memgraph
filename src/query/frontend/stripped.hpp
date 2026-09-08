@@ -114,9 +114,6 @@ class StrippedQuery {
   HashedString stripped_query_;
 
   // Token positions of stripped out literals mapped to their values.
-  // TODO: Parameters class really doesn't provide anything interesting. This
-  // could be changed to std::unordered_map, but first we need to rewrite (or
-  // get rid of) hardcoded queries which expect Parameters.
   Parameters literals_;
 
   // Token positions of query parameters mapped to their names.

@@ -1,0 +1,5 @@
+query: >
+  RETURN map.get({age: null}, "age") AS value;
+
+output:
+  - value: null

@@ -1,0 +1,10 @@
+# Bidirectional filter + end-node filter + minHops together: dedup, hop window, and label gate
+# all active. Start A is a Target end node but excluded by minHops:1; only D survives all three.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {relationshipFilter: ['<R>'], labelFilter: ['>Target'], minHops: 1, maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: D
