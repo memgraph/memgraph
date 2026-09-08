@@ -277,6 +277,12 @@ struct PlanInvalidatorDefault : public PlanInvalidator {
 
 using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 
+// Type aliases for the commit serializer mutex and its owning lock.
+// Using timed_mutex so callers can use try_lock_for() without a type change.
+// CommitMutex supports the same lock()/try_lock()/unlock() interface as std::mutex.
+using CommitMutex = std::timed_mutex;
+using CommitLock = std::unique_lock<CommitMutex>;
+
 class Accessor;
 
 class Storage {
@@ -420,9 +426,19 @@ class Storage {
 
   // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
   // Returns an owning lock on success, a non-owning (empty) lock when another committer holds it.
-  [[nodiscard]] std::unique_lock<std::mutex> TryCommitLock() noexcept {
-    return std::unique_lock<std::mutex>{commit_mutex_, std::try_to_lock};
+  [[nodiscard]] CommitLock TryCommitLock() noexcept { return CommitLock{commit_mutex_, std::try_to_lock}; }
+
+  // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
+  // Pressure-scaled timed wait: sleeps up to `budget` for commit_mutex_; returns a non-owning lock
+  // on timeout. Caller must check owns_lock() before proceeding.
+  [[nodiscard]] CommitLock TryCommitLockFor(std::chrono::microseconds budget) noexcept {
+    return CommitLock{commit_mutex_, budget};
   }
+
+  // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
+  // Blocking (indefinite sleep) acquire of commit_mutex_. Used when no idle workers are available
+  // and parking would stall the pool entirely (P==0 case).
+  [[nodiscard]] CommitLock LockCommitBlocking() { return CommitLock{commit_mutex_}; }
 
   // True iff the lock-free read-snapshot experiment is ON for this storage instance.
   bool IsCommitSerialised() const noexcept { return config_.experimental_lockfree_read_snapshot; }
@@ -512,7 +528,7 @@ class Storage {
   // EXPERIMENTAL (lock-free-read-snapshot). All three are inert when the experiment is OFF.
   // Serializes committers across mint->durability->publish and (in that mode) guards the WAL group;
   // acquired only on the experiment's ON path, so the OFF path is byte-for-byte unchanged.
-  mutable std::mutex commit_mutex_;
+  mutable CommitMutex commit_mutex_;
   // Runtime-only watermark: the last fully-published commit timestamp. Advanced at publish on the ON
   // path, seeded from recovered max commit ts on startup. NEVER persisted (durable data is flag-independent).
   std::atomic<uint64_t> last_committed_mvcc_ts_{kTimestampInitialId};
@@ -873,8 +889,8 @@ class Accessor {
   // NOLINTNEXTLINE(google-default-arguments)
   // preheld_commit_lock: owning lock pre-acquired by the caller via TryLockCommit(); adopted here.
   // Default-constructed (non-owning) = no pre-held guard; implementation acquires blocking.
-  virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(
-      CommitArgs commit_args, std::unique_lock<std::mutex> preheld_commit_lock = {}) = 0;
+  virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args,
+                                                                              CommitLock preheld_commit_lock = {}) = 0;
 
   // NOLINTNEXTLINE(google-default-arguments)
   virtual std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) = 0;
@@ -888,7 +904,15 @@ class Accessor {
 
   // Must not be called on the OFF path: commit_mutex_ is never taken there, so the try always
   // succeeds (harmless but wasteful); gate the call with IsCommitSerialised().
-  [[nodiscard]] std::unique_lock<std::mutex> TryLockCommit() noexcept { return storage_->TryCommitLock(); }
+  [[nodiscard]] CommitLock TryLockCommit() noexcept { return storage_->TryCommitLock(); }
+
+  // Pressure-scaled timed wait. Must not be called on the OFF path (see TryLockCommit above).
+  [[nodiscard]] CommitLock TryLockCommitFor(std::chrono::microseconds budget) noexcept {
+    return storage_->TryCommitLockFor(budget);
+  }
+
+  // Blocking acquire. Must not be called on the OFF path (see TryLockCommit above).
+  [[nodiscard]] CommitLock LockCommitBlocking() { return storage_->LockCommitBlocking(); }
 
   // Stable per-query id; preserved across PERIODIC COMMIT.
   std::optional<uint64_t> GetStartTimestamp() const;
