@@ -51,14 +51,13 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
 namespace memgraph::storage {
 
-bool InMemoryLabelIndex::InstallIndividualIndex_(LabelId label, std::shared_ptr<IndividualIndex> entry,
-                                                 ActiveIndicesUpdater const &updater, bool register_in_all_indices) {
+bool InMemoryLabelIndex::RegisterIndex(LabelId label, ActiveIndicesUpdater const &updater) {
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
     if (index->find(label) != index->cend()) return false;
     auto new_index = std::make_shared<IndexContainer>(*index);
-    auto [new_it, _] = new_index->try_emplace(label, std::move(entry));
+    auto [new_it, _] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
 
-    if (register_in_all_indices) {
+    {
       const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
       all_indices_.WithLock([&](auto &all_indices) {
         auto new_all_indices = *all_indices;
@@ -72,10 +71,6 @@ bool InMemoryLabelIndex::InstallIndividualIndex_(LabelId label, std::shared_ptr<
     updater(std::make_shared<ActiveIndices>(index));
     return true;
   });
-}
-
-bool InMemoryLabelIndex::RegisterIndex(LabelId label, ActiveIndicesUpdater const &updater) {
-  return InstallIndividualIndex_(label, std::make_shared<IndividualIndex>(), updater, /*register_in_all_indices=*/true);
 }
 
 auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex> {
@@ -232,20 +227,12 @@ auto InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &up
     auto evicted_entry = it->second;
     auto new_index = std::make_shared<IndexContainer>(*index);
     new_index->erase(label);
+    updater(std::make_shared<ActiveIndices>(new_index));
     index = std::move(new_index);
-    updater(std::make_shared<ActiveIndices>(index));
     return evicted_entry;
   });
   CleanupAllIndices();
   return evicted;
-}
-
-void InMemoryLabelIndex::RestoreIndex(LabelId label, std::shared_ptr<IndividualIndex> evicted,
-                                      ActiveIndicesUpdater const &updater) {
-  if (!evicted) return;
-  // register_in_all_indices=false: captured shared_ptr kept the entry alive through
-  // CleanupAllIndices; re-appending would create an unreapable duplicate.
-  (void)InstallIndividualIndex_(label, std::move(evicted), updater, /*register_in_all_indices=*/false);
 }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexExists(LabelId label) const { return index_container_->contains(label); }

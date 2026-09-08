@@ -258,7 +258,6 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
 
   [[nodiscard]] auto DropIndex(PropertyId property, ActiveIndicesUpdater const &updater)
       -> std::shared_ptr<IndividualIndex>;
-  void RestoreIndex(PropertyId property, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
   /// Sweeps only the indexes whose property `arming` names, and returns how many that was.
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
@@ -273,8 +272,6 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
  private:
   auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;
 
-  bool InstallIndividualIndex_(PropertyId property, std::shared_ptr<IndividualIndex> entry,
-                               ActiveIndicesUpdater const &updater, bool register_in_all_indices);
   void CleanupAllIndices();
 
   metrics::GaugeHandle gauge_{};

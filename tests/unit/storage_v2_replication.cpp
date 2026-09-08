@@ -46,6 +46,7 @@
 #include "tests/unit/storage_test_utils.hpp"
 #include "utils/exceptions.hpp"
 
+using testing::IsEmpty;
 using testing::UnorderedElementsAre;
 
 using memgraph::io::network::Endpoint;
@@ -2075,6 +2076,63 @@ TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
   EXPECT_TRUE(ConfrontJSON(replica_schema, main_schema))
       << "the replica's schema diverged from the main's. Main: " << main_schema.dump(2)
       << " Replica: " << replica_schema.dump(2);
+}
+
+// Two transactions can each settle a drop's existence check and commit, because a drop evicts when
+// it commits, so the stream carries two drops of one index. The second reaches a replica that has
+// already evicted it, and applying it has to leave the stream running rather than fail the delta.
+TEST_F(ReplicationTest, ConcurrentDropsOfOneIndexKeepTheStreamRunning) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  const auto &reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
+
+  std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main.db.Arena()};
+  auto const label = main.db.storage()->NameToLabel("L");
+
+  {
+    auto unique_acc = main.db.UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto first = main.db.Access(memgraph::storage::READ);
+    auto second = main.db.Access(memgraph::storage::READ);
+    ASSERT_TRUE(first->DropIndex(label).has_value());
+    ASSERT_TRUE(second->DropIndex(label).has_value());
+    ASSERT_TRUE(first->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(second->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // A refused delta stops the replica applying anything after it, so this vertex is what says the
+  // second drop was taken rather than merely leaving the index already gone.
+  memgraph::storage::Gid gid;
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value())
+        << "the main could not commit, which is what a replica that stopped acknowledging looks "
+           "like from here";
+  }
+
+  main_scope.reset();
+
+  {
+    const memgraph::memory::DbArenaScope replica_scope{&replica.db.Arena()};
+    auto racc = replica.db.Access(memgraph::storage::WRITE);
+    EXPECT_TRUE(racc->FindVertex(gid, View::OLD).has_value())
+        << "the replica stopped applying the stream, which is what refusing the second drop does";
+    EXPECT_THAT(racc->ListAllIndices().label, IsEmpty());
+  }
 }
 
 TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {

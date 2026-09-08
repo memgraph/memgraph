@@ -193,35 +193,24 @@ bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::S
   return PublishIndex(property, 0);
 }
 
-bool InMemoryEdgePropertyIndex::InstallIndividualIndex_(PropertyId property, std::shared_ptr<IndividualIndex> entry,
-                                                        ActiveIndicesUpdater const &updater,
-                                                        bool register_in_all_indices) {
+bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater) {
   return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     if (indices_container->indices_.find(property) != indices_container->indices_.cend()) return false;
     utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
-    auto [new_it, _] = new_container->indices_.emplace(property, std::move(entry));
+    auto [new_it, _] = new_container->indices_.emplace(property, std::make_shared<IndividualIndex>());
 
-    if (register_in_all_indices) {
+    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+    all_indices_.WithLock([&](auto &all_indices) {
+      auto new_all_indices = *all_indices;
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-      all_indices_.WithLock([&](auto &all_indices) {
-        auto new_all_indices = *all_indices;
-        // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-        new_all_indices.emplace_back(property, new_it->second);
-        all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
-      });
-    }
+      new_all_indices.emplace_back(property, new_it->second);
+      all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
+    });
     indices_container = std::move(new_container);
     updater(std::make_shared<ActiveIndices>(indices_container));
     return true;
   });
-}
-
-bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater) {
-  return InstallIndividualIndex_(property,
-                                 std::make_shared<IndividualIndex>(),
-                                 updater,
-                                 /*register_in_all_indices=*/true);
 }
 
 auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
@@ -284,20 +273,12 @@ auto InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpda
 
         auto new_container = std::make_shared<IndicesContainer>(*indices_container);
         new_container->indices_.erase(property);
-        indices_container = new_container;
-        updater(std::make_shared<ActiveIndices>(indices_container));
+        updater(std::make_shared<ActiveIndices>(new_container));
+        indices_container = std::move(new_container);
         return evicted_entry;
       });
   CleanupAllIndicies();
   return evicted;
-}
-
-void InMemoryEdgePropertyIndex::RestoreIndex(PropertyId property, std::shared_ptr<IndividualIndex> evicted,
-                                             ActiveIndicesUpdater const &updater) {
-  if (!evicted) return;
-  // register_in_all_indices=false: captured shared_ptr already kept the entry alive
-  // through CleanupAllIndices; re-appending would create an unreapable duplicate.
-  (void)InstallIndividualIndex_(property, std::move(evicted), updater, /*register_in_all_indices=*/false);
 }
 
 bool InMemoryEdgePropertyIndex::ActiveIndices::IndexExists(PropertyId property) const {

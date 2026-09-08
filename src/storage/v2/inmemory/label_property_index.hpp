@@ -522,23 +522,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                  IndexArming const &arming);
 
-  // Captures the evicted asc/desc IndividualIndex shared_ptrs so the caller can
-  // re-insert them on abort. Pair with RestoreIndex. The captured shared_ptrs
-  // also keep their entries alive in `all_indices_` past CleanupAllIndices, so
-  // RestoreIndex must NOT re-insert there.
-  struct DropCapture {
-    DropResult result;
-    std::optional<AscIndexPtrVariant> asc_evicted;    // nullopt if asc not dropped
-    std::optional<DescIndexPtrVariant> desc_evicted;  // nullopt if desc not dropped
-    // Per-label stats slice captured before CleanupStatsForDrop erased entries.
-    // nullopt if the label had no stats at drop time.
-    std::optional<PropertiesIndicesStats> stats_evicted;
-  };
-
   // `order == nullopt` drops both ASC and DESC entries for (label, properties).
   [[nodiscard]] auto DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                                ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order = std::nullopt)
-      -> DropCapture;
+      -> DropResult;
 
   /// Which of the orders `order` selects exist for (label, properties), reported in the same shape
   /// a drop of them would return and without removing anything.
@@ -549,9 +536,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   /// index that was dropped.
   [[nodiscard]] auto OrdersPresent(LabelId label, std::vector<PropertyPath> const &properties,
                                    std::optional<IndexOrder> order = std::nullopt) const -> DropResult;
-  void RestoreIndex(LabelId label, std::vector<PropertyPath> properties, std::optional<AscIndexPtrVariant> asc_evicted,
-                    std::optional<DescIndexPtrVariant> desc_evicted,
-                    std::optional<PropertiesIndicesStats> stats_evicted, ActiveIndicesUpdater const &updater);
 
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ClearIndexStats();
 

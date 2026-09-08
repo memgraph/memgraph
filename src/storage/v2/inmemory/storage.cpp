@@ -2078,34 +2078,43 @@ namespace {
 /// publisher then hands out, and a writer admitted after that maintains nothing for the index, so
 /// an abort restores it short of that writer's rows.
 ///
-/// Returns the error a statement reports when there is no such index. Callers record their own
-/// metadata deltas, which is what differs between kinds.
+/// The commit runs the callback after clearing the abort list, so nothing is left to undo an
+/// eviction that got halfway. Every DropIndex implementation therefore allocates everything it
+/// needs before it writes anything, and an allocation that throws leaves the catalogue, the
+/// published indices and the statistics all as they were. Publishing before the catalogue entry
+/// goes is not observable: a transaction reads the published indices only when it begins, and the
+/// committing transaction holds engine_lock_ across the callback, while the catalogue is read
+/// under the lock the callback itself holds.
+///
+/// Answers whether the index was there. That settles whether an eviction is scheduled, and it is
+/// what the caller weighs its AbsentIndex against. Callers record their own metadata deltas, which
+/// is what differs between kinds.
 template <typename TIndex, typename... TArgs>
-[[nodiscard]] auto DropIndexOnCommit(Transaction &transaction, PlanInvalidator &invalidator, TIndex *index,
-                                     ActiveIndicesUpdater const &updater, TArgs... args)
-    -> std::expected<void, StorageIndexDefinitionError> {
+[[nodiscard]] bool DropIndexOnCommit(Transaction &transaction, PlanInvalidator &invalidator, TIndex *index,
+                                     ActiveIndicesUpdater const &updater, TArgs... args) {
   if (!index->GetActiveIndices()->IndexExists(args...)) {
-    return std::unexpected{IndexDefinitionError{}};
+    return false;
   }
   auto publisher = invalidator.invalidate_for_timestamp_wrapper([index, updater, args...](uint64_t /*commit_ts*/) {
     return static_cast<bool>(index->DropIndex(args..., updater));
   });
   transaction.commit_callbacks_.Add(std::move(publisher));
-  return {};
+  return true;
 }
 
 }  // namespace
 
-std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping label index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  auto const scheduled = DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_label_index, updater, label);
-  if (!scheduled) {
-    return scheduled;
+  auto const present = DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_label_index, updater, label);
+  if (!present && absent == AbsentIndex::kFails) {
+    return std::unexpected{IndexDefinitionError{}};
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
@@ -2114,7 +2123,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order,
+    AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping label-property index requires a unique, read-only or read access to the storage!");
@@ -2128,18 +2138,19 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   // order. Settling them here is the same requirement that function states about existence.
   auto const drop_result = mem_label_property_index->OrdersPresent(label, properties, order);
   if (!drop_result) {
-    return std::unexpected{IndexDefinitionError{}};
+    if (absent == AbsentIndex::kFails) {
+      return std::unexpected{IndexDefinitionError{}};
+    }
+    // There is nothing to evict, and the record still has to be written. A caller that records an
+    // absent index replays one record at a time, so `order` is the one order this record covers.
+    MG_ASSERT(order, "A recorded drop of an absent index has to name the order it drops");
+    transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties), *order);
+    return {};
   }
   auto const settled_order = [&]() -> std::optional<IndexOrder> {
     if (drop_result.dropped_asc && drop_result.dropped_desc) return std::nullopt;
     return drop_result.dropped_asc ? IndexOrder::ASC : IndexOrder::DESC;
   }();
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [mem_label_property_index, label, properties, updater, settled_order](uint64_t /*commit_ts*/) {
-        return static_cast<bool>(mem_label_property_index->DropIndex(label, properties, updater, settled_order).result);
-      });
-  transaction_.commit_callbacks_.Add(std::move(publisher));
-
   if (drop_result.dropped_asc) {
     transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
                                         label,
@@ -2152,29 +2163,38 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
                                         std::vector<storage::PropertyPath>(properties),
                                         IndexOrder::DESC);
   }
+
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_label_property_index, label, properties = std::move(properties), updater, settled_order](
+          uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_label_property_index->DropIndex(label, properties, updater, settled_order));
+      });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
   // We don't care if there is a replication error because on main node the change will go through
 
   return {};
 }
 
-std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type) {
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping edge-type index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  auto const scheduled =
+  auto const present =
       DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_edge_type_index, updater, edge_type);
-  if (!scheduled) {
-    return scheduled;
+  if (!present && absent == AbsentIndex::kFails) {
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
-                                                                                              PropertyId property) {
+                                                                                              PropertyId property,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping edge-type property index requires a unique, read-only or read access to the storage!");
@@ -2186,17 +2206,17 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  auto const scheduled = DropIndexOnCommit(
+  auto const present = DropIndexOnCommit(
       transaction_, *storage_->invalidator_, mem_edge_type_property_index, updater, edge_type, property);
-  if (!scheduled) {
-    return scheduled;
+  if (!present && absent == AbsentIndex::kFails) {
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
-    PropertyId property) {
+    PropertyId property, AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping global edge property index requires unique, read-only or read access to the storage!");
@@ -2209,10 +2229,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  auto const scheduled =
+  auto const present =
       DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_edge_property_index, updater, property);
-  if (!scheduled) {
-    return scheduled;
+  if (!present && absent == AbsentIndex::kFails) {
+    return std::unexpected{IndexDefinitionError{}};
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
@@ -2220,17 +2240,17 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalVertexIndex(
-    PropertyId property) {
+    PropertyId property, AbsentIndex absent) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping global vertex property index requires unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_vertex_property_index =
       static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  auto const scheduled =
+  auto const present =
       DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_vertex_property_index, updater, property);
-  if (!scheduled) {
-    return scheduled;
+  if (!present && absent == AbsentIndex::kFails) {
+    return std::unexpected{IndexDefinitionError{}};
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_drop, property);
