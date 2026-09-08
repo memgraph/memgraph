@@ -59,7 +59,7 @@ set(CMAKE_AR "${MG_TOOLCHAIN_ROOT}/bin/gcc-ar" CACHE FILEPATH "Archiver" FORCE)
 set(CMAKE_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/gcc-ranlib" CACHE FILEPATH "Ranlib" FORCE)
 
 # Linker
-set(CMAKE_LINKER_TYPE LLD)
+set(CMAKE_LINKER_TYPE BFD)
 set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/ld")
 
 # NM (symbol listing)
