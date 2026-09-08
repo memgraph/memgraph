@@ -27,6 +27,8 @@
 //     --storage-snapshot-on-exit is enabled (the exit-snapshot path exercised here)
 //   SuspendSuccessMakesColdShellInaccessible — happy path: Get() throws, name leaves All()
 //   SuspendMultipleTenants              — two independent suspends both succeed
+//   DropColdTenantRetiresItsUuid        — dropping a COLD tenant announces the retired uuid, so
+//     parameters keyed by it are purged
 
 #ifdef MG_ENTERPRISE
 
@@ -52,6 +54,7 @@
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/uuid.hpp"
 
 namespace fs = std::filesystem;
 using memgraph::dbms::DbmsHandler;
@@ -284,6 +287,25 @@ TEST_F(HotColdSuspend, DropColdTenantCleansUp) {
   // The durable cold marker + data dir are gone, so the name is reusable.
   auto recreate = handler_->New(name);
   EXPECT_TRUE(recreate.has_value()) << "name must be reusable after dropping the cold tenant";
+}
+
+// Parameters are keyed by database uuid, so every path that retires one has to announce it or the
+// rows outlive the database. Dropping a COLD tenant is such a path, and it is the only one that does
+// not go through Delete_ or TryDelete.
+TEST_F(HotColdSuspend, DropColdTenantRetiresItsUuid) {
+  auto name = CreateTenant("drop_cold_uuid");
+  memgraph::utils::UUID uuid;
+  {
+    uuid = handler_->Get(name)->config().salient.uuid;
+  }  // release the accessor before suspending -> sole-accessor freeze can proceed
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  std::vector<memgraph::utils::UUID> retired;
+  handler_->SetOnUuidRetired([&retired](memgraph::utils::UUID const &u) { retired.push_back(u); });
+
+  ASSERT_TRUE(handler_->Delete(name).has_value());
+
+  EXPECT_THAT(retired, ::testing::ElementsAre(uuid));
 }
 
 // RENAME DATABASE on a COLD tenant must be rejected with RenameError::SUSPENDED, NOT abort the
