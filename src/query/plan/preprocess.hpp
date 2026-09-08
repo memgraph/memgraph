@@ -289,10 +289,11 @@ class PropertyFilter {
   };
 
   /// True when an edge index scan admits rows the filter rejects, so the original expression must
-  /// be retained as a post-filter. An edge scan ranges upwards from a single bound with no ceiling,
-  /// so even a prefix match reads past the prefix and on into the types that sort after strings.
+  /// be retained as a post-filter. An edge scan bounds a prefix match above as well as below, and
+  /// those two bounds span exactly the strings carrying the prefix, so STARTS_WITH has nothing
+  /// left to check. The rest have no bound narrower than the whole string type.
   static constexpr bool RequiresPostFilterOnEdgeScan(Type t) {
-    return t == Type::REGEX_MATCH || t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+    return t == Type::REGEX_MATCH || t == Type::CONTAINS || t == Type::ENDS_WITH;
   }
 
   /// True when a node index scan admits rows the filter rejects, so the original expression must be

@@ -173,7 +173,7 @@ def edge_graph(memgraph):
     # teardown handled by setup_graph's drop_database
 
 
-def test_edge_contains_uses_edge_type_property_range(memgraph, edge_graph):
+def test_edge_contains_uses_edge_type_property(memgraph, edge_graph):
     plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind CONTAINS 'lph' RETURN r.kind AS k")
     ops = operator_names(plan)
     assert "ScanAllByEdgeTypeProperty" in ops, f"Expected ScanAllByEdgeTypeProperty, got: {plan}"
@@ -181,7 +181,7 @@ def test_edge_contains_uses_edge_type_property_range(memgraph, edge_graph):
     assert [r["k"] for r in result] == ["alpha"]
 
 
-def test_edge_starts_with_uses_edge_type_property_range(memgraph, edge_graph):
+def test_edge_starts_with_uses_edge_type_property(memgraph, edge_graph):
     plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH 'be' RETURN r.kind AS k")
     ops = operator_names(plan)
     assert "ScanAllByEdgeTypeProperty" in ops, f"Expected ScanAllByEdgeTypeProperty, got: {plan}"
@@ -189,7 +189,7 @@ def test_edge_starts_with_uses_edge_type_property_range(memgraph, edge_graph):
     assert [r["k"] for r in result] == ["beta"]
 
 
-def test_edge_ends_with_uses_edge_type_property_range(memgraph, edge_graph):
+def test_edge_ends_with_uses_edge_type_property(memgraph, edge_graph):
     plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind ENDS WITH 'ma' RETURN r.kind AS k")
     ops = operator_names(plan)
     assert "ScanAllByEdgeTypeProperty" in ops, f"Expected ScanAllByEdgeTypeProperty, got: {plan}"
@@ -197,11 +197,10 @@ def test_edge_ends_with_uses_edge_type_property_range(memgraph, edge_graph):
     assert [r["k"] for r in result] == ["gamma"]
 
 
-def test_edge_starts_with_keeps_its_post_filter(memgraph, edge_graph):
-    # An edge scan ranges upwards from the prefix with no ceiling, so it reads past the prefix and
-    # the predicate has to be checked again afterwards.
+def test_edge_starts_with_filter_is_consumed_by_edge_index(memgraph, edge_graph):
+    # The scan's two bounds span exactly the strings carrying the prefix, so nothing is left to check.
     plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH 'be' RETURN r.kind AS k")
-    assert "Filter" in operator_names(plan), f"An edge prefix scan must keep its post-filter, got: {plan}"
+    assert "Filter" not in operator_names(plan), f"STARTS WITH should not leave a post-filter, got: {plan}"
 
 
 def test_edge_starts_with_null_returns_empty(memgraph, edge_graph):

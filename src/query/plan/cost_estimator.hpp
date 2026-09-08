@@ -735,11 +735,31 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
               storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
         }
         return db_accessor_->EdgesCount(edge_type, property) * CardParam::kFilter;
-      case Type::RANGE:
+      case Type::STARTS_WITH: {
+        // The prefix upper bound only materialises once the range is resolved, so estimating from
+        // the raw bounds would count every value >= the prefix instead of just the prefix span.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          // An empty range carries no bounds, which counted as unbounded would estimate the whole
+          // property rather than the nothing it matches.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) return 0.0;
+          return db_accessor_->EdgesCount(edge_type, property, resolved->lower_, resolved->upper_);
+        }
+        return EstimateEdgePropertyRangeCardinality(edge_type, property, range.lower_, range.upper_);
+      }
       case Type::REGEX_MATCH:
       case Type::CONTAINS:
-      case Type::ENDS_WITH:
-      case Type::STARTS_WITH:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the band the property's string values
+        // occupy, which the resolved range describes and which is the same for every term -- as it
+        // has to be, since the plan outlives the term that was current when it was costed.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        auto const resolved = range.ResolveAtPlantime(parameters, mapper);
+        if (!resolved) return db_accessor_->EdgesCount(edge_type, property);
+        return db_accessor_->EdgesCount(edge_type, property, resolved->lower_, resolved->upper_);
+      }
+      case Type::RANGE:
         return EstimateEdgePropertyRangeCardinality(edge_type, property, range.lower_, range.upper_);
     }
     std::unreachable();
@@ -763,11 +783,31 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
               property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
         }
         return db_accessor_->EdgesCount(property) * CardParam::kFilter;
-      case Type::RANGE:
+      case Type::STARTS_WITH: {
+        // The prefix upper bound only materialises once the range is resolved, so estimating from
+        // the raw bounds would count every value >= the prefix instead of just the prefix span.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          // An empty range carries no bounds, which counted as unbounded would estimate the whole
+          // property rather than the nothing it matches.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) return 0.0;
+          return db_accessor_->EdgesCount(property, resolved->lower_, resolved->upper_);
+        }
+        return EstimateEdgePropertyRangeCardinality(property, range.lower_, range.upper_);
+      }
       case Type::REGEX_MATCH:
       case Type::CONTAINS:
-      case Type::ENDS_WITH:
-      case Type::STARTS_WITH:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the band the property's string values
+        // occupy, which the resolved range describes and which is the same for every term -- as it
+        // has to be, since the plan outlives the term that was current when it was costed.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        auto const resolved = range.ResolveAtPlantime(parameters, mapper);
+        if (!resolved) return db_accessor_->EdgesCount(property);
+        return db_accessor_->EdgesCount(property, resolved->lower_, resolved->upper_);
+      }
+      case Type::RANGE:
         return EstimateEdgePropertyRangeCardinality(property, range.lower_, range.upper_);
     }
     std::unreachable();
