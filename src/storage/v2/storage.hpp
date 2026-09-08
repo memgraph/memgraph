@@ -431,7 +431,11 @@ class Storage {
   [[nodiscard]] CommitLock LockCommitBlocking() { return CommitLock{commit_mutex_}; }
 
   // True iff the lock-free read-snapshot experiment is ON for this storage instance.
-  bool IsCommitSerialised() const noexcept { return config_.experimental_commit_lock_narrowing; }
+  // The lock-free read-snapshot commit path is IN_MEMORY_TRANSACTIONAL-only; the spec says the flag is
+  // inert for on-disk and analytical storage, so gate on the mode as well as the flag (NB6).
+  bool IsCommitSerialised() const noexcept {
+    return config_.experimental_commit_lock_narrowing && GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL;
+  }
 
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
