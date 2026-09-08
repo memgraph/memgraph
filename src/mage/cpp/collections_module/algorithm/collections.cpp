@@ -840,3 +840,32 @@ void Collections::Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_res
     return;
   }
 }
+
+void Collections::IndexOf(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+  try {
+    // A null list or a null search value leaves the answer unknown, ahead of the empty-list case.
+    if (arguments[0].IsNull() || arguments[1].IsNull()) {
+      result.SetValue();
+      return;
+    }
+
+    const mgp::List list = arguments[0].ValueList();
+    const mgp::Value &value = arguments[1];
+
+    for (size_t i = 0; i < list.Size(); i++) {
+      // DefinitelyEquals, not ==: a null nested in an element makes that element no match, not a match.
+      if (list[i].DefinitelyEquals(value)) {
+        result.SetValue(static_cast<int64_t>(i));
+        return;
+      }
+    }
+    result.SetValue(static_cast<int64_t>(-1));
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}

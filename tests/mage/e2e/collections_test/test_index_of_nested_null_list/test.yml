@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.index_of([[null]], [null]) AS result;
+
+output:
+  - result: -1
