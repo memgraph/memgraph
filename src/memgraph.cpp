@@ -1015,8 +1015,8 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // Parameters are keyed by database uuid, so a uuid this handler retires takes its parameters with it.
-  // Enterprise-only because both events that retire one are: DROP DATABASE, and the in-place rebind
-  // Update performs on the default database.
+  // Enterprise-only: dropping a database and the in-place rebind Update performs on the default
+  // database are both enterprise paths.
   if (dbms_handler.has_value()) {
     dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
       [[maybe_unused]] auto purged = parameters->DeleteScope(std::string{uuid});

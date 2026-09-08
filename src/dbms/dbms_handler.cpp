@@ -489,6 +489,8 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
 
   if (on_uuid_retired_) on_uuid_retired_(uuid);
 
+  if (on_uuid_retired_) on_uuid_retired_(uuid);
+
   // Success
   // Save delta
   if (transaction) {
