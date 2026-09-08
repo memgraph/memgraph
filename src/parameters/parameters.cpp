@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include <map>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <fmt/format.h>

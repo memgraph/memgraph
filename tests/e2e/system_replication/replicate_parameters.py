@@ -15,6 +15,7 @@ import sys
 import time
 
 import interactive_mg_runner
+import mgclient
 import pytest
 from common import execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_sleep_and_assert_collection
@@ -320,7 +321,7 @@ def test_parameters_set_before_registration_do_not_survive_recovery(connection, 
         repl_cursor = connection(port, "replica").cursor()
         mg_sleep_and_assert_collection(main_params, lambda c=repl_cursor: sorted(_show_parameters(c)))
         # The parameter named only on this replica must not resolve as a query placeholder.
-        with pytest.raises(Exception, match="not provided"):
+        with pytest.raises(mgclient.DatabaseError, match="not provided"):
             execute_and_fetch_all(repl_cursor, f"RETURN $only_on_{name};")
 
 
