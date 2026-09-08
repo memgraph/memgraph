@@ -185,7 +185,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
           using WakeEntry = std::pair<TaskID, TaskSignature>;
           std::vector<WakeEntry> wakeups;
           {
-            std::unique_lock lk{parked_mtx_};
+            const std::unique_lock lk{parked_mtx_};
             if (!parked_admissions_.empty()) {
               wakeups.reserve(parked_admissions_.size());
               for (auto it = parked_admissions_.begin(); it != parked_admissions_.end();) {
@@ -226,7 +226,7 @@ void PriorityThreadPool::ShutDown() {
   {
     std::deque<ParkedAdmission> drain;
     {
-      std::unique_lock lk{parked_mtx_};
+      const std::unique_lock lk{parked_mtx_};
       drain.swap(parked_admissions_);
       has_parked_.store(false, std::memory_order_release);
     }
@@ -346,7 +346,7 @@ uint32_t PriorityThreadPool::AdmissionRescheduleCap() const noexcept {
 
 void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline,
                                        WaitTag tag) {
-  std::unique_lock lk{parked_mtx_};
+  const std::unique_lock lk{parked_mtx_};
   if (draining_admissions_.load(std::memory_order_acquire)) return;  // shutting down: drop; teardown errors the client
   parked_admissions_.push_back({.id = id, .task = std::move(task), .deadline = deadline, .tag = tag});
   has_parked_.store(true, std::memory_order_release);
@@ -364,7 +364,7 @@ void PriorityThreadPool::WakeMatching(FreedTag freed) {
   using WakeEntry = std::pair<TaskID, TaskSignature>;
   std::vector<WakeEntry> wakeups;
   {
-    std::unique_lock lk{parked_mtx_};
+    const std::unique_lock lk{parked_mtx_};
     for (auto it = parked_admissions_.begin(); it != parked_admissions_.end();) {
       if (it->tag.resource == freed.resource) {
         wakeups.emplace_back(it->id, std::move(it->task));
