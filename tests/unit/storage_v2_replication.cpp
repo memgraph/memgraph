@@ -1960,16 +1960,18 @@ TEST_F(ReplicationTest, SchemaReplication) {
 }
 
 // Schema info is reconstructed after a transaction commits, and the reconstruction has to tell the
-// transaction's own deltas apart from another transaction's. It does so by comparing the timestamp
-// it queued against the delta's, which holds the local mint. On a main those are the same number.
-// On a replica write they are not: the queued one is the main's desired timestamp and the delta
-// carries the replica's own, so the replica reads its own writes as another transaction's.
+// transaction's own deltas apart from another transaction's. It compares the timestamp it was
+// queued under against the one each delta carries, which is the local mint. A main mints the
+// timestamp it makes durable, so the two agree there; a replica is handed its main's and mints its
+// own, so they do not, and the replica reads its own writes as another transaction's.
 //
-// That switches the four-way edge reconciliation onto the pre-state of both endpoints, so its plus
-// one and minus one land on different shape buckets and the counts drift. It shows up only where
-// the reconciliation actually fires on state the transaction itself wrote, which is why the
-// sequential single-endpoint traffic in SchemaReplication above never sees it: one transaction has
-// to modify BOTH endpoints of an existing edge.
+// This asserts that a replica reconstructs its main's schema across a transaction that writes both
+// endpoints of one edge, with the replica's counter moved off the main's first so the comparison is
+// made on numbers that differ. It does not fail if the queue is changed back to passing the durable
+// timestamp: the reconstruction then runs the four-way edge reconciliation instead of skipping it,
+// and with both endpoints in the same state that reconciliation adds and subtracts the same two
+// shape buckets and nets to zero. Only endpoints in differing states part the two, and a replica
+// does not reach that, applying transactions one at a time and draining the queue at each commit.
 TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
   memgraph::storage::Config conf{
       .durability =
@@ -2010,6 +2012,17 @@ TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
                                                       instance.db.storage()->enum_store_);
   };
 
+  // Only a transaction begun on the replica advances the replica's own timestamp counter, and a
+  // read is enough. Without this the two counters tick in lockstep, the replica's local mint equals
+  // the main's durable timestamp, and the reconstruction's identity check is never put on the
+  // differing stamps this test is about.
+  {
+    const memgraph::memory::DbArenaScope replica_scope{&replica->db.Arena()};
+    for (int i = 0; i != 3; ++i) {
+      auto read = replica->db.Access(memgraph::storage::READ);
+    }
+  }
+
   std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main->db.Arena()};
 
   auto l1 = main->db.storage()->NameToLabel("L1");
@@ -2030,6 +2043,10 @@ TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
     ASSERT_TRUE(edge.has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
   }
+
+  ASSERT_NE(main->db.storage()->timestamp_, replica->db.storage()->timestamp_)
+      << "the two counters have to differ for the transaction below to mint a local commit "
+         "timestamp that is not the main's durable one";
 
   // Now label BOTH endpoints of that edge in a single transaction. This is the case where the
   // reconstruction must recognise the deltas as its own.
