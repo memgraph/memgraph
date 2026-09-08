@@ -169,6 +169,9 @@ def build_command(task: Task, slot: Slot, args, result_file: pathlib.Path) -> li
         "--no-authorization",
         "--vendor-specific",
         f"bolt-port={slot.bolt_port}",
+        # The native CI runner pins bolt workers to the client worker count; the
+        # docker image would otherwise default to every CPU in the cpuset.
+        f"bolt-num-workers={task.workers}",
         "--",
         *task.targets,
     ]
