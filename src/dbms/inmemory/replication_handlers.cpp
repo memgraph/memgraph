@@ -26,6 +26,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
 
 #include <spdlog/spdlog.h>
 #include <optional>
@@ -157,6 +158,14 @@ void ProcessOldDurableFiles(bool const reset_needed, std::filesystem::path const
       DeleteFiles(old_wal_files, file_retainer);
     }
   }
+}
+
+// Size of a durability file received from main, for logging. Unknown when the file cannot be stat'ed.
+std::string ReceivedFileSize(std::filesystem::path const &path) {
+  std::error_code ec;
+  auto const size = std::filesystem::file_size(path, ec);
+  if (ec) return "unknown size";
+  return fmt::format("{} ({} bytes)", utils::GetReadableSize(static_cast<double>(size)), size);
 }
 
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
@@ -693,7 +702,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     return;
   }
 
-  spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
+  spdlog::info(
+      "Received snapshot file {} from main, saved to {}", ReceivedFileSize(dst_snapshot_file), dst_snapshot_file);
   {
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
@@ -928,6 +938,12 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   spdlog::debug("Received {} WAL files.", wal_file_number);
 
   auto const &active_files = file_replication_handler.GetActiveFileNames();
+  for (auto const &wal_file : active_files) {
+    spdlog::info("Received WAL file {} from main for db {}: {}",
+                 wal_file.filename(),
+                 storage->name(),
+                 ReceivedFileSize(wal_file));
+  }
 
   // On a force reset the storage was cleared above, so the old durability files must be removed regardless of
   // whether sending the response succeeds; otherwise a SendFinalResponse throw would orphan a stale WAL chain
@@ -1087,6 +1103,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   // When loading a single WAL file, we don't care about saving number of deltas
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} files but expected 1 in CurrentWalHandler", active_files.size());
+  spdlog::info("Received current WAL file {} from main for db {}: {}",
+               active_files[0].filename(),
+               storage->name(),
+               ReceivedFileSize(active_files[0]));
   auto const load_wal_res = LoadWal(active_files[0], storage, heartbeat);
   heartbeat.Stop();
   if (!load_wal_res.success) {
