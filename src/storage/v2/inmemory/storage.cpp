@@ -316,6 +316,10 @@ class DeltaVertexCache {
   std::unordered_map<Delta const *, Vertex *, std::hash<Delta const *>, std::equal_to<>, CacheAllocator> cache_;
 };
 
+// Defined with the other WAL encoding helpers further down; the pipelined commit's replica task uses it as well.
+void EncodeMetadataDelta(durability::BaseEncoder &encoder, MetadataDelta const &md_delta, Storage *mem_storage,
+                         uint64_t durability_commit_timestamp);
+
 };  // namespace
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
@@ -337,9 +341,21 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                 .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
+      pipeline_budget_{config.pipelined_commit_max_bytes},
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
+  // EXPERIMENTAL (pipelined-commit): the pipeline relies on the lock-free read snapshot's three-phase commit; the
+  // startup flag validation catches the CLI case, this catches directly constructed configs.
+  if (config_.experimental_pipelined_commit && !config_.experimental_lockfree_read_snapshot) {
+    throw utils::BasicException("pipelined-commit requires lockfree-read-snapshot to be enabled as well.");
+  }
+  if (auto const *park = std::getenv("MG_TEST_PIPELINED_S2_PARK_FIFO"); park != nullptr && *park != '\0') {
+    s2_park_path_ = park;
+    if (auto const *skip = std::getenv("MG_TEST_PIPELINED_S2_PARK_SKIP"); skip != nullptr && *skip != '\0') {
+      s2_park_skip_ = std::strtoll(skip, nullptr, 10);
+    }
+  }
   if (config_.experimental_lockfree_read_snapshot) {
     // NOLINTNEXTLINE(modernize-avoid-c-arrays) — make_unique<T[]> is the idiomatic heap array (cf. ring_buffer.hpp).
     snapshot_slots_ = std::make_unique<SnapshotSlot[]>(kSnapshotSlots);
@@ -575,9 +591,17 @@ InMemoryStorage::~InMemoryStorage() {
   // both commit transactions that write to wal_file_, so resetting wal_file_ while
   // they are still running causes a null dereference in HandleDurabilityAndReplicate.
   StopAllBackgroundTasks();
-  if (wal_file_) {
-    wal_file_->FinalizeWal();
-    wal_file_.reset();
+  {
+    // EXPERIMENTAL (pipelined-commit): a committer past the serializer may still own the WAL; exclude it for the
+    // final WAL exclusion only, released before the snapshot work below.
+    std::optional<CommitLock> commit_serializer;
+    if (config_.experimental_lockfree_read_snapshot) {
+      commit_serializer.emplace(QuiesceCommits());
+    }
+    if (wal_file_) {
+      wal_file_->FinalizeWal();
+      wal_file_.reset();
+    }
   }
 
   // On destruction, we want to stop snapshot creation unless snapshot_on_exit is set to true.
@@ -1145,6 +1169,13 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     }
   }
 
+  // EXPERIMENTAL (pipelined-commit): every main-side minted commit takes a ticket and runs through the ordered
+  // domain. Replica-side writes are serialized by the replication server already and keep the code below.
+  if (mem_storage->IsPipelinedCommit() && commit_args.replication_allowed()) {
+    DMG_ASSERT(commit_serializer.has_value(), "pipelined-commit requires the lock-free read snapshot's serializer");
+    return CommitWithTicket(commit_args, std::move(*commit_serializer));
+  }
+
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
@@ -1266,8 +1297,384 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return *std::move(res);
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// EXPERIMENTAL (pipelined-commit): the ticketed commit domain.
+// ---------------------------------------------------------------------------------------------------------------
+
+void InMemoryStorage::InMemoryAccessor::AbortTicketOrTerminate(CommitTicket &ticket) noexcept {
+  try {
+    if (!ticket.entered()) ticket.Enter();
+    if (auto *probe = static_cast<InMemoryStorage *>(storage_)->commit_probe_;
+        probe != nullptr && probe->abort_throws_once.exchange(false)) {
+      // Test-only: proves a failed abort terminates and is never retried.
+      throw std::runtime_error("injected abort failure");
+    }
+    AbortAndResetCommitTs();  // takes engine_lock_ itself; completes the minted commit-log slot
+    ticket.MarkAborted();
+  } catch (...) {
+    std::terminate();
+  }
+}
+
+void InMemoryStorage::InMemoryAccessor::AbortTwoPcOrTerminate(TransactionReplication &repl, TwoPcAbortState &state,
+                                                              uint64_t durability_commit_timestamp,
+                                                              CommitArgs const &commit_args) noexcept {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  try {
+    // Each flag is set only after its call returned: a thrown exception terminates and no step is ever retried,
+    // whether the caller is the failed-vote branch or the unwind guard.
+    if (!state.wal_finalized) {
+      if (mem_storage->wal_file_) mem_storage->FinalizeWalFile();
+      state.wal_finalized = true;
+    }
+    if (!state.decisions_done) {
+      state.decision_ok = repl.FinalizeTransaction(
+          false, mem_storage->uuid(), commit_args.database_protector(), durability_commit_timestamp);
+      state.decisions_done = true;
+      // A returned false is an ordinary replication failure, reported through the prepare failure the caller
+      // already carries; the nonthrowing observer lets a test see it.
+      if (auto *hooks = mem_storage->replication_test_hooks(); hooks != nullptr && hooks->on_abort_decision_result) {
+        hooks->on_abort_decision_result(durability_commit_timestamp, state.decision_ok);
+      }
+    }
+  } catch (...) {
+    std::terminate();
+  }
+}
+
+bool InMemoryStorage::InMemoryAccessor::PipelineEligible(Transaction const &transaction,
+                                                         CommitArgs const &commit_args) const {
+  auto const *mem_storage = static_cast<InMemoryStorage const *>(storage_);
+  return mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL && transaction.md_deltas.empty() &&
+         !transaction.deltas.empty() && commit_args.replication_allowed() &&
+         mem_storage->config_.durability.snapshot_wal_mode ==
+             Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+}
+
+auto InMemoryStorage::InMemoryAccessor::CommitWithTicket(CommitArgs const &commit_args,
+                                                         CommitLock commit_serializer)
+    -> std::expected<void, StorageManipulationError> {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  // S1: mint and register, under engine_lock_, serializer held. Registration is noexcept and the mint is a plain
+  // increment, so a timestamp is never taken without a ticket.
+  std::optional<CommitTicket> ticket;
+  {
+    auto engine_guard = std::unique_lock{storage_->engine_lock_};
+    commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
+    ticket.emplace(mem_storage->commit_order_gate_, *commit_timestamp_);
+  }
+  auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
+  // Sole owner of abort cleanup and retirement. One boundary covers everything after registration, probes included.
+  // after_mint fires here for every ticketed commit (immediately after registration and engine-lock release,
+  // serializer still held) and is the arrival handshake the ordering tests use. after_ticket fires exactly once per
+  // transaction: after the serializer release for eligible writers, and after gate entry with the serializer
+  // retained for legacy writers; a fallback never fires it again.
+  std::expected<void, StorageManipulationError> result;
+  try {
+    if (auto *probe = mem_storage->commit_probe_; probe != nullptr) probe->minted_ticket.store(ticket->ticket());
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_mint);
+    if (!PipelineEligible(transaction_, commit_args)) {
+      result =
+          OrderedLegacyCommit(commit_args, std::move(commit_serializer), *ticket, durability_commit_timestamp, nullptr);
+    } else {
+      commit_serializer.unlock();  // S2 runs with no serializer
+      InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_ticket);
+      result = PipelinedCommit(commit_args, *ticket, durability_commit_timestamp);
+    }
+  } catch (...) {
+    if (ticket->irreversible() || ticket->incomplete_record()) std::terminate();
+    if (!ticket->terminal()) AbortTicketOrTerminate(*ticket);  // a failed abort terminates, it is never retried
+    ticket->Retire();
+    throw;
+  }
+  DMG_ASSERT(ticket->terminal(), "helper returned without recording an outcome");
+  ticket->Retire();  // exactly once, after the whole continuation
+  return result;
+}
+
+auto InMemoryStorage::InMemoryAccessor::OrderedLegacyCommit(CommitArgs const &commit_args,
+                                                            CommitLock commit_serializer,
+                                                            CommitTicket &ticket, uint64_t durability_commit_timestamp,
+                                                            TransactionReplication *replicating_txn)
+    -> std::expected<void, StorageManipulationError> {
+  // The base's continuation from unique validation to the end, entered in ticket order: the engine lock was released
+  // in S1; validation happens exactly once, after Enter; every WAL and replication-state access happens after Enter.
+  // A non-null `replicating_txn` means gate entry, validation and WAL initialization already completed in the caller
+  // (the pipeline's 2PC fallback): the continuation resumes at HandleDurabilityAndReplicate with that object, which
+  // the caller owns. This function records outcomes and returns; it has no catch-all and never retires.
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto record_abort = [&](auto error) -> std::expected<void, StorageManipulationError> {
+    AbortTicketOrTerminate(ticket);
+    return std::unexpected{std::move(error)};
+  };
+  std::optional<TransactionReplication> local_replication;  // owned by this scope
+  if (replicating_txn == nullptr) {
+    {
+      auto const wait_started = std::chrono::steady_clock::now();
+      ticket.Enter();
+      mem_storage->pipeline_stats_.gate_wait_ns.fetch_add(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - wait_started).count(),
+          std::memory_order_relaxed);
+    }
+    // Legacy writers only, once; a fallback (no serializer) already fired it before its encode stage.
+    if (commit_serializer.owns_lock()) InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_ticket);
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_validate);
+    if (auto const validation = UniqueConstraintsViolation(); !validation.has_value()) {
+      if (commit_serializer.owns_lock()) commit_serializer.unlock();
+      return record_abort(validation.error());
+    }
+    if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
+      // WAL-disabled: before_publish and the engine lock come first; the irreversible mark goes immediately before
+      // the first publication mutation, inside FinalizeCommitPhase.
+      InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_publish);
+      {
+        auto engine_guard = std::unique_lock{mem_storage->engine_lock_};
+        FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/false, &ticket);
+      }
+      ticket.MarkPublished();
+      if (commit_serializer.owns_lock()) commit_serializer.unlock();
+      return {};
+    }
+    local_replication.emplace(durability_commit_timestamp,
+                              mem_storage,
+                              commit_args,
+                              mem_storage->repl_storage_state_.replication_storage_clients_,
+                              &ticket);
+  }
+  auto &repl = replicating_txn != nullptr ? *replicating_txn : *local_replication;
+  // Borrower cleanup for the object THIS scope owns; a borrowed object is drained and discarded by its owner's
+  // guard. Runs after the WAL promise (declared inside HandleDurabilityAndReplicate) is gone, on every exit.
+  utils::OnScopeExit const drain_local{[&]() noexcept {
+    if (!local_replication || ticket.terminal()) return;
+    local_replication->DrainShipFutures();
+    if (std::uncaught_exceptions() != 0 && ticket.record_state() == CommitTicket::RecordState::not_started &&
+        !ticket.irreversible()) {
+      local_replication->DiscardUnpreparedStreams();
+    }
+  }};
+  // The unwind guard, installed BEFORE HandleDurabilityAndReplicate so it also covers exceptions from inside it.
+  bool const two_pc = commit_args.two_phase_commit(repl);
+  TwoPcAbortState abort_state{};
+  bool guard_armed = true;
+  utils::OnScopeExit const unwind{[&]() noexcept {
+    if (!guard_armed || std::uncaught_exceptions() == 0) return;
+    if (ticket.irreversible()) std::terminate();
+    switch (ticket.record_state()) {
+      case CommitTicket::RecordState::incomplete:
+        std::terminate();
+      case CommitTicket::RecordState::not_started:
+        // Streams open, no frame written: the owner of the replication object discards them.
+        return;
+      case CommitTicket::RecordState::complete:
+        // A complete commit=true record is irreversible and handled above; a complete prepare is abortable.
+        if (two_pc) AbortTwoPcOrTerminate(repl, abort_state, durability_commit_timestamp, commit_args);
+        return;
+    }
+  }};
+
+  auto const s3_started = std::chrono::steady_clock::now();
+  utils::OnScopeExit const s3_timer{[&]() noexcept {
+    mem_storage->pipeline_stats_.s3_ns.fetch_add(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - s3_started).count(),
+        std::memory_order_relaxed);
+  }};
+
+  bool const repl_prepare_phase_ok =
+      HandleDurabilityAndReplicate(durability_commit_timestamp, repl, commit_args, &ticket);
+
+  if (!repl.ShouldRunTwoPC()) {
+    // NON-2PC: the WAL file was already finalized inside HandleDurabilityAndReplicate.
+    FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/true, &ticket);
+    guard_armed = false;
+    ticket.MarkPublished();
+    auto failures = repl.CollectAllFailures();
+    // update replicas' cached commit info to this txn's absolute committed-txn count
+    repl.UpdateCommitTsInfo();
+    if (commit_serializer.owns_lock()) commit_serializer.unlock();
+    if (!failures.empty()) {
+      return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
+    }
+    return {};
+  }
+
+  if (!repl_prepare_phase_ok) {
+    // FAILED PREPARE VOTE: an ordinary ordered abort. The continuation runs once; a returned decision failure is
+    // reported through the prepare failure this branch already carries.
+    AbortTwoPcOrTerminate(repl, abort_state, durability_commit_timestamp, commit_args);
+    guard_armed = false;
+    auto failures = repl.CollectAllFailures();
+    AbortTicketOrTerminate(ticket);  // exactly one local undo
+    if (commit_serializer.owns_lock()) commit_serializer.unlock();
+    return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
+  }
+
+  // SUCCESSFUL 2PC: all replicas voted yes.
+  FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/true, &ticket);
+  guard_armed = false;
+  // The WAL file is finalized after FinalizeCommitPhase, which patched the commit flag.
+  if (mem_storage->wal_file_) {
+    mem_storage->FinalizeWalFile();
+  }
+  // Send to all replicas they can finalize a transaction
+  repl.FinalizeTransaction(true, mem_storage->uuid(), commit_args.database_protector(), durability_commit_timestamp);
+  ticket.MarkPublished();
+  auto failures = repl.CollectAllFailures();
+  repl.UpdateCommitTsInfo();
+  if (commit_serializer.owns_lock()) commit_serializer.unlock();
+  if (!failures.empty()) {
+    return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
+  }
+  return {};
+}
+
+auto InMemoryStorage::InMemoryAccessor::PipelinedCommit(CommitArgs const &commit_args, CommitTicket &ticket,
+                                                        uint64_t durability_commit_timestamp)
+    -> std::expected<void, StorageManipulationError> {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto const progress = [&commit_args] { commit_args.apply_cb_if_replica_write(); };  // no-op on main; parity
+  // ---- S2: materialize and encode, charged to the budget; refusal -> ordered legacy fallback, no serializer.
+  std::optional<TxnCommands> commands;
+  std::optional<durability::TxnWalBuffer> wal_buffer;
+  utils::OnScopeExit const commands_released{[mem_storage, durability_commit_timestamp]() noexcept {
+    if (auto *hooks = mem_storage->replication_test_hooks(); hooks != nullptr && hooks->on_commands_released) {
+      hooks->on_commands_released("pipeline", durability_commit_timestamp);
+    }
+  }};
+  try {
+    auto *refuse = mem_storage->commit_probe_ != nullptr ? &mem_storage->commit_probe_->budget_refuse : nullptr;
+    TxnAllocPolicy const materializer_policy{
+        &mem_storage->pipeline_budget_, ticket.ticket(), refuse, BudgetRefuse::kMaterializer};
+    TxnAllocPolicy const encoder_policy{
+        &mem_storage->pipeline_budget_, ticket.ticket(), refuse, BudgetRefuse::kEncoder};
+    commands.emplace(MaterializeTxnCommands(materializer_policy, progress));
+    wal_buffer.emplace(encoder_policy);
+    wal_buffer->result = EncodeTxnCommandsTo(wal_buffer->encoder,
+                                             *commands,
+                                             mem_storage,
+                                             mem_storage->config_.salient.items,
+                                             durability_commit_timestamp,
+                                             /*commit=*/true,
+                                             original_access_type_,
+                                             progress);
+    wal_buffer->timestamp = durability_commit_timestamp;
+    mem_storage->pipeline_stats_.s2_encodes.fetch_add(1, std::memory_order_relaxed);
+    if (!mem_storage->s2_park_path_.empty() && mem_storage->s2_park_skip_.fetch_sub(1) <= 0 &&
+        !mem_storage->s2_park_consumed_.exchange(true)) {
+      // Test-only: the out-of-band controller releases the head by creating the file.
+      while (!std::filesystem::exists(mem_storage->s2_park_path_)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+    }
+  } catch (PipelineBudgetExceeded const &) {
+    wal_buffer.reset();  // every charged S2 allocation is destroyed before the fallback
+    commands.reset();
+    mem_storage->pipeline_stats_.budget_fallbacks.fetch_add(1, std::memory_order_relaxed);
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_legacy_fallback);
+    return OrderedLegacyCommit(
+        commit_args, CommitLock{}, ticket, durability_commit_timestamp, nullptr);
+  } catch (std::bad_alloc const &) {
+    wal_buffer.reset();
+    commands.reset();
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_legacy_fallback);
+    return OrderedLegacyCommit(
+        commit_args, CommitLock{}, ticket, durability_commit_timestamp, nullptr);
+  }
+  // Any other exception from S2 propagates to CommitWithTicket's boundary, which aborts in order and retires.
+  // ---- S3: ordered. No try/catch here: CommitWithTicket owns cleanup and retirement; this function records outcomes.
+  std::optional<TransactionReplication> replicating_txn;  // owned by this scope; the guard drains it on any exit
+  utils::OnScopeExit const drain_repl{[&]() noexcept {
+    if (!replicating_txn || ticket.terminal()) return;
+    replicating_txn->DrainShipFutures();  // after the WAL promise (block-scoped below) is gone
+    if (std::uncaught_exceptions() != 0 && ticket.record_state() == CommitTicket::RecordState::not_started &&
+        !ticket.irreversible()) {
+      replicating_txn->DiscardUnpreparedStreams();  // the owner of the object owns the discard; once; noexcept
+    }
+  }};
+  {
+    auto const wait_started = std::chrono::steady_clock::now();
+    ticket.Enter();
+    mem_storage->pipeline_stats_.gate_wait_ns.fetch_add(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - wait_started).count(),
+        std::memory_order_relaxed);
+  }
+  auto const s3_started = std::chrono::steady_clock::now();
+  utils::OnScopeExit const s3_timer{[&]() noexcept {
+    mem_storage->pipeline_stats_.s3_ns.fetch_add(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - s3_started).count(),
+        std::memory_order_relaxed);
+  }};
+  InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_validate);
+  if (auto const validation = UniqueConstraintsViolation(); !validation.has_value()) {
+    AbortTicketOrTerminate(ticket);  // recorded; CommitWithTicket retires
+    return std::unexpected{validation.error()};
+  }
+  auto const wal_initialized = mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id());
+  MG_ASSERT(wal_initialized, "eligibility requires WAL");  // a real call: DMG_ASSERT discards its argument under NDEBUG
+  replicating_txn.emplace(durability_commit_timestamp,
+                          mem_storage,
+                          commit_args,
+                          mem_storage->repl_storage_state_.replication_storage_clients_,
+                          &ticket);
+  if (commit_args.two_phase_commit(*replicating_txn)) {
+    // A STRICT_SYNC replica is registered: nothing from the buffer has been appended, so discard it and resume the
+    // base's 2PC continuation (commit=false record, patch, decision RPCs) with this replication object, by pointer,
+    // still in order; validation and WAL initialization are NOT repeated.
+    wal_buffer.reset();
+    commands.reset();
+    mem_storage->pipeline_stats_.two_pc_fallbacks.fetch_add(1, std::memory_order_relaxed);
+    return OrderedLegacyCommit(
+        commit_args, CommitLock{}, ticket, durability_commit_timestamp, &*replicating_txn);
+  }
+  {
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_append);
+    std::promise<void> wal_promise;
+    std::shared_future<void> const wal_result = wal_promise.get_future().share();
+    // The base's fused encode-and-ship task over the same commands; the buffer is main's own copy.
+    replicating_txn->ScheduleEncodeAndShip(
+        [mem_storage, &commands = *commands, durability_commit_timestamp, access_type = original_access_type_](
+            ReplicaStream &stream) {
+          const memory::DbArenaScope db_arena_scope{mem_storage->DbArenaPool()};
+          stream.AppendTransactionStart(durability_commit_timestamp, /*commit=*/true, access_type);
+          for (auto const *md_delta : commands.metadata) {
+            auto encoder = stream.encoder();
+            EncodeMetadataDelta(encoder, *md_delta, mem_storage, durability_commit_timestamp);
+          }
+          for (auto const &cmd : commands.data) {
+            if (cmd.edge != nullptr) {
+              stream.AppendDelta(
+                  *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);
+            } else {
+              stream.AppendDelta(*cmd.delta, cmd.vertex, durability_commit_timestamp, mem_storage);
+            }
+          }
+        },
+        wal_result,
+        durability_commit_timestamp,
+        &commit_args.database_protector());
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_schedule_ship);  // live borrowers; still abortable
+    needs_wal_update_ = false;
+    ticket.MarkIrreversible();  // a commit=true record is about to be appended
+    ticket.BeginRecord();
+    wal_txn_positions_ = mem_storage->wal_file_->AppendEncodedTransaction(*wal_buffer);
+    ticket.EndRecord();
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_append);
+    mem_storage->FinalizeWalFile();  // finalize BEFORE releasing the replica transaction ends
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_finalize_wal);
+    wal_promise.set_value();  // the promise dies at the end of this block, before drain_repl
+    replicating_txn->ShipDeltas(durability_commit_timestamp, commit_args);
+  }
+  FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/true, &ticket);
+  ticket.MarkPublished();  // recorded; CommitWithTicket retires after we return
+  auto failures = replicating_txn->CollectAllFailures();
+  replicating_txn->UpdateCommitTsInfo();
+  if (!failures.empty()) {
+    return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
+  }
+  return {};
+}
+
 void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp,
-                                                            bool const acquire_engine_lock) {
+                                                            bool const acquire_engine_lock, CommitTicket *ticket) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   std::optional<std::unique_lock<utils::SpinLock>> pub_guard;
@@ -1275,6 +1682,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_publish);
     pub_guard.emplace(storage_->engine_lock_);
   }
+
+  // From here on state moves into the schema queue, the WAL commit flag and the visibility store; a ticketed
+  // commit that fails past this point can no longer be aborted, only terminated.
+  if (ticket != nullptr) ticket->MarkIrreversible();
 
   if (config_.enable_schema_info) {
     // Queue schema update instead of processing immediately. This ensures
@@ -3944,6 +4355,19 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
 }
 
 void InMemoryStorage::FinalizeWalFile() {
+  pipeline_test_counters_.finalize_wal_calls.fetch_add(1, std::memory_order_relaxed);
+  if (commit_probe_ != nullptr && commit_probe_->finalize_wal_throws_once.load()) {
+    // Test-only: the attempt is recorded before the one-shot flag is consumed, so a retry stays visible.
+    if (!commit_probe_->fault_attempt_marker_path.empty()) {
+      utils::OutputFile marker;
+      marker.Open(commit_probe_->fault_attempt_marker_path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+      marker.Write(std::string_view{"finalize_wal\n"});
+      marker.Close();
+    }
+    if (commit_probe_->finalize_wal_throws_once.exchange(false)) {
+      throw std::runtime_error("injected WAL finalization failure");
+    }
+  }
   ++wal_unsynced_transactions_;
   if (wal_unsynced_transactions_ >= config_.durability.wal_file_flush_every_n_tx) {
     wal_file_->Sync();
@@ -4557,8 +4981,12 @@ auto InMemoryStorage::InMemoryAccessor::MaterializeTxnCommands(TxnAllocPolicy po
 
 auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
-                                                                     CommitArgs const &commit_args) -> bool {
+                                                                     CommitArgs const &commit_args,
+                                                                     CommitTicket *ticket) -> bool {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  // Ticketed executions only (both locally owned and borrowed legacy continuations); replica-side writes and the
+  // flag-off path pass no ticket and see none of the probes below.
+  if (ticket != nullptr) InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_legacy_materialize);
 
   // If replica executes this:
   //   STRICT_SYNC: commit_immediately is false because such replica needs to commit only after receiving
@@ -4578,6 +5006,13 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // The plain allocation policy keeps this path's allocation behaviour unchanged; only a pipelined commit charges.
   auto const progress = [&commit_args] { commit_args.apply_cb_if_replica_write(); };
   TxnCommands commands = MaterializeTxnCommands(TxnAllocPolicy{}, progress);
+  // Test-only observation of the command-owning scope's end, after every borrower was collected (the guard below
+  // is declared after this one, so it runs first).
+  utils::OnScopeExit const commands_released{[mem_storage, durability_commit_timestamp]() noexcept {
+    if (auto *hooks = mem_storage->replication_test_hooks(); hooks != nullptr && hooks->on_commands_released) {
+      hooks->on_commands_released("legacy", durability_commit_timestamp);
+    }
+  }};
 
   // Every fused task borrows this frame (commands, streams), so if anything below throws before
   // ShipDeltas collected them, collect them here; on the normal path this is a no-op. Declared before
@@ -4617,14 +5052,22 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       wal_result,
       durability_commit_timestamp,
       commit_args.replication_allowed() ? &commit_args.database_protector() : nullptr);
+  if (ticket != nullptr) InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_schedule_ship);
 
   // The WAL write runs inline: the commit thread would otherwise only sleep on the fused futures, and
   // it still has the just-traversed deltas hot in cache. WAL commit order follows from engine_lock_.
   {
     durability::WalTxnDataPos positions;
+    if (ticket != nullptr) {
+      // A commit=true record is irreversible from its first byte; a commit=false prepare record is abortable
+      // again once it is complete, and fatal while it is not.
+      if (!two_phase_commit) ticket->MarkIrreversible();
+      ticket->BeginRecord();
+    }
     // Append txn start delta and remember the position in the WAL file in which this delta is saved.
     positions.commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
         durability_commit_timestamp, !two_phase_commit, original_access_type_);
+    if (ticket != nullptr) InvokeProbe(mem_storage->commit_probe_, &CommitProbe::between_frames);
     for (auto const *md_delta : commands.metadata) {
       EncodeMetadataDelta(mem_storage->wal_file_->encoder(), *md_delta, mem_storage, durability_commit_timestamp);
       mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
@@ -4643,6 +5086,7 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
     positions.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
     positions.stored_crc_ = txn_end_positions.stored_crc_;
+    if (ticket != nullptr) ticket->EndRecord();
     // When committing immediately the WAL file must be finalized before transaction ends ship to replicas.
     if (!two_phase_commit) {
       mem_storage->FinalizeWalFile();
@@ -4651,6 +5095,8 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   }
   // Durability achieved: open the gate so the fused tasks may ship their transaction ends.
   wal_promise.set_value();
+  if (ticket != nullptr && two_phase_commit)
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_prepare_record);
 
   // Collects every fused task, so no worker is left borrowing this frame, and folds their results
   // into the replication failures (the collect_workers guard backstops the unwind paths). Encoding
@@ -5072,12 +5518,27 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
+auto InMemoryStorage::QuiesceCommits() const -> CommitLock {
+  CommitLock guard{commit_mutex_};  // no new mint, hence no new ticket
+  commit_order_gate_.WaitIdle();          // every issued ticket has retired
+  return guard;
+}
+
+auto InMemoryStorage::GetPipelineStats() const -> PipelineStatsSnapshot {
+  return {.s2_encodes = pipeline_stats_.s2_encodes.load(std::memory_order_relaxed),
+          .budget_fallbacks = pipeline_stats_.budget_fallbacks.load(std::memory_order_relaxed),
+          .two_pc_fallbacks = pipeline_stats_.two_pc_fallbacks.load(std::memory_order_relaxed),
+          .gate_wait_ns = pipeline_stats_.gate_wait_ns.load(std::memory_order_relaxed),
+          .s3_ns = pipeline_stats_.s3_ns.load(std::memory_order_relaxed)};
+}
+
 void InMemoryStorage::PrepareForNewEpoch() {
   // EXPERIMENTAL (lock-free-read-snapshot): take commit_mutex_ before engine_lock_ (committer order) so this
-  // WAL reset cannot race a committer's WAL append under the flag.
+  // WAL reset cannot race a committer's WAL append under the flag. With pipelined-commit a committer may be past
+  // the serializer but not yet published, so quiesce the gate as well.
   std::optional<CommitLock> commit_serializer;
   if (config_.experimental_lockfree_read_snapshot) {
-    commit_serializer.emplace(commit_mutex_);
+    commit_serializer.emplace(QuiesceCommits());
   }
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {

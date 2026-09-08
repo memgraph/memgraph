@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "replication/replication_client.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/access_type.hpp"
@@ -123,7 +125,15 @@ class ReplicationStorageClient {
 
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
-  void AbortRpcClient() const { client_.rpc_client_.Shutdown(); }
+  void AbortRpcClient() const {
+    abort_rpc_client_calls_.fetch_add(1, std::memory_order_relaxed);
+    client_.rpc_client_.Shutdown();
+  }
+
+  // Test-only: how many times this client's connection was retired through AbortRpcClient.
+  auto abort_rpc_client_calls() const noexcept -> uint64_t {
+    return abort_rpc_client_calls_.load(std::memory_order_relaxed);
+  }
 
   void SetMaybeBehind() const {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
@@ -262,6 +272,8 @@ class ReplicationStorageClient {
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
   mutable std::atomic<CommitTsInfo> commit_ts_info_;
+  // Test-only observation of connection retirements.
+  mutable std::atomic<uint64_t> abort_rpc_client_calls_{0};
   const utils::UUID main_uuid_;
 };
 

@@ -128,6 +128,14 @@ struct Config {
   // durable data must be identical regardless of this flag (flip across restart is safe).
   bool experimental_lockfree_read_snapshot{false};
 
+  // EXPERIMENTAL, per-instance, RUNTIME-ONLY. Encodes a commit's WAL payload outside the commit serializer and
+  // orders commits through a ticket gate. Requires experimental_lockfree_read_snapshot; validated by
+  // InMemoryStorage's constructor. Never persisted: durable data is identical regardless of this flag.
+  bool experimental_pipelined_commit{false};
+  // Bytes a database's in-flight pipelined commits may retain (materialized commands and private WAL buffers)
+  // before a commit falls back to the ordered legacy path.
+  uint64_t pipelined_commit_max_bytes{256ull << 20};
+
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
     friend bool operator==(const Transaction &lrh, const Transaction &rhs) = default;

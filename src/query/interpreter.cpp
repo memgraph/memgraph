@@ -8162,7 +8162,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const auto db_peak_memory = static_cast<double>(db->DbPeakMemoryUsage());
           const auto tenant_limit = db->TenantMemoryLimit();
 
-          const std::vector<std::vector<TypedValue>> results{
+          std::vector<std::vector<TypedValue>> results{
               {TypedValue("name"), TypedValue(storage->name())},
               {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
               {TypedValue("state"), TypedValue(std::string("HOT"))},
@@ -8183,6 +8183,20 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
               {TypedValue("health"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
           };
+          // EXPERIMENTAL (pipelined-commit): the pipeline counters, reported only while the experiment is enabled.
+          if (auto const *mem_storage = dynamic_cast<storage::InMemoryStorage const *>(storage);
+              mem_storage != nullptr && mem_storage->IsPipelinedCommit()) {
+            auto const stats = mem_storage->GetPipelineStats();
+            results.push_back(
+                {TypedValue("pipelined_commit_s2_encodes"), TypedValue(static_cast<int64_t>(stats.s2_encodes))});
+            results.push_back({TypedValue("pipelined_commit_budget_fallbacks"),
+                               TypedValue(static_cast<int64_t>(stats.budget_fallbacks))});
+            results.push_back({TypedValue("pipelined_commit_two_pc_fallbacks"),
+                               TypedValue(static_cast<int64_t>(stats.two_pc_fallbacks))});
+            results.push_back(
+                {TypedValue("pipelined_commit_gate_wait_ns"), TypedValue(static_cast<int64_t>(stats.gate_wait_ns))});
+            results.push_back({TypedValue("pipelined_commit_s3_ns"), TypedValue(static_cast<int64_t>(stats.s3_ns))});
+          }
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       } else {

@@ -123,6 +123,13 @@ DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
 DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(storage_pipelined_commit_max_bytes, memgraph::storage::Config().pipelined_commit_max_bytes,
+                        "With --experimental-enabled=pipelined-commit, the number of bytes a database's in-flight "
+                        "commits may retain outside the commit serializer (materialized commands and private WAL "
+                        "buffers) before a commit falls back to the serialized path.",
+                        FLAG_IN_RANGE(1, std::numeric_limits<uint64_t>::max()));
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_allow_recovery_failure, false,
             "If true, a database that fails to recover on startup comes up in a broken state instead of crashing the "
             "process. Broken databases reject queries until recovered via RECOVER SNAPSHOT.");

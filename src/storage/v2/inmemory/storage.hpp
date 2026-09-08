@@ -18,6 +18,7 @@
 #include <limits>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <string_view>
@@ -26,6 +27,8 @@
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/batched_list.hpp"
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/commit_order_gate.hpp"
+#include "storage/v2/commit_probe.hpp"
 #include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/gc_status.hpp"
@@ -70,6 +73,39 @@ struct ReplicationHandler;
 namespace memgraph::storage {
 
 using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
+
+/// Progress of the single 2PC abort continuation (AbortTwoPcOrTerminate): each flag is set only after its step
+/// returned, so a step that threw is never retried, whichever caller (the failed-vote branch or the unwind guard)
+/// runs the continuation. decision_ok records the replicas' answer to the abort decision.
+struct TwoPcAbortState {
+  bool wal_finalized{false};
+  bool decisions_done{false};
+  bool decision_ok{true};
+};
+
+/// Counters a pipelined commit maintains; exposed through SHOW STORAGE INFO and pipeline_stats_for_tests().
+struct PipelineStats {
+  std::atomic<uint64_t> s2_encodes{0};        // transactions encoded outside the serializer
+  std::atomic<uint64_t> budget_fallbacks{0};  // encode-stage budget refusals that took the ordered legacy path
+  std::atomic<uint64_t> two_pc_fallbacks{0};  // eligible commits that needed 2PC and took the ordered legacy path
+  std::atomic<uint64_t> gate_wait_ns{0};      // time ticketed commits spent waiting to enter the gate
+  std::atomic<uint64_t> s3_ns{0};             // time spent inside the ordered stage
+};
+
+/// A copy of PipelineStats for reporting.
+struct PipelineStatsSnapshot {
+  uint64_t s2_encodes{0};
+  uint64_t budget_fallbacks{0};
+  uint64_t two_pc_fallbacks{0};
+  uint64_t gate_wait_ns{0};
+  uint64_t s3_ns{0};
+};
+
+/// Test-only counters for the failure-protocol tests (zero cost in production beyond the increments).
+struct PipelineTestCounters {
+  std::atomic<uint64_t> finalize_wal_calls{0};
+  std::atomic<uint64_t> decision_calls{0};
+};
 
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
@@ -193,9 +229,29 @@ class InMemoryStorage final : public Storage {
     // replica progress callback; `policy` is propagated to every container the traversal allocates.
     auto MaterializeTxnCommands(TxnAllocPolicy policy, std::function<void()> const &progress) -> TxnCommands;
 
+    // `ticket` is non-null on a ticketed (pipelined-commit) execution: the record state and irreversibility marks
+    // are recorded on it. OFF and replica callers pass nothing.
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
-                                                    CommitArgs const &commit_args) -> bool;
+                                                    CommitArgs const &commit_args, CommitTicket *ticket = nullptr)
+        -> bool;
+
+    // Pipelined commit (flag on, main-side minted commits). CommitWithTicket is the sole owner of ticket abort
+    // cleanup and retirement; the helpers record outcomes and return.
+    auto CommitWithTicket(CommitArgs const &commit_args, CommitLock commit_serializer)
+        -> std::expected<void, StorageManipulationError>;
+    auto OrderedLegacyCommit(CommitArgs const &commit_args, CommitLock commit_serializer,
+                             CommitTicket &ticket, uint64_t durability_commit_timestamp,
+                             TransactionReplication *replicating_txn) -> std::expected<void, StorageManipulationError>;
+    auto PipelinedCommit(CommitArgs const &commit_args, CommitTicket &ticket, uint64_t durability_commit_timestamp)
+        -> std::expected<void, StorageManipulationError>;
+    bool PipelineEligible(Transaction const &transaction, CommitArgs const &commit_args) const;
+    // Every local abort of a ticketed commit: enter if necessary, AbortAndResetCommitTs, MarkAborted; a failed abort
+    // terminates and is never retried. Never retires.
+    void AbortTicketOrTerminate(CommitTicket &ticket) noexcept;
+    // The single 2PC abort continuation: WAL finalization then the abort decisions, each step once.
+    void AbortTwoPcOrTerminate(TransactionReplication &repl, TwoPcAbortState &state,
+                               uint64_t durability_commit_timestamp, CommitArgs const &commit_args) noexcept;
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -488,7 +544,9 @@ class InMemoryStorage final : public Storage {
     // re-acquires it for the brief publish.
     // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
     // independently of PrepareForCommitPhase.
-    void FinalizeCommitPhase(uint64_t durability_commit_timestamp, bool acquire_engine_lock = false);
+    // `ticket` (ticketed executions only) is marked irreversible immediately before the first publication mutation.
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp, bool acquire_engine_lock = false,
+                             CommitTicket *ticket = nullptr);
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -919,6 +977,31 @@ class InMemoryStorage final : public Storage {
     return last_committed_mvcc_ts_.load(std::memory_order_acquire);
   }
 
+  // EXPERIMENTAL (pipelined-commit).
+  [[nodiscard]] bool IsPipelinedCommit() const noexcept { return config_.experimental_pipelined_commit; }
+
+  // Excludes every in-flight main-side committer: takes commit_mutex_ (no new mint, hence no new ticket) and then
+  // waits until every issued ticket has retired. The returned guard keeps the serializer until the caller is done.
+  // const so a const caller (recovery-step selection) can quiesce; the gate and the serializer are mutable.
+  auto QuiesceCommits() const -> CommitLock;
+
+  [[nodiscard]] auto GetPipelineStats() const -> PipelineStatsSnapshot;
+
+  // Test-only.
+  void SetReplicationTestHooks(ReplicationTestHooks *hooks) noexcept { replication_test_hooks_ = hooks; }
+
+  [[nodiscard]] auto replication_test_hooks() const noexcept -> ReplicationTestHooks * {
+    return replication_test_hooks_;
+  }
+
+  auto commit_order_gate_for_tests() -> CommitOrderGate & { return commit_order_gate_; }
+
+  auto pipeline_stats_for_tests() -> PipelineStats & { return pipeline_stats_; }
+
+  auto pipeline_budget_for_tests() -> PipelineBudget & { return pipeline_budget_; }
+
+  auto pipeline_test_counters() -> PipelineTestCounters & { return pipeline_test_counters_; }
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -1073,6 +1156,21 @@ class InMemoryStorage final : public Storage {
 
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
+
+  // EXPERIMENTAL (pipelined-commit): main-side committers are ordered through this gate; the budget bounds what
+  // their encode stage may retain.
+  mutable CommitOrderGate commit_order_gate_;
+  PipelineBudget pipeline_budget_;
+  PipelineStats pipeline_stats_;
+  PipelineTestCounters pipeline_test_counters_;
+  ReplicationTestHooks *replication_test_hooks_{nullptr};
+  // Test-only, from the MG_TEST_PIPELINED_S2_PARK_FIFO environment variable: the first eligible committer parks
+  // after its encode stage until this path exists, polling with a 10 ms sleep so nothing goes through the worker
+  // pool. Lets an end-to-end test saturate the pool with committers waiting behind a slow head.
+  std::string s2_park_path_;
+  std::atomic<bool> s2_park_consumed_{false};
+  // MG_TEST_PIPELINED_S2_PARK_SKIP: how many eligible commits pass before the one that parks.
+  std::atomic<int64_t> s2_park_skip_{0};
 
   memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};

@@ -13,8 +13,11 @@
 
 #include "memory/db_arena_fwd.hpp"
 #include "storage/v2/commit_args.hpp"
+#include "storage/v2/commit_probe.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/atomic_utils.hpp"
+#include "utils/file.hpp"
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
@@ -35,6 +38,17 @@ auto ReplicationModeToString(replication_coordination_glue::ReplicationMode mode
       return "STRICT_SYNC";
   }
   return "UNKNOWN";
+}
+
+// Test-only: records one attempt line before a one-shot fault flag is consumed, so a retry after consumption is
+// still visible to the test.
+void RecordFaultAttempt(CommitProbe *probe, std::string_view site) {
+  if (probe == nullptr || probe->fault_attempt_marker_path.empty()) return;
+  utils::OutputFile marker;
+  marker.Open(probe->fault_attempt_marker_path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  auto const line = std::string{site} + "\n";
+  marker.Write(line);
+  marker.Close();
 }
 
 auto StartTxnErrorToReason(StartTxnReplicationError const &error) -> ReplicaFailureReason {
@@ -155,6 +169,11 @@ auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::
 auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid,
                                                  DatabaseProtector const &protector,
                                                  uint64_t const durability_commit_timestamp) -> bool {
+  if (auto *mem_storage = dynamic_cast<InMemoryStorage *>(storage_); mem_storage != nullptr) {
+    mem_storage->pipeline_test_counters().decision_calls.fetch_add(1, std::memory_order_relaxed);
+  }
+  auto *probe = storage_ != nullptr ? storage_->commit_probe() : nullptr;
+  auto *hooks = TestHooks();
   std::vector<std::pair<ReplicationStorageClient *, std::future<bool>>> decisions;
   // Reserve first: an emplace_back that throws after its task was enqueued would orphan a running
   // task with no future to collect.
@@ -169,6 +188,13 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
         continue;
       }
       auto *raw_client = client.get();
+      // Test-only: a failure while scheduling a later decision, after an earlier one was enqueued.
+      if (ticketed_ && probe != nullptr && !decisions.empty() && probe->decision_schedule_throws_once.load()) {
+        RecordFaultAttempt(probe, "decision_schedule");
+        if (probe->decision_schedule_throws_once.exchange(false)) {
+          throw std::runtime_error("injected decision scheduling failure");
+        }
+      }
       decisions.emplace_back(raw_client,
                              raw_client->ScheduleTask([this,
                                                        raw_client,
@@ -199,6 +225,13 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
         // We should only do this if we own the RPC lock.
         client->AbortRpcClient();
+        if (ticketed_) {
+          // A client left REPLICATING is not rescued by a reconnect (heartbeats reconcile MAYBE_BEHIND only) and
+          // would only be repaired by a later transaction; release the stream and let reconciliation run.
+          replica_stream.reset();
+          client->SetMaybeBehind();
+          if (hooks != nullptr && hooks->after_async_abort_cleanup) hooks->after_async_abort_cleanup();
+        }
       }
     }
   }
@@ -272,8 +305,11 @@ void TransactionReplication::UpdateCommitTsInfo() {
 }
 
 TransactionReplication::TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage,
-                                               CommitArgs const &commit_args, ReplicationStorageClientList &clients)
-    : locked_clients{clients.ReadLock()},
+                                               CommitArgs const &commit_args, ReplicationStorageClientList &clients,
+                                               CommitTicket *ticket)
+    : storage_{storage},
+      ticketed_{ticket != nullptr},
+      locked_clients{clients.ReadLock()},
       arena_pool_{storage->DbArenaPool()},
       durability_commit_timestamp_{durability_commit_timestamp},
       // This transaction is the next one main commits, so its absolute committed-txn count is main's current count
@@ -284,23 +320,53 @@ TransactionReplication::TransactionReplication(uint64_t const durability_commit_
   if (!locked_clients->empty()) {
     streams.reserve(locked_clients->size());
     auto const &db_acc = commit_args.database_protector();
-    for (const auto &client : *locked_clients) {
-      // If any client requires two phase commit, then we are running that phase
-      run_two_phase_commit |= client->TwoPhaseCommit();
-      auto res = client->StartTransactionReplication(storage, db_acc, durability_commit_timestamp);
-      if (res.has_value()) {
-        streams.emplace_back(std::move(res.value()));
-      } else {
-        streams.emplace_back(std::nullopt);
-        // ASYNC replica errors are not reported — fire-and-forget
-        if (client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
-          replication_failures_.push_back({.name = client->Name(),
-                                           .mode = ReplicationModeToString(client->Mode()),
-                                           .reason = StartTxnErrorToReason(res.error())});
+    auto *hooks = TestHooks();
+    try {
+      for (const auto &client : *locked_clients) {
+        // If any client requires two phase commit, then we are running that phase
+        run_two_phase_commit |= client->TwoPhaseCommit();
+        // Test-only: a failure after an earlier stream was retained.
+        if (hooks != nullptr && hooks->throw_on_open_for &&
+            hooks->throw_on_open_for(client->Name(), durability_commit_timestamp)) {
+          throw std::runtime_error("injected stream open failure");
+        }
+        auto res = client->StartTransactionReplication(storage, db_acc, durability_commit_timestamp);
+        if (res.has_value()) {
+          streams.emplace_back(std::move(res.value()));
+        } else {
+          streams.emplace_back(std::nullopt);
+          // ASYNC replica errors are not reported — fire-and-forget
+          if (client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
+            replication_failures_.push_back({.name = client->Name(),
+                                             .mode = ReplicationModeToString(client->Mode()),
+                                             .reason = StartTxnErrorToReason(res.error())});
+          }
         }
       }
+    } catch (...) {
+      // A stream opened and left REPLICATING would otherwise only be repaired by a later commit; on a ticketed
+      // execution retire it completely before the members unwind. The flag-off path keeps its behaviour.
+      if (ticketed_) DiscardUnpreparedStreams();
+      throw;
     }
   }
+}
+
+void TransactionReplication::DiscardUnpreparedStreams() noexcept {
+  for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    if (!replica_stream) continue;
+    // Retire the connection while the stream still owns the RPC lock (reset-first would release the lock before
+    // the socket is retired and let another RPC intervene), then release the stream, then mark the client so the
+    // heartbeat reconciles it.
+    client->AbortRpcClient();
+    replica_stream.reset();
+    client->SetMaybeBehind();
+  }
+}
+
+auto TransactionReplication::TestHooks() const noexcept -> ReplicationTestHooks * {
+  auto *mem_storage = dynamic_cast<InMemoryStorage *>(storage_);
+  return mem_storage != nullptr ? mem_storage->replication_test_hooks() : nullptr;
 }
 
 }  // namespace memgraph::storage

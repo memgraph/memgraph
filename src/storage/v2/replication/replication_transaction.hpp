@@ -14,11 +14,13 @@
 #include <expected>
 #include <future>
 #include <optional>
+#include <stdexcept>
 #include <unordered_set>
 #include <vector>
 
 #include "memory/db_arena_fwd.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/commit_probe.hpp"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -29,6 +31,7 @@
 namespace memgraph::storage {
 
 struct CommitArgs;
+class CommitTicket;
 
 using ReplicationStorageClientList =
     utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>;
@@ -37,8 +40,11 @@ class TransactionReplication {
  public:
   // This will block until we retrieve RPC streams for all STRICT_SYNC and SYNC replicas. It is OK to not be able to
   // obtain the RPC lock for the ASYNC replica.
+  // `ticket` is non-null on a ticketed (pipelined-commit) execution and selects the stream cleanup that execution
+  // needs; OFF and replica callers omit it. A stream opened before the constructor throws is shut down while it
+  // still owns the RPC lock, reset and its client set MAYBE_BEHIND before the exception propagates.
   TransactionReplication(uint64_t durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args,
-                         ReplicationStorageClientList &clients);
+                         ReplicationStorageClientList &clients, CommitTicket *ticket = nullptr);
 
   ~TransactionReplication() = default;
 
@@ -57,6 +63,7 @@ class TransactionReplication {
     // Reserve first: an emplace_back that throws after its task was enqueued would orphan a running
     // task with no future to collect.
     ship_futures_.reserve(locked_clients->size());
+    auto *hooks = TestHooks();
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
       // A streamless replica already failed to start this transaction; ShipDeltas runs its quick,
       // RPC-free bookkeeping inline. Queueing a no-op would make the commit thread await this
@@ -67,25 +74,49 @@ class TransactionReplication {
       }
       auto *raw_client = client.get();
       auto *stream_ptr = &replica_stream;
+      // Test-only: a scheduling failure part-way through, after earlier tasks were enqueued.
+      if (hooks != nullptr && hooks->throw_before_enqueue_for &&
+          hooks->throw_before_enqueue_for(raw_client->Name(), durability_commit_timestamp)) {
+        throw std::runtime_error("injected scheduling failure");
+      }
       ship_futures_.emplace_back(
           raw_client,
           raw_client->ScheduleTask(
-              [this, raw_client, stream_ptr, encode, wal_result, durability_commit_timestamp, db_acc]() -> ShipResult {
+              [this, raw_client, stream_ptr, encode, wal_result, durability_commit_timestamp, db_acc, hooks]()
+                  -> ShipResult {
                 try {
                   const memory::DbArenaScope db_arena_scope{arena_pool_};
                   raw_client->IfStreamingTransaction(encode, *stream_ptr);
+                  if (hooks != nullptr && hooks->before_wal_result_wait) {
+                    hooks->before_wal_result_wait(raw_client->Name(), durability_commit_timestamp);
+                  }
                   // The durability gate: rethrows on a WAL failure, so the transaction end never ships.
                   wal_result.get();
-                  return ShipOne(raw_client, *stream_ptr, durability_commit_timestamp, *db_acc);
+                  auto result = ShipOne(raw_client, *stream_ptr, durability_commit_timestamp, *db_acc);
+                  if (hooks != nullptr && hooks->on_task_done)
+                    hooks->on_task_done(raw_client->Name(), durability_commit_timestamp);
+                  return result;
                 } catch (...) {
                   spdlog::error("Failed to replicate transaction to replica {}.", raw_client->Name());
+                  // A partially transmitted request must not survive on the connection: retire the socket while this
+                  // task still owns the stream's RPC lock, then release it. Ticketed executions only; the flag-off path
+                  // keeps its behaviour.
+                  if (ticketed_ && stream_ptr->has_value()) raw_client->AbortRpcClient();
                   stream_ptr->reset();
                   raw_client->SetMaybeBehind();
+                  if (hooks != nullptr && hooks->on_task_done)
+                    hooks->on_task_done(raw_client->Name(), durability_commit_timestamp);
                   return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
                 }
               }));
     }
   }
+
+  // Shuts down, resets and marks MAYBE_BEHIND every stream this transaction still holds; for a ticketed execution
+  // that exits before any WAL frame was written. Skips empty optionals entirely, so a second invocation is a no-op.
+  void DiscardUnpreparedStreams() noexcept;
+
+  auto ticketed() const noexcept -> bool { return ticketed_; }
 
   // Waits for every scheduled fused task without consuming results; for the unwind paths, so no
   // worker is left referencing the caller's frame.
@@ -119,6 +150,14 @@ class TransactionReplication {
   auto ShipOne(ReplicationStorageClient *raw_client, std::optional<ReplicaStream> &replica_stream,
                uint64_t durability_commit_timestamp, DatabaseProtector const &db_acc) const -> ShipResult;
 
+  // The storage-owned test hooks (null in production).
+  auto TestHooks() const noexcept -> ReplicationTestHooks *;
+
+  // The storage this transaction commits on; retained so the scheduled tasks and the decision phase can reach its
+  // test hooks and counters.
+  Storage *storage_{nullptr};
+  // True when constructed by a ticketed (pipelined-commit) execution; gates every cleanup the flag-off path lacks.
+  bool ticketed_{false};
   std::vector<std::optional<ReplicaStream>> streams;
   std::vector<std::pair<ReplicationStorageClient *, std::future<ShipResult>>> ship_futures_;
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr

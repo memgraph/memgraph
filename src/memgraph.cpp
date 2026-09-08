@@ -292,10 +292,19 @@ int main(int argc, char **argv) {
 
   auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);
   memgraph::flags::SetExperimental(flags_experimental);
+  auto combined_experimental = std::to_underlying(flags_experimental);
   auto *maybe_experimental = std::getenv(kMgExperimentalEnabled);
   if (maybe_experimental) {
     auto env_experimental = memgraph::flags::ReadExperimental(maybe_experimental);
     memgraph::flags::AppendExperimental(env_experimental);
+    combined_experimental |= std::to_underlying(env_experimental);
+  }
+  // Validated on the combined command-line plus environment mask, since either may supply a dependency.
+  if (auto const dependency_error = memgraph::flags::ValidateExperimentDependencies(
+          static_cast<memgraph::flags::Experiments>(combined_experimental));
+      dependency_error) {
+    spdlog::critical("{}", *dependency_error);
+    return EXIT_FAILURE;
   }
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
   // even if --also-log-to-stderr is false
@@ -556,6 +565,9 @@ int main(int argc, char **argv) {
       // persisted, so durable data is identical regardless of this flag (flip across restart is safe).
       .experimental_lockfree_read_snapshot =
           memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::LOCKFREE_READ_SNAPSHOT),
+      .experimental_pipelined_commit =
+          memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::PIPELINED_COMMIT),
+      .pipelined_commit_max_bytes = FLAGS_storage_pipelined_commit_max_bytes,
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",

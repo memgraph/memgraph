@@ -16,6 +16,7 @@
 #include <functional>
 #include <map>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <range/v3/algorithm/any_of.hpp>
 #include <range/v3/functional/bind_back.hpp>
 #include <range/v3/iterator/basic_iterator.hpp>
@@ -50,10 +51,12 @@ namespace memgraph::flags {
 auto const mapping = std::map{
     std::pair{"planner-v2"sv, Experiments::PLANNER_V2},
     std::pair{"lockfree-read-snapshot"sv, Experiments::LOCKFREE_READ_SNAPSHOT},
+    std::pair{"pipelined-commit"sv, Experiments::PIPELINED_COMMIT},
 };
 auto const reverse_mapping = std::map{
     std::pair{Experiments::PLANNER_V2, "planner-v2"sv},
     std::pair{Experiments::LOCKFREE_READ_SNAPSHOT, "lockfree-read-snapshot"sv},
+    std::pair{Experiments::PIPELINED_COMMIT, "pipelined-commit"sv},
 };
 auto const config_mapping = std::map<std::string_view, Experiments>{};
 
@@ -130,6 +133,16 @@ auto ReadExperimental(std::string const &flags_experimental) -> Experiments {
   }
 
   return static_cast<Experiments>(to_set);
+}
+
+auto ValidateExperimentDependencies(Experiments experiments) -> std::optional<std::string> {
+  auto const enabled = [experiments](Experiments experiment) {
+    return (std::to_underlying(experiments) & std::to_underlying(experiment)) == std::to_underlying(experiment);
+  };
+  if (enabled(Experiments::PIPELINED_COMMIT) && !enabled(Experiments::LOCKFREE_READ_SNAPSHOT)) {
+    return "Experimental feature pipelined-commit requires lockfree-read-snapshot to be enabled as well.";
+  }
+  return std::nullopt;
 }
 
 void SetExperimental(Experiments const &experiments) { ExperimentsInstance() = experiments; }

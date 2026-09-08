@@ -320,6 +320,9 @@ class Storage {
   // Test-only: install commit-path instrumentation (lock-free-read-snapshot experiment). Null in production.
   void SetCommitProbe(CommitProbe *probe) noexcept { commit_probe_ = probe; }
 
+  // Test-only instrumentation (null in production); read by the replication objects a commit owns.
+  auto commit_probe() const noexcept -> CommitProbe * { return commit_probe_; }
+
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;

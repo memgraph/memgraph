@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -33,9 +34,14 @@ enum class Experiments : uint8_t {
   NONE = 0,
   PLANNER_V2 = 1 << 0,
   LOCKFREE_READ_SNAPSHOT = 1 << 1,
+  PIPELINED_COMMIT = 1 << 2,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);
+
+/// Checks that every enabled experiment has the experiments it depends on enabled as well (pipelined-commit
+/// requires lockfree-read-snapshot). Returns the reason when the combination is invalid.
+auto ValidateExperimentDependencies(Experiments experiments) -> std::optional<std::string>;
 
 auto ReadExperimental(std::string const &) -> Experiments;
 void SetExperimental(Experiments const &);

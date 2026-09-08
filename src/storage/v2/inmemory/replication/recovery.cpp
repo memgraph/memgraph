@@ -89,9 +89,11 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   // EXPERIMENTAL (lock-free-read-snapshot): under the flag the committer holds commit_mutex_ (not engine_lock_)
   // across its WAL-append window, so take commit_mutex_ here — in the committer's lock order, before engine_lock_ —
   // to keep the current WAL stable while its seq/timestamps are read. Released together with transaction_guard.
+  // With pipelined-commit a committer can be past the serializer but not yet published, so quiesce the ticket gate
+  // too (QuiesceCommits takes commit_mutex_ first and returns it held).
   std::optional<CommitLock> commit_serializer;
   if (main_storage->config_.experimental_lockfree_read_snapshot) {
-    commit_serializer.emplace(main_storage->commit_mutex_);
+    commit_serializer.emplace(main_storage->QuiesceCommits());
   }
   std::unique_lock transaction_guard(
       main_storage->engine_lock_);  // Hold the main_storage lock so the current wal file cannot be changed

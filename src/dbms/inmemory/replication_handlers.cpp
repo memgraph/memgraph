@@ -513,9 +513,18 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
       two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
       two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
       res.success = true;
+      // Test-only: a prepared replica that votes no, so main sees a failed prepare with a live stream.
+      if (auto *hooks = storage->replication_test_hooks();
+          hooks != nullptr && hooks->refuse_next_prepare &&
+          hooks->refuse_next_prepare(req.durability_commit_timestamp)) {
+        res.success = false;
+      }
     }
   }
   rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
+  if (auto *hooks = storage->replication_test_hooks(); hooks != nullptr && hooks->on_prepared) {
+    hooks->on_prepared(req.durability_commit_timestamp);
+  }
 }
 
 void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
@@ -592,8 +601,19 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     mem_storage->FinalizeWalFile();
   }
 
-  storage::replication::FinalizeCommitRes const res(true);
+  bool success = true;
+  auto *hooks = mem_storage->replication_test_hooks();
+  if (!req.decision && hooks != nullptr) {
+    // Test-only: the abort was applied; answer the decision with failure when asked to.
+    if (hooks->refuse_next_abort_decision && hooks->refuse_next_abort_decision(req.durability_commit_timestamp)) {
+      success = false;
+    }
+  }
+  storage::replication::FinalizeCommitRes const res(success);
   rpc::SendFinalResponse(res, request_version, res_builder);
+  if (!req.decision && hooks != nullptr && hooks->on_abort_applied) {
+    hooks->on_abort_applied(req.durability_commit_timestamp);
+  }
 }
 
 void InMemoryReplicationHandlers::DestroyReplAccessor(rpc::ProgressHeartbeat *heartbeat) {

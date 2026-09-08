@@ -883,6 +883,12 @@ add_unit_test(storage_v2_commit_order_gate
     CUSTOM_MAIN
 )
 
+add_unit_test(storage_v2_pipelined_commit
+    SOURCES storage_v2_pipelined_commit.cpp
+    LINK_TARGETS mg::storage mg-flags storage_test_utils
+    CUSTOM_MAIN
+)
+
 add_unit_test(storage_v2_buffer_encoder
     SOURCES storage_v2_buffer_encoder.cpp
     LINK_TARGETS mg::storage storage_test_utils
@@ -891,6 +897,7 @@ add_unit_test(storage_v2_buffer_encoder
 add_unit_test(storage_v2_replication
     SOURCES storage_v2_replication.cpp
     LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue
+    CUSTOM_MAIN
 )
 
 add_unit_test(storage_v2_error

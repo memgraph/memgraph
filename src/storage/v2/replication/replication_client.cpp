@@ -244,9 +244,15 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // EXPERIMENTAL (lock-free-read-snapshot): engine_lock_ alone is stale for the ldt read at ~line 287;
   // under the flag, ldt advances at publish outside the post-mint engine_lock_ hold, so hold commit_mutex_
   // first (committer's order: commit_mutex_ then engine_lock_) to exclude any in-flight committer.
+  // With pipelined-commit the committer may be past the serializer but not yet published, so quiesce the ticket
+  // gate as well (QuiesceCommits takes commit_mutex_ first and returns it held).
   std::optional<CommitLock> commit_serializer;
   if (static_cast<InMemoryStorage *>(main_storage)->config_.experimental_lockfree_read_snapshot) {
-    commit_serializer.emplace(static_cast<InMemoryStorage *>(main_storage)->commit_mutex_);
+    if (auto *hooks = static_cast<InMemoryStorage *>(main_storage)->replication_test_hooks();
+        hooks != nullptr && hooks->before_reconcile_quiesce) {
+      hooks->before_reconcile_quiesce(client_.name_);
+    }
+    commit_serializer.emplace(static_cast<InMemoryStorage *>(main_storage)->QuiesceCommits());
   }
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
@@ -896,7 +902,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 // with transaction_guard; the subsequent Path()/transfer is covered by DisableFlushing()'s flush_lock_.
                 std::optional<CommitLock> commit_serializer;
                 if (main_mem_storage->config_.experimental_lockfree_read_snapshot) {
-                  commit_serializer.emplace(main_mem_storage->commit_mutex_);
+                  // Quiesces the pipelined-commit gate as well; released before the transfer, as before.
+                  commit_serializer.emplace(main_mem_storage->QuiesceCommits());
                 }
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
                 if (main_mem_storage->wal_file_ &&
@@ -993,7 +1000,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   // any in-flight committer so the READY decision reflects it.
   std::optional<CommitLock> commit_serializer;
   if (main_mem_storage->config_.experimental_lockfree_read_snapshot) {
-    commit_serializer.emplace(main_mem_storage->commit_mutex_);
+    // Quiesces the pipelined-commit gate as well: a committer past the serializer has not published yet.
+    commit_serializer.emplace(main_mem_storage->QuiesceCommits());
   }
   auto lock = std::lock_guard{main_storage->engine_lock_};
   const auto last_durable_timestamp =
