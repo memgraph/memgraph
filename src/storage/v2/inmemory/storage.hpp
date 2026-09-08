@@ -1170,13 +1170,16 @@ class InMemoryStorage final : public Storage {
   PipelineTestCounters pipeline_test_counters_;
   // Written by a test thread, read by commit, replica-worker and heartbeat threads.
   std::atomic<ReplicationTestHooks *> replication_test_hooks_{nullptr};
-  // Test-only, from the MG_TEST_PIPELINED_S2_PARK_FIFO environment variable: the first eligible committer parks
-  // after its encode stage until this path exists, polling with a 10 ms sleep so nothing goes through the worker
-  // pool. Lets an end-to-end test saturate the pool with committers waiting behind a slow head.
+#ifndef NDEBUG
+  // Test-only and compiled out of release builds, from the MG_TEST_PIPELINED_S2_PARK_FIFO environment variable: the
+  // first eligible committer parks after its encode stage until this path exists, polling with a 10 ms sleep so
+  // nothing goes through the worker pool. Lets an end-to-end test saturate the pool with committers waiting behind a
+  // slow head.
   std::string s2_park_path_;
   std::atomic<bool> s2_park_consumed_{false};
   // MG_TEST_PIPELINED_S2_PARK_SKIP: how many eligible commits pass before the one that parks.
   std::atomic<int64_t> s2_park_skip_{0};
+#endif
 
   memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};

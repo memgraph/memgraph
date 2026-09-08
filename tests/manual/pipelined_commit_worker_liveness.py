@@ -18,6 +18,10 @@ before-commit trigger are exercised through the interpreter afterwards.
 
     ./pipelined_commit_worker_liveness.py --binary build/memgraph --workers 4
 
+The park hook is compiled only into builds without NDEBUG (Debug, RelWithDebInfo
+with assertions), so --binary must point at such a build; a release binary
+ignores the environment variables and the first assertion below fails.
+
 The read has no admission guarantee while every worker is blocked in a
 synchronous commit; the delay is reported, not asserted.
 """

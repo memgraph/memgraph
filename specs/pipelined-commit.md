@@ -54,7 +54,9 @@ code after entering the gate, so every main-side commit belongs to one ordering 
 - **Unique constraints are validated against a settled predecessor set.** A commit
   validates only after every earlier-minted commit has published or fully aborted.
 - **Off is identical to today.** With the flag off the commit path is the same code, and a
-  deterministic harness compares its WAL output byte for byte against the base.
+  deterministic harness compares its WAL output byte for byte against the base. The
+  comparison holds for the same `lockfree-read-snapshot` setting on both sides; that flag,
+  not this one, decides whether the engine lock is released during durability.
 - **Durable data does not depend on the flag.** A transaction encoded to a private buffer
   and appended verbatim produces exactly the bytes and CRC the inline path produces.
 - **Failure semantics unchanged.** Partial WAL writes and fsync failures stay fatal; a
@@ -93,6 +95,15 @@ Enabling `pipelined-commit` without `lockfree-read-snapshot` is rejected at star
 - **Budget fallback.** When the retained bytes would exceed the budget, the commit is not
   refused and does not wait; it takes the ordered legacy path, which holds no more memory
   than today but re-serializes the encoding for that transaction.
+- **The budget bounds retained bytes only.** It charges the materialized commands, the
+  tracking sets, the vertex cache and the WAL buffer: everything the encode stage keeps
+  until the ordered stage consumes it. It does not charge the short-lived temporaries the
+  encoder creates while it converts one property value at a time (the decoded
+  `PropertyValue` and its external form), which are the same allocations any property read
+  makes and which are freed before the next value is encoded. With N committers encoding at
+  once that transient peak is N times the single-committer peak of today's inline encoder,
+  bounded by N times the largest single property value in flight; it is not covered by
+  `--storage-pipelined-commit-max-bytes`.
 - **Quiescence drains the gate.** Every maintenance site that used to exclude one in-flight
   committer now waits until every issued ticket has retired. One of those sites is the
   per-replica heartbeat reconciliation, which runs on a timer, so with replicas registered

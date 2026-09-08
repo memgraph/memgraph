@@ -350,12 +350,14 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   if (config_.experimental_pipelined_commit && !config_.experimental_lockfree_read_snapshot) {
     throw utils::BasicException("pipelined-commit requires lockfree-read-snapshot to be enabled as well.");
   }
+#ifndef NDEBUG
   if (auto const *park = std::getenv("MG_TEST_PIPELINED_S2_PARK_FIFO"); park != nullptr && *park != '\0') {
     s2_park_path_ = park;
     if (auto const *skip = std::getenv("MG_TEST_PIPELINED_S2_PARK_SKIP"); skip != nullptr && *skip != '\0') {
       s2_park_skip_ = std::strtoll(skip, nullptr, 10);
     }
   }
+#endif
   if (config_.experimental_lockfree_read_snapshot) {
     // NOLINTNEXTLINE(modernize-avoid-c-arrays) — make_unique<T[]> is the idiomatic heap array (cf. ring_buffer.hpp).
     snapshot_slots_ = std::make_unique<SnapshotSlot[]>(kSnapshotSlots);
@@ -1558,10 +1560,12 @@ auto InMemoryStorage::InMemoryAccessor::PipelinedCommit(CommitArgs const &commit
                                              progress);
     wal_buffer->timestamp = durability_commit_timestamp;
     mem_storage->pipeline_stats_.s2_encodes.fetch_add(1, std::memory_order_relaxed);
+#ifndef NDEBUG
     if (!mem_storage->s2_park_path_.empty() && mem_storage->s2_park_skip_.fetch_sub(1) <= 0 &&
         !mem_storage->s2_park_consumed_.exchange(true)) {
-      // Test-only: the out-of-band controller releases the head by creating the file. The park holds a ticket, so it
-      // is bounded: a stray environment variable must not be able to stall every later commit and quiescence.
+      // Test-only, compiled out of release builds: the out-of-band controller releases the head by creating the
+      // file. The park holds a ticket, so it is bounded even in a test build: a stray environment variable must not
+      // be able to stall every later commit and quiescence.
       auto const park_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
       while (!std::filesystem::exists(mem_storage->s2_park_path_)) {
         if (std::chrono::steady_clock::now() > park_deadline) {
@@ -1572,6 +1576,7 @@ auto InMemoryStorage::InMemoryAccessor::PipelinedCommit(CommitArgs const &commit
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
     }
+#endif
   } catch (PipelineBudgetExceeded const &) {
     wal_buffer.reset();  // every charged S2 allocation is destroyed before the fallback
     commands.reset();
@@ -1605,10 +1610,16 @@ auto InMemoryStorage::InMemoryAccessor::PipelinedCommit(CommitArgs const &commit
         std::memory_order_relaxed);
   }
   auto const s3_started = std::chrono::steady_clock::now();
-  utils::OnScopeExit const s3_timer{[&]() noexcept {
+  auto const add_s3_elapsed = [&]() noexcept {
     mem_storage->pipeline_stats_.s3_ns.fetch_add(
         std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - s3_started).count(),
         std::memory_order_relaxed);
+  };
+  // OrderedLegacyCommit times its own scope; the two-phase fallback hands the rest of S3 to it, so this timer
+  // accounts only for the part of S3 that ran here.
+  bool s3_timer_armed = true;
+  utils::OnScopeExit const s3_timer{[&]() noexcept {
+    if (s3_timer_armed) add_s3_elapsed();
   }};
   InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_validate);
   if (auto const validation = UniqueConstraintsViolation(); !validation.has_value()) {
@@ -1629,6 +1640,8 @@ auto InMemoryStorage::InMemoryAccessor::PipelinedCommit(CommitArgs const &commit
     wal_buffer.reset();
     commands.reset();
     mem_storage->pipeline_stats_.two_pc_fallbacks.fetch_add(1, std::memory_order_relaxed);
+    add_s3_elapsed();
+    s3_timer_armed = false;
     return OrderedLegacyCommit(
         commit_args, CommitLock{}, ticket, durability_commit_timestamp, &*replicating_txn);
   }
