@@ -11,10 +11,14 @@
 
 #include "gtest/gtest.h"
 
+#include <atomic>
+#include <barrier>
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <semaphore>
 #include <thread>
+#include <vector>
 
 #include "utils/barrier.hpp"
 
@@ -93,4 +97,37 @@ TEST(Barrier, Destroy) {
     auto threads = gen_threads(*barrier);
     barrier.reset();  // This will wait
   }
+}
+
+// EXPERIMENTAL: exercises std::barrier directly, rather than SimpleBarrier, to test the claim that
+// it misses notifications and leaves threads blocked forever. A missed notification strands a
+// thread inside arrive_and_wait(), so the count below comes up short and the gate never opens;
+// the wait is timed to report that as a failure instead of hanging the suite.
+TEST(Barrier, StdBarrierHammer) {
+  constexpr auto kThreads = 4U;
+  constexpr auto kRounds = 20000U;
+
+  std::atomic<uint64_t> released{0};
+
+  for (auto round = 0U; round < kRounds; ++round) {
+    std::barrier barrier{static_cast<std::ptrdiff_t>(kThreads)};
+    std::counting_semaphore<> through{0};
+
+    auto threads = std::vector<std::jthread>{};
+    threads.reserve(kThreads);
+    for (auto i = 0U; i < kThreads; ++i) {
+      threads.emplace_back([&] {
+        barrier.arrive_and_wait();
+        released.fetch_add(1, std::memory_order_relaxed);
+        through.release();
+      });
+    }
+
+    for (auto i = 0U; i < kThreads; ++i) {
+      ASSERT_TRUE(through.try_acquire_for(std::chrono::seconds{30}))
+          << "a thread never returned from std::barrier::arrive_and_wait() in round " << round;
+    }
+  }
+
+  EXPECT_EQ(released, uint64_t{kThreads} * kRounds);
 }
