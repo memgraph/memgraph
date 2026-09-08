@@ -150,12 +150,13 @@ class TransactionReplication {
   auto ShipOne(ReplicationStorageClient *raw_client, std::optional<ReplicaStream> &replica_stream,
                uint64_t durability_commit_timestamp, DatabaseProtector const &db_acc) const -> ShipResult;
 
-  // The storage-owned test hooks (null in production).
-  auto TestHooks() const noexcept -> ReplicationTestHooks *;
+  // The storage-owned test hooks (null in production), resolved once at construction.
+  auto TestHooks() const noexcept -> ReplicationTestHooks * { return hooks_; }
 
   // The storage this transaction commits on; retained so the scheduled tasks and the decision phase can reach its
   // test hooks and counters.
   Storage *storage_{nullptr};
+  ReplicationTestHooks *hooks_{nullptr};
   // True when constructed by a ticketed (pipelined-commit) execution; gates every cleanup the flag-off path lacks.
   bool ticketed_{false};
   std::vector<std::optional<ReplicaStream>> streams;

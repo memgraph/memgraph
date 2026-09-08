@@ -1560,8 +1560,15 @@ auto InMemoryStorage::InMemoryAccessor::PipelinedCommit(CommitArgs const &commit
     mem_storage->pipeline_stats_.s2_encodes.fetch_add(1, std::memory_order_relaxed);
     if (!mem_storage->s2_park_path_.empty() && mem_storage->s2_park_skip_.fetch_sub(1) <= 0 &&
         !mem_storage->s2_park_consumed_.exchange(true)) {
-      // Test-only: the out-of-band controller releases the head by creating the file.
+      // Test-only: the out-of-band controller releases the head by creating the file. The park holds a ticket, so it
+      // is bounded: a stray environment variable must not be able to stall every later commit and quiescence.
+      auto const park_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
       while (!std::filesystem::exists(mem_storage->s2_park_path_)) {
+        if (std::chrono::steady_clock::now() > park_deadline) {
+          spdlog::warn("MG_TEST_PIPELINED_S2_PARK_FIFO: release file {} did not appear within 60 s; continuing",
+                       mem_storage->s2_park_path_);
+          break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
     }

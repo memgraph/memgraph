@@ -93,6 +93,14 @@ Enabling `pipelined-commit` without `lockfree-read-snapshot` is rejected at star
 - **Budget fallback.** When the retained bytes would exceed the budget, the commit is not
   refused and does not wait; it takes the ordered legacy path, which holds no more memory
   than today but re-serializes the encoding for that transaction.
+- **Quiescence drains the gate.** Every maintenance site that used to exclude one in-flight
+  committer now waits until every issued ticket has retired. One of those sites is the
+  per-replica heartbeat reconciliation, which runs on a timer, so with replicas registered
+  the pipeline is periodically drained.
+- **STRICT_SYNC replicas encode twice.** Whether a commit needs two-phase commit is known
+  only once its replication streams are open, after the encode stage; with a STRICT_SYNC
+  replica registered every eligible commit encodes its buffer, discards it, and takes the
+  ordered legacy path.
 
 ## Deferred
 

@@ -51,6 +51,11 @@ void RecordFaultAttempt(CommitProbe *probe, std::string_view site) {
   marker.Close();
 }
 
+auto ResolveTestHooks(Storage *storage) noexcept -> ReplicationTestHooks * {
+  auto *mem_storage = dynamic_cast<InMemoryStorage *>(storage);
+  return mem_storage != nullptr ? mem_storage->replication_test_hooks() : nullptr;
+}
+
 auto StartTxnErrorToReason(StartTxnReplicationError const &error) -> ReplicaFailureReason {
   return std::visit(utils::Overloaded{
                         [](FailedToConnectErr const &) { return ReplicaFailureReason::NOT_IN_SYNC; },
@@ -308,6 +313,7 @@ TransactionReplication::TransactionReplication(uint64_t const durability_commit_
                                                CommitArgs const &commit_args, ReplicationStorageClientList &clients,
                                                CommitTicket *ticket)
     : storage_{storage},
+      hooks_{ResolveTestHooks(storage)},
       ticketed_{ticket != nullptr},
       locked_clients{clients.ReadLock()},
       arena_pool_{storage->DbArenaPool()},
@@ -362,11 +368,6 @@ void TransactionReplication::DiscardUnpreparedStreams() noexcept {
     replica_stream.reset();
     client->SetMaybeBehind();
   }
-}
-
-auto TransactionReplication::TestHooks() const noexcept -> ReplicationTestHooks * {
-  auto *mem_storage = dynamic_cast<InMemoryStorage *>(storage_);
-  return mem_storage != nullptr ? mem_storage->replication_test_hooks() : nullptr;
 }
 
 }  // namespace memgraph::storage
