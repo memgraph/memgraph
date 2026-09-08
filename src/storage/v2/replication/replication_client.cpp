@@ -244,7 +244,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // EXPERIMENTAL (lock-free-read-snapshot): engine_lock_ alone is stale for the ldt read at ~line 287;
   // under the flag, ldt advances at publish outside the post-mint engine_lock_ hold, so hold commit_mutex_
   // first (committer's order: commit_mutex_ then engine_lock_) to exclude any in-flight committer.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  std::optional<CommitLock> commit_serializer;
   if (static_cast<InMemoryStorage *>(main_storage)->config_.experimental_lockfree_read_snapshot) {
     commit_serializer.emplace(static_cast<InMemoryStorage *>(main_storage)->commit_mutex_);
   }
@@ -894,7 +894,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 // EXPERIMENTAL (lock-free-read-snapshot): serialize against the committer (which holds commit_mutex_,
                 // not engine_lock_, across its WAL window) before reading/flush-toggling the current WAL. Released
                 // with transaction_guard; the subsequent Path()/transfer is covered by DisableFlushing()'s flush_lock_.
-                std::optional<std::unique_lock<std::mutex>> commit_serializer;
+                std::optional<CommitLock> commit_serializer;
                 if (main_mem_storage->config_.experimental_lockfree_read_snapshot) {
                   commit_serializer.emplace(main_mem_storage->commit_mutex_);
                 }
@@ -991,7 +991,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   // so a reader holding only engine_lock_ can see a stale ldt and mark the replica READY across a commit
   // it will miss. Hold commit_mutex_ first (committer's order: commit_mutex_ then engine_lock_) to exclude
   // any in-flight committer so the READY decision reflects it.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  std::optional<CommitLock> commit_serializer;
   if (main_mem_storage->config_.experimental_lockfree_read_snapshot) {
     commit_serializer.emplace(main_mem_storage->commit_mutex_);
   }

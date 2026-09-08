@@ -89,7 +89,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   // EXPERIMENTAL (lock-free-read-snapshot): under the flag the committer holds commit_mutex_ (not engine_lock_)
   // across its WAL-append window, so take commit_mutex_ here — in the committer's lock order, before engine_lock_ —
   // to keep the current WAL stable while its seq/timestamps are read. Released together with transaction_guard.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  std::optional<CommitLock> commit_serializer;
   if (main_storage->config_.experimental_lockfree_read_snapshot) {
     commit_serializer.emplace(main_storage->commit_mutex_);
   }
