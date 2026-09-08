@@ -139,14 +139,13 @@ jobs:
           done
           ls -l "$CLIENT_BUILD_DIR" "$CLIENT_BUILD_DIR/lib"
 
-      - name: Stop mgbuild container
-        if: always()
+      # The mgbuild container stays up (idle) through the benchmarks: the
+      # bench-graph upload at the end runs inside it, like diff_release.yaml.
+
+      - name: Get branch name
+        shell: bash
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          stop --remove
+          echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
 
       - name: Fetch gssapi wheels
         run: |
@@ -220,12 +219,49 @@ jobs:
             python3 tools/ci/parallel_benchmark.py summarize --markdown "$RESULTS_DIR" | tee -a $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Upload results to bench-graph
+        if: always()
+        run: |
+          if [[ ! -f "$RESULTS_DIR/manifest.json" ]]; then
+            echo "No manifest.json, nothing to upload."
+            exit 0
+          fi
+          container="mgbuild_${TOOLCHAIN}_${OS}"
+          # Task names in parallel_benchmark.py match the --benchmark-name
+          # values diff_release.yaml uploads, so results land in the same series.
+          while read -r task result_file; do
+            echo "::group::Upload $result_file as $task"
+            docker cp "$RESULTS_DIR/$result_file" "$container:/home/mg/memgraph/tests/mgbench/$result_file"
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "$task" \
+            --benchmark-results "../../tests/mgbench/$result_file" \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-number "${{ github.run_number }}" \
+            --head-branch-name "$BRANCH_NAME"
+            echo "::endgroup::"
+          done < <(jq -r '.runs[] | select(.returncode == 0) | "\(.task) \(.result_file)"' "$RESULTS_DIR/manifest.json")
+
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: parallel-benchmark-${{ github.run_id }}
           path: ${{ env.RESULTS_DIR }}
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
 
       - name: Remove benchmark containers
         if: always()
