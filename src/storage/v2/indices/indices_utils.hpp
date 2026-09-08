@@ -382,8 +382,8 @@ inline bool AreComparableBounds(utils::Bound<PropertyValue> const &lower_bound,
 
 // `allow_whole_type_span` admits the bound pair that marks an entire type (see AreComparableBounds).
 // Only pass it where the query layer has already discarded a user range whose bounds cannot be
-// compared -- a scan driven by an ExpressionRange, which is marked INVALID in that case. Scans that
-// carry raw bounds, i.e. every edge scan, have no such marking and must stay strict, or a range like
+// compared -- a scan driven by an ExpressionRange, which is marked INVALID in that case. A scan
+// carrying raw bounds has no such marking and must stay strict, or a range like
 // `e.p >= -inf AND e.p < ''` is mistaken for the marker and returns every number.
 inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bound,
                            std::optional<utils::Bound<PropertyValue>> &upper_bound,
