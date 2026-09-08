@@ -23,8 +23,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <span>
+#include <utility>
 #include <vector>
 
 #include "dbms/database.hpp"
@@ -420,6 +423,72 @@ TEST_F(AiLicenseEmbeddingMemoryTest, DoubleCharge_IndexCopyPlusMaterializedCopyB
   EXPECT_LT(storage_delta, retained_bytes / 8) << "reconstruction does not touch the per-DB storage arena";
 
   held.clear();
+}
+
+// ---------------------------------------------------------------------------
+// 6. Variant 1 (lazy value): an accumulating operator (sort / ORDER BY) can stay bounded if it holds
+//    cheap references and materializes the embedding transiently inside the comparator. Here we sort
+//    N vertices by their embedding using VertexAccessor::GetVectorInto — which reconstructs into a
+//    REUSED scratch buffer with zero per-comparison allocation — and show the sort's peak graph
+//    footprint is O(dim), not O(N*dim), while producing the same order as an eager sort.
+// ---------------------------------------------------------------------------
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1_LazySortBoundedVsEagerSort) {
+  auto gk = MakeDb("t6");
+  auto acc_opt = gk->access();
+  ASSERT_TRUE(acc_opt);
+  auto &db = *acc_opt;
+  auto label = db->storage()->NameToLabel("Doc");
+  auto prop = db->storage()->NameToProperty("emb");
+  Populate(db.get(), label, prop, kNumVerticesBig, kDimBig);
+  CreateIndex(db.get(), label, prop, kDimBig, kNumVerticesBig);
+
+  const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
+
+  auto acc = db->Access();
+  std::vector<memgraph::storage::VertexAccessor> verts;
+  verts.reserve(kNumVerticesBig);
+  for (auto v : acc->Vertices(View::OLD)) verts.push_back(v);
+  ASSERT_EQ(verts.size(), static_cast<size_t>(kNumVerticesBig));
+
+  // Eager reference: reconstruct + RETAIN every embedding, sort them; record the sorted value sequence.
+  std::vector<std::vector<float>> eager_sorted;
+  {
+    std::vector<std::vector<float>> eager;
+    eager.reserve(kNumVerticesBig);
+    for (auto &va : verts) {
+      auto pv = va.GetProperty(prop, View::OLD);
+      const auto &lst = pv->ValueVectorIndexList();
+      eager.emplace_back(lst.begin(), lst.end());
+    }
+    std::ranges::sort(eager, [](const auto &a, const auto &b) { return std::ranges::lexicographical_compare(a, b); });
+    eager_sorted = std::move(eager);
+  }
+
+  // Lazy sort: sort the vertex references; the comparator materializes both operands transiently into
+  // two REUSED pre-allocated scratch buffers — zero per-comparison allocation.
+  std::vector<float> buf_a(kDimBig);
+  std::vector<float> buf_b(kDimBig);
+  Stabilize(db.get());
+  const int64_t graph_before = Graph();
+  std::ranges::sort(verts, [&](const memgraph::storage::VertexAccessor &x, const memgraph::storage::VertexAccessor &y) {
+    const bool ok_x = x.GetVectorInto(prop, buf_a);
+    const bool ok_y = y.GetVectorInto(prop, buf_b);
+    EXPECT_TRUE(ok_x && ok_y);
+    return std::ranges::lexicographical_compare(buf_a, buf_b);
+  });
+  const int64_t lazy_peak = Graph() - graph_before;
+
+  EXPECT_LT(lazy_peak, retained_bytes / 8)
+      << "lazy sort must stay O(dim), not O(N*dim): lazy_peak=" << lazy_peak << " retained=" << retained_bytes;
+
+  // Correctness: the lazily-sorted embedding sequence equals the eager one (robust to ties).
+  std::vector<std::vector<float>> lazy_sorted;
+  lazy_sorted.reserve(verts.size());
+  for (auto &va : verts) {
+    ASSERT_TRUE(va.GetVectorInto(prop, buf_a));
+    lazy_sorted.emplace_back(buf_a.begin(), buf_a.end());
+  }
+  EXPECT_EQ(lazy_sorted, eager_sorted) << "lazy comparator must produce the same order as an eager sort";
 }
 
 #endif  // USE_JEMALLOC

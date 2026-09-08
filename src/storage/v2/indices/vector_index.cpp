@@ -339,6 +339,18 @@ utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *verte
   return vector;
 }
 
+bool VectorIndex::GetVectorInto(Vertex *vertex, std::string_view index_name, NameIdMapper *name_id_mapper,
+                                std::span<float> out) const {
+  auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
+  if (!maybe_id.has_value()) return false;
+  auto it = index_->find(*maybe_id);
+  if (it == index_->end()) return false;
+  auto &item_ptr = it->second;
+  auto guard = utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+  if (out.size() < item_ptr->mg_index.index.dimensions()) return false;
+  return item_ptr->mg_index.index.get(vertex, out.data());
+}
+
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(index_->size());

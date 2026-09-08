@@ -91,6 +91,12 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// PROTOTYPE (Variant 1): if `property` is a vector-index-backed embedding, reconstruct it into
+  /// the caller buffer `out` with zero allocation and return true; otherwise return false (the caller
+  /// falls back to GetProperty). Lets operators/serialization materialize the embedding transiently
+  /// without ever holding an owning PropertyValue. Reads committed base state (no delta resolution).
+  bool GetVectorInto(PropertyId property, std::span<float> out) const;
+
   /// Returns the size of the encoded vertex property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
