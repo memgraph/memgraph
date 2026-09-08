@@ -117,6 +117,10 @@ constexpr const char *kDuplicatesArg1 = "coll";
 constexpr const char *kProcedureFrequenciesAsMap = "frequencies_as_map";
 constexpr const char *kArgumentListFrequenciesAsMap = "coll";
 
+/* distinct constants */
+constexpr const char *kProcedureDistinct = "distinct";
+constexpr const char *kDistinctArg1 = "list";
+
 /* index_of constants */
 constexpr const char *kProcedureIndexOf = "index_of";
 constexpr const char *kIndexOfArg1 = "coll";
@@ -167,5 +171,7 @@ void Subtract(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_m
 void Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 void IndexOf(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void Distinct(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 }  // namespace Collections

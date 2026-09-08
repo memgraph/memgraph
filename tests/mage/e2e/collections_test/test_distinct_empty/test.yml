@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.distinct([]) AS result;
+
+output:
+  - result: []

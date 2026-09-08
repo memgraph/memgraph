@@ -578,10 +578,11 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   }
 }
 
-// NOLINTNEXTLINE(misc-unused-parameters)
-void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+namespace {
+// Drops repeats but keeps the first of each value, so [1, 1.0] stays [1] and [1.0, 1] stays [1.0].
+void DedupePreservingOrder(mgp_list *args, mgp_func_result *res, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
-  auto arguments = mgp::List(args);
+  const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
     if (arguments[0].IsNull()) {
@@ -589,18 +590,31 @@ void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
       return;
     }
     const mgp::List list = arguments[0].ValueList();
-    const std::unordered_set<mgp::Value> set(list.begin(), list.end());
 
-    mgp::List return_list;
-    for (const auto &elem : set) {
-      return_list.AppendExtend(elem);
+    std::unordered_set<mgp::Value> seen;
+    mgp::List deduped;
+    for (const auto &element : list) {
+      if (seen.insert(element).second) {
+        deduped.AppendExtend(element);
+      }
     }
-    result.SetValue(std::move(return_list));
+    result.SetValue(std::move(deduped));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
     return;
   }
+}
+}  // namespace
+
+// NOLINTNEXTLINE(misc-unused-parameters)
+void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  DedupePreservingOrder(args, res, memory);
+}
+
+// NOLINTNEXTLINE(misc-unused-parameters)
+void Collections::Distinct(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  DedupePreservingOrder(args, res, memory);
 }
 
 // NOLINTNEXTLINE(misc-unused-parameters)

@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.distinct([1, 1.0])[0] / 2 AS result;
+
+output:
+  - result: 0

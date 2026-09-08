@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.distinct(['b', 'a', 'b']) AS result;
+
+output:
+  - result: ['b', 'a']
