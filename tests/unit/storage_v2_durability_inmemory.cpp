@@ -3481,6 +3481,10 @@ TEST_P(DurabilityTest, PipelinedWalDeathResilience) {
       std::vector<std::thread> writers;
       for (int w = 0; w < kWriters; ++w) {
         writers.emplace_back([&, w] {
+          // Every thread that allocates on behalf of a database runs under its arena scope, as the interpreter's
+          // worker threads do; without it the deltas land in the thread's default jemalloc arena and the scoped GC
+          // thread's debug ownership check fires when it frees them.
+          const memgraph::memory::DbArenaScope writer_scope{&db.Arena()};
           for (int r = 0;; ++r) {
             auto acc = db.Access(memgraph::storage::WRITE);
             auto v = acc->FindVertex(gids[w], memgraph::storage::View::NEW);
