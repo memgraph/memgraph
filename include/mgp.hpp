@@ -1657,6 +1657,11 @@ class Value {
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
 
+  /// @brief Whether the two values are equal, a null on either side leaving the comparison undecided and
+  /// so reported as not equal. This is what `=` and `IN` do, so it is the relation to search a list by.
+  /// Differs from operator== only where a null is involved, directly or nested in a list or map.
+  bool DefinitelyEquals(const Value &other) const;
+
   bool operator<(const Value &other) const;
 
   friend std::ostream &operator<<(std::ostream &os, const mgp::Value &value);
@@ -2099,6 +2104,11 @@ TDest MemcpyCast(TSrc src) {
 /// the one to hash and dedupe by.
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2);
 
+/// @brief Returns whether two MGP API values are equal: a null on either side leaves the comparison
+/// undecided, which is reported as not equal. This is the relation `=` and `IN` use, so it is the one for
+/// searching a list for a value. Differs from ValuesEqual only where a null is involved.
+inline bool ValuesDefinitelyEqual(mgp_value *value1, mgp_value *value2);
+
 /// @brief Returns whether two MGP API lists are equivalent, treating any two nulls as the same value.
 inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   if (list1 == list2) {
@@ -2135,6 +2145,42 @@ inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
        item = mgp::map_items_iterator_next(items_it)) {
     auto *other_value = mgp::map_at(map2, mgp::map_item_key(item));
     equal = other_value != nullptr && util::ValuesEqual(mgp::map_item_value(item), other_value);
+  }
+  mgp::map_items_iterator_destroy(items_it);
+  return equal;
+}
+
+/// @brief Returns whether two MGP API lists are equal, leaving a comparison against null undecided.
+/// Unlike ListsEqual there is no identity shortcut, because a list holding a null is not equal to itself.
+inline bool ListsDefinitelyEqual(mgp_list *list1, mgp_list *list2) {
+  const size_t len = mgp::list_size(list1);
+  if (len != mgp::list_size(list2)) {
+    return false;
+  }
+  for (size_t i = 0; i < len; ++i) {
+    if (!util::ValuesDefinitelyEqual(mgp::list_at(list1, i), mgp::list_at(list2, i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// @brief Returns whether two MGP API maps are equal, leaving a comparison against null undecided.
+/// Differing key sets are still decidably unequal, so only a shared key holding a null is undecided.
+inline bool MapsDefinitelyEqual(mgp_map *map1, mgp_map *map2) {
+  const size_t size = mgp::map_size(map1);
+  if (size != mgp::map_size(map2)) {
+    return false;
+  }
+  if (size == 0) {
+    return true;
+  }
+  auto *items_it = mgp::MemHandlerCallback(map_iter_items, map1);
+  bool equal = true;
+  for (auto *item = mgp::map_items_iterator_get(items_it); item != nullptr && equal;
+       item = mgp::map_items_iterator_next(items_it)) {
+    auto *other_value = mgp::map_at(map2, mgp::map_item_key(item));
+    equal = other_value != nullptr && util::ValuesDefinitelyEqual(mgp::map_item_value(item), other_value);
   }
   mgp::map_items_iterator_destroy(items_it);
   return equal;
@@ -2268,6 +2314,23 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
       return util::EnumsEqual(mgp::value_get_enum(value1), mgp::value_get_enum(value2));
   }
   throw ValueException("Invalid value; does not match any Memgraph type.");
+}
+
+inline bool ValuesDefinitelyEqual(mgp_value *value1, mgp_value *value2) {
+  if (mgp::value_is_null(value1) || mgp::value_is_null(value2)) {
+    return false;
+  }
+  // Only lists and maps can nest a null, so every other type answers the same under both relations.
+  switch (mgp::value_get_type(value1)) {
+    case MGP_VALUE_TYPE_LIST:
+      return mgp::value_get_type(value2) == MGP_VALUE_TYPE_LIST &&
+             util::ListsDefinitelyEqual(mgp::value_get_list(value1), mgp::value_get_list(value2));
+    case MGP_VALUE_TYPE_MAP:
+      return mgp::value_get_type(value2) == MGP_VALUE_TYPE_MAP &&
+             util::MapsDefinitelyEqual(mgp::value_get_map(value1), mgp::value_get_map(value2));
+    default:
+      return util::ValuesEqual(value1, value2);
+  }
 }
 
 /// @brief Converts C++ API types to their MGP API equivalents.
@@ -4670,6 +4733,10 @@ inline bool Value::IsEnum() const { return mgp::value_is_enum(this->ptr()); }
 inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(this->ptr(), other.ptr()); }
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
+
+inline bool Value::DefinitelyEquals(const Value &other) const {
+  return util::ValuesDefinitelyEqual(this->ptr(), other.ptr());
+}
 
 inline bool Value::operator<(const Value &other) const {
   const mgp::Type &type = Type();

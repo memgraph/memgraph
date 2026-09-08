@@ -1885,3 +1885,47 @@ TYPED_TEST(CppApiTestFixture, TestMapHash) {
   values.insert(mgp::Value(SingleKeyMap("a", one)));
   ASSERT_EQ(values.size(), 3);
 }
+
+TYPED_TEST(CppApiTestFixture, TestValueDefinitelyEquals) {
+  const auto one = mgp::Value(int64_t{1});
+  const auto two = mgp::Value(int64_t{2});
+
+  // Away from null, equality answers exactly as equivalence does.
+  ASSERT_TRUE(one.DefinitelyEquals(mgp::Value(int64_t{1})));
+  ASSERT_TRUE(one.DefinitelyEquals(mgp::Value(1.0)));
+  ASSERT_FALSE(one.DefinitelyEquals(two));
+  ASSERT_FALSE(one.DefinitelyEquals(mgp::Value("1")));
+  ASSERT_TRUE(mgp::Value(TwoKeyMap()).DefinitelyEquals(mgp::Value(TwoKeyMap(true))));
+
+  // A null on either side leaves the comparison undecided, so it is not equal - not even to itself.
+  const auto null = mgp::Value();
+  ASSERT_FALSE(null.DefinitelyEquals(mgp::Value()));
+  ASSERT_FALSE(null.DefinitelyEquals(one));
+  ASSERT_FALSE(one.DefinitelyEquals(null));
+
+  // Nested nulls do the same, which is where equality parts from equivalence.
+  const auto null_valued = mgp::Value(SingleKeyMap("a", mgp::Value()));
+  ASSERT_EQ(null_valued, mgp::Value(SingleKeyMap("a", mgp::Value())));
+  ASSERT_FALSE(null_valued.DefinitelyEquals(mgp::Value(SingleKeyMap("a", mgp::Value()))));
+  // Differing key sets stay decidably unequal even with a null in play.
+  ASSERT_FALSE(null_valued.DefinitelyEquals(mgp::Value(SingleKeyMap("b", two))));
+
+  mgp::List with_null{};
+  with_null.AppendExtend(null);
+  mgp::List with_null_again{};
+  with_null_again.AppendExtend(null);
+  ASSERT_FALSE(mgp::Value(std::move(with_null)).DefinitelyEquals(mgp::Value(std::move(with_null_again))));
+
+  mgp::List plain{};
+  plain.AppendExtend(one);
+  mgp::List plain_again{};
+  plain_again.AppendExtend(one);
+  ASSERT_TRUE(mgp::Value(std::move(plain)).DefinitelyEquals(mgp::Value(std::move(plain_again))));
+
+  mgp::List longer{};
+  longer.AppendExtend(one);
+  longer.AppendExtend(two);
+  mgp::List shorter{};
+  shorter.AppendExtend(one);
+  ASSERT_FALSE(mgp::Value(std::move(longer)).DefinitelyEquals(mgp::Value(std::move(shorter))));
+}
