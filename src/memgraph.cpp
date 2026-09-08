@@ -864,6 +864,19 @@ int main(int argc, char **argv) {
     dbms_handler.emplace(db_config);
   }
 
+#ifdef MG_ENTERPRISE
+  // Parameters are keyed by database uuid, so a uuid this handler retires takes its parameters with it.
+  // Wired here, before the replication RPC server and the init file can drop a database: an unwired arm
+  // is an empty std::function, and a drop that finds one leaves the parameters behind for good.
+  // Enterprise-only: dropping a database and the in-place rebind Update performs on the default
+  // database are both enterprise paths.
+  if (dbms_handler.has_value()) {
+    dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
+      [[maybe_unused]] auto purged = parameters->DeleteScope(std::string{uuid});
+    });
+  }
+#endif
+
   memgraph::metrics::Metrics().SetStorageSnapshotResolver(
       [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
         if (!dbms_handler) return std::nullopt;
@@ -1012,17 +1025,6 @@ int main(int argc, char **argv) {
     dbms_handler->RestoreStreams(&interpreter_context_);
     spdlog::trace("Streams restored.");
   }
-
-#ifdef MG_ENTERPRISE
-  // Parameters are keyed by database uuid, so a uuid this handler retires takes its parameters with it.
-  // Enterprise-only: dropping a database and the in-place rebind Update performs on the default
-  // database are both enterprise paths.
-  if (dbms_handler.has_value()) {
-    dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
-      [[maybe_unused]] auto purged = parameters->DeleteScope(std::string{uuid});
-    });
-  }
-#endif
 
 #ifdef MG_ENTERPRISE
   // Hot/cold suspend/resume arms (multi-tenant). Wired unconditionally (not gated on recover_on_startup):
