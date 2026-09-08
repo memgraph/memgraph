@@ -1650,16 +1650,17 @@ class Value {
   /// @brief Returns whether the value is an @ref Enum object.
   bool IsEnum() const;
 
-  /// @brief Whether the two values are equivalent, treating any two nulls as the same value. This is what
-  /// DISTINCT and grouping do, and what std::hash<Value> agrees with, so it is the relation to dedupe by.
+  /// @brief Equivalence: what DISTINCT and grouping read, and what std::hash<Value> agrees with, so the
+  /// relation to dedupe by. Any two nulls are the same value. Despite the operator, this is not the
+  /// relation `=` reads - see DefinitelyEquals.
   /// @exception std::runtime_error Unknown value type.
   bool operator==(const Value &other) const;
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
 
-  /// @brief Whether the two values are equal, a null on either side leaving the comparison undecided and
-  /// so reported as not equal. This is what `=` and `IN` do, so it is the relation to search a list by.
-  /// Differs from operator== only where a null is involved, directly or nested in a list or map.
+  /// @brief Equality: what `=`, `<>` and `IN` read, so the relation to search a list by. A null on
+  /// either side leaves the comparison undecided, which is reported as not equal. Differs from
+  /// operator== only where a null is involved, directly or nested in a list or map.
   bool DefinitelyEquals(const Value &other) const;
 
   bool operator<(const Value &other) const;
@@ -2099,17 +2100,23 @@ TDest MemcpyCast(TSrc src) {
   return dest;
 }
 
-/// @brief Returns whether two MGP API values are equivalent: any two nulls count as the same value,
-/// whether directly or nested in a list or map. This is the relation DISTINCT and grouping use, so it is
-/// the one to hash and dedupe by.
+/// @brief Equivalence: the relation DISTINCT and grouping read, and the one a hash container is keyed
+/// by. Two-valued - a Null it holds equivalent to a Null, directly or nested in a list or map. Use it to
+/// dedupe and hash by; std::hash<mgp::Value> is the hash that agrees with it.
+///
+/// Named before the relations were told apart, so the name says "equal" where the relation is
+/// equivalence. The kernel spells this one Equivalent (src/query/relations/equivalence.hpp) and keeps
+/// Equal for the other relation, so the two names cross here. Read the relation, not the name.
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2);
 
-/// @brief Returns whether two MGP API values are equal: a null on either side leaves the comparison
-/// undecided, which is reported as not equal. This is the relation `=` and `IN` use, so it is the one for
-/// searching a list for a value. Differs from ValuesEqual only where a null is involved.
+/// @brief Equality: the relation `=`, `<>` and `IN` read, so the one to search a list for a value by. In
+/// the language it is three-valued - a comparison turning on a Null answers Null and decides nothing -
+/// and this collapses that to false, since an undecided element is not a match. Differs from ValuesEqual
+/// only where a Null is involved. The kernel's three-valued form is Equal
+/// (src/query/relations/equality.hpp).
 inline bool ValuesDefinitelyEqual(mgp_value *value1, mgp_value *value2);
 
-/// @brief Returns whether two MGP API lists are equivalent, treating any two nulls as the same value.
+/// @brief Returns whether two MGP API lists are equivalent, holding a null equivalent to a null.
 inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   if (list1 == list2) {
     return true;
@@ -2126,7 +2133,7 @@ inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   return true;
 }
 
-/// @brief Returns whether two MGP API maps are equivalent, treating any two nulls as the same value.
+/// @brief Returns whether two MGP API maps are equivalent, holding a null equivalent to a null.
 inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   if (map1 == map2) {
     return true;
