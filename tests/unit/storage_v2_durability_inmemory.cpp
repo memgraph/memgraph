@@ -27,6 +27,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <random>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -3436,6 +3437,140 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     ASSERT_TRUE(edge.has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+}
+
+// Pipelined-commit variant of WalDeathResilience: the child runs six pipelined writers with both experiment flags on
+// and is killed at a random point. The parent recovers and asserts every complete transaction is strictly ordered
+// with a valid CRC (an unfinished tail is tolerated) and that the recovered values form a prefix-consistent state.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, PipelinedWalDeathResilience) {
+#if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
+  GTEST_SKIP() << "fork() with TSAN is not supported when other threads are running";
+#endif
+  constexpr int kWriters = 6;
+  pid_t pid = fork();
+  if (pid == 0) {
+    {
+      memgraph::storage::Config config{
+          .durability = {.storage_directory = storage_directory,
+                         .snapshot_wal_mode =
+                             memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                         .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                         .wal_file_size_kibibytes = 64,
+                         .wal_file_flush_every_n_tx = 1},
+          .salient = {.items = {.properties_on_edges = GetParam(),
+                                .enable_schema_info = false,
+                                .storage_light_edge = GetParam().light_edge}},
+      };
+      config.experimental_lockfree_read_snapshot = true;
+      config.experimental_pipelined_commit = true;
+      memgraph::dbms::Database db{config};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      auto const prop = db.storage()->NameToProperty("p");
+      auto const writer_prop = db.storage()->NameToProperty("w");
+      std::vector<memgraph::storage::Gid> gids;
+      for (int w = 0; w < kWriters; ++w) {
+        auto acc = db.Access(memgraph::storage::WRITE);
+        auto v = acc->CreateVertex();
+        gids.push_back(v.Gid());
+        MG_ASSERT(v.SetProperty(writer_prop, memgraph::storage::PropertyValue(w)).has_value());
+        MG_ASSERT(v.SetProperty(prop, memgraph::storage::PropertyValue(-1)).has_value());
+        MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      std::vector<std::thread> writers;
+      for (int w = 0; w < kWriters; ++w) {
+        writers.emplace_back([&, w] {
+          for (int r = 0;; ++r) {
+            auto acc = db.Access(memgraph::storage::WRITE);
+            auto v = acc->FindVertex(gids[w], memgraph::storage::View::NEW);
+            MG_ASSERT(v.has_value());
+            MG_ASSERT(v->SetProperty(prop, memgraph::storage::PropertyValue(r)).has_value());
+            MG_ASSERT(v->SetProperty(db.storage()->NameToProperty("s"),
+                                     memgraph::storage::PropertyValue(std::string(200, 'x')))
+                          .has_value());
+            MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
+                      "Couldn't commit transaction!");
+          }
+        });
+      }
+      for (auto &t : writers) t.join();
+    }
+  } else if (pid > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500 + (std::random_device{}() % 1000)));
+    int status;
+    EXPECT_EQ(waitpid(pid, &status, WNOHANG), 0);
+    EXPECT_EQ(kill(pid, SIGKILL), 0);
+    EXPECT_EQ(waitpid(pid, &status, 0), pid);
+    EXPECT_NE(status, 0);
+  } else {
+    LOG_FATAL("Couldn't create process to execute test!");
+  }
+
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Every complete transaction in every WAL file is strictly ordered by commit timestamp with a valid CRC; only the
+  // last file may end in an unfinished tail.
+  {
+    using namespace memgraph::storage::durability;
+    auto wal_files = GetWalFiles(storage_directory / kWalDirectory);
+    ASSERT_TRUE(wal_files.has_value());
+    std::ranges::sort(*wal_files, [](auto const &a, auto const &b) { return a.seq_num < b.seq_num; });
+    std::vector<uint64_t> starts;
+    size_t complete = 0;
+    for (auto const &wal_file : *wal_files) {
+      Decoder wal;
+      auto const version = wal.Initialize(wal_file.path, kWalMagic);
+      ASSERT_TRUE(version.has_value());
+      auto const info = ReadWalHeader(wal_file.path);
+      wal.SetPosition(info.offset_deltas);
+      wal.ResetCrcAcc();
+      bool const last = &wal_file == &wal_files->back();
+      while (true) {
+        uint64_t timestamp = 0;
+        WalDeltaData delta_data;
+        try {
+          timestamp = ReadWalDeltaHeader(&wal);
+          delta_data = ReadWalDeltaData(&wal);
+        } catch (RecoveryFailure const &) {
+          ASSERT_TRUE(last) << "an unfinished tail is only tolerated in the last file";
+          break;
+        }
+        if (std::get_if<WalTransactionStart>(&delta_data.data_) != nullptr) starts.push_back(timestamp);
+        if (std::get_if<WalTransactionEnd>(&delta_data.data_) != nullptr) {
+          ASSERT_TRUE(memgraph::utils::CrcAccumulator::Verify(wal.CrcAccValue()));
+          wal.ResetCrcAcc();
+          ++complete;
+        }
+        if (wal.GetPosition() >= wal.GetSize()) break;
+      }
+    }
+    ASSERT_GT(complete, kWriters);
+    EXPECT_TRUE(std::ranges::is_sorted(starts));
+    EXPECT_TRUE(std::ranges::adjacent_find(starts) == starts.end());
+  }
+
+  // Recovered values: every writer's counter is a valid round and the writers' rounds differ by no more than the
+  // number of in-flight transactions the pipeline allows before publication (bounded by the writer count).
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = false,
+                            .storage_light_edge = GetParam().light_edge}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto acc = db.Access(memgraph::storage::WRITE);
+  auto const prop = db.storage()->NameToProperty("p");
+  size_t vertices = 0;
+  for (auto v : acc->Vertices(memgraph::storage::View::OLD)) {
+    ++vertices;
+    auto const value = v.GetProperty(prop, memgraph::storage::View::OLD);
+    ASSERT_TRUE(value.has_value());
+    ASSERT_TRUE(value->IsInt());
+    EXPECT_GE(value->ValueInt(), -1);
+  }
+  EXPECT_EQ(vertices, kWriters);
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
