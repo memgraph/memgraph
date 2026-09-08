@@ -1005,6 +1005,51 @@ enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex
 /// The current implementation always returns without errors.
 enum mgp_error mgp_graph_has_text_index(struct mgp_graph *graph, const char *index_name, int *result);
 
+/// Result is non-zero if a ready label-property index over (`label`, `property`) exists.
+enum mgp_error mgp_graph_has_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
+                                                  int *result);
+
+/// Bound inclusivity for a single side of a property range. A NULL value passed for that side means the
+/// side is unbounded and the bound type is ignored.
+MGP_ENUM_CLASS mgp_bound_type{
+    MGP_BOUND_TYPE_INCLUSIVE,
+    MGP_BOUND_TYPE_EXCLUSIVE,
+};
+
+/// A specification of per-property value ranges used to scan a label-property index. Build it with
+/// mgp_label_property_range_make, add one entry per property with mgp_label_property_range_add_property,
+/// then pass it to mgp_graph_vertices_by_label_property_range. A single entry targets a single-property
+/// index; multiple entries (in the order added) target a composite index over those properties.
+struct mgp_label_property_range;
+
+/// Create an empty label-property range specification.
+/// You need to free the created instance with mgp_label_property_range_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate.
+enum mgp_error mgp_label_property_range_make(struct mgp_memory *memory, struct mgp_label_property_range **result);
+
+/// Free the memory used by a mgp_label_property_range.
+void mgp_label_property_range_destroy(struct mgp_label_property_range *range);
+
+/// Append a property and its value range to the specification. `lower` / `upper` are copied; pass NULL for
+/// a side to leave it unbounded (its bound type is then ignored). The pair (`lower`, `upper`) with equal
+/// inclusive bounds expresses exact equality.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate.
+enum mgp_error mgp_label_property_range_add_property(struct mgp_label_property_range *range, const char *property,
+                                                     struct mgp_value *lower, enum mgp_bound_type lower_type,
+                                                     struct mgp_value *upper, enum mgp_bound_type upper_type);
+
+struct mgp_vertices_iterator;
+
+/// Start iterating over vertices with the given `label` whose properties fall within `range`.
+/// This is an index-only fast path: a ready label-property index over `label` and the range's properties
+/// must exist (check with mgp_graph_has_label_property_index); no internal scan fallback is performed.
+/// Resulting mgp_vertices_iterator needs to be deallocated with mgp_vertices_iterator_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_vertices_iterator.
+enum mgp_error mgp_graph_vertices_by_label_property_range(struct mgp_graph *graph, const char *label,
+                                                          struct mgp_label_property_range *range,
+                                                          struct mgp_memory *memory,
+                                                          struct mgp_vertices_iterator **result);
+
 /// Available modes of searching text indices.
 MGP_ENUM_CLASS text_search_mode{
     SPECIFIED_PROPERTIES,
