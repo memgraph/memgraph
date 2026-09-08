@@ -2157,15 +2157,18 @@ TYPED_TEST(FunctionTest, NullIf) {
   // A list is not equal to the scalar it holds, so the scalar stands.
   ASSERT_EQ(this->EvaluateFunction("NULLIF", 2, MakeTypedValueList(2)).ValueInt(), 2);
 
-  // Lists compare their elements by equivalence, under which a Null equals a Null, so a pair of lists
-  // holding Nulls in the same places is equal and gets taken away. Maps compare theirs by equality and
-  // read a Null answer as unequal, so the map stands. Both follow the `=` operator.
+  // A Null a container holds decides nothing either, so the container stands. Equality reaches into a
+  // container and stays three-valued there; see TypedValue.ContainerEqualityIsThreeValued.
   auto null_element = MakeTypedValueList(TypedValue());
-  ASSERT_TRUE(this->EvaluateFunction("NULLIF", null_element, MakeTypedValueList(TypedValue())).IsNull());
+  CompareList(this->EvaluateFunction("NULLIF", null_element, MakeTypedValueList(TypedValue())), null_element);
   auto trailing_null = MakeTypedValueList(1, TypedValue());
-  ASSERT_TRUE(this->EvaluateFunction("NULLIF", trailing_null, MakeTypedValueList(1, TypedValue())).IsNull());
+  CompareList(this->EvaluateFunction("NULLIF", trailing_null, MakeTypedValueList(1, TypedValue())), trailing_null);
   CompareList(this->EvaluateFunction("NULLIF", MakeTypedValueList(1), MakeTypedValueList(TypedValue())),
               MakeTypedValueList(1));
+  // A pair decided unequal still takes the list away from nothing, and answers false rather than Null.
+  CompareList(
+      this->EvaluateFunction("NULLIF", MakeTypedValueList(1, TypedValue()), MakeTypedValueList(2, TypedValue())),
+      MakeTypedValueList(1, TypedValue()));
 
   auto null_valued = TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue()}});
   ASSERT_TRUE(this->EvaluateFunction("NULLIF", null_valued, null_valued).IsMap());

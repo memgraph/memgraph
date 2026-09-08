@@ -24,8 +24,19 @@
 
 namespace memgraph::query::relations::equivalence {
 
+/// The two cases that walk what they hold, and so reach this relation again.
+///
+/// Out of line so that Equivalent does not call itself, and because equality answers Null for these
+/// where equivalence has to answer a bool, so they cannot be deferred to it.
+bool EquivalentOfContainers(const TypedValue &lhs, const TypedValue &rhs);
+
 inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
-  if (lhs.IsNull() && rhs.IsNull()) return true;
+  if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
+  // A container has to be walked here rather than by equality, which reads a Null it holds as
+  // undecided and answers Null. Equivalence decides: two Nulls in the same place are the same value.
+  if (lhs.type() == rhs.type() && (lhs.type() == TypedValue::Type::List || lhs.type() == TypedValue::Type::Map)) {
+    return EquivalentOfContainers(lhs, rhs);
+  }
   TypedValue equality_result = equality::Equal(lhs, rhs);
   DMG_ASSERT(equality_result.type() == TypedValue::Type::Bool || equality_result.type() == TypedValue::Type::Null,
              "Equality between two TypedValues must result in either Null or Bool");

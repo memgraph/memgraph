@@ -30,6 +30,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/name_id_mapper.hpp"
@@ -478,14 +479,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         const auto &cached_value = cached_value_ref->get();
 
-        if (cached_value.Contains(literal)) {
-          return TypedValue(true, ctx_->memory);
+        // The set is keyed by equivalence, so it can only stand in for the equality tests below while
+        // neither side holds a Null it would report equal where equality leaves the pair undecided.
+        // Where one does, the scan is the only thing that answers, so fall through to it.
+        if (cached_value.AnswersEquality() && relations::equality::DecidedByEquality(literal)) {
+          if (cached_value.Contains(literal)) {
+            return TypedValue(true, ctx_->memory);
+          }
+          // has null
+          if (cached_value.Contains(TypedValue(ctx_->memory))) {
+            return TypedValue(ctx_->memory);
+          }
+          return TypedValue(false, ctx_->memory);
         }
-        // has null
-        if (cached_value.Contains(TypedValue(ctx_->memory))) {
-          return TypedValue(ctx_->memory);
-        }
-        return TypedValue(false, ctx_->memory);
       }
     }
     // When caching is not an option, we need to evaluate list literal every time

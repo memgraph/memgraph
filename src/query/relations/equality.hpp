@@ -33,6 +33,13 @@ namespace memgraph::query::relations::equality {
 /// function that recurses, whichever case reaches the recursion.
 TypedValue EqualOfContainers(const TypedValue &a, const TypedValue &b);
 
+/// Whether equality decides this value against any other, i.e. whether it holds no Null at any depth.
+///
+/// A hash container is keyed by equivalence, which holds a Null equivalent to a Null where equality
+/// leaves that pair undecided. A lookup in one can therefore stand in for an equality test only for a
+/// value this holds for.
+bool DecidedByEquality(const TypedValue &value);
+
 /// Whether two values are equal, or Null where that cannot be decided.
 ///
 /// The answer carries the memory resource `a` was allocated from, since the two

@@ -212,6 +212,68 @@ TEST(TypedValue, Equals) {
   EXPECT_PROP_NE(point_1, point_4);
 }
 
+namespace {
+TypedValue List(std::vector<TypedValue> elements) { return TypedValue(std::move(elements)); }
+
+TypedValue Map(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
+
+TypedValue Null() { return TypedValue(); }
+}  // namespace
+
+// Equality is three-valued through a container too: a Null an element holds leaves the comparison
+// undecided, exactly as it would outside the container. A shape that differs, or a pair that is
+// decided unequal, still answers false — neither of those needs the undecided pairs looked at.
+TEST(TypedValue, ContainerEqualityIsThreeValued) {
+  // Undecided: every pair is equal or Null, and at least one is Null.
+  EXPECT_PROP_ISNULL(List({Null()}) == List({Null()}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1), Null()}) == List({TypedValue(1), Null()}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1)}) == List({Null()}));
+  EXPECT_PROP_ISNULL(List({List({Null()})}) == List({List({Null()})}));
+  EXPECT_PROP_ISNULL(Map({{"a", Null()}}) == Map({{"a", Null()}}));
+  EXPECT_PROP_ISNULL(Map({{"a", List({Null()})}}) == Map({{"a", List({Null()})}}));
+  EXPECT_PROP_ISNULL(List({Map({{"a", Null()}})}) == List({Map({{"a", Null()}})}));
+
+  // A pair decided unequal wins over any undecided pair, whichever side of it that pair sits.
+  EXPECT_PROP_FALSE(List({TypedValue(1), Null()}) == List({TypedValue(2), Null()}));
+  EXPECT_PROP_FALSE(List({Null(), TypedValue(1)}) == List({Null(), TypedValue(2)}));
+  EXPECT_PROP_FALSE(Map({{"a", TypedValue(1)}, {"b", Null()}}) == Map({{"a", TypedValue(2)}, {"b", Null()}}));
+
+  // A shape that differs is decided, Nulls or not.
+  EXPECT_PROP_FALSE(List({Null()}) == List({Null(), Null()}));
+  EXPECT_PROP_FALSE(Map({{"a", Null()}}) == Map({{"b", Null()}}));
+  EXPECT_PROP_FALSE(Map({{"a", Null()}}) == Map({{"a", Null()}, {"b", Null()}}));
+  EXPECT_PROP_FALSE(List({TypedValue(2)}) == TypedValue(2));
+
+  // Without a Null the answer is decided as before.
+  EXPECT_PROP_TRUE(List({TypedValue(1), TypedValue(2)}) == List({TypedValue(1), TypedValue(2)}));
+  EXPECT_PROP_TRUE(List({}) == List({}));
+  EXPECT_PROP_TRUE(Map({}) == Map({}));
+  EXPECT_PROP_FALSE(List({TypedValue(1)}) == List({TypedValue(2)}));
+
+  // `<>` negates it, so an undecided pair leaves that undecided too.
+  EXPECT_PROP_ISNULL(List({Null()}) != List({Null()}));
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) != List({TypedValue(2)}));
+}
+
+// Equivalence stays two-valued where equality is not, since grouping and DISTINCT have to place every
+// row: two Nulls in the same position are the same value, however deeply they are held.
+TEST(TypedValue, ContainerEquivalenceIsTwoValued) {
+  auto eq = TypedValue::BoolEqual{};
+  EXPECT_TRUE(eq(List({Null()}), List({Null()})));
+  EXPECT_TRUE(eq(List({TypedValue(1), Null()}), List({TypedValue(1), Null()})));
+  EXPECT_TRUE(eq(List({List({Null()})}), List({List({Null()})})));
+  EXPECT_TRUE(eq(Map({{"a", Null()}}), Map({{"a", Null()}})));
+  EXPECT_TRUE(eq(Map({{"a", List({Null()})}}), Map({{"a", List({Null()})}})));
+  EXPECT_FALSE(eq(List({TypedValue(1)}), List({Null()})));
+  EXPECT_FALSE(eq(List({Null()}), List({Null(), Null()})));
+  EXPECT_FALSE(eq(Map({{"a", Null()}}), Map({{"b", Null()}})));
+
+  // A hash has to agree with the relation, or a lookup misses.
+  auto hash = TypedValue::Hash{};
+  EXPECT_EQ(hash(List({Null()})), hash(List({Null()})));
+  EXPECT_EQ(hash(Map({{"a", Null()}})), hash(Map({{"a", Null()}})));
+}
+
 TEST(TypedValue, Comparison) {
   auto run_comparison_cases = [](const TypedValue &lesser, const TypedValue &greater) {
     EXPECT_PROP_TRUE(lesser < greater);
@@ -782,13 +844,12 @@ TYPED_TEST(AllTypesFixture, CopyConstruction) {
       EXPECT_PROP_ISNULL(cpy);
     } else if (value.IsGraph()) {
       // not comparable
-    } else if (value.IsMap()) {
-      // map contains NULL so can't be true
-      auto res = cpy == value;
-      // THIS IS NOT THE SAME AS NEO4J
-      // NEO4J returns NULL
-      ASSERT_EQ(res.type(), TypedValue::Type::Bool);
-      ASSERT_EQ(res.ValueBool(), false);
+    } else if (value.IsList() || value.IsMap()) {
+      // Both containers in this set hold a Null, and equality reaching it leaves the comparison
+      // undecided, so a copy does not compare equal to what it was copied from. Equivalence is the
+      // relation that has to decide, and it holds the two the same.
+      EXPECT_PROP_ISNULL(cpy == value);
+      EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value));
     } else {
       EXPECT_PROP_EQ(cpy, value);
     }
