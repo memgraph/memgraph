@@ -339,9 +339,8 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 }
 
-// Parameters are keyed by database uuid. Rebinding the default database's uuid retires the old one,
-// so its parameters have to go with it: nothing reads them afterwards, and they would otherwise sit
-// in the store and be re-exported to every replica by the next recovery snapshot.
+// Rebinding the default database's uuid retires the old one. Rows left under it are unreachable, and
+// the next recovery snapshot re-exports them to every replica.
 TEST_F(MultiTenantTest, UpdateDiscardsRetiredUuidsParameters) {
   auto &dbms = DBMS();
   WireParameterPurge();
@@ -404,8 +403,7 @@ TEST_F(MultiTenantTest, ForcedDeleteDiscardsDroppedDatabasesParameters) {
   EXPECT_EQ(Parameters().GetParameter("global", memgraph::parameters::kGlobalScope), R"("g")");
 }
 
-// DROP DATABASE without FORCE takes TryDelete, a separate path from the forced Delete above, and it
-// retires the uuid just as completely. A HOT tenant dropped this way must lose its parameters too.
+// DROP DATABASE without FORCE takes TryDelete, a different path from the forced Delete above.
 TEST_F(MultiTenantTest, TryDeleteDiscardsDroppedDatabasesParameters) {
   auto &dbms = DBMS();
   WireParameterPurge();

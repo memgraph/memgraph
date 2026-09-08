@@ -289,9 +289,8 @@ TEST_F(HotColdSuspend, DropColdTenantCleansUp) {
   EXPECT_TRUE(recreate.has_value()) << "name must be reusable after dropping the cold tenant";
 }
 
-// Parameters are keyed by database uuid, so every path that retires one has to announce it or the
-// rows outlive the database. Dropping a COLD tenant is such a path, and it is the only one that does
-// not go through Delete_ or TryDelete.
+// Dropping a COLD tenant retires its uuid through DeleteCold_, the one such path that goes through
+// neither Delete_ nor TryDelete. Parameters keyed by that uuid have to go with it.
 TEST_F(HotColdSuspend, DropColdTenantRetiresItsUuid) {
   auto name = CreateTenant("drop_cold_uuid");
   memgraph::utils::UUID uuid;
