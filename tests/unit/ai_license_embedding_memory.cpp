@@ -558,6 +558,9 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThrou
 
   // (b) DISTINCT dedups via a lazy hash set: VectorRef keys, transient hash/equality. The populated
   //     data has 7 distinct vectors (value == i%7), so a bounded run yields exactly 7 rows.
+  // Purge jemalloc's dirty-page slack left by the prior query so each sub-query runs with fresh
+  // headroom under the fixed cap (the tracker is extent-commit granular; freed memory lingers as slack).
+  memgraph::memory::PurgeUnusedMemory();
   {
     auto stream = faker.Interpret("MATCH (n) RETURN DISTINCT n.emb AS e");
     EXPECT_EQ(stream.GetResults().size(), 7u)
@@ -565,7 +568,57 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThrou
   }
 
   // (c) RETURN n.emb retains a materialised embedding per row in the result stream -> blows the cap.
+  memgraph::memory::PurgeUnusedMemory();
   EXPECT_THROW(faker.Interpret("MATCH (n) RETURN n.emb"), memgraph::utils::OutOfMemoryException);
+}
+
+// ---------------------------------------------------------------------------
+// 8. Variant 1 map-projection round-trip: `n{.*}` reads properties WITHOUT reconstructing embeddings
+//    (they stay compact VectorIndexId references) and wraps each as a lazy VectorRef inside the map.
+//    Serialising the map must still yield the full embedding — this proves the no-decoder read + the
+//    VectorRef wrap + Bolt materialisation are correct end-to-end (a broken lazy path would surface an
+//    empty list here). Small/fast dataset; correctness only, no memory cap.
+// ---------------------------------------------------------------------------
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_MapProjectionMaterialisesFullEmbedding) {
+  auto gk = MakeDb("t8");
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(MakeConfig(data_dir_ / "t8"))};
+  memgraph::dbms::DatabaseAccess db = [&]() {
+    auto a = gk->access();
+    MG_ASSERT(a, "db access");
+    return *a;
+  }();
+  auto label = db->storage()->NameToLabel("Doc");
+  auto prop = db->storage()->NameToProperty("emb");
+  Populate(db.get(), label, prop, kNumVertices, kDim);
+  CreateIndex(db.get(), label, prop, kDim, kNumVertices);
+
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          kNoHandler,
+                                                          &repl_state,
+                                                          system_state,
+                                                          nullptr
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr,
+                                                          nullptr
+#endif
+  };
+  InterpreterFaker faker{&interpreter_context, db};
+
+  auto stream = faker.Interpret("MATCH (n) RETURN n{.*} AS m");
+  ASSERT_EQ(stream.GetResults().size(), static_cast<size_t>(kNumVertices));
+  for (const auto &row : stream.GetResults()) {
+    const auto &m = row[0].ValueMap();
+    auto it = m.find("emb");
+    ASSERT_NE(it, m.end()) << "n{.*} must include the embedding property";
+    const auto &emb = it->second.ValueList();
+    // A broken lazy path would hand back an empty (un-reconstructed) list; the full vector must survive.
+    EXPECT_EQ(emb.size(), static_cast<size_t>(kDim)) << "lazy map embedding must materialise to full dimension";
+  }
 }
 
 #endif  // USE_JEMALLOC

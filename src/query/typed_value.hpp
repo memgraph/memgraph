@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "query/path.hpp"
@@ -37,11 +38,11 @@ class VirtualGraph;  // fwd declare
 class VirtualEdge;   // fwd declare
 class VirtualNode;   // fwd declare
 
-/// Lazy handle for a vector-index embedding stored as a VectorIndexId reference.
-/// Holds a copy of the storage accessor (trivially copyable) and the property id.
-/// No floats are reconstructed until MaterializeVectorRef() is called.
+/// Lazy handle for a vector-index embedding stored as a VectorIndexId reference. Holds a copy of the
+/// storage accessor (vertex or edge; both trivially copyable) and the property id. No floats are
+/// reconstructed until MaterializeVectorRef() / MaterializeVectorRefInto() is called.
 struct LazyVectorRef {
-  storage::VertexAccessor vertex;
+  std::variant<storage::VertexAccessor, storage::EdgeAccessor> entity;
   storage::PropertyId prop;
 };
 

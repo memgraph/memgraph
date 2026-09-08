@@ -19,6 +19,7 @@
 #include <nlohmann/json.hpp>
 #include <string_view>
 #include <utility>
+#include <variant>
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
@@ -1039,7 +1040,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(LazyVectorRef, VectorRef, vector_ref_v)
 TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRef called on non-VectorRef TypedValue");
   std::vector<float> tmp;
-  vector_ref_v.vertex.GetVectorInto(vector_ref_v.prop, tmp);
+  std::visit([&](auto const &acc) { acc.GetVectorInto(vector_ref_v.prop, tmp); }, vector_ref_v.entity);
   TVector list(alloc);
   list.reserve(tmp.size());
   for (float f : tmp) {
@@ -1051,7 +1052,7 @@ TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
 
 void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRefInto called on non-VectorRef TypedValue");
-  vector_ref_v.vertex.GetVectorInto(vector_ref_v.prop, out);
+  std::visit([&](auto const &acc) { acc.GetVectorInto(vector_ref_v.prop, out); }, vector_ref_v.entity);
 }
 
 bool TypedValue::ContainsDeleted() const {

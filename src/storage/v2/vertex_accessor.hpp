@@ -106,7 +106,9 @@ class VertexAccessor final {
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+  /// When `with_vector_reconstruction` is false, vector-index embeddings are returned as their compact
+  /// VectorIndexId reference (empty float list) instead of being reconstructed — the lazy read path.
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view, bool with_vector_reconstruction = true) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,

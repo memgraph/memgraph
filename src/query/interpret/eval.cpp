@@ -148,16 +148,28 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Null:
       return TypedValue(ctx_->memory);
     case TypedValue::Type::Vertex: {
-      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueVertex())) {
-        auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
-        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
+      const auto &vertex = expression_result.ValueVertex();
+      for (const auto &[property_id, value] : GetAllProperties(vertex)) {
+        auto key = TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory);
+        // Keep embeddings lazy in the projected map: a map retained by collect / ORDER BY then holds
+        // O(refs), not O(N*dim) floats. Materialization happens only at compare/hash/serialize.
+        if (value.IsVectorIndexId()) {
+          result.emplace(std::move(key), TypedValue(LazyVectorRef{vertex.impl_, property_id}, ctx_->memory));
+        } else {
+          result.emplace(std::move(key), TypedValue(value, GetNameIdMapper(), ctx_->memory));
+        }
       }
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Edge: {
-      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueEdge())) {
-        auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
-        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
+      const auto &edge = expression_result.ValueEdge();
+      for (const auto &[property_id, value] : GetAllProperties(edge)) {
+        auto key = TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory);
+        if (value.IsVectorIndexId()) {
+          result.emplace(std::move(key), TypedValue(LazyVectorRef{edge.impl_, property_id}, ctx_->memory));
+        } else {
+          result.emplace(std::move(key), TypedValue(value, GetNameIdMapper(), ctx_->memory));
+        }
       }
       return {result, ctx_->memory};
     }
@@ -442,7 +454,13 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
         auto property_id = ctx_->properties[property_lookup.property_.ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
+          const auto &cached = property_lookup_cache_[symbol_pos][property_id];
+          // GetAllProperties left embeddings as references; hand back a lazy VectorRef, not an
+          // (empty) reconstructed list.
+          if (cached.IsVectorIndexId()) {
+            return TypedValue(LazyVectorRef{expression_result_ptr->ValueVertex().impl_, property_id}, ctx_->memory);
+          }
+          return {cached, GetNameIdMapper(), ctx_->memory};
         }
         return TypedValue(ctx_->memory);
       } else {
@@ -464,13 +482,20 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
         auto property_id = ctx_->properties[property_lookup.property_.ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
+          const auto &cached = property_lookup_cache_[symbol_pos][property_id];
+          if (cached.IsVectorIndexId()) {
+            return TypedValue(LazyVectorRef{expression_result_ptr->ValueEdge().impl_, property_id}, ctx_->memory);
+          }
+          return {cached, GetNameIdMapper(), ctx_->memory};
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
-                GetNameIdMapper(),
-                ctx_->memory};
+        auto raw_prop = GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_);
+        if (raw_prop.IsVectorIndexId()) {
+          const auto prop_id = ctx_->properties[property_lookup.property_.ix];
+          return TypedValue(LazyVectorRef{expression_result_ptr->ValueEdge().impl_, prop_id}, ctx_->memory);
+        }
+        return TypedValue(std::move(raw_prop), GetNameIdMapper(), ctx_->memory);
       }
     case TypedValue::Type::VirtualEdge: {
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);

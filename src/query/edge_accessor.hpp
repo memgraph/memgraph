@@ -29,7 +29,9 @@ class EdgeAccessor final {
 
   storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
 
-  auto Properties(storage::View view) const { return impl_.Properties(view); }
+  auto Properties(storage::View view, bool with_vector_reconstruction = true) const {
+    return impl_.Properties(view, with_vector_reconstruction);
+  }
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(key, view);

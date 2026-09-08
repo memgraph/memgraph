@@ -460,7 +460,9 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto *dba = ctx.db_accessor;
   auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
+    // Read without reconstructing embeddings; wrap each as a lazy VectorRef so a retained properties()
+    // map costs O(references), not O(N*dim) floats.
+    auto maybe_props = record_accessor.Properties(ctx.view, /*with_vector_reconstruction=*/false);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -476,9 +478,14 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     for (const auto &property : *maybe_props) {
       auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
       if (is_allowed(property.first)) {
-        auto typed_value =
-            TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-        properties.emplace(std::move(key), std::move(typed_value));
+        if (property.second.IsVectorIndexId()) {
+          properties.emplace(std::move(key),
+                             TypedValue(LazyVectorRef{record_accessor.impl_, property.first}, ctx.memory));
+        } else {
+          auto typed_value =
+              TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+          properties.emplace(std::move(key), std::move(typed_value));
+        }
       } else {
         properties.emplace(std::move(key), TypedValue(ctx.memory));
       }

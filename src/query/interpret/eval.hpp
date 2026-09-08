@@ -1228,7 +1228,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  private:
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
-    auto maybe_props = record_accessor.Properties(view_);
+    // Read WITHOUT reconstructing vector embeddings: they come back as compact VectorIndexId
+    // references and the caller (AllPropertiesLookup) wraps each as a lazy VectorRef, so a projected
+    // map never materialises O(dim) floats per property. Non-embedding properties are unaffected.
+    auto maybe_props = record_accessor.Properties(view_, /*with_vector_reconstruction=*/false);
     if (maybe_props == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
