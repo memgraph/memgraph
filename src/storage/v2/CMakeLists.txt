@@ -7,6 +7,7 @@ target_sources(mg-storage-v2
         async_indexer.cpp
         commit_args.cpp
         commit_log.cpp
+        commit_order_gate.cpp
         config.cpp
         constraint_verification_info.cpp
         delta.cpp

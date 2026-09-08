@@ -872,6 +872,12 @@ add_unit_test(storage_v2_wal_file
     LINK_TARGETS mg::storage storage_test_utils fmt::fmt
 )
 
+add_unit_test(storage_v2_commit_order_gate
+    SOURCES storage_v2_commit_order_gate.cpp
+    LINK_TARGETS mg::storage
+    CUSTOM_MAIN
+)
+
 add_unit_test(storage_v2_buffer_encoder
     SOURCES storage_v2_buffer_encoder.cpp
     LINK_TARGETS mg::storage storage_test_utils
