@@ -701,7 +701,7 @@ TypedValue::operator storage::ExternalPropertyValue() const {
       MaterializeVectorRefInto(tmp);
       std::vector<storage::ExternalPropertyValue> list;
       list.reserve(tmp.size());
-      for (float f : tmp) list.emplace_back(static_cast<double>(f));
+      for (const float f : tmp) list.emplace_back(static_cast<double>(f));
       return storage::ExternalPropertyValue(std::move(list));
     }
     case Type::Vertex:
@@ -985,7 +985,7 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       MaterializeVectorRefInto(tmp);
       storage::PropertyValue::list_t list;
       list.reserve(tmp.size());
-      for (float f : tmp) list.emplace_back(static_cast<double>(f));
+      for (const float f : tmp) list.emplace_back(static_cast<double>(f));
       return storage::PropertyValue(storage::DoubleListTag{}, std::move(list));
     }
     case Type::Vertex:
@@ -1060,11 +1060,11 @@ TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
   std::visit([&](auto const &acc) { acc.GetVectorInto(vector_ref_v.prop, tmp); }, vector_ref_v.entity);
   TVector list(alloc);
   list.reserve(tmp.size());
-  for (float f : tmp) {
+  for (const float f : tmp) {
     // The pmr vector injects its own allocator (uses_allocator); do not pass it explicitly.
     list.emplace_back(static_cast<double>(f));
   }
-  return TypedValue(std::move(list), alloc);
+  return {std::move(list), alloc};
 }
 
 void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
