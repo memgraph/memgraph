@@ -322,6 +322,34 @@ std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcep
   return std::chrono::microseconds{clamped};
 }
 
+uint32_t PriorityThreadPool::AdmissionRescheduleCap() const noexcept {
+  // All reads are relaxed: this is a heuristic pressure signal, not a synchronisation barrier.
+  const uint64_t pool = GetNumWorkers();
+  const uint64_t free = FreeWorkers();
+  const uint64_t backlog = QueuedProductiveTasks();
+
+  // Scarce-worker fast path: fewer than 10% workers idle → park immediately (core is precious).
+  if (free * 10 < pool) return kRescheduleCapMin;
+
+  // No-pressure fast path: ≥10% workers idle and backlog empty → maximum reschedule budget.
+  if (backlog == 0) return kRescheduleCapMax;
+
+  // Linear interpolation from kRescheduleCapMax down toward kRescheduleCapMin as backlog fills the pool.
+  // fraction = min(backlog, pool) / pool  — clamped to [0, 1] using integer arithmetic only.
+  // safe_pool guards the division; pool >= 1 is guaranteed by the constructor MG_ASSERT.
+  // PROVISIONAL: the exact slope and threshold constants are perf-tunable.
+  const uint64_t safe_pool = pool > 0 ? pool : 1;
+  const uint64_t clamped_backlog = backlog < safe_pool ? backlog : safe_pool;
+  const uint32_t range = kRescheduleCapMax - kRescheduleCapMin;
+  const uint32_t reduction = static_cast<uint32_t>((clamped_backlog * range) / safe_pool);
+  const uint32_t cap = kRescheduleCapMax > reduction ? kRescheduleCapMax - reduction : kRescheduleCapMin;
+
+  // Final clamp: protect against any arithmetic edge case.
+  if (cap < kRescheduleCapMin) return kRescheduleCapMin;
+  if (cap > kRescheduleCapMax) return kRescheduleCapMax;
+  return cap;
+}
+
 void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline,
                                        WaitTag tag) {
   std::unique_lock lk{parked_mtx_};
