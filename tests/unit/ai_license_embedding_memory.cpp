@@ -491,4 +491,81 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1_LazySortBoundedVsEagerSort) {
   EXPECT_EQ(lazy_sorted, eager_sorted) << "lazy comparator must produce the same order as an eager sort";
 }
 
+// ---------------------------------------------------------------------------
+// 7. Variant 1 end-to-end through the real interpreter. With the lazy embedding TypedValue (VectorRef)
+//    flowing out of PropertyLookup, an accumulating operator that would blow the AI_PLATFORM graph cap
+//    if it materialised every embedding stays bounded: it buffers only cheap references and materialises
+//    O(dim) transiently inside its comparator / hasher. Under a graph limit far below the total
+//    embedding footprint, driven through the real query engine:
+//      (a) ORDER BY n.emb  -> lazy sort keys + transient compare  -> SUCCEEDS (bounded).
+//      (b) DISTINCT n.emb  -> lazy set keys + transient hash/==    -> SUCCEEDS (bounded).
+//      (c) RETURN n.emb    -> result stream retains every materialised embedding -> ABORTS.
+//    (c) is the customer symptom, and it anchors that the cap is genuinely below O(N*dim), so (a)/(b)
+//    passing under the same cap is a real boundedness result, not a slack cap.
+// ---------------------------------------------------------------------------
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThroughInterpreter) {
+  auto gk = MakeDb("t7");
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(MakeConfig(data_dir_ / "t7"))};
+  memgraph::dbms::DatabaseAccess db = [&]() {
+    auto a = gk->access();
+    MG_ASSERT(a, "db access");
+    return *a;
+  }();
+  auto label = db->storage()->NameToLabel("Doc");
+  auto prop = db->storage()->NameToProperty("emb");
+  Populate(db.get(), label, prop, kNumVerticesBig, kDimBig);
+  CreateIndex(db.get(), label, prop, kDimBig, kNumVerticesBig);
+
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          kNoHandler,
+                                                          &repl_state,
+                                                          system_state,
+                                                          nullptr
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr,
+                                                          nullptr
+#endif
+  };
+  InterpreterFaker faker{&interpreter_context, db};
+
+  const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
+  // Headroom sits ABOVE the O(N) reference caches an ORDER BY / DISTINCT over kNumVerticesBig rows
+  // holds (~a few MiB of cheap VectorRef / vertex handles) but well BELOW the O(N*dim) cost of
+  // materialising every embedding (retained_bytes). That gap is exactly the lazy-value win.
+  const int64_t headroom = 8 * kOneMiB;
+  Stabilize(db.get());
+  const int64_t limit = Graph() + headroom;
+  ASSERT_GT(retained_bytes, headroom + 2 * kOneMiB)
+      << "materialising every embedding must exceed the cap, so (c) is a real abort";
+
+  // AI_PLATFORM: only graph memory is capped; the (larger) embedding index is exempt.
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::AI_PLATFORM, limit);
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler enabler;
+
+  // (a) ORDER BY buffers cheap VectorRef sort keys and materialises O(dim) transiently in the
+  //     comparator. LIMIT keeps the ordering from being optimised away; count proves every row sorted.
+  {
+    auto stream = faker.Interpret("MATCH (n) WITH n ORDER BY n.emb LIMIT 1000000 RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1u);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), kNumVerticesBig)
+        << "every row was sorted by its embedding without exceeding the AI graph cap";
+  }
+
+  // (b) DISTINCT dedups via a lazy hash set: VectorRef keys, transient hash/equality. The populated
+  //     data has 7 distinct vectors (value == i%7), so a bounded run yields exactly 7 rows.
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN DISTINCT n.emb AS e");
+    EXPECT_EQ(stream.GetResults().size(), 7u)
+        << "DISTINCT over embeddings deduped via lazy hash/equality without exceeding the AI graph cap";
+  }
+
+  // (c) RETURN n.emb retains a materialised embedding per row in the result stream -> blows the cap.
+  EXPECT_THROW(faker.Interpret("MATCH (n) RETURN n.emb"), memgraph::utils::OutOfMemoryException);
+}
+
 #endif  // USE_JEMALLOC

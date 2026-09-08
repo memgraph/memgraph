@@ -42,6 +42,18 @@ TypedValue EqualOfContainers(const TypedValue &a, const TypedValue &b);
 inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.get_allocator());
 
+  // Lazy embedding refs: compare two embeddings via reused thread-local float buffers (never the query
+  // arena). Mixed operands fall back to a transient List materialization.
+  if (a.IsVectorRef() && b.IsVectorRef()) {
+    thread_local std::vector<float> fa;
+    thread_local std::vector<float> fb;
+    a.MaterializeVectorRefInto(fa);
+    b.MaterializeVectorRefInto(fb);
+    return TypedValue(fa == fb, a.get_allocator());
+  }
+  if (a.IsVectorRef()) return a.MaterializeVectorRef(a.get_allocator()) == b;
+  if (b.IsVectorRef()) return a == b.MaterializeVectorRef(b.get_allocator());
+
   // check we have values that can be compared
   // this means that either they're the same type, or (int, double) combo
   if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric()))) return TypedValue(false, a.get_allocator());
@@ -96,6 +108,9 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Function:
     case TypedValue::Type::Null:
       LOG_FATAL("Unhandled comparison for types");
+    case TypedValue::Type::VectorRef:
+      // Materialized above before reaching this switch; unreachable in practice.
+      LOG_FATAL("Unhandled VectorRef in equality::Equal");
   }
 }
 

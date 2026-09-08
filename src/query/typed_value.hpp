@@ -37,6 +37,14 @@ class VirtualGraph;  // fwd declare
 class VirtualEdge;   // fwd declare
 class VirtualNode;   // fwd declare
 
+/// Lazy handle for a vector-index embedding stored as a VectorIndexId reference.
+/// Holds a copy of the storage accessor (trivially copyable) and the property id.
+/// No floats are reconstructed until MaterializeVectorRef() is called.
+struct LazyVectorRef {
+  storage::VertexAccessor vertex;
+  storage::PropertyId prop;
+};
+
 namespace {
 template <typename T>
 concept TypedValueValidPrimativeType =
@@ -111,7 +119,8 @@ class TypedValue {
     Point2d,
     Point3d,
     VirtualEdge,
-    VirtualNode
+    VirtualNode,
+    VectorRef
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -211,6 +220,10 @@ class TypedValue {
 
   explicit TypedValue(const storage::Point3d &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Point3d) {
     point_3d_v = value;
+  }
+
+  explicit TypedValue(LazyVectorRef ref, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VectorRef) {
+    vector_ref_v = ref;
   }
 
   // conversion function to storage::ExternalPropertyValue
@@ -536,9 +549,21 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(LazyVectorRef, VectorRef, vector_ref_v)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
 #undef DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
+
+  /// Reconstruct the referenced embedding into a TypedValue::List of Doubles.
+  /// Transient: the returned list is freed when the TypedValue goes out of scope.
+  /// Must only be called when type() == Type::VectorRef.
+  TypedValue MaterializeVectorRef(allocator_type alloc) const;
+
+  /// Reconstruct the referenced embedding into a caller-owned float buffer (std::allocator).
+  /// This is the allocation-free path for the hot compare / hash / equality routines: the buffer
+  /// frees at the caller's scope, so it never accumulates in the query's monotonic arena the way a
+  /// materialized pmr List would. Must only be called when type() == Type::VectorRef.
+  void MaterializeVectorRefInto(std::vector<float> &out) const;
 
   bool ContainsDeleted() const;
 
@@ -794,6 +819,8 @@ class TypedValue {
     std::function<void(TypedValue *)> function_v;
     std::unique_ptr<VirtualEdge> virtual_edge_v;
     std::unique_ptr<VirtualNode> virtual_node_v;
+    // Trivially copyable: storage accessor + property id, no heap allocation.
+    LazyVectorRef vector_ref_v;
   };
 
   /**

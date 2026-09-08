@@ -364,6 +364,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::String:
       return MGP_VALUE_TYPE_STRING;
     case memgraph::query::TypedValue::Type::List:
+    case memgraph::query::TypedValue::Type::VectorRef:  // materializes to a list of floats
       return MGP_VALUE_TYPE_LIST;
     case memgraph::query::TypedValue::Type::Map:
       return MGP_VALUE_TYPE_MAP;
@@ -5550,6 +5551,8 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       memgraph::utils::PrintIterable(
           *stream, value.ValueList(), ", ", [](auto &stream, const auto &elem) { PrintValue(elem, &stream); });
       return (*stream) << "]";
+    case TypedValue::Type::VectorRef:  // lazy embedding: materialize transiently and print as a list
+      return PrintValue(value.MaterializeVectorRef(value.get_allocator()), stream);
     case TypedValue::Type::Map:
       (*stream) << "{";
       memgraph::utils::PrintIterable(*stream, value.ValueMap(), ", ", [](auto &stream, const auto &item) {

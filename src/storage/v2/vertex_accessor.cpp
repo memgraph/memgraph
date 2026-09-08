@@ -738,6 +738,19 @@ bool VertexAccessor::GetVectorInto(PropertyId property, std::span<float> out) co
   return storage_->indices_.vector_index_.GetVectorInto(vertex_, index_name, storage_->name_id_mapper_.get(), out);
 }
 
+bool VertexAccessor::GetVectorInto(PropertyId property, std::vector<float> &out) const {
+  const auto ref = std::invoke([&] {
+    VertexReadLock read_lock{vertex_};
+    auto const guard = read_lock.AcquireLock();
+    return vertex_->properties.GetProperty(property);
+  });
+  if (!ref.IsVectorIndexId()) return false;
+  const auto &ids = ref.ValueVectorIndexIds();
+  if (ids.empty()) return false;
+  const auto index_name = storage_->name_id_mapper_->IdToName(ids[0]);
+  return storage_->indices_.vector_index_.GetVectorInto(vertex_, index_name, storage_->name_id_mapper_.get(), out);
+}
+
 Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
   {
     auto guard = std::shared_lock{vertex_->lock};

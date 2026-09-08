@@ -364,6 +364,10 @@ class VectorIndex {
   bool GetVectorInto(Vertex *vertex, std::string_view index_name, NameIdMapper *name_id_mapper,
                      std::span<float> out) const;
 
+  /// Resizable variant of GetVectorInto: resizes `out` to the index dimension and fills it.
+  bool GetVectorInto(Vertex *vertex, std::string_view index_name, NameIdMapper *name_id_mapper,
+                     std::vector<float> &out) const;
+
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
   std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;

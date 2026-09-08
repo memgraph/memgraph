@@ -702,6 +702,7 @@ TypedValue::operator storage::ExternalPropertyValue() const {
     case Type::Graph:
     case Type::VirtualGraph:
     case Type::Function:
+    case Type::VectorRef:
       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
 }
@@ -787,6 +788,9 @@ TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{a
       alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
       return;
     }
+    case Type::VectorRef:
+      vector_ref_v = other.vector_ref_v;
+      return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -891,6 +895,9 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
         alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
       }
       break;
+    case Type::VectorRef:
+      vector_ref_v = other.vector_ref_v;
+      break;
   }
 }
 
@@ -970,6 +977,7 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
     case Type::Graph:
     case Type::VirtualGraph:
     case Type::Function:
+    case Type::VectorRef:
       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
 }
@@ -1023,9 +1031,28 @@ DEFINE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(LazyVectorRef, VectorRef, vector_ref_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 #undef DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
+
+TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
+  MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRef called on non-VectorRef TypedValue");
+  std::vector<float> tmp;
+  vector_ref_v.vertex.GetVectorInto(vector_ref_v.prop, tmp);
+  TVector list(alloc);
+  list.reserve(tmp.size());
+  for (float f : tmp) {
+    // The pmr vector injects its own allocator (uses_allocator); do not pass it explicitly.
+    list.emplace_back(static_cast<double>(f));
+  }
+  return TypedValue(std::move(list), alloc);
+}
+
+void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
+  MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRefInto called on non-VectorRef TypedValue");
+  vector_ref_v.vertex.GetVectorInto(vector_ref_v.prop, out);
+}
 
 bool TypedValue::ContainsDeleted() const {
   switch (type_) {
@@ -1064,6 +1091,8 @@ bool TypedValue::ContainsDeleted() const {
     case Type::VirtualGraph:
     case Type::Function:
       throw TypedValueException("Value of unknown type");
+    case Type::VectorRef:
+      return false;
   }
   return false;
 }
@@ -1096,6 +1125,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Graph:
     case Type::VirtualGraph:
     case Type::Function:
+    case Type::VectorRef:
       return false;
   }
 }
@@ -1147,6 +1177,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "virtual_graph";
     case TypedValue::Type::Function:
       return os << "function";
+    case TypedValue::Type::VectorRef:
+      return os << "vector";
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -1406,6 +1438,9 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Point3d:
           point_3d_v = other.point_3d_v;
           break;
+        case Type::VectorRef:
+          vector_ref_v = other.vector_ref_v;
+          break;
       }
       return *this;
     }
@@ -1520,6 +1555,9 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Point3d:
           point_3d_v = other.point_3d_v;
           break;
+        case Type::VectorRef:
+          vector_ref_v = other.vector_ref_v;
+          break;
       }
 
       return *this;
@@ -1592,7 +1630,8 @@ TypedValue::~TypedValue() {
     case Type::Point2d:
     case Type::Point3d:
     case Type::ZonedDateTime:
-      // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
+    case Type::VectorRef:
+      // Trivially destructible: no heap ownership.
       break;
     case Type::Function:
       std::destroy_at(&function_v);
@@ -1994,6 +2033,19 @@ size_t Hash(const TypedValue &value) {
       throw TypedValueException("Unsupported hash function for Graph");
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported hash function for VirtualGraph");
+    case TypedValue::Type::VectorRef: {
+      // Hash the reconstructed embedding from a REUSED thread-local float buffer rather than a
+      // materialized pmr List, so DISTINCT / GROUP BY over embeddings never grows the query arena and
+      // allocates the scratch buffer once per thread. Consistent with operator==, which compares the
+      // same float sequence.
+      thread_local std::vector<float> tmp;
+      value.MaterializeVectorRefInto(tmp);
+      size_t h = 0;
+      for (float f : tmp) {
+        h ^= std::hash<float>{}(f) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+      }
+      return h;
+    }
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }

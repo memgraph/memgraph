@@ -871,6 +871,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
     case TypedValue::Type::String:
       return TypedValue("STRING", ctx.memory);
     case TypedValue::Type::List:
+    case TypedValue::Type::VectorRef:  // a lazy embedding is semantically a list of floats
       return TypedValue("LIST", ctx.memory);
     case TypedValue::Type::Map:
       return TypedValue("MAP", ctx.memory);
@@ -1421,6 +1422,7 @@ std::optional<TypedValue> TryToString(const TypedValue &arg, const FunctionConte
     }
 
     case List:
+    case VectorRef:
     case Map:
     case Vertex:
     case Edge:
