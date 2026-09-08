@@ -201,6 +201,14 @@ class PriorityThreadPool {
   // Call sites: would-block lock acquire paths (commit_mutex_, main_lock_). See AdmissionTryBudget().
   std::chrono::microseconds AdmissionTryBudget() const noexcept;
 
+  // Returns a pressure-scaled reschedule cap N(P): the number of times an admission re-posts
+  // (via AddTask) before parking (via ParkAdmission).  Scales inversely with pressure:
+  //   - high pressure (scarce workers or large backlog) → small N → park sooner (core is precious).
+  //   - light/moderate pressure → larger N → a cheap re-post is preferred over a park CV round-trip
+  //     when the held lock is expected to free quickly.
+  // PROVISIONAL: kRescheduleCapMin/Max are perf-tunable — re-validate against real workload profiles.
+  uint32_t AdmissionRescheduleCap() const noexcept;
+
   // PRECONDITION: must not be called while holding any Worker::mtx_.
   // The session continuation that calls this runs outside any worker lock.
   void ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline, WaitTag tag);
@@ -266,6 +274,10 @@ class PriorityThreadPool {
   // re-validated against real workload profiles before hardening (perf-tunable).
   static constexpr std::chrono::microseconds kTryBudgetMin{2};        // tightest budget under max pressure
   static constexpr std::chrono::microseconds kTryBudgetMax{100'000};  // 100 ms: no-pressure long wait
+
+  // Reschedule-cap range for AdmissionRescheduleCap(). Provisional/perf-tunable.
+  static constexpr uint32_t kRescheduleCapMin{1};  // park after 1 reschedule under high pressure
+  static constexpr uint32_t kRescheduleCapMax{4};  // park after 4 reschedules under light pressure
 
   struct ParkedAdmission {
     TaskID id;

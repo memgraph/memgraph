@@ -447,6 +447,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           case memgraph::communication::bolt::PendingCommitOutcome::Done:
           case memgraph::communication::bolt::PendingCommitOutcome::ClientError:
             shared_this->pending_commit_task_id_.store(0, std::memory_order_relaxed);
+            shared_this->pending_commit_retries_ = 0;
             if (shared_this->session_.HasBufferedData()) {
               shared_this->DoWork();
             } else {
@@ -464,15 +465,20 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (session_context_->IsDrainingAdmissions()) return;
 
     const auto id = pending_commit_task_id_.load(std::memory_order_relaxed);
-    if (id == 0) {
-      // First post: add to queue for a place-keeping id; one spin-try before parking.
-      // A racing Reschedule before the store lands re-mints its own id — no correctness impact.
+    // Layer-2: re-post up to N(P) times before parking.  On the very first would-block (id==0) we
+    // always re-post to mint a place-keeping id.  On subsequent would-blocks we re-post while the
+    // retry count is below the pressure-scaled cap; once exhausted we park (CV sleep) to yield the
+    // core.  commit_mutex_ can be held for O(replication_latency) so under high pressure we park
+    // sooner; under light pressure a cheap re-post avoids the CV round-trip cost.
+    const uint32_t cap = session_context_->RescheduleCap();
+    if (id == 0 || pending_commit_retries_ < cap) {
+      ++pending_commit_retries_;
       pending_commit_task_id_.store(
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
     } else {
-      // Reschedule: park (not re-post) so this worker yields the core until commit_mutex_ frees.
-      // commit_mutex_ can be held for O(replication_latency) so spinning wastes CPU.
+      // Cap exhausted: park until WakeMatching({CommitLock}) fires.
+      // No deadline: a commit must not be abandoned by timeout; the monitor-sweep provides liveness.
       session_context_->ParkAdmission(std::move(lambda),
                                       id,
                                       std::chrono::steady_clock::time_point::max(),
@@ -493,6 +499,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           case memgraph::communication::bolt::PendingBeginOutcome::Done:
           case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
             shared_this->pending_begin_task_id_.store(0, std::memory_order_relaxed);
+            shared_this->pending_begin_retries_ = 0;
             if (shared_this->session_.HasBufferedData()) {
               shared_this->DoWork();
             } else {
@@ -510,13 +517,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (session_context_->IsDrainingAdmissions()) return;
 
     const auto id = pending_begin_task_id_.load(std::memory_order_relaxed);
-    if (id == 0) {
-      // First post: add to queue to get a place-keeping id; one spin-try before parking.
+    // Layer-2: re-post up to N(P) times before parking.  Same pressure-scaling as commit; see
+    // PostFinishPendingCommit for the rationale.  Unlike commit, the park deadline is FINITE
+    // (storage-access timeout) so the begin path must not be parked indefinitely.
+    const uint32_t cap = session_context_->RescheduleCap();
+    if (id == 0 || pending_begin_retries_ < cap) {
+      ++pending_begin_retries_;
       pending_begin_task_id_.store(
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
     } else {
-      // Reschedule: park under MainLock with the FINITE storage-access deadline so the pool
+      // Cap exhausted: park under MainLock with the FINITE storage-access deadline so the pool
       // worker sleeps until WakeMatching({MainLock}) fires from the ResourceLock notify hook.
       const auto deadline = session_.PendingBeginDeadline();
       DMG_ASSERT(deadline != std::chrono::steady_clock::time_point::max(),
@@ -650,7 +661,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // the pool's 100ms monitor backstop. Not a load-bearing ordering; do not read into it.
   std::atomic<utils::PriorityThreadPool::TaskID> pending_commit_task_id_{0};
 
+  // How many times the current commit admission has been re-posted (Layer-2 reschedule count).
+  // Strand-serialized: all PostFinishPendingCommit calls are dispatched on strand_, so plain uint32_t
+  // is safe.  Reset to 0 when the commit finishes (Done/ClientError).
+  uint32_t pending_commit_retries_{0};
+
   // TaskID of the in-flight begin-park continuation; 0 = not yet issued; same relaxed reasoning as above.
   std::atomic<utils::PriorityThreadPool::TaskID> pending_begin_task_id_{0};
+
+  // How many times the current begin admission has been re-posted (Layer-2 reschedule count).
+  // Strand-serialized: same reasoning as pending_commit_retries_.  Reset to 0 on Done/ClientError.
+  uint32_t pending_begin_retries_{0};
 };
 }  // namespace memgraph::communication::v2
