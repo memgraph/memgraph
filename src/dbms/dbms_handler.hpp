@@ -380,12 +380,9 @@ class DbmsHandler {
   void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
 
   /**
-   * @brief Set the arm that discards a database's server-side parameters. Those are keyed by database
-   *        uuid in a store this handler does not own, so the invariant is: every path that retires a
-   *        live database's uuid announces the old value here, or the rows outlive the database,
-   *        unreachable and durable. A path that retires a uuid without announcing it also diverges
-   *        main from its replicas, because the replica applies the drop through a path that does
-   *        announce. Default empty.
+   * @brief Set the arm that discards a database's server-side parameters, which live in a store this
+   *        handler does not own, keyed by database uuid. Every path that retires a live uuid announces
+   *        the old value here, or the rows outlive the database, unreachable and durable. Default empty.
    */
   void SetOnUuidRetired(std::function<void(utils::UUID const &)> cb) { on_uuid_retired_ = std::move(cb); }
 

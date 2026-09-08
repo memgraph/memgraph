@@ -865,11 +865,8 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  // Parameters are keyed by database uuid, so a uuid this handler retires takes its parameters with it.
-  // Wired here, before the replication RPC server and the init file can drop a database: an unwired arm
-  // is an empty std::function, and a drop that finds one leaves the parameters behind for good.
-  // Enterprise-only: dropping a database and the in-place rebind Update performs on the default
-  // database are both enterprise paths.
+  // Wired before the replication RPC server and the init file, either of which can drop a database:
+  // an unwired arm is an empty std::function, so the drop leaves the parameters behind for good.
   if (dbms_handler.has_value()) {
     dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
       [[maybe_unused]] auto purged = parameters->DeleteScope(std::string{uuid});
