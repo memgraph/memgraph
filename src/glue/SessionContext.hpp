@@ -67,5 +67,9 @@ struct Context {
 
   // True when the pool is shutting down; pending tasks should be dropped (teardown errors the client).
   bool IsDrainingAdmissions() const noexcept { return worker_pool_ && worker_pool_->IsDrainingAdmissions(); }
+
+  // Pressure-scaled reschedule cap: how many times to re-post before parking.
+  // Returns 1 when no pool is configured (conservative: park on first contention).
+  uint32_t RescheduleCap() const noexcept { return worker_pool_ ? worker_pool_->AdmissionRescheduleCap() : 1u; }
 };
 }  // namespace memgraph::glue
