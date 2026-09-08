@@ -1375,6 +1375,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     // On the STRICT_SYNC 2PC path this publish precedes replica finalization, so a reader can
     // observe the commit before 2PC completes; acceptable while replicated flag-on is deferred
     // (replicated clusters are not yet cleared for the flag). Revisit ordering when they are.
+    // The watermark must strictly increase: it is a single atomic max only because commit_mutex_ is
+    // taken before the mint, so commits publish in mint order. A future attempt to narrow commit_mutex_
+    // would break that silently (stale reads under load); this debug assert makes the divergence loud.
+    DMG_ASSERT(*commit_timestamp_ > mem_storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
+               "watermark must strictly increase: commit mint order and publish order have diverged");
     mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
     InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_publish);
   }
@@ -2972,6 +2977,13 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // Publish this SI txn's frozen snapshot_ts into the GC visibility ring so GC can recover min(active snapshot_ts).
     // RC/RU do not freeze a snapshot_ts and must not hold the GC floor down; skip them.
     if (config_.experimental_lockfree_read_snapshot && isolation_level == IsolationLevel::SNAPSHOT_ISOLATION) {
+      // PRECONDITION — one engine_lock hold: the slot mint (start_timestamp above), the snapshot_ts read, and
+      // this ring publish MUST stay under a single engine_lock_ hold. GcVisibilityHorizon reads the OLDEST
+      // active slot's snap as min(active snapshot_ts); that is exact only because a txn's snapshot is published
+      // in the same breath as its slot is minted, so the oldest slot always carries the oldest snapshot.
+      // Splitting the mint from the publish (the ring store is lock-free, so it looks free to move out of the
+      // lock) lets the lowest-slot txn publish last with a higher watermark → the oldest slot returns a snap
+      // ABOVE the true minimum → GC over-reclaims a version an older reader can still reach → use-after-free.
       // Invalidate-first message passing (writers serialized under engine_lock_; the GC reader is lock-free):
       // publish the empty sentinel into tag BEFORE overwriting snap, so a concurrent GC read can never pair
       // this slot's NEW snap with the PREVIOUS owner's tag. If the reader's acquire-load of snap observes the

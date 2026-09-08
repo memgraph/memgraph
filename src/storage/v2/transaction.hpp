@@ -239,6 +239,19 @@ struct Transaction {
     return lockfree_snapshot ? snapshot_ts + 1 : start_timestamp;
   }
 
+  // INCLUSIVE upper bound for schema-object visibility in the durability snapshot writer: an index or
+  // constraint whose population committed at `ts` belongs in this snapshot iff `ts <= bound`. Under the
+  // lock-free experiment this is snapshot_ts (which equals last_durable_ts_ — both are read under one
+  // engine_lock hold at BEGIN), so the snapshot's schema set matches the durable timestamp it records and
+  // WAL replay cannot double-create a gap-committed object (a snapshot begun in the mint→publish gap would
+  // otherwise admit an index at start_timestamp above the recorded durable ts, and recovery would refuse
+  // the WAL-replayed duplicate). OFF it is start_timestamp (byte-identical legacy). NOTE: distinct from
+  // SchemaReconstructionBound(), which is the EXCLUSIVE snapshot_ts + 1 for `ts < bound` primitives —
+  // reusing that here would over-include by exactly one timestamp and reintroduce the same crash.
+  [[nodiscard]] uint64_t SchemaVisibilityBound() const noexcept {
+    return lockfree_snapshot ? snapshot_ts : start_timestamp;
+  }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
   // EXPERIMENTAL (lock-free-read-snapshot): frozen last-committed-MVCC-ts captured at BEGIN.
