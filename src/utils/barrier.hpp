@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,22 @@
 #pragma once
 
 #include <atomic>
+#include <barrier>
+#include <cstddef>
 
 namespace memgraph::utils {
-// std::barrier seems to have a bug which leads to missed notifications and some threads block forever
+
+// EXPERIMENTAL: this delegates to std::barrier, which a hand-rolled implementation used to replace
+// on the grounds that std::barrier missed notifications and left threads blocked forever. That
+// claim was never tied to a compiler version or a reproducer, and Barrier.StdBarrierHammer exists
+// to say whether it still holds. Restore the hand-rolled version from git history if it does.
+//
+// std::barrier does not offer the two guarantees callers here rely on, so they are added:
+// a wait() that blocks until every thread has left the barrier, and a destructor that does the
+// same, so the barrier outlives the threads waiting on it.
 class SimpleBarrier {
  public:
-  explicit SimpleBarrier(size_t n) : phase1_{n}, phase2_{n} {}
+  explicit SimpleBarrier(size_t n) : barrier_{static_cast<std::ptrdiff_t>(n)}, remaining_{n} {}
 
   ~SimpleBarrier() { wait(); }
 
@@ -26,30 +36,21 @@ class SimpleBarrier {
   SimpleBarrier &operator=(SimpleBarrier &&) = delete;
 
   void arrive_and_wait() {
-    // Phase1 incoming threads decrement and wait for all to arrive
-    if (--phase1_ == 0) {
-      // All arrived at the barrier
-      phase1_done_ = true;
-      phase1_done_.notify_all();
-    } else {
-      // Wait for all to arrive
-      phase1_done_.wait(false);
-    }
-    // Phase2 decrement and return
-    // This guards against the barrier's destruction while threads are waiting
-    if (--phase2_ == 0) {
-      phase2_done_ = true;
-      phase2_done_.notify_all();
+    barrier_.arrive_and_wait();
+    // Counted down after the barrier releases, so wait() below returns only once every thread is
+    // through and no thread still holds a reference to this object.
+    if (--remaining_ == 0) {
+      done_ = true;
+      done_.notify_all();
     }
   }
 
-  void wait() { phase2_done_.wait(false); }
+  void wait() { done_.wait(false); }
 
  private:
-  std::atomic<size_t> phase1_;
-  std::atomic<size_t> phase2_;
-  std::atomic_bool phase1_done_{false};
-  std::atomic_bool phase2_done_{false};
+  std::barrier<> barrier_;
+  std::atomic<size_t> remaining_;
+  std::atomic_bool done_{false};
 };
 
 }  // namespace memgraph::utils
