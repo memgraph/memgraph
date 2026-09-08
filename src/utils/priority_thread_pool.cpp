@@ -304,7 +304,7 @@ std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcep
   // perf-tunable.
   const uint64_t safe_pool = pool > 0 ? pool : 1;
   const uint64_t clamped_backlog = backlog < safe_pool ? backlog : safe_pool;
-  const uint64_t range = static_cast<uint64_t>(kTryBudgetMax.count() - kTryBudgetMin.count());
+  const auto range = static_cast<uint64_t>(kTryBudgetMax.count() - kTryBudgetMin.count());
   const int64_t budget_us =
       static_cast<int64_t>(kTryBudgetMax.count()) - static_cast<int64_t>((clamped_backlog * range) / safe_pool);
 
@@ -348,7 +348,7 @@ void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chron
                                        WaitTag tag) {
   std::unique_lock lk{parked_mtx_};
   if (draining_admissions_.load(std::memory_order_acquire)) return;  // shutting down: drop; teardown errors the client
-  parked_admissions_.push_back({id, std::move(task), deadline, tag});
+  parked_admissions_.push_back({.id = id, .task = std::move(task), .deadline = deadline, .tag = tag});
   has_parked_.store(true, std::memory_order_release);
 }
 

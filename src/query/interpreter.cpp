@@ -11259,7 +11259,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // pool wake can re-drive via ResumeParkedPrepare instead of hitting "query was not parsed". Do NOT
     // AbortCommand here: pending_access_ (on CurrentDB) must survive to keep writer-preference across
     // the park; ResetInterpreter on the re-drive clears the transient query_execution.
-    parked_prepare_.emplace(ParkedPrepare{std::move(parse_res), std::move(params_getter), extras});
+    parked_prepare_.emplace(
+        ParkedPrepare{.parse_res = std::move(parse_res), .params_getter = std::move(params_getter), .extras = extras});
     throw;
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
