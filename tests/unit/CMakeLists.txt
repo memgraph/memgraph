@@ -872,6 +872,11 @@ add_unit_test(storage_v2_wal_file
     LINK_TARGETS mg::storage storage_test_utils fmt::fmt
 )
 
+add_unit_test(storage_v2_buffer_encoder
+    SOURCES storage_v2_buffer_encoder.cpp
+    LINK_TARGETS mg::storage storage_test_utils
+)
+
 add_unit_test(storage_v2_replication
     SOURCES storage_v2_replication.cpp
     LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue

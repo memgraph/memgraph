@@ -28,6 +28,7 @@ target_sources(mg-storage-v2
         disk/storage.cpp
         disk/unique_constraints.cpp
         durability/durability.cpp
+        durability/buffer_encoder.cpp
         durability/serialization.cpp
         durability/snapshot.cpp
         durability/wal.cpp
