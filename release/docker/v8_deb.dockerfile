@@ -188,6 +188,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
   apt-get update && \
+  apt-get upgrade -y && \
   apt-get install -y \
     /openssl/openssl*.deb \
     /openssl/libssl3t64*.deb \
