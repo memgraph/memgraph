@@ -145,9 +145,13 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
 }
 
 void AsyncIndexer::Shutdown() {
+  auto guard = std::unique_lock{mutex_};
+  // The worker evaluates its wait predicate (which reads the stop token) under mutex_ and then sleeps; requesting
+  // the stop and notifying without the mutex can land between that evaluation and the sleep, and the wake-up is
+  // lost: the worker sleeps for good and this wait never returns. Under the mutex the request is either seen by
+  // the predicate or delivered to a sleeping waiter.
   index_creator_thread_.request_stop();
   cv_.notify_all();
-  auto guard = std::unique_lock{mutex_};
   cv_.wait(guard, [this] { return HasThreadStopped(); });
 }
 
