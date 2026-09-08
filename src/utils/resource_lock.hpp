@@ -228,11 +228,8 @@ struct ResourceLock {
     return true;
   }
 
-  /// Timed variant of try_acquire_pending: waits up to `time` for can_acquire<Req>(), then
-  /// transitions from pending to held on success (deregisters the pending count). On timeout
-  /// returns false and leaves the pending registration intact so the caller can retry. Never
-  /// calls maybe_notify on failure — the caller's PendingScope destructor handles that via
-  /// unregister_pending when the campaign is finally abandoned.
+  /// Timeout: returns false, pending count stays intact for retry. On failure, no maybe_notify —
+  /// ~PendingScope calls unregister_pending which fires the wake when the campaign ends.
   template <LockReq Req, typename Rep, typename Period>
   bool try_acquire_pending_for(std::chrono::duration<Rep, Period> const &time) {
     auto guard = std::unique_lock{mtx};
@@ -704,8 +701,8 @@ class PendingScope {
     return ResourceLockGuard{*acquired_lock, ToGuardType(Req), std::adopt_lock};
   }
 
-  /// Timed variant of try_acquire: waits up to `time` for the lock to admit `Req`, then returns
-  /// the guard on success. On timeout returns nullopt and leaves the pending registration intact.
+  /// Timed variant of try_acquire: waits up to `time` for the lock to admit `Req`. On timeout
+  /// returns nullopt and leaves the pending registration intact.
   template <typename Rep, typename Period>
   std::optional<ResourceLockGuard> try_acquire_for(std::chrono::duration<Rep, Period> const &time) {
     if (lock_ == nullptr) return std::nullopt;
