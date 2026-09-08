@@ -1310,3 +1310,89 @@ Feature: Functions
         MATCH () WHERE reduce(a=exists(()),b in []|a) RETURN 1;
         """
       Then an error should be raised
+
+    Scenario: NullIf takes away a value equal to the second argument:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(4, 4) AS taken, nullIf('abc', 'def') AS kept;
+            """
+        Then the result should be:
+            | taken | kept  |
+            | null  | 'abc' |
+
+    Scenario: NullIf is case insensitive:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullif(1, 1) AS lower, NULLIF(1, 1) AS upper;
+            """
+        Then the result should be:
+            | lower | upper |
+            | null  | null  |
+
+    Scenario: NullIf compares an integer and a float by value:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1, 1.0) AS taken, nullIf(1, 2.0) AS kept;
+            """
+        Then the result should be:
+            | taken | kept |
+            | null  | 1    |
+
+    Scenario: NullIf keeps the first argument when the second is null:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1, null) AS kept, nullIf(null, 1) AS empty;
+            """
+        Then the result should be:
+            | kept | empty |
+            | 1    | null  |
+
+    Scenario: NullIf reads a list the way the equals operator does:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf([1, null], [1, null]) AS taken, nullIf([1], [null]) AS kept,
+                   nullIf(2, [2]) AS scalar;
+            """
+        Then the result should be:
+            | taken | kept | scalar |
+            | null  | [1]  | 2      |
+
+    Scenario: NullIf reads a map the way the equals operator does:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf({a: null}, {a: null}) AS kept, nullIf({a: 1}, {a: 1}) AS taken;
+            """
+        Then the result should be:
+            | kept       | taken |
+            | {a: null}  | null  |
+
+    Scenario: NullIf composes with coalesce to replace one value with another:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'a', eyes: 'brown'})
+            CREATE ({name: 'b', eyes: 'blue'})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.name AS name, coalesce(nullIf(n.eyes, 'brown'), 'hazel') AS eyes
+            ORDER BY name;
+            """
+        Then the result should be:
+            | name | eyes    |
+            | 'a'  | 'hazel' |
+            | 'b'  | 'blue'  |
+
+    Scenario: NullIf requires exactly two arguments:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1);
+            """
+        Then an error should be raised
