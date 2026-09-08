@@ -30,34 +30,35 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
 set(MG_TOOLCHAIN_VERSION 7)
 
 # Set compiler
-set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/gcc"   CACHE STRING "" FORCE)
-set(CMAKE_CXX_COMPILER "${MG_TOOLCHAIN_ROOT}/bin/g++" CACHE STRING "" FORCE)
+set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)
+set(CMAKE_CXX_COMPILER "${MG_TOOLCHAIN_ROOT}/bin/clang++" CACHE STRING "" FORCE)
 
-set(CMAKE_CXX_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/gcc-ar" CACHE FILEPATH "C++ compiler archiver" FORCE)
-set(CMAKE_CXX_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/gcc-ranlib" CACHE FILEPATH "C++ compiler ranlib" FORCE)
-set(CMAKE_C_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/gcc-ar" CACHE FILEPATH "C compiler archiver" FORCE)
-set(CMAKE_C_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/gcc-ranlib" CACHE FILEPATH "C compiler ranlib" FORCE)
-set(CMAKE_AR "${MG_TOOLCHAIN_ROOT}/bin/gcc-ar" CACHE FILEPATH "Archiver" FORCE)
-set(CMAKE_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/gcc-ranlib" CACHE FILEPATH "Ranlib" FORCE)
+# Set archiver and ranlib
+set(CMAKE_CXX_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "C++ compiler archiver" FORCE)
+set(CMAKE_CXX_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "C++ compiler ranlib" FORCE)
+set(CMAKE_C_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "C compiler archiver" FORCE)
+set(CMAKE_C_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "C compiler ranlib" FORCE)
+set(CMAKE_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "Archiver" FORCE)
+set(CMAKE_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "Ranlib" FORCE)
 
 # Linker
-set(CMAKE_LINKER_TYPE DEFAULT)
-set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/ld")
+set(CMAKE_LINKER_TYPE LLD)
+set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/lld")
 
 # NM (symbol listing)
-set(CMAKE_NM "${MG_TOOLCHAIN_ROOT}/bin/nm")
+set(CMAKE_NM "${MG_TOOLCHAIN_ROOT}/bin/llvm-nm")
 
 # Objcopy
-set(CMAKE_OBJCOPY "${MG_TOOLCHAIN_ROOT}/bin/objcopy")
+set(CMAKE_OBJCOPY "${MG_TOOLCHAIN_ROOT}/bin/llvm-objcopy")
 
 # Objdump
-set(CMAKE_OBJDUMP "${MG_TOOLCHAIN_ROOT}/bin/objdump")
+set(CMAKE_OBJDUMP "${MG_TOOLCHAIN_ROOT}/bin/llvm-objdump")
 
 # Strip
-set(CMAKE_STRIP "${MG_TOOLCHAIN_ROOT}/bin/strip")
+set(CMAKE_STRIP "${MG_TOOLCHAIN_ROOT}/bin/llvm-strip")
 
 # clang-scan-deps
-#set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MG_TOOLCHAIN_ROOT}/bin/clang-scan-deps" CACHE STRING "" FORCE)
+set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MG_TOOLCHAIN_ROOT}/bin/clang-scan-deps" CACHE STRING "" FORCE)
 
 # Add toolchain to prefix path
 list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
