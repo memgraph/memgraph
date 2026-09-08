@@ -22,6 +22,7 @@
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
+#include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
@@ -32,6 +33,8 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/query_memory_tracker.hpp"
 
 using Streams = memgraph::query::stream::Streams;
 using StreamInfo = memgraph::query::stream::KafkaStream::StreamInfo;
@@ -425,3 +428,41 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidCredentials) {
       memgraph::integrations::kafka::SettingCustomConfigFailed,
       checker);
 }
+
+#if USE_JEMALLOC
+// A database registers the stream procedures through the C procedure API whenever it is created or
+// resumed. Those entry points report a refused allocation as an error return, and the registration
+// has no way to act on one, so an instance whose allocations are being refused must still construct
+// its Streams object rather than terminate.
+//
+// The refusal is provoked through a per-thread limit because that is charged for every allocation,
+// where the instance-wide limit is charged for every extent the allocator takes from the operating
+// system. Both decide whether to refuse in the same place, so either reaches the registration.
+TEST(StreamsProcedureRegistration, ConstructsWhileAllocationsAreRefused) {
+  // Earlier tests in this binary leave storage threads running, and a fork()-based death test hands
+  // the child threads it cannot use, so the child re-executes the binary instead.
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+
+  // Named after the test rather than the process, so the re-executed child resolves the same path
+  // as the parent that cleans it up.
+  const auto directory = std::filesystem::temp_directory_path() / "query-streams-refused-allocations";
+  std::filesystem::remove_all(directory);
+  const memgraph::utils::OnScopeExit cleanup{[&directory] { std::filesystem::remove_all(directory); }};
+
+  // The limit is set only in the death test's child, so nothing the rest of the suite allocates is
+  // refused.
+  EXPECT_EXIT(
+      {
+        memgraph::utils::QueryMemoryTracker query_tracker;
+        query_tracker.SetQueryLimit(1);
+        memgraph::memory::StartTrackingCurrentThread(&query_tracker);
+        {
+          Streams streams{directory};
+        }
+        memgraph::memory::StopTrackingCurrentThread();
+        std::exit(0);
+      },
+      ::testing::ExitedWithCode(0),
+      "");
+}
+#endif
