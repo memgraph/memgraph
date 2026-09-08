@@ -379,8 +379,8 @@ TEST_F(MultiTenantTest, FailedUpdateKeepsParameters) {
   EXPECT_EQ(Parameters().GetParameter("on_default", uuid), R"("v")");
 }
 
-// Dropping a database retires its uuid, so its parameters go too. Every other scope stays.
-TEST_F(MultiTenantTest, DeleteDiscardsDroppedDatabasesParameters) {
+// A forced drop retires the uuid, so its parameters go too. Every other scope stays.
+TEST_F(MultiTenantTest, ForcedDeleteDiscardsDroppedDatabasesParameters) {
   auto &dbms = DBMS();
   WireParameterPurge();
 
@@ -398,6 +398,32 @@ TEST_F(MultiTenantTest, DeleteDiscardsDroppedDatabasesParameters) {
             memgraph::parameters::SetParameterResult::Success);
 
   ASSERT_TRUE(dbms.Delete("params_db").has_value());
+
+  EXPECT_FALSE(Parameters().GetParameter("on_dropped", db_uuid).has_value());
+  EXPECT_EQ(Parameters().GetParameter("on_default", default_uuid), R"("stays")");
+  EXPECT_EQ(Parameters().GetParameter("global", memgraph::parameters::kGlobalScope), R"("g")");
+}
+
+// DROP DATABASE without FORCE takes TryDelete, a separate path from the forced Delete above, and it
+// retires the uuid just as completely. A HOT tenant dropped this way must lose its parameters too.
+TEST_F(MultiTenantTest, TryDeleteDiscardsDroppedDatabasesParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+
+  auto db = dbms.New("try_params_db");
+  ASSERT_TRUE(db.has_value());
+  auto const db_uuid = std::string{db.value()->config().salient.uuid};
+  auto const default_uuid = std::string{dbms.Get()->config().salient.uuid};
+  db.value().reset();
+
+  ASSERT_EQ(Parameters().SetParameter("on_dropped", R"("gone")", db_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("stays")", default_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("global", R"("g")", memgraph::parameters::kGlobalScope),
+            memgraph::parameters::SetParameterResult::Success);
+
+  ASSERT_TRUE(dbms.TryDelete("try_params_db").has_value());
 
   EXPECT_FALSE(Parameters().GetParameter("on_dropped", db_uuid).has_value());
   EXPECT_EQ(Parameters().GetParameter("on_default", default_uuid), R"("stays")");

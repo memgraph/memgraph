@@ -381,9 +381,11 @@ class DbmsHandler {
 
   /**
    * @brief Set the arm that discards a database's server-side parameters. Those are keyed by database
-   *        uuid in a store this handler does not own, so every event that retires a uuid must announce
-   *        it or the rows outlive the database, unreachable and durable. Fired by DROP DATABASE (HOT and
-   *        COLD) and by the in-place rebind Update performs on the default database. Default empty.
+   *        uuid in a store this handler does not own, so the invariant is: every path that retires a
+   *        live database's uuid announces the old value here, or the rows outlive the database,
+   *        unreachable and durable. A path that retires a uuid without announcing it also diverges
+   *        main from its replicas, because the replica applies the drop through a path that does
+   *        announce. Default empty.
    */
   void SetOnUuidRetired(std::function<void(utils::UUID const &)> cb) { on_uuid_retired_ = std::move(cb); }
 
