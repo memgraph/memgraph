@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.duplicates([{a: 1}, {a: 1}]) AS result;
+
+output:
+  - result: [{a: 1}]
