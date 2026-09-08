@@ -1,15 +1,17 @@
 # Pipelined commit: base and citation notes
 
-The implementation plan (`docs/superpowers/plans/2026-09-07-memgraph-pipelined-commit.md` in tgraph-api, revision 13)
-cites `U file:line` on the head of `feat/adaptive-commit-lock-scheduling` at `cd7a8f8814617eab2357da203cd81a28a090908b`.
-This branch was cut from `master` and merged with that head:
+The implementation plan this series followed cites `U file:line` on the head of `feat/adaptive-commit-lock-scheduling` at `cd7a8f8814617eab2357da203cd81a28a090908b`.
+The branch was first cut from `master` at `be32bab6bebef32c8d1eafb4420fe8f6221dd5ba` merged with that head
+(merge base `cdd8b5e1285f2b4a8ee4c29710aecb7619f3e98d`, clean, 45 ahead / 22 behind). On 2026-09-08 the upstream
+branch was rewritten (its old head is no longer an ancestor of it), so the series was rebased onto the current head;
+`master` is not merged in, so a pull request against that branch shows only this series:
 
 | Item | Value |
 |---|---|
-| `master` pin | `be32bab6bebef32c8d1eafb4420fe8f6221dd5ba` (2026-09-08) |
-| Merged head | `cd7a8f8814617eab2357da203cd81a28a090908b` (memgraph#4777) |
-| Merge base | `cdd8b5e1285f2b4a8ee4c29710aecb7619f3e98d` |
-| Merge result | clean, no conflicts (45 commits ahead, 22 behind at merge time) |
+| Base | `d22a37bb0b9186dc31c71a093f25e75e28bdec80`, head of `feat/adaptive-commit-lock-scheduling` (memgraph#4777) on 2026-09-08 |
+| `master` at that time | `9e70eab5e`; 24 commits not in the base, none needed by this series (a variant with `master` merged in builds and passes the same suites and the full storage sweep) |
+| Rebase conflicts | three files, all one change: upstream renamed the serializer's lock to `CommitLock` (`std::unique_lock<std::timed_mutex>`), which `QuiesceCommits`, `CommitWithTicket` and `OrderedLegacyCommit` now take and return |
+| Upstream changes absorbed | `SeedReadSnapshotWatermarkFromLocalCounter` (recovery watermark), the strictly-increasing watermark `DMG_ASSERT` in `FinalizeCommitPhase` (holds: tickets publish in mint order), `TryAccessFor` and the park stack; none touch the encode or ordered stages |
 | Toolchain | v8 (clang 22.1.8); required by `master` and by the merged head alike |
 | Durability format | `kVersion = 37` (`kWalHeader`); v3.12.0 writes 36. A downgrade after this binary has written is not possible without a backup. |
 
