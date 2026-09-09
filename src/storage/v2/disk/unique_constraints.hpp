@@ -42,9 +42,10 @@ class DiskUniqueConstraints : public UniqueConstraints {
     void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
 
-    // On-disk storage validates unique constraints while flushing vertices, not through the commit-time
-    // verification set, so there is nothing to gain from filtering here; keep tracking every property write.
-    bool MayInvolveProperty(PropertyId /*property*/) const override { return true; }
+    // On-disk storage validates unique constraints while flushing vertices rather than through the
+    // commit-time verification set, so the properties it is keyed on are never gathered here and
+    // cannot be narrowed by.
+    auto ConstrainedProperties() const -> InterestingProperties override { return InterestingProperties::Everything(); }
 
     void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                              uint64_t transaction_start_timestamp) override;
