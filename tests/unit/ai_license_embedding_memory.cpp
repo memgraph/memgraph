@@ -705,6 +705,14 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_ListOperationsOnEmbedding) {
     auto stream = faker.Interpret("MATCH (n) WITH n LIMIT 1 UNWIND n.emb AS e RETURN count(e) AS c");
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim));
   }
+  // Dynamic string subscript n["emb"] reads the same property; it must also come back as a full list
+  // (and, like n.emb, be subscriptable) rather than an empty or unhandled value.
+  {
+    auto stream = faker.Interpret("MATCH (n) WITH n LIMIT 1 RETURN size(n[\"emb\"]) AS s, n[\"emb\"][0] AS x");
+    ASSERT_EQ(stream.GetResults().size(), 1u);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim));
+    EXPECT_TRUE(stream.GetResults()[0][1].IsDouble());
+  }
 }
 
 #endif  // USE_JEMALLOC
