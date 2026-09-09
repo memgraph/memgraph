@@ -1,7 +1,7 @@
 import os
 
 from conan import ConanFile
-from conan.tools.files import copy, get, patch, rename, replace_in_file, trim_conandata
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, rename, replace_in_file, trim_conandata
 from conan.tools.gnu import AutotoolsToolchain
 from conan.tools.layout import basic_layout
 
@@ -35,27 +35,17 @@ class LibbcryptConan(ConanFile):
         trim_conandata(self)
 
     def export_sources(self):
-        copy(self, "patches/*", src=self.recipe_folder, dst=self.export_sources_folder)
+        export_conandata_patches(self)
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
+        apply_conandata_patches(self)
 
     def generate(self):
         tc = AutotoolsToolchain(self)
         tc.generate()
 
     def build(self):
-        if self.settings.os == "FreeBSD":
-            # Where libc already declares crypt_r, crypt_blowfish's own declaration of it
-            # conflicts. __SKIP_GNU is upstream's switch for exactly that case. Applied here
-            # rather than through conandata because it must not reach platforms that rely on
-            # crypt_blowfish to declare crypt_r.
-            patch(
-                self,
-                base_path=self.source_folder,
-                patch_file=os.path.join(self.export_sources_folder, "patches", "0002-skip-gnu-crypt-r.patch"),
-            )
-
         # Remove -Wcast-align which causes errors with Clang
         crypt_blowfish_makefile = os.path.join(self.source_folder, "crypt_blowfish", "Makefile")
         replace_in_file(self, crypt_blowfish_makefile, "-Wcast-align", "")
