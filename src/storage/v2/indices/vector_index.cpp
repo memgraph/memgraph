@@ -504,7 +504,7 @@ std::vector<std::pair<PropertyId, uint64_t>> VectorIndex::GetIndicesByLabel(Labe
   std::vector<std::pair<PropertyId, uint64_t>> result;
   result.reserve(index_->size());
   for (const auto &[index_id, item_ptr] : *index_) {
-    if (item_ptr->spec.label_filter.IsAffectedBy(label)) {
+    if (item_ptr->spec.label_filter.IsInteresting(label)) {
       result.emplace_back(item_ptr->spec.property, index_id);
     }
   }
@@ -588,16 +588,17 @@ void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *
   label_to_remove.erase(label);
 }
 
+bool VectorIndex::AbortProcessor::IsInteresting(PropertyId property, Vertex const *vertex) const {
+  if (wildcard_properties.contains(property)) return true;
+  auto const labels = p2l.find(property);
+  if (labels == p2l.end()) return false;
+  auto const has_any_label = [&](auto label) { return r::contains(vertex->labels, label); };
+  return r::any_of(labels->second, has_any_label);
+}
+
 void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
                                                           Vertex *vertex) {
-  const auto should_collect = std::invoke([&] {
-    if (wildcard_properties.contains(propId)) return true;
-    auto labels = p2l.find(propId);
-    if (labels == p2l.end()) return false;
-    auto has_any_label = [&](auto label) { return r::contains(vertex->labels, label); };
-    return r::any_of(labels->second, has_any_label);
-  });
-  if (!should_collect) return;
+  if (!IsInteresting(propId, vertex)) return;
   auto &[_, label_to_remove, property_to_abort] = cleanup_collection[vertex];
   property_to_abort[propId] = old_value;
 }
@@ -606,7 +607,7 @@ void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, con
 
 std::vector<VectorIndexRecoveryInfo *> VectorIndexRecovery::FindMatchingIndices(
     LabelId label, std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  auto has_label = [&](auto &ri) { return ri.spec.label_filter.IsAffectedBy(label); };
+  auto has_label = [&](auto &ri) { return ri.spec.label_filter.IsInteresting(label); };
   auto to_ptr = [](auto &ri) { return &ri; };
   return recovery_info_vec | rv::filter(has_label) | rv::transform(to_ptr) |
          r::to<std::vector<VectorIndexRecoveryInfo *>>();
