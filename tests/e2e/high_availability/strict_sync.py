@@ -425,5 +425,75 @@ def test_mt_strict_sync_commit(test_name):
     assert get_vertex_count(main_cursor) == 10
 
 
+def get_labeled_vertex_count(cursor, label):
+    return execute_and_fetch_all(cursor, f"MATCH (n:{label}) RETURN count(n)")[0][0]
+
+
+def get_triggers_executed(cursor):
+    rows = execute_and_fetch_all(cursor, "SHOW METRICS INFO")
+    for row in rows:
+        if row[0] == "TriggersExecuted":
+            return row[3]
+    raise AssertionError("TriggersExecuted metric not found in SHOW METRICS INFO")
+
+
+# Regression test: an AFTER COMMIT trigger must not fire when the txn aborted (STRICT_SYNC replica
+# down => 2PC prepare fails). The trigger's own CREATE (:Audit) write also aborts under STRICT_SYNC, so
+# it never becomes a visible node on either binary -- graph state can't tell the fixed binary from the
+# buggy one. The TriggersExecuted metric can: it is bumped inside Trigger::Execute(), before the trigger's
+# own commit is attempted, so an unfixed binary increments it even though that commit aborts.
+def test_after_commit_trigger_does_not_fire_for_aborted_txn(test_name):
+    trigger_name = "audit_trigger"
+    inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
+    main_cursor = connect(host="localhost", port=7689).cursor()
+
+    # DELETE-typed trigger: AdaptForAccessor prunes created_vertices_ post-abort but leaves
+    # deleted_vertices_ intact, so a DELETE trigger's body still runs (a CREATE trigger's would not).
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {id: 1})")
+    execute_and_fetch_all(
+        main_cursor, f"CREATE TRIGGER {trigger_name} ON () DELETE AFTER COMMIT EXECUTE CREATE (:Audit)"
+    )
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    baseline = get_triggers_executed(main_cursor)
+
+    # This test never restarts instance_1, so its data directory must be dropped now or it poisons the next run.
+    interactive_mg_runner.kill(inner_instances_description, "instance_1", keep_directories=False)
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(main_cursor, "MATCH (n:Node) DETACH DELETE n")
+    assert "Failed to replicate to STRICT_SYNC replica" in str(e.value)
+
+    # The delete must not have taken effect -- proves we are really in the aborted-transaction state.
+    assert get_labeled_vertex_count(main_cursor, "Node") == 1
+
+    # The skip decision is synchronous inside Commit() (it happens before the error above surfaces to the
+    # client), so on the fixed binary no trigger task is ever queued and TriggersExecuted can never move
+    # past baseline. The unfixed binary queues the task synchronously but runs it asynchronously, so we
+    # watch a bounded window and fail the instant the counter moves. The after-commit trigger pool is size
+    # 1 and the task runs in sub-millisecond time, so this window is far more than enough to catch it.
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        assert get_triggers_executed(main_cursor) == baseline, "AFTER COMMIT trigger fired for an aborted transaction"
+        time.sleep(0.2)
+
+
+# Regression guard: on a healthy cluster the trigger must still fire and its write must still persist --
+# suppressing it for a committed txn would be worse than the bug being fixed. Passes on the unfixed
+# binary too (verified); it catches over-suppression, the test above is the one that catches the abort bug.
+def test_after_commit_trigger_fires_for_committed_txn(test_name):
+    setup_cluster(test_name, get_default_setup_queries())
+    main_cursor = connect(host="localhost", port=7689).cursor()
+
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {id: 1})")
+    execute_and_fetch_all(main_cursor, "CREATE TRIGGER audit_trigger ON () DELETE AFTER COMMIT EXECUTE CREATE (:Audit)")
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    execute_and_fetch_all(main_cursor, "MATCH (n:Node) DETACH DELETE n")
+    mg_sleep_and_assert(0, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Audit"))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
