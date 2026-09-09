@@ -16,6 +16,7 @@
 
 #include <range/v3/range/conversion.hpp>
 
+#include "query/plan/preprocess.hpp"
 #include "query/plan_v2/egraph/child_layout.hpp"
 #include "query/plan_v2/egraph/op_ast_lists.hpp"
 #include "query/plan_v2/egraph/symbol_dispatch.hpp"
@@ -296,6 +297,33 @@ struct symbol_build_traits<symbol::Unwind> {
     // n=0 scales every input row to zero rows: the result is empty.
     if (scale == 0) return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::EmptyResult>(input));
     return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::CardinalityScale>(input, scale));
+  }
+};
+
+template <>
+struct symbol_build_traits<symbol::Filter> {
+  using result_type = LogicalOperatorPtr;
+
+  struct slots {
+    using input = ChildSlot<child::filter::input, LogicalOperatorPtr>;
+    using predicate = ChildSlot<child::filter::predicate, Expression *>;
+  };
+
+  // Runtime filtering uses expression_. all_filters_ is display-only (feeds
+  // Filter::ToString's EXPLAIN label). We record the whole predicate as one Generic
+  // filter rather than classifying it (v1's CollectFilterExpression): index selection
+  // in plan_v2 will be an e-graph rewrite that offers indexed scans as a costed
+  // option, not a classification baked in at build time.
+  static auto build(BuildState &state, ENodeRef /*node*/, Children children) -> result_type {
+    auto const &input = children.get<slots::input>();
+    auto *predicate = children.get<slots::predicate>();
+    query::plan::UsedSymbolsCollector collector(state.symbol_table);
+    predicate->Accept(collector);
+    query::plan::Filters all_filters;
+    all_filters.SetFilters(
+        {query::plan::FilterInfo{query::plan::FilterInfo::Type::Generic, predicate, std::move(collector.symbols_)}});
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::Filter>(
+        input, std::vector<std::shared_ptr<LogicalOperator>>{}, predicate, std::move(all_filters)));
   }
 };
 

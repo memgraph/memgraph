@@ -49,6 +49,15 @@ inline constexpr double kIdentifier = 1.0;
 /// deliberately small (1.0) so it doesn't dominate other per-row terms.
 inline constexpr double kUnwindPerRowOverhead = 1.0;
 
+/// Per-input-row overhead for the WHERE filter, on top of predicate evaluation.
+/// Structural placeholder until measured data justifies a value.
+inline constexpr double kFilterPerRowOverhead = 1.0;
+
+/// Fraction of input rows a filter is assumed to pass. Coarse placeholder. Doesn't
+/// affect plan choice today (one extraction per query) but flows into ancestor cost,
+/// so it will matter once Filter rewrites add alternative plan shapes.
+inline constexpr double kFilterSelectivity = 0.5;
+
 // Per-alternative leaf costs.  Structural placeholders, 1.0 until measured
 // data justifies divergent values.
 inline constexpr double kOnceLeaf = 1.0;
@@ -243,6 +252,25 @@ auto UnwindFlatMap(CostFrontier const &input, CostFrontier const &list, planner:
   });
 }
 
+/// Filter flat-map: row-reducing pass-through. Per input alt, emit one alt per
+/// satisfiable predicate alt: cardinality scaled by selectivity, predicate cost
+/// paid per input row, introduces = input's (Filter binds nothing). Pairs whose
+/// predicate demand the input can't meet are skipped (see BindFlatMap).
+auto FilterFlatMap(CostFrontier const &input, CostFrontier const &predicate, planner::core::ENodeId enode_id)
+    -> CostFrontier {
+  return CostFrontier::flat_map(input, [&predicate, enode_id](Alternative const &input_alt, auto emit) {
+    DMG_ASSERT(input_alt.required.empty(), "operator Alt must have empty required");
+    for (Alternative const &pred_alt : predicate.alts()) {
+      if (!DemandMet(input_alt, pred_alt)) continue;  // predicate reads a symbol this input can't provide
+      emit({.cost = input_alt.cost + (input_alt.cardinality * (pred_alt.cost + kFilterPerRowOverhead)),
+            .cardinality = input_alt.cardinality * kFilterSelectivity,
+            .required = {},
+            .introduces = input_alt.introduces,
+            .enode_id = enode_id});
+    }
+  });
+}
+
 /// Subquery flat-map: scope-barrier row-pipe.  Non-importing CALL only - an
 /// importing inner is pruned to an empty frontier by its Output and rejected by
 /// the Subquery cost guard, so every inner alt reaching here is self-contained
@@ -387,6 +415,15 @@ struct symbol_cost_traits<Unwind> {
                          ctx.syms.referenced_syms,
                          ctx.syms.variable_index,
                          id);
+  }
+};
+
+template <>
+struct symbol_cost_traits<Filter> {
+  // Children [input, predicate]; see FilterFlatMap.
+  static auto cost(ENodeT const &, ENodeId id, CostChildren children, CostCtx const &) -> CostFrontier {
+    using namespace child::filter;
+    return FilterFlatMap(*children[input], *children[predicate], id);
   }
 };
 

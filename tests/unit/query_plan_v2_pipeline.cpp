@@ -148,8 +148,8 @@ class SimplePlanChecker : public plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(plan::Filter &) override {
-    operator_details.push_back("Filter");
+  bool PreVisit(plan::Filter &op) override {
+    operator_details.push_back("Filter " + DescribeExpression(op.expression_));
     return true;
   }
 
@@ -765,6 +765,31 @@ INSTANTIATE_TEST_SUITE_P(
             .query = "UNWIND [1, 2, 3] AS x RETURN x;",
             .expected_details = {"Produce {x`1:x}", "Unwind {x:literal}", "Once"},
             .expected_rewrites = 0,
+        },
+        // A WHERE lowers to a Filter above the projection; the no-op WITH bind
+        // fuses away, leaving Produce -> Filter -> Unwind -> Once.
+        PipelineTestCase{
+            .name = "WithWhereFiltersRows",
+            .query = "UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;",
+            .expected_details = {"Produce {x`1:x}", "Filter (x > 1)", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 1,  // the no-op WITH x bind is rewritten away
+        },
+        // Two WITH ... WHERE clauses stack into two Filters (each no-op WITH x bind
+        // fuses away): the resolver threads scope through a Filter above a Filter.
+        PipelineTestCase{
+            .name = "ChainedWithWhereStacksTwoFilters",
+            .query = "UNWIND [1, 2, 3, 4, 5] AS x WITH x WHERE x > 1 WITH x WHERE x < 5 RETURN x;",
+            .expected_details = {"Produce {x`1:x}", "Filter (x < 5)", "Filter (x > 1)", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 2,  // both no-op WITH x binds are rewritten away
+        },
+        // x is used only in the predicate, so its demand forces the pipe to introduce
+        // it, blocking the CardinalityScale elision that fires when x is unused (cf.
+        // interpreter's UnwindOverProvableLengthRangeElidesUnusedBinding).
+        PipelineTestCase{
+            .name = "PredicateDemandKeepsUnwindBinding",
+            .query = "UNWIND range(1, 100) AS x WITH x WHERE x > 50 RETURN 42 AS r;",
+            .expected_details = {"Produce {r`1:42}", "Filter (x > 50)", "Unwind {x:RANGE(1, 100)}", "Once"},
+            .expected_rewrites = 1,  // the no-op WITH x bind is rewritten away
         }
     ),
     TestCaseName

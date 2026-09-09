@@ -143,6 +143,10 @@ auto egraph::MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass {
   return from_core(pimpl_->graph.Make<Unwind>(to_core(input), to_core(sym), to_core(list_expr)).eclass_id);
 }
 
+auto egraph::MakeFilter(eclass input, eclass predicate) -> eclass {
+  return from_core(pimpl_->graph.Make<Filter>(to_core(input), to_core(predicate)).eclass_id);
+}
+
 auto egraph::MakeSubquery(eclass outer_input, eclass inner_root, std::span<eclass const> exposed_syms) -> eclass {
   auto children = utils::small_vector<planner::core::EClassId>{};
   children.reserve(2 + exposed_syms.size());
