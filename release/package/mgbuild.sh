@@ -2088,8 +2088,13 @@ test_memgraph() {
         # Read-heavy realistic mix (20% write, 80% read, 0% update, 0% analytical) over the pokec arango
         # group, at high concurrency so many clients contend for the commit path while writes replicate.
         # This is the workload the funnel improves and that isolated per-query benchmarks cannot show.
+        # 50k queries (not 5k) so the measured window is ~80s of steady state rather than ~8s: relative
+        # timing noise scales ~1/sqrt(window), and the aggregate throughput is the only signal here.
+        # --warm-up hot excludes cold-cache/first-touch cost from the sample. The mix is seeded on the
+        # "50000_20_80_0_0" distribution string, so every run executes the identical query stream — an
+        # A/B (baseline vs funnel) differs only in timing, not in composition.
         local WORKERS="${NUM_WORKERS:-18}"
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark $WORKERS --workload-realistic 5000 20 80 0 0 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot --num-workers-for-benchmark $WORKERS --workload-realistic 50000 20 80 0 0 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
       else
         local WORKERS="${NUM_WORKERS:-6}"
         docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark $WORKERS --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
