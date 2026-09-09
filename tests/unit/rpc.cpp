@@ -83,8 +83,9 @@ TEST(Rpc, Abort) {
   bool handler_entered = false;
   // Set by the test once it has judged the call, so the handler cannot respond until then.
   bool response_released = false;
-  // Set immediately before the response goes out. A call that has already returned while this
-  // reads false cannot have been ended by the response.
+  // Set by the handler immediately before it starts sending. Reading it false once the call has
+  // returned says the handler had not begun its response, which is what stands in for nothing
+  // having reached the client: this handler is the only thing that sends.
   std::atomic<bool> response_sent{false};
 
   memgraph::communication::ServerContext server_context;
@@ -117,9 +118,13 @@ TEST(Rpc, Abort) {
   Client client(server.endpoint(), &client_context);
 
   std::thread thread([&]() {
-    std::unique_lock lock{mutex};
-    if (!cv.wait_for(lock, kStepTimeout, [&] { return handler_entered; })) return;
-    lock.unlock();
+    {
+      std::unique_lock lock{mutex};
+      cv.wait_for(lock, kStepTimeout, [&] { return handler_entered; });
+    }
+    // Aborted even if the server never took the request, because this call has no deadline of its
+    // own: returning here instead would leave nothing to end it and the test would hang rather
+    // than report. Aborting late still ends it, and the bound below then fails.
     spdlog::info("Aborting the connection!");
     client.Abort();
   });
@@ -129,7 +134,7 @@ TEST(Rpc, Abort) {
   auto const call_took = std::chrono::steady_clock::now() - call_started;
 
   EXPECT_FALSE(response_sent.load())
-      << "the call ended only once the server had responded, so the abort did not end it";
+      << "the call ended only once the server had begun responding, so the abort did not end it";
   EXPECT_LT(call_took, kPromptly) << "the abort ended the call, but not while anyone was waiting";
 
   {
