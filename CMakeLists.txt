@@ -321,6 +321,14 @@ add_compile_options(
         $<$<CXX_COMPILER_ID:GNU>:-Werror=reorder>
 )
 
+# Record source paths relative to the tree root instead of absolutely, so an object file
+# does not depend on which directory built it and a compiler cache can serve one checkout
+# of this repository from another's entries. One flag covers debug info, __FILE__ and
+# std::source_location together, so assertion messages read as tree-relative paths and a
+# debugger started from the tree root still finds the source. CUDA is excluded because
+# nvcc rejects the option.
+add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-ffile-prefix-map=${PROJECT_SOURCE_DIR}=.>)
+
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
