@@ -91,7 +91,7 @@ inline TypedValue Less(const TypedValue &a, const TypedValue &b) {
     if (a.type() != b.type()) {
       return {};
     } else {
-      return TypedValue(a.ValueString() < b.ValueString(), a.get_allocator());
+      return TypedValue(a.UnsafeValueString() < b.UnsafeValueString(), a.get_allocator());
     }
   }
 
@@ -105,30 +105,33 @@ inline TypedValue Less(const TypedValue &a, const TypedValue &b) {
     switch (a.type()) {
       case TypedValue::Type::Date:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDate() < b.ValueDate(), a.get_allocator());
+        return TypedValue(a.UnsafeValueDate() < b.UnsafeValueDate(), a.get_allocator());
       case TypedValue::Type::LocalTime:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.get_allocator());
+        return TypedValue(a.UnsafeValueLocalTime() < b.UnsafeValueLocalTime(), a.get_allocator());
       case TypedValue::Type::LocalDateTime:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.get_allocator());
+        return TypedValue(a.UnsafeValueLocalDateTime() < b.UnsafeValueLocalDateTime(), a.get_allocator());
       case TypedValue::Type::ZonedDateTime:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.get_allocator());
+        return TypedValue(a.UnsafeValueZonedDateTime() < b.UnsafeValueZonedDateTime(), a.get_allocator());
       case TypedValue::Type::Duration:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDuration() < b.ValueDuration(), a.get_allocator());
+        return TypedValue(a.UnsafeValueDuration() < b.UnsafeValueDuration(), a.get_allocator());
       default:
         LOG_FATAL("Invalid temporal type");
     }
   }
 
   // at this point we only have int and double
-  if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) < ToDouble(b), a.get_allocator());
-  } else {
-    return TypedValue(a.ValueInt() < b.ValueInt(), a.get_allocator());
+  if (a.IsDouble()) {
+    if (b.IsInt()) return TypedValue(a.UnsafeValueDouble() < b.UnsafeValueInt(), a.get_allocator());
+    return TypedValue(a.UnsafeValueDouble() < b.UnsafeValueDouble(), a.get_allocator());
   }
+  if (b.IsDouble()) {
+    return TypedValue(a.UnsafeValueInt() < b.UnsafeValueDouble(), a.get_allocator());
+  }
+  return TypedValue(a.UnsafeValueInt() < b.UnsafeValueInt(), a.get_allocator());
 }
 
 }  // namespace memgraph::query::relations::comparability

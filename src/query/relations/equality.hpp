@@ -48,45 +48,48 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
-      return TypedValue(a.ValueBool() == b.ValueBool(), a.get_allocator());
+      return TypedValue(a.UnsafeValueBool() == b.UnsafeValueBool(), a.get_allocator());
     case TypedValue::Type::Int:
       if (b.IsDouble())
-        return TypedValue(ToDouble(a) == ToDouble(b), a.get_allocator());
+        return TypedValue(a.UnsafeValueInt() == b.UnsafeValueDouble(), a.get_allocator());
       else
-        return TypedValue(a.ValueInt() == b.ValueInt(), a.get_allocator());
+        return TypedValue(a.UnsafeValueInt() == b.UnsafeValueInt(), a.get_allocator());
     case TypedValue::Type::Double:
-      return TypedValue(ToDouble(a) == ToDouble(b), a.get_allocator());
+      if (b.IsInt())
+        return TypedValue(a.UnsafeValueDouble() == b.UnsafeValueInt(), a.get_allocator());
+      else
+        return TypedValue(a.UnsafeValueDouble() == b.UnsafeValueDouble(), a.get_allocator());
     case TypedValue::Type::String:
-      return TypedValue(a.ValueString() == b.ValueString(), a.get_allocator());
+      return TypedValue(a.UnsafeValueString() == b.UnsafeValueString(), a.get_allocator());
     case TypedValue::Type::Vertex:
-      return TypedValue(a.ValueVertex() == b.ValueVertex(), a.get_allocator());
+      return TypedValue(a.UnsafeValueVertex() == b.UnsafeValueVertex(), a.get_allocator());
     case TypedValue::Type::Edge:
-      return TypedValue(a.ValueEdge() == b.ValueEdge(), a.get_allocator());
+      return TypedValue(a.UnsafeValueEdge() == b.UnsafeValueEdge(), a.get_allocator());
     case TypedValue::Type::VirtualEdge:
-      return TypedValue(a.ValueVirtualEdge() == b.ValueVirtualEdge(), a.get_allocator());
+      return TypedValue(a.UnsafeValueVirtualEdge() == b.UnsafeValueVirtualEdge(), a.get_allocator());
     case TypedValue::Type::VirtualNode:
-      return TypedValue(a.ValueVirtualNode() == b.ValueVirtualNode(), a.get_allocator());
+      return TypedValue(a.UnsafeValueVirtualNode() == b.UnsafeValueVirtualNode(), a.get_allocator());
     case TypedValue::Type::List:
     case TypedValue::Type::Map:
       return EqualOfContainers(a, b);
     case TypedValue::Type::Path:
-      return TypedValue(a.ValuePath() == b.ValuePath(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePath() == b.UnsafeValuePath(), a.get_allocator());
     case TypedValue::Type::Date:
-      return TypedValue(a.ValueDate() == b.ValueDate(), a.get_allocator());
+      return TypedValue(a.UnsafeValueDate() == b.UnsafeValueDate(), a.get_allocator());
     case TypedValue::Type::LocalTime:
-      return TypedValue(a.ValueLocalTime() == b.ValueLocalTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueLocalTime() == b.UnsafeValueLocalTime(), a.get_allocator());
     case TypedValue::Type::LocalDateTime:
-      return TypedValue(a.ValueLocalDateTime() == b.ValueLocalDateTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueLocalDateTime() == b.UnsafeValueLocalDateTime(), a.get_allocator());
     case TypedValue::Type::ZonedDateTime:
-      return TypedValue(a.ValueZonedDateTime() == b.ValueZonedDateTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueZonedDateTime() == b.UnsafeValueZonedDateTime(), a.get_allocator());
     case TypedValue::Type::Duration:
-      return TypedValue(a.ValueDuration() == b.ValueDuration(), a.get_allocator());
+      return TypedValue(a.UnsafeValueDuration() == b.UnsafeValueDuration(), a.get_allocator());
     case TypedValue::Type::Enum:
-      return TypedValue(a.ValueEnum() == b.ValueEnum(), a.get_allocator());
+      return TypedValue(a.UnsafeValueEnum() == b.UnsafeValueEnum(), a.get_allocator());
     case TypedValue::Type::Point2d:
-      return TypedValue(a.ValuePoint2d() == b.ValuePoint2d(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePoint2d() == b.UnsafeValuePoint2d(), a.get_allocator());
     case TypedValue::Type::Point3d:
-      return TypedValue(a.ValuePoint3d() == b.ValuePoint3d(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePoint3d() == b.UnsafeValuePoint3d(), a.get_allocator());
     case TypedValue::Type::Graph:
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported comparison operator");
