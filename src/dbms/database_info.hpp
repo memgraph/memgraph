@@ -13,6 +13,8 @@
 
 #include <cstdint>
 
+#include <nlohmann/json.hpp>
+
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::dbms {

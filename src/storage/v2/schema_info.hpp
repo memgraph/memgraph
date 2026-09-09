@@ -151,27 +151,17 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
 struct SchemaInfo {
   // Snapshot guaranteeing functions
-  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
-    auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
-    return tracking_.ToJson(name_id_mapper, enum_store);
-  }
+  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const;
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
                         const std::function<bool(VertexKey const &)> &node_predicate,
-                        const std::function<bool(EdgeTypeId)> &edge_predicate) const {
-    auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
-    return tracking_.ToJson(name_id_mapper, enum_store, node_predicate, edge_predicate);
-  }
+                        const std::function<bool(EdgeTypeId)> &edge_predicate) const;
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
                         const std::function<bool(VertexKey const &)> &node_predicate,
                         const std::function<bool(EdgeTypeId)> &edge_predicate,
                         const std::function<bool(VertexKey const &, PropertyId)> &node_property_predicate,
-                        const std::function<bool(EdgeTypeId, PropertyId)> &edge_property_predicate) const {
-    auto lock = std::unique_lock{operation_ordering_mutex_};
-    return tracking_.ToJson(
-        name_id_mapper, enum_store, node_predicate, edge_predicate, node_property_predicate, edge_property_predicate);
-  }
+                        const std::function<bool(EdgeTypeId, PropertyId)> &edge_property_predicate) const;
 
   void ProcessTransaction(LocalSchemaTracking &tracking, SchemaInfoPostProcess &post_process, uint64_t start_ts,
                           uint64_t commit_ts, bool property_on_edges) {

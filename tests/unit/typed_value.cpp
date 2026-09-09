@@ -15,6 +15,8 @@
 //
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "gtest/gtest.h"
 
 #include "disk_test_utils.hpp"

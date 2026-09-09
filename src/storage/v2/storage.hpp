@@ -16,6 +16,8 @@
 #include <set>
 #include <string>
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "common_function_signatures.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "mg_procedure.h"
@@ -220,31 +222,7 @@ struct ColdTenantRecovery {
   StorageInfo stats{};  // value-init: a default-constructed recovery carries zeroed stats
 };
 
-static inline nlohmann::json ToJson(const StorageInfo &info) {
-  nlohmann::json res;
-
-  res["edges"] = info.edge_count;
-  res["vertices"] = info.vertex_count;
-  res["memory"] = info.memory_res;
-  res["disk"] = info.disk_usage;
-  res["label_indices"] = info.label_indices;
-  res["label_prop_indices"] = info.label_property_indices;
-  res["text_indices"] = info.text_indices;
-  res["vector_indices"] = info.vector_indices;
-  res["vector_edge_indices"] = info.vector_edge_indices;
-  res["existence_constraints"] = info.existence_constraints;
-  res["unique_constraints"] = info.unique_constraints;
-  res["type_constraints"] = info.type_constraints;
-  res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
-  res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
-  res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
-                       {"WAL_enabled", info.durability_wal_enabled}};
-  res["property_store_compression_enabled"] = info.property_store_compression_enabled;
-  res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
-  res["schema_vertex_count"] = info.schema_vertex_count;
-  res["schema_edge_count"] = info.schema_edge_count;
-  return res;
-}
+nlohmann::json ToJson(const StorageInfo &info);
 
 struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_src_edge_ids{};

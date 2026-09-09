@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include "disk_test_utils.hpp"
 #include "query/frontend/ast/ast.hpp"
