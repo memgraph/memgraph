@@ -374,6 +374,7 @@ jobs:
 
       - name: Run extended planner optimizations mgbench
         id: planner
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',planner,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
