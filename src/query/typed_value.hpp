@@ -531,7 +531,16 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
-  DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
+  // A VectorRef is a lazy list of the embedding's floats. IsList() reports it as a list and the
+  // ValueList() accessors force it (materialize-on-access, cached in place); the distinct type() lets
+  // the ordering/equality/hash fast-paths keep it compact (they read type(), never call ValueList()).
+  // So every list operation — subscript, slicing, UNWIND, IN, list functions — works without special
+  // casing a VectorRef.
+  TVector &ValueList();
+  const TVector &ValueList() const;
+  bool IsList() const;
+  const TVector &UnsafeValueList() const;
+
   DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
@@ -788,6 +797,11 @@ class TypedValue {
   friend auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem>;
 
  private:
+  // If this is a VectorRef, reconstruct the embedding into an owned List (in this value's allocator)
+  // and become a List. Const because it is a lazy load of a value already logically present; callers
+  // observe no change other than the list materializing. No-op for any other type.
+  void EnsureListMaterialized() const;
+
   [[no_unique_address]] allocator_type alloc_{};
 
   // storage for the value of the property

@@ -651,4 +651,60 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_SetCopiesEmbeddingProperty) {
       << "SET n.copy = n.emb must persist the full embedding as a list";
 }
 
+// A lazy embedding is a list; every list operation must treat it as one instead of throwing
+// "got vector". Regression for the e2e durability failure, where `ORDER BY n.emb[0]` (a subscript on
+// the embedding) threw and aborted the query.
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_ListOperationsOnEmbedding) {
+  auto gk = MakeDb("t11");
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(MakeConfig(data_dir_ / "t11"))};
+  memgraph::dbms::DatabaseAccess db = [&]() {
+    auto a = gk->access();
+    MG_ASSERT(a, "db access");
+    return *a;
+  }();
+  auto label = db->storage()->NameToLabel("Doc");
+  auto prop = db->storage()->NameToProperty("emb");
+  Populate(db.get(), label, prop, kNumVertices, kDim);
+  CreateIndex(db.get(), label, prop, kDim, kNumVertices);
+
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          kNoHandler,
+                                                          &repl_state,
+                                                          system_state,
+                                                          nullptr
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr,
+                                                          nullptr
+#endif
+  };
+  InterpreterFaker faker{&interpreter_context, db};
+
+  // Subscript, in an ORDER BY key — the exact operation that threw on a VectorRef in the e2e test.
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN n.emb ORDER BY n.emb[0] LIMIT 1");
+    ASSERT_EQ(stream.GetResults().size(), 1u);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList().size(), static_cast<size_t>(kDim));
+  }
+  // Bare subscript yields the element (embeddings are Populate()'d as (i%7)+0.5, so emb[0] is a double).
+  {
+    auto stream = faker.Interpret("MATCH (n) WITH n LIMIT 1 RETURN n.emb[0] AS x");
+    ASSERT_EQ(stream.GetResults().size(), 1u);
+    EXPECT_TRUE(stream.GetResults()[0][0].IsDouble());
+  }
+  // size() and UNWIND treat the embedding as a list of kDim elements.
+  {
+    auto stream = faker.Interpret("MATCH (n) WITH n LIMIT 1 RETURN size(n.emb) AS s");
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim));
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n) WITH n LIMIT 1 UNWIND n.emb AS e RETURN count(e) AS c");
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim));
+  }
+}
+
 #endif  // USE_JEMALLOC

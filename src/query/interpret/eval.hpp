@@ -446,7 +446,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       // Exceptions have higher priority than returning nulls when list expression
       // is not null.
-      if (list.type() != TypedValue::Type::List) {
+      if (!list.IsList()) {
         throw QueryRuntimeException("IN expected a list, got {}.", list.type());
       }
       const auto &list_value = list.ValueList();
@@ -587,7 +587,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto _list = op.list_->Accept(*this);
     if (_list.type() == TypedValue::Type::Null) {
       is_null = true;
-    } else if (_list.type() != TypedValue::Type::List) {
+    } else if (!_list.IsList()) {
       throw QueryRuntimeException("Expected a list to slice, got {}.", _list.type());
     }
 
@@ -848,7 +848,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("REDUCE expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -868,7 +868,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("EXTRACT expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -892,7 +892,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
 
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("List comprehension expected a list, got {}.", list_value.type());
     }
 
@@ -968,7 +968,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("ALL expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -1005,7 +1005,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("SINGLE expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -1053,7 +1053,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("ANY expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -1091,7 +1091,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("NONE expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();

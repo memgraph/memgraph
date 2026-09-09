@@ -1031,7 +1031,44 @@ DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
 DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
 DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
+
+// List is hand-written (not macro-generated) so a lazy VectorRef materializes into an owned List on
+// first access. The ordering/equality/hash fast-paths dispatch on type() and never reach here, so a
+// value used only as a sort/dedup key stays compact.
+void TypedValue::EnsureListMaterialized() const {
+  if (type_ != Type::VectorRef) return;
+  std::vector<float> tmp;
+  MaterializeVectorRefInto(tmp);
+  auto *self = const_cast<TypedValue *>(this);
+  TVector list(alloc_);
+  list.reserve(tmp.size());
+  for (const float f : tmp) list.emplace_back(static_cast<double>(f));
+  std::destroy_at(&self->vector_ref_v);
+  std::construct_at(&self->list_v, std::move(list));
+  self->type_ = Type::List;
+}
+
+TypedValue::TVector &TypedValue::ValueList() {
+  EnsureListMaterialized();
+  if (type_ != Type::List) [[unlikely]]
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::List);
+  return list_v;
+}
+
+const TypedValue::TVector &TypedValue::ValueList() const {
+  EnsureListMaterialized();
+  if (type_ != Type::List) [[unlikely]]
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::List);
+  return list_v;
+}
+
+bool TypedValue::IsList() const { return type_ == Type::List || type_ == Type::VectorRef; }
+
+const TypedValue::TVector &TypedValue::UnsafeValueList() const {
+  EnsureListMaterialized();
+  return list_v;
+}
+
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
@@ -2126,6 +2163,7 @@ void to_json(nlohmann::json &j, TypedValue const &value) {
       j = value.ValueString();
       break;
     case TypedValue::Type::List:
+    case TypedValue::Type::VectorRef:  // a lazy embedding materializes to its list of doubles
       j = value.ValueList();
       break;
     case TypedValue::Type::Map:
