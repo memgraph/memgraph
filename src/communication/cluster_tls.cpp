@@ -11,6 +11,8 @@
 
 #include "communication/cluster_tls.hpp"
 
+#include "communication/context.hpp"
+
 #include <fmt/format.h>
 #include <openssl/ssl.h>
 #include <spdlog/spdlog.h>
@@ -50,6 +52,13 @@ auto BuildClusterSslContext(utils::TlsConfig const &cfg, ClusterTlsRole role)
   } else {
     // NOLINTNEXTLINE(bugprone-unused-return-value)
     new_ctx->set_options(SSL_OP_NO_SSLv3 | SSL_OP_NO_SSLv2);
+  }
+
+  if (!ApplyTlsVersionPolicy(new_ctx->native_handle())) {
+    auto msg = fmt::format("{}: couldn't apply the TLS version policy.", label);
+    spdlog::error(msg);
+    return std::unexpected{
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = std::move(msg)}};
   }
 
   // We deliberately do NOT call `set_default_verify_paths()`. Intra-cluster

@@ -157,19 +157,28 @@ jobs:
       matrix:
         arch: [amd, arm]
         additional_build_args: ['', '--disable-jemalloc']
+        fips: [false]
+        include:
+          - arch: amd
+            additional_build_args: ''
+            fips: true
+          - arch: arm
+            additional_build_args: ''
+            fips: true
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
-      build_docker_image: ${{ matrix.additional_build_args == '' && 'both' || 'debug' }}
+      build_docker_image: ${{ matrix.fips && 'prod' || (matrix.additional_build_args == '' && 'both' || 'debug') }}
+      fips: ${{ matrix.fips }}
       push_to_github: 'false'
       push_to_s3: 'true'
       print_output_url: true
       s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-      generate_sbom: ${{ (matrix.arch == 'amd' && matrix.additional_build_args == '') && true || false }}
+      generate_sbom: ${{ (matrix.arch == 'amd' && matrix.additional_build_args == '' && !matrix.fips) && true || false }}
       run_smoke_tests: true
       package_smoke_os: "all"
       upload_debug_symbols: true

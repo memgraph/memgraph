@@ -124,6 +124,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LAG
                       | LEADERSHIP
                       | LEVEL
+                      | FIPS
                       | LICENSE
                       | LIST
                       | LOAD
@@ -1044,7 +1045,9 @@ showDescriptions
 
 // Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' or 'ON CURRENT DATABASE' clause.
 // systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
-systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
+fipsInfo : FIPS INFO ;
+
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo | fipsInfo ) ;
 storageInfo : STORAGE INFO ( ON ( DATABASE db=symbolicName | CURRENT DATABASE ) )? ;
 
 edgeTypePatternNode

@@ -18,13 +18,24 @@ done
 #   $1 - image type: memgraph|mage (only test_query_modules cares).
 #   $2 - deployment: docker|k8s. Almost every test only needs Bolt and runs
 #        under both; the exceptions are gated below.
+#   $3 - mode: normal|fips. The FIPS image is built without the embedded Python
+#        interpreter, so features that need in-container Python are skipped.
+#        Gated per-test rather than kept as a second list so there is one place
+#        to read, and so a new feature is covered by both modes by default.
 run_feature_tests() {
   __image_type="${1:-mage}"
   __deployment="${2:-docker}"
+  __mode="${3:-normal}"
   # NOTE: test_auth_roles runs in run_auth_feature_tests, once the users exist.
   test_basic_auth
   test_query
-  test_query_modules $__image_type
+  # The expected procedure/function count comes from scanning the repo, which
+  # includes the Python modules; a Python-less image legitimately has fewer.
+  if [ "$__mode" != "fips" ]; then
+    test_query_modules $__image_type
+  else
+    echo "SKIP FEATURE: query modules (no embedded Python in the FIPS image)"
+  fi
   test_session_trace
   test_show_schema_info
   test_spatial
@@ -63,6 +74,19 @@ run_feature_tests() {
   fi
   test_parallel_runtime
   test_mgconsole "1.7"
+  if [ "$__mode" == "fips" ]; then
+    run_fips_compliance_tests
+  else
+    test_fips_info_disabled
+  fi
+}
+
+run_fips_compliance_tests() {
+  test_fips_show_info
+  test_fips_provider_active
+  test_fips_drbg_from_provider
+  test_fips_non_approved_algorithms_unavailable
+  test_fips_no_bundled_openssl
 }
 
 # NOTE: If the tested instance is NOT restarted (each test having their own
@@ -79,10 +103,15 @@ create_test_users() {
   echo "NOTE: admin and tester users are created for testing purposes."
 }
 
+#   $1 - mode: normal|fips (see run_feature_tests).
 run_auth_feature_tests() {
+  __mode="${1:-normal}"
   test_show_database_settings
   test_auth_roles
   test_impersonate_user
   test_user_profiles
   test_user_role_functions
+  if [ "$__mode" == "fips" ]; then
+    test_fips_password_hashing
+  fi
 }

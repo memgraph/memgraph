@@ -97,6 +97,13 @@ startup_config_dict = {
         "10",
         "Define a timeout for establishing a connection with a remote server during a file download.",
     ),
+    "fips_mode": (
+        "false",
+        "false",
+        "Run Memgraph in FIPS 140-3 approved mode. Enterprise only. Requires the validated OpenSSL FIPS "
+        "provider to be available and restricts password hashing and TLS to FIPS-approved algorithms. "
+        "Experimental: existing users' passwords must be reset, as their hashes cannot be re-hashed.",
+    ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
         "SNAPSHOT_ISOLATION",

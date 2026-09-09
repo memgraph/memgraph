@@ -209,6 +209,10 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
     info_query->info_type_ = SystemInfoQuery::InfoType::LICENSE;
     return info_query;
   }
+  if (ctx->fipsInfo()) {
+    info_query->info_type_ = SystemInfoQuery::InfoType::FIPS;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("System info query: '{}'", ctx->getText());
 }
