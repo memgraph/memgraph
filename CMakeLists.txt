@@ -25,17 +25,8 @@ find_program(CCACHE_PROGRAM ccache)
 
 if(CCACHE_PROGRAM)
     message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
-    # base_dir has to be this checkout's own root. ccache rewrites absolute paths under
-    # base_dir to be relative to the build directory, so a base_dir wide enough to span
-    # several checkouts also rewrites the dependency and toolchain paths those checkouts
-    # share, and two checkouts at different directory depths then hash differently and
-    # share nothing.
-    #
-    # nohashdir keeps the build directory out of the hash, which is what lets one checkout
-    # reuse another's entries. It is sound only because the build also compiles with
-    # -ffile-prefix-map: without that, a reused object still records the directory that
-    # produced it, and a debugger would resolve source against a checkout that may hold
-    # different content at the same relative path.
+    # Lets checkouts at different paths share entries. base_dir must be this checkout's root:
+    # a wider one rewrites the dependency paths they share. nohashdir needs -ffile-prefix-map.
     find_program(ENV_PROGRAM env REQUIRED)
     set(MG_CCACHE_LAUNCHER
         ${ENV_PROGRAM}
@@ -338,12 +329,7 @@ add_compile_options(
         $<$<CXX_COMPILER_ID:GNU>:-Werror=reorder>
 )
 
-# Record source paths relative to the tree root instead of absolutely, so an object file
-# does not depend on which directory built it and a compiler cache can serve one checkout
-# of this repository from another's entries. One flag covers debug info, __FILE__ and
-# std::source_location together, so assertion messages read as tree-relative paths and a
-# debugger started from the tree root still finds the source. CUDA is excluded because
-# nvcc rejects the option.
+# Tree-relative source paths, so no object names the directory that built it. nvcc rejects it.
 add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-ffile-prefix-map=${PROJECT_SOURCE_DIR}=.>)
 
 # Use lld linker to speedup build and use less memory.
