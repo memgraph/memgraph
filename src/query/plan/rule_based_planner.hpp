@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <ranges>
+#include <utility>
 #include <variant>
 
 #include "flags/run_time_configurable.hpp"
@@ -146,6 +147,7 @@ constexpr Fold ToOperatorFold(SubqueryExpression::Fold fold) {
     case SubqueryExpression::Fold::kList:
       return Fold::kList;
   }
+  std::unreachable();
 }
 
 /// The one column a list fold collects from @p branch. The front end refuses a body that returns any other number, so

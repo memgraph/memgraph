@@ -14,6 +14,8 @@
 // NOTE: This header should NOT be included by public API consumers.
 // It exposes implementation details of the egraph pimpl.
 
+#include "planner/core/egraph.gmf.hpp"
+#include "planner/core/typed_egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 import memgraph.planner.core.typed_egraph;
 

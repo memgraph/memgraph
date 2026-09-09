@@ -52,6 +52,7 @@ constexpr std::string_view StreamSourceTypeToString(StreamSourceType type) {
     case StreamSourceType::PULSAR:
       return "pulsar";
   }
+  std::unreachable();
 }
 
 template <typename T>

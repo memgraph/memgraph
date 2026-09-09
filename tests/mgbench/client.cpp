@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <gflags/gflags.h>
@@ -158,6 +159,7 @@ memgraph::communication::bolt::Value JsonToBoltValue(const nlohmann::json &data)
     case nlohmann::json::value_t::discarded:
       LOG_FATAL("Unexpected JSON type!");
   }
+  std::unreachable();
 }
 
 class Metadata final {
@@ -324,8 +326,9 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
   }
 
   int total_iterations = 0;
-  std::for_each(worker_query_durations.begin(), worker_query_durations.end(),
-                [&](const std::vector<double> &v) { total_iterations += v.size(); });
+  std::for_each(worker_query_durations.begin(), worker_query_durations.end(), [&](const std::vector<double> &v) {
+    total_iterations += v.size();
+  });
 
   final_duration /= FLAGS_num_workers;
   double execution_delta = time_limit.count() / final_duration;

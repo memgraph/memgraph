@@ -11,8 +11,7 @@
 
 module;
 
-#include <cstdint>
-#include <functional>
+#include "planner/core/eids.gmf.hpp"
 
 export module memgraph.planner.core.eids;
 

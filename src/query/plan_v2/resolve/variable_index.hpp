@@ -21,6 +21,7 @@
 #include "query/plan_v2/resolve/variable_set.hpp"
 #include "utils/logging.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::query::plan::v2 {

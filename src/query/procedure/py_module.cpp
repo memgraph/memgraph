@@ -246,6 +246,7 @@ bool RaiseExceptionFromErrorCode(const mgp_error error) {
       return true;
     }
   }
+  std::unreachable();
 }
 
 mgp_value *PyObjectToMgpValueWithPythonExceptions(PyObject *py_value, mgp_memory *memory) noexcept {
@@ -1898,7 +1899,7 @@ static PyMethodDef PyMgpModuleMethods[] = {
 
 // clang-format off
 static PyModuleDef PyMgpModule = {
-    PyModuleDef_HEAD_INIT,
+    .m_base = PyModuleDef_HEAD_INIT,
     .m_name = "_mgp",
     .m_doc = "Contains raw bindings to mg_procedure.h C API.",
     .m_size = -1,
@@ -3308,6 +3309,7 @@ py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyO
       return py::Object::FromBorrow(py_mgp).CallMethod("Enum", py_type_name, py_value_name);
     }
   }
+  std::unreachable();
 }
 }  // namespace
 

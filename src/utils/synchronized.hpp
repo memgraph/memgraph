@@ -82,6 +82,9 @@ concept TrySharedLockable = SharedMutex<TMutex> && requires(TMutex &tm) {
 template <class T, class TMutex = std::mutex>
 class Synchronized {
  public:
+  // Spelled out because GCC does not pick the variadic template as the default constructor.
+  Synchronized() : object_() {}
+
   template <class... Args>
   explicit Synchronized(Args &&...args) : object_(std::forward<Args>(args)...) {}
 

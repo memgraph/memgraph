@@ -34,6 +34,7 @@
 #include "utils/memory.hpp"
 #include "utils/temporal.hpp"
 
+#include "utils/fnv.gmf.hpp"
 import memgraph.utils.fnv;
 
 namespace memgraph::query {
@@ -704,6 +705,7 @@ TypedValue::operator storage::ExternalPropertyValue() const {
     case Type::Function:
       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
+  std::unreachable();
 }
 
 TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
@@ -972,6 +974,7 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
     case Type::Function:
       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
+  std::unreachable();
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -1098,6 +1101,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Function:
       return false;
   }
+  std::unreachable();
 }
 
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {

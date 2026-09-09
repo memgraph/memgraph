@@ -465,6 +465,7 @@ const char *triggerPhaseToString(TriggerPhase phase) {
     case TriggerPhase::AFTER_COMMIT:
       return "AFTER COMMIT EXECUTE";
   }
+  std::unreachable();
 }
 
 }  // namespace

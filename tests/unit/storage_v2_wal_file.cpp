@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
@@ -44,6 +45,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // For color console logging
 #include "spdlog/sinks/ostream_sink.h"
 
+#include "storage/v2/property_value.gmf.hpp"
 import memgraph.storage.property_value;
 
 static constexpr auto kMetricKind = "l2sq";
@@ -654,6 +656,7 @@ class DeltaGenerator final {
           case DESCRIPTION_DELETE:
             return {WalDescriptionDelete{memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}}};
         }
+        std::unreachable();
       });
       data_.emplace_back(timestamp_, data);
     }

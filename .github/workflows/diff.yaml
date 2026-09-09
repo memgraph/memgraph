@@ -72,6 +72,11 @@ on:
         type: string
         default: ''
         description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
+      compiler:
+        type: choice
+        options: [gcc, llvm]
+        default: gcc
+        description: "Compiler family used to build memgraph (coverage and clang-tidy always use llvm)"
   workflow_call:
     inputs:
       community_core:
@@ -138,6 +143,10 @@ on:
         type: string
         default: ''
         description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
+      compiler:
+        type: string
+        default: 'gcc'
+        description: "Compiler family used to build memgraph: gcc or llvm (coverage and clang-tidy always use llvm)"
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -185,6 +194,7 @@ jobs:
       arch: 'amd'
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
+      compiler: ${{ inputs.compiler || 'gcc' }}
       python_build_version: ${{ inputs.python_build_version }}
       python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
@@ -211,6 +221,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
+      compiler: ${{ inputs.compiler || 'gcc' }}
       python_build_version: ${{ inputs.python_build_version }}
       python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
@@ -221,6 +232,7 @@ jobs:
     with:
       ref: ${{ inputs.ref || github.ref }}
       run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
+      compiler: ${{ inputs.compiler || 'gcc' }}
     secrets: inherit
 
   Release:
@@ -234,6 +246,7 @@ jobs:
       run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
+      compiler: ${{ inputs.compiler || 'gcc' }}
       python_build_version: ${{ inputs.python_build_version }}
       python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
@@ -247,6 +260,7 @@ jobs:
       run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
+      compiler: ${{ inputs.compiler || 'gcc' }}
       # Mage only overrides the build-time Python; runtime stays the image
       # default, so no python_runtime_version (no swap) is forwarded.
       python_build_version: ${{ inputs.python_build_version }}

@@ -13,4 +13,8 @@
 // Note: EGraph is header-only (all template), so this file is minimal.
 // Kept for potential future non-template implementations.
 
+module;
+
+#include "planner/core/egraph.gmf.hpp"
+
 module memgraph.planner.core.egraph;

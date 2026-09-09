@@ -38,6 +38,7 @@ OPTIONS:
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
+    MG_COMPILER             Toolchain compiler family: llvm (default) or gcc
     VENV_DIR                Path to Python virtual environment (default: env)
     MG_PYTHON               Python interpreter to use (must be >= 3.10). By
                             default the newest suitable python3/python3.X on
@@ -407,6 +408,19 @@ fi
 
 # Install custom conan settings
 conan config install conan_config
+
+# Compiler family from the toolchain: llvm (default) or gcc. Read by the conan profile template
+# and the CMake toolchain file, so it must be the same for both; an incremental build reuses the
+# choice cached by CMake unless the variable is set explicitly.
+if [[ -z "${MG_COMPILER:-}" && -f build/CMakeCache.txt ]]; then
+    MG_COMPILER=$(sed -n 's/^MG_COMPILER:STRING=//p' build/CMakeCache.txt)
+fi
+export MG_COMPILER="${MG_COMPILER:-llvm}"
+if [[ "$MG_COMPILER" != "llvm" && "$MG_COMPILER" != "gcc" ]]; then
+    echo "Error: MG_COMPILER must be 'llvm' or 'gcc', got '$MG_COMPILER'" >&2
+    exit 1
+fi
+echo "Toolchain compiler: $MG_COMPILER"
 
 # Register vendored recipes as a local-recipes-index remote
 # NOTE: also registered in release/package/mgbuild.sh — keep in sync

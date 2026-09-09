@@ -760,6 +760,7 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
         throw QueryRuntimeException("'{}' is outside the range of an integer.", value.ValueString());
     }
   }
+  std::unreachable();
 }
 
 // Null-on-rejected-type wrapper: accepted types delegate to the strict fn (still null on parse failure), rest -> null.
@@ -906,6 +907,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
     case TypedValue::Type::Function:
       throw QueryRuntimeException("Unknown value type! Please report an issue!");
   }
+  std::unreachable();
 }
 
 // TODO: How is Keys different from Properties function?
@@ -1433,6 +1435,7 @@ std::optional<TypedValue> TryToString(const TypedValue &arg, const FunctionConte
       MG_ASSERT(false, "unexpected TypedValue::Type");
     }
   }
+  std::unreachable();
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

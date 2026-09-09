@@ -11,12 +11,7 @@
 
 module;
 
-#include <cstddef>
-#include <functional>
-#include <optional>
-#include <string>
-
-#include "query/typed_value.hpp"
+#include "query/jsonl/reader.gmf.hpp"
 
 import memgraph.utils.aws;
 

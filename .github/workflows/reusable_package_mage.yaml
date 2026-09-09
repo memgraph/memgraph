@@ -103,10 +103,15 @@ on:
         type: string
         description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python. Maps to mgbuild --python-build-version."
         default: ''
+      compiler:
+        type: string
+        description: "Compiler family from the toolchain used to build memgraph: llvm or gcc. Maps to mgbuild --compiler."
+        default: 'llvm'
 
 run-name: "Build and test MAGE"
 
 env:
+  COMPILER: "${{ inputs.compiler }}"
   OS: "${{ inputs.os }}${{ inputs.arch == 'arm' && '-arm' || '' }}"
   ARCH: "${{ inputs.arch }}"
   PYTHON_BUILD_VERSION: "${{ inputs.python_build_version }}"
@@ -356,6 +361,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --cugraph $CUGRAPH \
           build-memgraph $ADDITIONAL_BUILD_ARGS $SPLIT_DEBUG_ARG \
+          --compiler $COMPILER \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
@@ -452,7 +458,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --cugraph $CUGRAPH \
-          build-memgraph --mage only $SPLIT_DEBUG_ARG $CUDA_ARG
+          build-memgraph --mage only $SPLIT_DEBUG_ARG $CUDA_ARG --compiler $COMPILER
 
       - name: "Copy heaptrack"
         if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}

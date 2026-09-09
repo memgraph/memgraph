@@ -589,19 +589,20 @@ int main(int argc, char **argv) {
                .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
-      .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
-                        .enable_edges_metadata =
-                            FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
-                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
-                        .enable_schema_info = FLAGS_schema_info_enabled,
-                        .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
-                        .enable_edge_type_index_auto_creation =
-                            FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
-                        .storage_light_edge = FLAGS_storage_light_edge,
-                        .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
-                        .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
-      .salient.storage_mode = memgraph::flags::ParseStorageMode(),
-      .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel(),
+      .salient =
+          {.storage_mode = memgraph::flags::ParseStorageMode(),
+           .property_store_compression_level = memgraph::flags::ParseCompressionLevel(),
+           .items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                     .enable_edges_metadata =
+                         FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
+                     .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                     .enable_schema_info = FLAGS_schema_info_enabled,
+                     .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
+                     .enable_edge_type_index_auto_creation =
+                         FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
+                     .storage_light_edge = FLAGS_storage_light_edge,
+                     .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
+                     .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled}},
       .track_label_counts = FLAGS_telemetry_enabled};
   // Light edges require properties on edges: coerce BEFORE any check that
   // depends on properties_on_edges (the edge-type auto-index fatal below and

@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include <nlohmann/json.hpp>
 
@@ -139,6 +140,7 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
       throw std::runtime_error("VectorIndexId should be used only in storage layer!");
     }
   }
+  std::unreachable();
 }
 
 nlohmann::json SerializeExternalPropertyValueVector(const std::vector<storage::ExternalPropertyValue> &values,
@@ -227,6 +229,7 @@ storage::ExternalPropertyValue DeserializeExternalPropertyValue(const nlohmann::
     case ObjectType::VECTOR_INDEX_ID:
       throw std::runtime_error("VectorIndexId should be used only in storage layer!");
   }
+  std::unreachable();
 }
 
 std::vector<storage::ExternalPropertyValue> DeserializeExternalPropertyValueList(

@@ -17,6 +17,7 @@
 #include <atomic>
 #include <functional>
 #include <type_traits>
+#include <utility>
 
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
@@ -200,6 +201,8 @@ auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
           GetReadableSize(static_cast<double>(will_be)),
           GetReadableSize(static_cast<double>(hard_limit)));
   }
+  // Every enumerator returns above; GCC's -Wreturn-type does not treat a covered switch as exhaustive.
+  std::unreachable();
 }
 
 }  // namespace memgraph::utils

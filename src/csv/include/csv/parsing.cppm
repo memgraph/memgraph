@@ -18,29 +18,19 @@
 
 module;
 
-#include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <string>
-#include <variant>
-
-#include "utils/exceptions.hpp"
-#include "utils/pmr/string.hpp"
-#include "utils/pmr/vector.hpp"
+#include "csv/parsing.gmf.hpp"
 
 export module memgraph.csv.parsing;
 
 import memgraph.utils.aws;
 
-namespace {
+// Module linkage, not an anonymous namespace: a TU-local concept cannot constrain an exported constructor.
+namespace memgraph::csv::detail {
 template <typename T>
 concept Streamable = requires(T t) {
   { t.GetStream() } -> std::convertible_to<std::istream &>;
 };
-
-}  // namespace
+}  // namespace memgraph::csv::detail
 
 export namespace memgraph::csv {
 
@@ -83,16 +73,16 @@ class UrlCsvSource : public StreamCsvSource {
   explicit UrlCsvSource(std::string url);
 };
 
-static_assert(Streamable<FileCsvSource>);
-static_assert(Streamable<S3CsvSource>);
-static_assert(Streamable<UrlCsvSource>);
-static_assert(Streamable<StreamCsvSource>);
+static_assert(detail::Streamable<FileCsvSource>);
+static_assert(detail::Streamable<S3CsvSource>);
+static_assert(detail::Streamable<UrlCsvSource>);
+static_assert(detail::Streamable<StreamCsvSource>);
 
 class CsvSource {
  public:
   static auto Create(std::string csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource;
 
-  template <Streamable T>
+  template <detail::Streamable T>
   explicit CsvSource(T source) : source_{std::move(source)} {}
 
   std::istream &GetStream();

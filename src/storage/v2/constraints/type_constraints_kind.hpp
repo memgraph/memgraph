@@ -22,6 +22,7 @@
 
 #include "absl/container/flat_hash_map.h"
 
+#include "storage/v2/property_value.gmf.hpp"
 import memgraph.storage.property_value;
 
 namespace memgraph::storage {

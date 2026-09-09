@@ -91,7 +91,7 @@ class ReplicationTest : public ::testing::Test {
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
 
             },
-        .salient.items = {.properties_on_edges = true},
+        .salient = {.items = {.properties_on_edges = true}},
         .register_metrics = false,
     };
     UpdatePaths(config, storage_directory);
@@ -105,7 +105,7 @@ class ReplicationTest : public ::testing::Test {
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
 
             },
-        .salient.items = {.properties_on_edges = true},
+        .salient = {.items = {.properties_on_edges = true}},
         .register_metrics = false,
     };
     UpdatePaths(config, repl_storage_directory);
@@ -119,7 +119,7 @@ class ReplicationTest : public ::testing::Test {
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
 
             },
-        .salient.items = {.properties_on_edges = true},
+        .salient = {.items = {.properties_on_edges = true}},
         .register_metrics = false,
     };
     UpdatePaths(config, repl2_storage_directory);
@@ -1762,11 +1762,11 @@ TEST_F(ReplicationTest, SchemaReplication) {
               .snapshot_retention_count = 1,
               .restore_replication_state_on_startup = true,
           },
-      .salient.items =
-          {
-              .properties_on_edges = true,
-              .enable_schema_info = true,
-          },
+      .salient = {.items =
+                      {
+                          .properties_on_edges = true,
+                          .enable_schema_info = true,
+                      }},
       .register_metrics = false,
   };
 
@@ -1983,11 +1983,11 @@ TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
               .snapshot_retention_count = 1,
               .restore_replication_state_on_startup = true,
           },
-      .salient.items =
-          {
-              .properties_on_edges = true,
-              .enable_schema_info = true,
-          },
+      .salient = {.items =
+                      {
+                          .properties_on_edges = true,
+                          .enable_schema_info = true,
+                      }},
       .register_metrics = false,
   };
 
@@ -2377,7 +2377,7 @@ class ReplicationTestLightEdge : public ::testing::Test {
                 .root_data_directory = dir,
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
             },
-        .salient.items = {.properties_on_edges = true, .storage_light_edge = true},
+        .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}},
     };
     UpdatePaths(config, dir);
     return config;

@@ -11,6 +11,8 @@
 
 #include "glue/auth.hpp"
 
+#include <utility>
+
 #include "auth/models.hpp"
 #include "frontend/ast/query/auth_query.hpp"
 
@@ -85,6 +87,7 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
     case query::AuthQuery::Privilege::COORDINATOR_WRITE:
       return auth::Permission::COORDINATOR_WRITE;
   }
+  std::unreachable();
 }
 
 #ifdef MG_ENTERPRISE
@@ -120,6 +123,7 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
     case query::AuthQuery::FineGrainedPrivilege::ALL:
       return type == FineGrainedPermissionType::LABEL ? auth::kAllLabelPermissions : auth::kAllEdgeTypePermissions;
   }
+  std::unreachable();
 }
 #endif
 }  // namespace memgraph::glue

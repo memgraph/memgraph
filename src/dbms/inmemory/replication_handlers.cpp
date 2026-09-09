@@ -35,6 +35,7 @@
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
 
+#include "utils/fnv.gmf.hpp"
 import memgraph.utils.fnv;
 
 using memgraph::storage::Delta;
@@ -1242,7 +1243,6 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
     rpc::ProgressHeartbeat &heartbeat, bool const two_phase_commit, bool const loading_wal) {
-  constexpr auto kSharedAccess = storage::StorageAccessType::WRITE;
   constexpr auto kUniqueAccess = storage::StorageAccessType::UNIQUE;
 
   uint64_t commit_timestamp{0};
@@ -1268,9 +1268,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     }
   };
 
-  auto const get_replication_accessor = [&, storage](uint64_t const local_commit_timestamp,
-                                                     storage::StorageAccessType acc_hint =
-                                                         kSharedAccess) -> storage::ReplicationAccessor * {
+  auto const get_replication_accessor = [&, storage](
+                                            uint64_t const local_commit_timestamp,
+                                            storage::StorageAccessType acc_hint =
+                                                storage::StorageAccessType::WRITE) -> storage::ReplicationAccessor * {
     if (!commit_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       // acc_hint only gets used if we are using an older version of WAL (before v3.5.0)

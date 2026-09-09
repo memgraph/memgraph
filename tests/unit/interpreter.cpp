@@ -49,6 +49,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 
+#include "csv/parsing.gmf.hpp"
 import memgraph.csv.parsing;
 
 namespace {

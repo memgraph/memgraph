@@ -66,4 +66,3 @@ list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
 # Exclude OpenSSL from toolchain search paths to force use of Conan-provided OpenSSL
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib/cmake/OpenSSL")
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib64/cmake/OpenSSL")
-

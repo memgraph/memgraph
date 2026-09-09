@@ -99,7 +99,7 @@ class SharedQuota {
 
  public:
   constexpr static struct Preload {
-  } preload;
+  } preload{};
 
   explicit SharedQuota(uint64_t limit, uint64_t n_batches = 1);
   // Used to setup the objects, but not initialize the quota.

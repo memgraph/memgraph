@@ -37,14 +37,13 @@ class VirtualGraph;  // fwd declare
 class VirtualEdge;   // fwd declare
 class VirtualNode;   // fwd declare
 
-namespace {
+// Not in an anonymous namespace: a TU-local concept cannot constrain a constructor that module interfaces see.
 template <typename T>
 concept TypedValueValidPrimativeType =
     std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||
     std::is_same_v<T, storage::Enum> || std::is_same_v<T, utils::Date> || std::is_same_v<T, utils::LocalTime> ||
     std::is_same_v<T, utils::LocalDateTime> || std::is_same_v<T, utils::ZonedDateTime> ||
     std::is_same_v<T, utils::Duration> || std::is_same_v<T, utils::Duration> || std::is_same_v<T, std::string>;
-}
 
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**

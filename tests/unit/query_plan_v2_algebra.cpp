@@ -26,6 +26,7 @@
 #include "query/plan_v2/egraph/alternative.hpp"
 #include "query/plan_v2/test_support/variable_set.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::query::plan::v2 {

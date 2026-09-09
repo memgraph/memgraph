@@ -14,6 +14,7 @@
 
 #include "utils/on_scope_exit.hpp"
 
+#include "utils/aws.gmf.hpp"
 import memgraph.utils.aws;
 
 using memgraph::utils::ExtractBucketAndObjectKey;

@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -753,6 +754,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::VALUE_TRUE:
       return std::nullopt;
   }
+  std::unreachable();
 }
 
 bool Decoder::SkipString() {
@@ -912,6 +914,7 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::VALUE_TRUE:
       return false;
   }
+  std::unreachable();
 }
 
 uint64_t Decoder::GetSize() { return file_.GetSize(); }

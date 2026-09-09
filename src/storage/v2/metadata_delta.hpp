@@ -70,112 +70,112 @@ struct MetadataDelta {
   };
 
   static constexpr struct LabelIndexCreate {
-  } label_index_create;
+  } label_index_create{};
 
   static constexpr struct LabelIndexDrop {
-  } label_index_drop;
+  } label_index_drop{};
 
   static constexpr struct LabelIndexStatsSet {
-  } label_index_stats_set;
+  } label_index_stats_set{};
 
   static constexpr struct LabelIndexStatsClear {
-  } label_index_stats_clear;
+  } label_index_stats_clear{};
 
   static constexpr struct LabelPropertyIndexCreate {
-  } label_property_index_create;
+  } label_property_index_create{};
 
   static constexpr struct PointIndexCreate {
-  } point_index_create;
+  } point_index_create{};
 
   static constexpr struct PointIndexDrop {
-  } point_index_drop;
+  } point_index_drop{};
 
   static constexpr struct LabelPropertyIndexDrop {
-  } label_property_index_drop;
+  } label_property_index_drop{};
 
   static constexpr struct LabelPropertyIndexStatsSet {
-  } label_property_index_stats_set;
+  } label_property_index_stats_set{};
 
   static constexpr struct LabelPropertyIndexStatsClear {
-  } label_property_index_stats_clear;
+  } label_property_index_stats_clear{};
 
   static constexpr struct EdgeIndexCreate {
-  } edge_index_create;
+  } edge_index_create{};
 
   static constexpr struct EdgeIndexDrop {
-  } edge_index_drop;
+  } edge_index_drop{};
 
   static constexpr struct EdgePropertyIndexCreate {
-  } edge_property_index_create;
+  } edge_property_index_create{};
 
   static constexpr struct EdgePropertyIndexDrop {
-  } edge_property_index_drop;
+  } edge_property_index_drop{};
 
   static constexpr struct GlobalEdgePropertyIndexCreate {
-  } global_edge_property_index_create;
+  } global_edge_property_index_create{};
 
   static constexpr struct GlobalEdgePropertyIndexDrop {
-  } global_edge_property_index_drop;
+  } global_edge_property_index_drop{};
 
   static constexpr struct GlobalVertexPropertyIndexCreate {
-  } global_vertex_property_index_create;
+  } global_vertex_property_index_create{};
 
   static constexpr struct GlobalVertexPropertyIndexDrop {
-  } global_vertex_property_index_drop;
+  } global_vertex_property_index_drop{};
 
   static constexpr struct TextIndexCreate {
-  } text_index_create;
+  } text_index_create{};
 
   static constexpr struct TextEdgeIndexCreate {
-  } text_edge_index_create;
+  } text_edge_index_create{};
 
   static constexpr struct TextIndexDrop {
-  } text_index_drop;
+  } text_index_drop{};
 
   static constexpr struct VectorIndexCreate {
-  } vector_index_create;
+  } vector_index_create{};
 
   static constexpr struct VectorIndexDrop {
-  } vector_index_drop;
+  } vector_index_drop{};
 
   static constexpr struct VectorEdgeIndexCreate {
-  } vector_edge_index_create;
+  } vector_edge_index_create{};
 
   static constexpr struct ExistenceConstraintCreate {
-  } existence_constraint_create;
+  } existence_constraint_create{};
 
   static constexpr struct ExistenceConstraintDrop {
-  } existence_constraint_drop;
+  } existence_constraint_drop{};
 
   static constexpr struct UniqueConstraintCreate {
-  } unique_constraint_create;
+  } unique_constraint_create{};
 
   static constexpr struct UniqueConstraintDrop {
-  } unique_constraint_drop;
+  } unique_constraint_drop{};
 
   static constexpr struct TypeConstraintCreate {
-  } type_constraint_create;
+  } type_constraint_create{};
 
   static constexpr struct TypeConstraintDrop {
-  } type_constraint_drop;
+  } type_constraint_drop{};
 
   static constexpr struct EnumCreate {
-  } enum_create;
+  } enum_create{};
 
   static constexpr struct EnumAlterAdd {
-  } enum_alter_add;
+  } enum_alter_add{};
 
   static constexpr struct EnumAlterUpdate {
-  } enum_alter_update;
+  } enum_alter_update{};
 
   static constexpr struct TtlOperation {
-  } ttl_operation;
+  } ttl_operation{};
 
   static constexpr struct DescriptionSet {
-  } description_set;
+  } description_set{};
 
   static constexpr struct DescriptionDelete {
-  } description_delete;
+  } description_delete{};
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 

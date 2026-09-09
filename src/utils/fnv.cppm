@@ -11,10 +11,7 @@
 
 module;
 
-#include <cstdint>
-#include <cstdlib>
-#include <functional>
-#include <string_view>
+#include "utils/fnv.gmf.hpp"
 
 export module memgraph.utils.fnv;
 

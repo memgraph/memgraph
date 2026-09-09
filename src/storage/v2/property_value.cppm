@@ -11,25 +11,7 @@
 
 module;
 
-#include <compare>
-#include <cstdint>
-#include <iosfwd>
-#include <memory>
-#include <memory_resource>
-#include <string>
-#include <utility>
-#include <variant>
-#include <vector>
-
-#include <boost/container/flat_map.hpp>
-#include "storage/v2/enum.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/point.hpp"
-#include "storage/v2/temporal.hpp"
-#include "utils/algorithm.hpp"
-#include "utils/exceptions.hpp"
-#include "utils/small_vector.hpp"
+#include "storage/v2/property_value.gmf.hpp"
 
 export module memgraph.storage.property_value;
 
@@ -1144,6 +1126,7 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
           });
     }
   }
+  std::unreachable();
 }
 
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
@@ -1493,6 +1476,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) 
     case PropertyValueType::VectorIndexId:
       return os << "vector index id";
   }
+  std::unreachable();
 }
 
 /// @throw anything std::ostream::operator<< may throw.
@@ -1576,6 +1560,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc,
       return os << "]";
     }
   }
+  std::unreachable();
 }
 
 inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdMapper *mapper) {
@@ -1839,12 +1824,12 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
             value.ValueVectorIndexList());
       }
     }
+    std::unreachable();
   }
 };
 }  // namespace std
 
-module :private;
-
+// Not a private module fragment: GCC 16 reports it as unimplemented.
 namespace memgraph::storage {
 template class PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t>;
 

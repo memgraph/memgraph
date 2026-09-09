@@ -593,7 +593,7 @@ class Interpreter final {
 
   struct QueryExecution {
     static constexpr struct ThreadSafe {
-    } thread_safe_;
+    } thread_safe_{};
 
     // QueryExecution memory is charged to the DB whose query/trigger is being
     // prepared. System-only executions may pass nullptr because they do not run
@@ -751,12 +751,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream, query_execution->resource()};
-    const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
-    // Stream is using execution memory of the query_execution which
-    // can be deleted after its execution so the stream should be cleared
-    // first.
-    stream.~AnyStream();
+    // Stream is using execution memory of the query_execution which can be deleted after its
+    // execution, so it lives in its own scope and is destroyed first. (Not an explicit destructor
+    // call: that destroyed the automatic object twice, which GCC's codegen turned into a crash.)
+    const auto maybe_res = [&] {
+      AnyStream stream{result_stream, query_execution->resource()};
+      return query_execution->prepared_query->query_handler(&stream, n);
+    }();
 
     // If the query finished executing, we have received a value which tells
     // us what to do after.

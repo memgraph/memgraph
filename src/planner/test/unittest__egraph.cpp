@@ -15,6 +15,7 @@
 
 #include "test_support/types.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {

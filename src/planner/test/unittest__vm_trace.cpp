@@ -28,6 +28,7 @@
 #include "planner/pattern/vm/tracer.hpp"
 #include "test_matcher_fixture.hpp"
 
+#include "planner/core/egraph.gmf.hpp"
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {

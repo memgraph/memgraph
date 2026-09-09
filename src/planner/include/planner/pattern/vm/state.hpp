@@ -17,6 +17,7 @@
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
+#include "planner/core/eids.gmf.hpp"
 import memgraph.planner.core.eids;
 
 #include <absl/container/flat_hash_set.h>

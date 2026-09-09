@@ -8,3 +8,6 @@ patches:
     - patch_file: "patches/1.91.0-locale-iconv-library-option.patch"
       patch_description: "Optional flag to specify iconv from either libc of libiconv"
       patch_type: "conan"
+    - patch_file: "patches/1.91.0-unordered-no-tu-local-functions.patch"
+      patch_description: "Drop 'static' from namespace-scope inline functions in boost/unordered so they are not TU-local; GCC rejects exposing them from a C++20 module interface"
+      patch_type: "portability"

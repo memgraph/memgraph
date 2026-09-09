@@ -11,6 +11,10 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
+      compiler:
+        type: string
+        description: "Compiler family from the toolchain used to build memgraph: llvm or gcc. Default is llvm."
+        default: 'llvm'
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -18,6 +22,7 @@ on:
         type: string
 
 env:
+  COMPILER: ${{ inputs.compiler }}
   ARCH: 'amd'
   BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -93,6 +98,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph \
+          --compiler $COMPILER \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \

@@ -14,6 +14,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <utility>
 
 #include "utils/exceptions.hpp"
 
@@ -91,6 +92,7 @@ class VerboseError : public utils::BasicException {
       case Classification::TRANSIENT_ERROR:
         return "TransientError";
     }
+    std::unreachable();
   }
 
   std::string code_;

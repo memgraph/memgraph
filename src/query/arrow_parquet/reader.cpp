@@ -39,6 +39,8 @@ module;
 #include "parquet/properties.h"
 #include "spdlog/spdlog.h"
 
+#include "query/arrow_parquet/reader.gmf.hpp"
+
 module memgraph.query.arrow_parquet.reader;
 
 constexpr int64_t batch_rows = 1U << 16U;

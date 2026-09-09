@@ -60,8 +60,6 @@ namespace detail {
 
 // No need to dispatch virtual destructor to base classes because visitor is stateless
 // Virtual destructor moved to Visitor
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 template <typename R, class... T>
 class VisitorBase;
 
@@ -81,9 +79,10 @@ class VisitorBase<R, T> {
 
   /// @brief Visit an instance of @c T.
   virtual ReturnType Visit(T &) = 0;
+
+  virtual ~VisitorBase() = default;
 };
 
-#pragma clang diagnostic pop
 template <class... T>
 class CompositeVisitorBase;
 

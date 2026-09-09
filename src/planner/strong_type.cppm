@@ -11,9 +11,7 @@
 
 module;
 
-#include "strong_type/strong_type.hpp"
-
-#include <strong_type/type.hpp>
+#include "planner/core/strong_type.gmf.hpp"
 
 export module rollbear.strong_type;
 

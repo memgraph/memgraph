@@ -27,6 +27,10 @@ on:
         type: string
         description: "After building, remove the build Python and swap in this version so tests run against a different libpython. Empty disables the swap."
         default: ''
+      compiler:
+        type: string
+        description: "Compiler family from the toolchain used to build memgraph: llvm or gcc. Default is llvm."
+        default: 'llvm'
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -34,6 +38,7 @@ on:
         type: string
 
 env:
+  COMPILER: ${{ inputs.compiler }}
   ARCH: ${{ inputs.arch }}
   BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -103,6 +108,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph --community \
+          --compiler $COMPILER \
           --link-threads $LINK_THREADS \
           --split-debug \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \

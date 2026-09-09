@@ -302,27 +302,33 @@ add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 add_compile_options(
         -Wall
         -Werror=non-virtual-dtor
-        -Werror=unused-private-field
         -Werror=switch
         -Werror=switch-bool
         -Werror=return-type
-        -Werror=return-stack-address
-        -Werror=dangling
-        -Werror=non-power-of-two-alignment
         -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
-        -Wno-c99-designator
         -Werror=implicit-fallthrough
         -Werror=deprecated
         -Wno-error=deprecated-declarations
+        # Clang-only diagnostics; GCC has no equivalent or spells it differently (below).
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=unused-private-field>
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=return-stack-address>
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=dangling>
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=non-power-of-two-alignment>
+        $<$<CXX_COMPILER_ID:Clang>:-Wno-c99-designator>
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
         # A member whose constructor starts a thread reading other members is initialized in
         # declaration order, not the order the initializer list is written in.
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-ctor>
         $<$<CXX_COMPILER_ID:GNU>:-Werror=reorder>
+        $<$<CXX_COMPILER_ID:GNU>:-Werror=return-local-addr>
+        # GCC emits GCC-8-compatible alias manglings by default; with C++20 modules those collide with
+        # the primary mangling of constrained templates ("conflicts with a previous mangle").
+        $<$<CXX_COMPILER_ID:GNU>:-fabi-compat-version=0>
 )
 
-# Use lld linker to speedup build and use less memory.
-add_link_options(-fuse-ld=lld)
+# Use lld linker to speedup build and use less memory. GCC's LTO objects need the linker plugin,
+# which lld lacks, so the toolchain file selects GNU ld for GCC instead.
+add_link_options($<$<CXX_COMPILER_ID:Clang>:-fuse-ld=lld>)
 add_link_options(LINKER:--build-id)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 

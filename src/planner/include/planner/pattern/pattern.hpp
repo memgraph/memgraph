@@ -27,6 +27,8 @@
 #include "planner/pattern/types.hpp"
 #include "utils/small_vector.hpp"
 
+#include "planner/core/concepts.gmf.hpp"
+#include "planner/core/strong_type.gmf.hpp"
 import memgraph.planner.core.concepts;
 import rollbear.strong_type;
 

@@ -18,6 +18,7 @@
 
 #include "planner/pattern/types.hpp"
 
+#include "planner/core/eids.gmf.hpp"
 import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core::pattern {

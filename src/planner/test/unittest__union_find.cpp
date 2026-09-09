@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include "planner/core/union_find.gmf.hpp"
 import memgraph.planner.core.union_find;
 
 namespace memgraph::planner::core {

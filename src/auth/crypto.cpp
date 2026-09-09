@@ -386,6 +386,7 @@ HashedPassword HashPassword(const std::string &password, std::optional<PasswordH
         return PBKDF2::HashPassword(password, {salt.data(), salt.size()});
       }
     }
+    std::unreachable();
   });
   return HashedPassword{hash_algo, std::move(password_hash)};
 };
@@ -509,6 +510,8 @@ auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
       return {.unsalted = PBKDF2::HASH_LENGTH, .salted = PBKDF2::HASH_LENGTH + PBKDF2::SALT_SIZE_DURABLE};
   }
 
+  std::unreachable();
+
 }
 
 bool HashedPassword::VerifyPassword(const std::string &password) {
@@ -525,6 +528,7 @@ bool HashedPassword::VerifyPassword(const std::string &password) {
     case PasswordHashAlgorithm::PBKDF2_SHA256:
       return PBKDF2::VerifyPassword(password, password_hash);
   }
+  std::unreachable();
 }
 
 void to_json(nlohmann::json &j, const HashedPassword &p) {
@@ -554,6 +558,7 @@ bool HashedPassword::IsSalted() const {
     case PasswordHashAlgorithm::PBKDF2_SHA256:
       return true;
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::auth

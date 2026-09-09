@@ -14,7 +14,10 @@ add_library(mg-memory STATIC
             new_delete.cpp)
 message(STATUS "ENABLE_JEMALLOC: ${ENABLE_JEMALLOC}")
 if (ENABLE_JEMALLOC)
-  target_link_libraries(mg-memory-utils PUBLIC jemalloc::jemalloc PRIVATE ${CMAKE_DL_LIBS} mg-utils)
+  # db_arena.cpp calls JeNew/JeFree from new_delete.cpp, so the archive order must let a linker
+  # without backward archive resolution (GNU ld) see mg-memory after mg-memory-utils. The cycle
+  # between the two static libraries is intentional; CMake repeats them on the link line.
+  target_link_libraries(mg-memory-utils PUBLIC jemalloc::jemalloc PRIVATE ${CMAKE_DL_LIBS} mg-utils mg-memory)
   target_compile_definitions(mg-memory-utils PUBLIC USE_JEMALLOC=1)
   target_link_libraries(mg-memory PRIVATE jemalloc::jemalloc ${CMAKE_DL_LIBS} mg-memory-utils fmt::fmt)
   target_compile_definitions(mg-memory PUBLIC USE_JEMALLOC=1)

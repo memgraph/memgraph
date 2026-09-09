@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include <gflags/gflags.h>
 
@@ -259,6 +260,7 @@ class InteractiveDbAccessor {
         case memgraph::storage::PropertyRangeType::INVALID:
           return "INVALID";
       }
+      std::unreachable();
     };
     auto ranges_str = memgraph::utils::Join(prop_val_ranges | ranges::views::transform(to_range_str), ", ");
 

@@ -99,7 +99,7 @@ using SumV1 = memgraph::rpc::RequestResponse<SumReqV1, SumResV1>;
 struct EchoMessage {
   // Intentionally set to a random value to avoid polluting typeinfo.hpp
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
-                                                   "EchoMessage"};
+                                                   .name = "EchoMessage"};
   static constexpr uint64_t kVersion{1};
 
   EchoMessage() = default;  // Needed for serialization.

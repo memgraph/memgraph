@@ -215,7 +215,7 @@ class Listener final {
       spdlog::error("Unhandled event occured in {} session associated with {} events: {}",
                     service_name_,
                     session.socket().endpoint().SocketAddress(),
-                    event.events);
+                    static_cast<uint32_t>(event.events));
       CloseSession(session);
     }
   }

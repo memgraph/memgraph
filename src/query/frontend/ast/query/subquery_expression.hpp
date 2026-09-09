@@ -12,6 +12,7 @@
 #pragma once
 
 #include <string_view>
+#include <utility>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/query/expression.hpp"
@@ -59,6 +60,7 @@ class SubqueryExpression : public memgraph::query::Expression {
       case Fold::kList:
         return "COLLECT";
     }
+    std::unreachable();
   }
 
   constexpr std::string_view FoldName() const { return FoldName(fold_); }

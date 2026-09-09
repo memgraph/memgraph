@@ -36,6 +36,8 @@ module;
 #include "utils/exceptions.hpp"
 #include "utils/queued_byte_source.hpp"
 
+#include "query/jsonl/reader.gmf.hpp"
+
 module memgraph.query.jsonl.reader;
 
 import memgraph.utils.aws;

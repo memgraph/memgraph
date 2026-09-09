@@ -53,6 +53,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include "utils/aws.gmf.hpp"
 import memgraph.utils.aws;
 
 namespace memgraph::dbms {

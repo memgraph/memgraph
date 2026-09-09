@@ -20,6 +20,7 @@
 #include <boost/iostreams/filtering_stream.hpp>
 #include "gtest/gtest.h"
 
+#include "csv/parsing.gmf.hpp"
 import memgraph.csv.parsing;
 
 using namespace memgraph::csv;

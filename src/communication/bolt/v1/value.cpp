@@ -11,6 +11,8 @@
 
 #include "communication/bolt/v1/value.hpp"
 
+#include <utility>
+
 #include "query/string_helpers.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
@@ -487,6 +489,7 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
     case Value::Type::Point3d:
       return os << query::CypherConstructionFor(value.ValuePoint3d());
   }
+  std::unreachable();
 }
 
 std::ostream &operator<<(std::ostream &os, const Value::Type type) {
@@ -528,5 +531,6 @@ std::ostream &operator<<(std::ostream &os, const Value::Type type) {
     case Value::Type::Point3d:
       return os << "point_3d";
   }
+  std::unreachable();
 }
 }  // namespace memgraph::communication::bolt

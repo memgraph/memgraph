@@ -537,10 +537,10 @@ struct mgp_map {
                                                                  transparent_string_hash, transparent_string_equal>;
 
   static constexpr struct MapTag {
-  } map_tag_t;
+  } map_tag_t{};
 
   static constexpr struct UnorderedMapTag {
-  } unordered_map_tag_t;
+  } unordered_map_tag_t{};
 
   // Default to map type
   explicit mgp_map(allocator_type alloc) : items(std::in_place_type<map_type>, alloc) {}

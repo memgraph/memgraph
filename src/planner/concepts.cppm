@@ -11,10 +11,7 @@
 
 module;
 
-#include <concepts>
-#include <cstddef>
-#include <functional>
-#include <type_traits>
+#include "planner/core/concepts.gmf.hpp"
 
 export module memgraph.planner.core.concepts;
 

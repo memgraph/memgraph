@@ -10020,9 +10020,12 @@ void RecoverDescriptionStore(Decoder &snapshot, SnapshotInfo const &info, NameId
     auto kind = static_cast<DescriptionTargetKind>(*kind_raw);
 
     switch (kind) {
-      case DescriptionTargetKind::LABEL:
-        description_store->SetLabel(read_label_ids(), read_string("label description"));
+      case DescriptionTargetKind::LABEL: {
+        // Two decoder reads may not be sibling arguments: their evaluation order is unspecified.
+        auto labels = read_label_ids();
+        description_store->SetLabel(std::move(labels), read_string("label description"));
         break;
+      }
       case DescriptionTargetKind::EDGE_TYPE: {
         auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
         description_store->SetEdgeType(et, read_string("edge type description"));

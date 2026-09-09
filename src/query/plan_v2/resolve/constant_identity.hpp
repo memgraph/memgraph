@@ -18,6 +18,7 @@
 
 #include <boost/container_hash/hash.hpp>
 
+#include "storage/v2/property_value.gmf.hpp"
 import memgraph.storage.property_value;
 
 namespace memgraph::query::plan::v2 {

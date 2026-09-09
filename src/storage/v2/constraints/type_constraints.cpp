@@ -293,6 +293,7 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
         case TemporalType::Duration:
           return TypeConstraintKind::DURATION;
       }
+      std::unreachable();
     }
     case PropertyValueType::ZonedTemporalData:
       return TypeConstraintKind::ZONEDDATETIME;

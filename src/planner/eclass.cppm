@@ -11,14 +11,7 @@
 
 module;
 
-#include <algorithm>
-#include <cassert>
-#include <span>
-#include <type_traits>
-#include <utility>
-
-#include <boost/container/small_vector.hpp>
-#include <boost/unordered/unordered_flat_set.hpp>
+#include "planner/core/egraph.gmf.hpp"
 
 export module memgraph.planner.core.egraph:eclass;
 

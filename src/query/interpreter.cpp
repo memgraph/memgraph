@@ -146,6 +146,7 @@
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "utils/aws.gmf.hpp"
 import memgraph.utils.aws;
 
 namespace r = ranges;
@@ -2288,6 +2289,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     default:
       break;
   }
+  std::unreachable();
 }  // namespace
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
@@ -2384,6 +2386,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
   }
+  std::unreachable();
 }
 
 Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
@@ -2402,6 +2405,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
             return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
           }
         }
+        std::unreachable();
       };
       return callback;
     }
@@ -2426,6 +2430,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
                 case STRICT_SYNC:
                   return TypedValue{"strict_sync"sv};
               }
+              std::unreachable();
             };
 
             auto const replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
@@ -2439,6 +2444,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
                 case RECOVERY:
                   return TypedValue{"recovery"sv};
               }
+              std::unreachable();
             };
 
             auto const sys_info_to_tv = [&](ReplicaSystemInfoState orig) {
@@ -2465,6 +2471,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
                 case DIVERGED_FROM_MAIN:
                   return TypedValue{"diverged"sv};
               }
+              std::unreachable();
             };
 
             auto const info_to_tv = [&](ReplicaInfoState orig) {
@@ -2508,6 +2515,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
       return callback;
     }
   }
+  std::unreachable();
 }
 
 #ifdef MG_ENTERPRISE
@@ -2997,6 +3005,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
   }
+  std::unreachable();
 }
 #endif
 
@@ -3314,6 +3323,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
   }
+  std::unreachable();
 }
 
 Callback HandleConfigQuery() {
@@ -3462,6 +3472,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       return callback;
     }
   }
+  std::unreachable();
 }
 
 Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters &query_parameters,
@@ -3558,6 +3569,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
       return callback;
     }
   }
+  std::unreachable();
 }
 
 // Struct for lazy pulling from a vector
@@ -6269,6 +6281,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
     case TriggerQuery::EventType::EDGE_UPDATE:
       return TriggerEventType::EDGE_UPDATE;
   }
+  std::unreachable();
 }
 
 Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPropertyValue::map_t &user_parameters,
@@ -6398,6 +6411,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
       case TriggerQuery::Action::SHOW_TRIGGERS:
         return ShowTriggers(trigger_store);
     }
+    std::unreachable();
   });
 
   return PreparedQuery{
@@ -6469,6 +6483,7 @@ constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel
     case IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED:
       return storage::IsolationLevel::READ_UNCOMMITTED;
   }
+  std::unreachable();
 }
 
 constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) noexcept {
@@ -6480,6 +6495,7 @@ constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) n
     case StorageModeQuery::StorageMode::ON_DISK_TRANSACTIONAL:
       return storage::StorageMode::ON_DISK_TRANSACTIONAL;
   }
+  std::unreachable();
 }
 
 constexpr auto ToEdgeImportMode(const EdgeImportModeQuery::Status status) noexcept {
@@ -7271,6 +7287,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::PROPERTY_VALUE:
                     return "property value";
                 }
+                std::unreachable();
               };
               auto ids_to_list = [&](auto const &ids) {
                 auto result = ids | rv::transform([&](auto id) { return TypedValue{dba.LabelToName(id)}; }) |
@@ -8885,6 +8902,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .db = query->db_name_};
     }
   }
+  std::unreachable();
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -10107,6 +10125,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
             case UserProfileQuery::LimitValueResult::Type::QUANTITY:
               return TypedValue{(int64_t)limit.quantity.value};
           }
+          std::unreachable();
         };
         for (const auto &[name, value] : limits) {
           res.emplace_back(std::vector<TypedValue>{TypedValue(name), limit_to_tv(value)});

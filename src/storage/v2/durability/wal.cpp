@@ -14,6 +14,7 @@
 #include <range/v3/all.hpp>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "storage/v2/access_type.hpp"
@@ -151,6 +152,7 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(DESCRIPTION_DELETE);
   }
 #undef add_case
+  std::unreachable();
 }
 
 constexpr Marker DeltaActionToMarker(Delta::Action action) {
@@ -275,6 +277,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
   }
+  std::unreachable();
 }
 
 constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t version = kVersion) {
@@ -933,6 +936,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
       throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 #undef read_skip
+  std::unreachable();
 }
 
 // Opens the file and consumes its magic, returning the version it states.
