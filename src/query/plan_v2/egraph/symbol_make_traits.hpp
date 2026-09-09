@@ -21,6 +21,7 @@
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_node_map.hpp>
 
+#include "query/frontend/ast/ordering.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
 #include "query/plan_v2/resolve/analysis.hpp"
@@ -202,6 +203,46 @@ struct symbol_make_traits<symbol::Filter> {
   struct storage_type {};
 
   static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId predicate) -> seeded_node;
+};
+
+/// Distinct: no storage; children [input, value_sym...] via the full-children
+/// facade like Output.
+template <>
+struct symbol_make_traits<symbol::Distinct> {
+  struct storage_type {};
+
+  static auto make(storage_type &, utils::small_vector<planner::core::EClassId> children) -> seeded_node;
+};
+
+/// Skip / Limit: no storage; children [input, count_expr].
+template <>
+struct symbol_make_traits<symbol::Skip> {
+  struct storage_type {};
+
+  static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId count) -> seeded_node;
+};
+
+template <>
+struct symbol_make_traits<symbol::Limit> {
+  struct storage_type {};
+
+  static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId count) -> seeded_node;
+};
+
+/// OrderBy: interns the ordering vector to a disambiguator, so OrderBys with the
+/// same sort-key children but different ASC/DESC stay distinct e-nodes. `store`
+/// (orderings -> id) hash-conses; `info` (id -> orderings) is the reverse the
+/// builder reads to split the children and rebuild the SortItems.
+template <>
+struct symbol_make_traits<symbol::OrderBy> {
+  struct storage_type {
+    std::map<std::vector<Ordering>, uint64_t> store;
+    std::vector<std::vector<Ordering>> info;
+  };
+
+  static auto make(storage_type &s, planner::core::EClassId input,
+                   utils::small_vector<planner::core::EClassId> children_after_input, std::vector<Ordering> orderings)
+      -> seeded_node;
 };
 
 /// Subquery: no storage; children are [outer_input, inner_root, exposed_syms...].

@@ -58,6 +58,10 @@ inline constexpr double kFilterPerRowOverhead = 1.0;
 /// so it will matter once Filter rewrites add alternative plan shapes.
 inline constexpr double kFilterSelectivity = 0.5;
 
+/// Placeholder per-operator overhead for DISTINCT / ORDER BY, 1.0 until measured.
+inline constexpr double kDistinctOverhead = 1.0;
+inline constexpr double kOrderByOverhead = 1.0;
+
 // Per-alternative leaf costs.  Structural placeholders, 1.0 until measured
 // data justifies divergent values.
 inline constexpr double kOnceLeaf = 1.0;
@@ -271,6 +275,44 @@ auto FilterFlatMap(CostFrontier const &input, CostFrontier const &predicate, pla
   });
 }
 
+/// SKIP / LIMIT: the count is evaluated once, so add its cost once and pass
+/// cardinality through (the count value isn't modelled). The count has no frame
+/// references, so the uniform DemandMet guard is always met.
+auto ScalarClauseCombine(CostFrontier const &input, CostFrontier const &count, planner::core::ENodeId enode_id)
+    -> CostFrontier {
+  return CostFrontier::cartesian_product_if(
+      input,
+      count,
+      [](Alternative const &in_alt, Alternative const &count_alt) {
+        DMG_ASSERT(in_alt.required.empty(), "operator Alt must have empty required");
+        return DemandMet(in_alt, count_alt);
+      },
+      [enode_id](Alternative const &in_alt, Alternative const &count_alt) {
+        return Alternative{.cost = in_alt.cost + count_alt.cost,
+                           .cardinality = in_alt.cardinality,
+                           .required = {},
+                           .introduces = in_alt.introduces,
+                           .enode_id = enode_id};
+      });
+}
+
+/// Prune input alts that haven't materialised every `value_syms` column (DISTINCT
+/// / ORDER BY work on frame slots), forcing the projection to keep the binder
+/// alive. Otherwise pass-through.
+auto DemandValueSyms(CostFrontier const &input, VariableSet value_syms, planner::core::ENodeId enode_id)
+    -> CostFrontier {
+  return CostFrontier::flat_map(
+      input, [value_syms = std::move(value_syms), enode_id](Alternative const &input_alt, auto emit) {
+        DMG_ASSERT(input_alt.required.empty(), "operator Alt must have empty required");
+        if (!value_syms.is_subset_of(input_alt.introduces)) return;  // a demanded column isn't materialised
+        emit({.cost = input_alt.cost,
+              .cardinality = input_alt.cardinality,
+              .required = {},
+              .introduces = input_alt.introduces,
+              .enode_id = enode_id});
+      });
+}
+
 /// Subquery flat-map: scope-barrier row-pipe.  Non-importing CALL only - an
 /// importing inner is pruned to an empty frontier by its Output and rejected by
 /// the Subquery cost guard, so every inner alt reaching here is self-contained
@@ -424,6 +466,63 @@ struct symbol_cost_traits<Filter> {
   static auto cost(ENodeT const &, ENodeId id, CostChildren children, CostCtx const &) -> CostFrontier {
     using namespace child::filter;
     return FilterFlatMap(*children[input], *children[predicate], id);
+  }
+};
+
+template <>
+struct symbol_cost_traits<Distinct> {
+  // Demand the value syms (dedup columns); introduces what the input does.
+  // Cardinality passes through: DISTINCT does reduce rows, but like v1 (see
+  // cost_estimator.hpp) we don't model an end-of-query-part modifier that runs the
+  // same for every candidate plan and so can't change plan choice.
+  static auto cost(ENodeT const &n, ENodeId id, CostChildren children, CostCtx const &ctx) -> CostFrontier {
+    using namespace child::distinct;
+    auto value_syms = ctx.syms.variable_index.to_variable_set(n.children().subspan(first_value));
+    return DemandValueSyms(Restamp(*children[input], kDistinctOverhead, id), std::move(value_syms), id);
+  }
+};
+
+template <>
+struct symbol_cost_traits<Skip> {
+  // Count evaluated once; cardinality passes through.
+  static auto cost(ENodeT const &, ENodeId id, CostChildren children, CostCtx const &) -> CostFrontier {
+    using namespace child::skip;
+    return ScalarClauseCombine(*children[input], *children[count], id);
+  }
+};
+
+template <>
+struct symbol_cost_traits<Limit> {
+  // Count evaluated once; cardinality passes through.
+  static auto cost(ENodeT const &, ENodeId id, CostChildren children, CostCtx const &) -> CostFrontier {
+    using namespace child::limit;
+    return ScalarClauseCombine(*children[input], *children[count], id);
+  }
+};
+
+template <>
+struct symbol_cost_traits<OrderBy> {
+  // Value-sym children (registered Symbols) are demanded and remembered through
+  // the sort; sort-key children are folded via OutputCombine (per-row eval + their
+  // own demand). Introduces what the input does.
+  static auto cost(ENodeT const &n, ENodeId id, CostChildren children, CostCtx const &ctx) -> CostFrontier {
+    using namespace child::order_by;
+    auto const child_eclasses = n.children();
+    auto result = Restamp(*children[input], kOrderByOverhead, id);
+    VariableSet value_syms;
+    bool seen_value_sym = false;
+    for (std::size_t i = first_expr; i < child_eclasses.size(); ++i) {
+      if (ctx.syms.variable_index.contains(child_eclasses[i])) {
+        value_syms.set(ctx.syms.variable_index.bit_of(child_eclasses[i]));
+        seen_value_sym = true;
+      } else {
+        // Sort keys precede value syms; a non-Symbol after a value Symbol means
+        // this type-split disagrees with the builder's orderings.size() split.
+        DMG_ASSERT(!seen_value_sym, "OrderBy children not partitioned [sort_keys..., value_syms...]");
+        result = OutputCombine(result, *children[i], id);
+      }
+    }
+    return DemandValueSyms(result, std::move(value_syms), id);
   }
 };
 

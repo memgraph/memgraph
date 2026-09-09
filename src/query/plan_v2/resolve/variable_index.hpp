@@ -45,6 +45,10 @@ class VariableIndex {
     return it->second;
   }
 
+  /// Whether `eclass` was assigned a bit (a Symbol e-class the pre-pass
+  /// registered), telling a Symbol child from an expression child.
+  [[nodiscard]] auto contains(planner::core::EClassId eclass) const -> bool { return by_eclass_.contains(eclass); }
+
   /// EClassId for `bit`.  Inverse of `bit_of`.
   [[nodiscard]] auto eclass_of(uint16_t bit) const -> planner::core::EClassId {
     DMG_ASSERT(bit < by_bit_.size(), "VariableIndex: bit out of range");
