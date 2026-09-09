@@ -119,7 +119,10 @@ class Memgraph(ConanFile):
         self.requires("librdkafka/2.14.2")
         self.requires("librdtsc/0.3-memgraph")
         if self.settings.os == "Linux":
-            # seccomp is a Linux kernel interface; gated in code by MG_HAS_SECCOMP
+            # seccomp is a Linux kernel interface and its recipe only supports Linux, so the
+            # dependency cannot be resolved elsewhere. src/auth still calls into it
+            # unconditionally, so a non-Linux build gets as far as compiling and then fails
+            # there; making that optional is separate work.
             self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.8.0")
         self.requires("nuraft/2.1.0-memgraph")
@@ -164,7 +167,9 @@ class Memgraph(ConanFile):
     def validate(self):
         """Validate configuration before generation"""
         if self.settings.os not in ("Linux", "FreeBSD"):
-            raise ConanInvalidConfiguration(f"Unsupported OS: {self.settings.os}. Only Linux and FreeBSD are supported.")
+            raise ConanInvalidConfiguration(
+                f"Unsupported OS: {self.settings.os}. Only Linux and FreeBSD are supported."
+            )
 
         user_toolchain = self.conf.get("tools.cmake.cmaketoolchain:user_toolchain")
         if user_toolchain:
