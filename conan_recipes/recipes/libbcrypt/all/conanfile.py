@@ -1,7 +1,7 @@
 import os
 
 from conan import ConanFile
-from conan.tools.files import copy, get, rename, replace_in_file, trim_conandata
+from conan.tools.files import copy, get, patch, rename, replace_in_file, trim_conandata
 from conan.tools.gnu import AutotoolsToolchain
 from conan.tools.layout import basic_layout
 
@@ -34,6 +34,9 @@ class LibbcryptConan(ConanFile):
         # Stabilise recipe revision across conan export and local-recipes-index
         trim_conandata(self)
 
+    def export_sources(self):
+        copy(self, "patches/*", src=self.recipe_folder, dst=self.export_sources_folder)
+
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
 
@@ -42,21 +45,28 @@ class LibbcryptConan(ConanFile):
         tc.generate()
 
     def build(self):
+        if self.settings.os == "FreeBSD":
+            # Where libc already declares crypt_r, crypt_blowfish's own declaration of it
+            # conflicts. __SKIP_GNU is upstream's switch for exactly that case. Applied here
+            # rather than through conandata because it must not reach platforms that rely on
+            # crypt_blowfish to declare crypt_r.
+            patch(
+                self,
+                base_path=self.source_folder,
+                patch_file=os.path.join(self.export_sources_folder, "patches", "0002-skip-gnu-crypt-r.patch"),
+            )
+
         # Remove -Wcast-align which causes errors with Clang
         crypt_blowfish_makefile = os.path.join(self.source_folder, "crypt_blowfish", "Makefile")
         replace_in_file(self, crypt_blowfish_makefile, "-Wcast-align", "")
 
-        if self.settings.os == "FreeBSD":
-            replace_in_file(self, crypt_blowfish_makefile,
-                            "-funroll-loops", "-funroll-loops -D__SKIP_GNU")
-            top_makefile = os.path.join(self.source_folder, "Makefile")
-            replace_in_file(self, top_makefile,
-                            "$(CC) $(CFLAGS) -c bcrypt.c",
-                            "$(CC) $(CFLAGS) -D__SKIP_GNU -c bcrypt.c")
-            replace_in_file(self, top_makefile,
-                            "$(CC) $(CFLAGS) -DTEST_BCRYPT -c bcrypt.c",
-                            "$(CC) $(CFLAGS) -D__SKIP_GNU -DTEST_BCRYPT -c bcrypt.c")
-
+        # The upstream Makefile hardcodes its own CFLAGS, so AutotoolsToolchain env vars
+        # (including sanitizer flags) don't reach the compilation. This is acceptable:
+        # libbcrypt is a static library, and when linked into an ASAN binary the ASAN
+        # runtime handles interception at the process level.
+        #
+        # The Makefile is GNU-only, so honour the configured make the way conan's own
+        # helpers do; on platforms whose `make` is not GNU make the profile names it.
         make = self.conf.get("tools.gnu:make_program", default="make")
         cc = self.conf.get("tools.build:compiler_executables", default={}).get("c", "cc")
         self.run(f"{make} -C {self.source_folder} CC={cc}")

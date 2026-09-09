@@ -5,7 +5,14 @@ execute_process(
      OUTPUT_VARIABLE uname_result
      OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-set(CMAKE_SYSTEM_PROCESSOR "${uname_result}")
+# FreeBSD calls it amd64, while dependencies that gate SIMD kernels on the processor name
+# test for x86_64. Setting CMAKE_SYSTEM_NAME above is what makes this value stick: on a
+# native build CMake otherwise recomputes the processor during project().
+if (uname_result STREQUAL "amd64")
+    set(CMAKE_SYSTEM_PROCESSOR "x86_64")
+else()
+    set(CMAKE_SYSTEM_PROCESSOR "${uname_result}")
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,8 +20,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if (DEFINED ENV{MG_TOOLCHAIN_ROOT})
     set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
 endif()
-
-set(MG_TOOLCHAIN_VERSION 7)
 
 if (MG_TOOLCHAIN_ROOT AND IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
     message(STATUS "FreeBSD toolchain directory: ${MG_TOOLCHAIN_ROOT}")
