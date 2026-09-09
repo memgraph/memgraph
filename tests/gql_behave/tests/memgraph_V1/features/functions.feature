@@ -1310,3 +1310,144 @@ Feature: Functions
         MATCH () WHERE reduce(a=exists(()),b in []|a) RETURN 1;
         """
       Then an error should be raised
+
+    Scenario: NullIf takes away a value equal to the second argument:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(4, 4) AS taken, nullIf('abc', 'def') AS kept;
+            """
+        Then the result should be:
+            | taken | kept  |
+            | null  | 'abc' |
+
+    Scenario: NullIf is case insensitive:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullif(1, 1) AS lower, NULLIF(1, 1) AS upper;
+            """
+        Then the result should be:
+            | lower | upper |
+            | null  | null  |
+
+    Scenario: NullIf compares an integer and a float by value:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1, 1.0) AS taken, nullIf(1, 2.0) AS kept;
+            """
+        Then the result should be:
+            | taken | kept |
+            | null  | 1    |
+
+    Scenario: NullIf keeps the first argument when the second is null:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1, null) AS kept, nullIf(null, 1) AS empty;
+            """
+        Then the result should be:
+            | kept | empty |
+            | 1    | null  |
+
+    Scenario: NullIf leaves a container holding a null standing:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf([1, null], [1, null]) AS list, nullIf({a: null}, {a: null}) AS map,
+                   nullIf([1, 2], [1, 2]) AS taken;
+            """
+        Then the result should be:
+            | list      | map       | taken |
+            | [1, null] | {a: null} | null  |
+
+    Scenario: NullIf takes away a list decided equal, and keeps one decided unequal:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf([1, null], [2, null]) AS unequal, nullIf([1], [1, 2]) AS shorter,
+                   nullIf(2, [2]) AS scalar;
+            """
+        Then the result should be:
+            | unequal   | shorter | scalar |
+            | [1, null] | [1]     | 2      |
+
+    Scenario: NullIf composes with coalesce to replace one value with another:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'a', eyes: 'brown'})
+            CREATE ({name: 'b', eyes: 'blue'})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.name AS name, coalesce(nullIf(n.eyes, 'brown'), 'hazel') AS eyes
+            ORDER BY name;
+            """
+        Then the result should be:
+            | name | eyes    |
+            | 'a'  | 'hazel' |
+            | 'b'  | 'blue'  |
+
+    Scenario: NullIf requires exactly two arguments:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1);
+            """
+        Then an error should be raised
+
+    Scenario: Equality reaches into a container and stays three valued:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [null] = [null] AS undecided, {a: null} = {a: null} AS undecided_map,
+                   [1, null] = [2, null] AS unequal, [null] = [null, null] AS shorter,
+                   [1, 2] = [1, 2] AS equal;
+            """
+        Then the result should be:
+            | undecided | undecided_map | unequal | shorter | equal |
+            | null      | null          | false   | false   | true  |
+
+    Scenario: Inequality over a container holding a null is undecided too:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [null] <> [null] AS undecided, [1] <> [2] AS unequal;
+            """
+        Then the result should be:
+            | undecided | unequal |
+            | null      | true    |
+
+    Scenario: List membership over a container holding a null is undecided:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [null] IN [[null]] AS undecided, [1] IN [[1]] AS present, [1] IN [[2]] AS absent;
+            """
+        Then the result should be:
+            | undecided | present | absent |
+            | null      | true    | false  |
+
+    Scenario: A simple CASE over a container holding a null matches no branch:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN CASE [null] WHEN [null] THEN 'matched' ELSE 'fell through' END AS undecided,
+                   CASE [1] WHEN [1] THEN 'matched' ELSE 'fell through' END AS decided;
+            """
+        Then the result should be:
+            | undecided      | decided   |
+            | 'fell through' | 'matched' |
+
+    Scenario: Grouping still treats two containers holding a null as one value:
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [[null], [null], [1]] AS x RETURN x, count(*) AS n ORDER BY n DESC;
+            """
+        Then the result should be:
+            | x      | n |
+            | [null] | 2 |
+            | [1]    | 1 |

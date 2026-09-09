@@ -20,6 +20,7 @@
 #include "utils/pmr/unordered_map.hpp"
 
 #include "absl/container/flat_hash_set.h"
+#include "query/relations/equality.hpp"
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
@@ -31,11 +32,15 @@ struct CachedSet {
   absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
       cache_;
 
+  bool answers_equality_{true};
+
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
 
-  CachedSet(const CachedSet &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
+  CachedSet(const CachedSet &other, allocator_type alloc)
+      : cache_(other.cache_, alloc), answers_equality_(other.answers_equality_) {}
 
-  CachedSet(CachedSet &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc) {}
+  CachedSet(CachedSet &&other, allocator_type alloc)
+      : cache_(std::move(other.cache_), alloc), answers_equality_(other.answers_equality_) {}
 
   CachedSet(CachedSet &&other) noexcept : CachedSet(std::move(other), other.get_allocator()) {}
 
@@ -49,7 +54,10 @@ struct CachedSet {
 
   ~CachedSet() = default;
 
-  void Reset() { cache_.clear(); }
+  void Reset() {
+    cache_.clear();
+    answers_equality_ = true;
+  }
 
   bool SetValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
@@ -57,6 +65,10 @@ struct CachedSet {
     }
     const auto &list = maybe_list.ValueList();
     for (const auto &element : list) {
+      // A Null element is answered by the explicit lookup for one, so it does not cost the set its
+      // exactness. A Null held inside an element does: no lookup can tell that pair apart from a
+      // decided one.
+      if (!element.IsNull() && !relations::equality::DecidedByEquality(element)) answers_equality_ = false;
       cache_.insert(element);
     }
     return true;
@@ -64,6 +76,12 @@ struct CachedSet {
 
   // Func to check if cache_ contains value
   bool Contains(const TypedValue &value) const { return cache_.contains(value); }
+
+  /// Whether a lookup here answers the equality question `IN` asks.
+  ///
+  /// The set is keyed by equivalence, so it reports a pair equal that equality leaves undecided. That
+  /// is only indistinguishable when some element holds a Null.
+  bool AnswersEquality() const { return answers_equality_; }
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval
