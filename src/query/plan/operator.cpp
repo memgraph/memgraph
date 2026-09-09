@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 #include <range/v3/all.hpp>
 #include "metrics/prometheus_metrics.hpp"
+#include "query/relations/equality.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -184,6 +185,12 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::EQUAL:
     case Type::IN: {
       auto bounded_property_value = to_bounded_property_value(lower_);
+      // Equality against a value holding a Null answers Null for every row, so
+      // a filter keeps none of them. The scan has to agree, or the same query
+      // answers differently once an index exists.
+      if (bounded_property_value && relations::equality::HoldsANull(bounded_property_value->value())) {
+        return storage::PropertyValueRange::Empty();
+      }
       return storage::PropertyValueRange::Bounded(bounded_property_value, bounded_property_value);
     }
 
@@ -303,8 +310,13 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
     case Type::IN: {
       auto bounded_property_value = to_bounded_property_value(lower_);
       if (std::holds_alternative<UnknownAtPlanTime>(bounded_property_value)) return std::nullopt;
-      return storage::PropertyValueRange::Bounded(std::get<obpv>(bounded_property_value),
-                                                  std::get<obpv>(bounded_property_value));
+      auto const &bound = std::get<obpv>(bounded_property_value);
+      // The same rule the evaluated form follows: nothing equals a value holding
+      // a Null, so the scan finds nothing and its cost is estimated on that.
+      if (bound && relations::equality::HoldsANull(bound->value())) {
+        return storage::PropertyValueRange::Empty();
+      }
+      return storage::PropertyValueRange::Bounded(bound, bound);
     }
 
     case Type::REGEX_MATCH:
@@ -1383,7 +1395,11 @@ std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expressi
   ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view, nullptr, &context.number_of_hops};
 
   auto value = expression->Accept(evaluator);
-  if (value.IsNull()) {
+  // An equality against a value holding a Null answers Null for every row, so a
+  // filter keeps none of them and this scan has to find none. A Null within a
+  // list or a map counts: the lookup below compares by a relation that holds a
+  // Null equal to a Null, and would report a match the filter does not.
+  if (relations::equality::HoldsANull(value)) {
     return std::nullopt;
   }
   if (!value.IsPropertyValue()) {
@@ -9831,7 +9847,7 @@ class HashJoinCursor : public Cursor {
             ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
-        if (hashtable_.contains(right_value)) {
+        if (!relations::equality::HoldsANull(right_value) && hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
           right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
           common_value_found_ = true;
@@ -9880,7 +9896,11 @@ class HashJoinCursor : public Cursor {
           ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
-      if (left_value.type() != TypedValue::Type::Null) {
+      // A join keeps a pair only where the equality it stands for is true, and
+      // an equality against a value holding a Null is never true. Such a row
+      // joins with nothing, so it is not offered to the table at all. The
+      // filter this join replaced would have dropped it too.
+      if (!relations::equality::HoldsANull(left_value)) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }
     }

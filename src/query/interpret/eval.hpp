@@ -30,6 +30,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/name_id_mapper.hpp"
@@ -463,6 +464,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (frame_change_collector_) {
       const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
       if (frame_change_collector_->IsInlistKeyTracked(cached_id)) {
+        // A lookup in the set answers by equivalence, which holds a Null
+        // equivalent to a Null. Equality answers Null against anything holding
+        // one, and a set can report present or absent but never Null, so the set
+        // is read only where neither side holds a Null. Anything else falls
+        // through to the loop below, which compares element by element.
+        auto const decidable_by_a_lookup = [this](TypedValue const &value) {
+          return !relations::equality::HoldsANull(value);
+        };
+
         auto cached_value_ref = frame_change_collector_->TryGetInlistCachedValue(cached_id);
         if (!cached_value_ref) {
           // Check only first time if everything is okay, later when we use
@@ -471,21 +481,21 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           if (auto preoperational_checks = do_list_literal_checks(list)) {
             return std::move(*preoperational_checks);
           }
-          auto &cached_value = frame_change_collector_->GetInlistCachedValue(cached_id);
-          // Don't move here because we don't want to remove the element from the frame
-          cached_value.SetValue(list);
-          cached_value_ref = std::cref(cached_value);
+          if (std::ranges::all_of(list.ValueList(), decidable_by_a_lookup)) {
+            auto &cached_value = frame_change_collector_->GetInlistCachedValue(cached_id);
+            // Don't move here because we don't want to remove the element from the frame
+            cached_value.SetValue(list);
+            cached_value_ref = std::cref(cached_value);
+          }
         }
-        const auto &cached_value = cached_value_ref->get();
 
-        if (cached_value.Contains(literal)) {
-          return TypedValue(true, ctx_->memory);
+        if (cached_value_ref && decidable_by_a_lookup(literal)) {
+          const auto &cached_value = cached_value_ref->get();
+          if (cached_value.Contains(literal)) {
+            return TypedValue(true, ctx_->memory);
+          }
+          return TypedValue(false, ctx_->memory);
         }
-        // has null
-        if (cached_value.Contains(TypedValue(ctx_->memory))) {
-          return TypedValue(ctx_->memory);
-        }
-        return TypedValue(false, ctx_->memory);
       }
     }
     // When caching is not an option, we need to evaluate list literal every time

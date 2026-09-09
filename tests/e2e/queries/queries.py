@@ -35,5 +35,59 @@ def test_indexed_join_with_indices(memgraph):
         assert res["c"].prop == 1
 
 
+def test_equality_against_a_null_holding_list_answers_the_same_way_whichever_plan_runs(memgraph):
+    """A list holding a null compares null, so no row passes. Every way of
+    answering that equality has to agree: a filter, an index scan, and a join
+    that replaced the filter with a hash lookup."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("CREATE (:V {p: [1, null]}), (:V {p: [1, null]});")
+    memgraph.execute("CREATE (:W {p: [1, 2]}), (:W {p: [1, 2]});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    joined_on_a_null = "MATCH (a:V), (b:V) WHERE a.p = b.p RETURN count(*) AS c;"
+    joined_without_a_null = "MATCH (a:W), (b:W) WHERE a.p = b.p RETURN count(*) AS c;"
+
+    # A join reads the equality through a hash lookup, which cannot answer null.
+    assert count(joined_on_a_null) == 0
+    # And it still joins what it should.
+    assert count(joined_without_a_null) == 4
+
+    memgraph.execute("CREATE INDEX ON :V(p);")
+    memgraph.execute("CREATE INDEX ON :W(p);")
+
+    # The index gives the planner another way to answer, which must not change it.
+    assert count(joined_on_a_null) == 0
+    assert count(joined_without_a_null) == 4
+    assert count("MATCH (n:V) WHERE n.p = [1, null] RETURN count(n) AS c;") == 0
+    assert count("MATCH (n:W) WHERE n.p = [1, 2] RETURN count(n) AS c;") == 2
+
+
+def test_an_edge_property_equality_answers_the_same_way_with_and_without_an_index(memgraph):
+    """An edge property-value scan reads the equality from the index, and has to
+    find nothing where the filter it stands in for keeps nothing."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("CREATE (a:From), (b:To);")
+    memgraph.execute("MATCH (a:From), (b:To) CREATE (a)-[:T {p: [1, null]}]->(b);")
+    memgraph.execute("MATCH (a:From), (b:To) CREATE (a)-[:T {p: [1, 2]}]->(b);")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    sought_holding_a_null = "MATCH ()-[r:T]->() WHERE r.p = [1, null] RETURN count(r) AS c;"
+    sought_holding_none = "MATCH ()-[r:T]->() WHERE r.p = [1, 2] RETURN count(r) AS c;"
+
+    assert count(sought_holding_a_null) == 0
+    assert count(sought_holding_none) == 1
+
+    memgraph.execute("CREATE EDGE INDEX ON :T(p);")
+
+    assert count(sought_holding_a_null) == 0
+    assert count(sought_holding_none) == 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
