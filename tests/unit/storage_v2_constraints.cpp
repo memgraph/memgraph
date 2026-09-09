@@ -2499,7 +2499,8 @@ TEST_P(UniquePropertyTrackingTest, NullAndClearThenRestoreStillVerify) {
     }
     auto &info = acc->GetTransaction()->constraint_verification_info;
     EXPECT_FALSE(info->NeedsUniqueConstraintVerification());
-    EXPECT_TRUE(info->NeedsExistenceConstraintVerification());
+    // This fixture has no existence constraint, so no removal it makes can leave one unmet.
+    EXPECT_FALSE(info->NeedsExistenceConstraintVerification());
     ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop1, PropertyValue(1), method));
     ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(99)));
     EXPECT_TRUE(info->NeedsUniqueConstraintVerification());
@@ -2638,4 +2639,102 @@ TEST_F(UniqueConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotReport
   }
 
   EXPECT_FALSE(WriteIsReported(unconstrained));
+}
+
+// Removing a value can only break an existence constraint keyed on that property, so removals of
+// anything else need not be reported. The rejections are what keep the narrowing honest: they
+// fail if a removal that does matter stops being reported.
+class ExistencePropertyTrackingTest : public ConstraintsTest<InMemoryStorage> {
+ public:
+  void SetUp() override {
+    auto acc = CreateConstraintAccessor();
+    ASSERT_TRUE(acc->CreateExistenceConstraint(label1, prop1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  Gid Seed() {
+    auto acc = this->storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    EXPECT_TRUE(vertex.AddLabel(label1).has_value());
+    EXPECT_TRUE(vertex.SetProperty(prop1, PropertyValue(1)).has_value());
+    EXPECT_TRUE(vertex.SetProperty(prop2, PropertyValue(2)).has_value());
+    auto gid = vertex.Gid();
+    EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    return gid;
+  }
+
+  void ExpectExistenceFailure(Storage::Accessor &acc) {
+    auto result = acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    ASSERT_FALSE(result.has_value());
+    ASSERT_TRUE(std::holds_alternative<ConstraintViolation>(result.error()));
+    EXPECT_EQ(std::get<ConstraintViolation>(result.error()),
+              (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}));
+  }
+};
+
+TEST_F(ExistencePropertyTrackingTest, RemovingAnUnconstrainedPropertyIsNotReported) {
+  auto const gid = Seed();
+
+  auto acc = this->storage->Access(WRITE);
+  auto vertex = acc->FindVertex(gid, View::NEW);
+  ASSERT_TRUE(vertex);
+  ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue()));
+
+  auto &info = acc->GetTransaction()->constraint_verification_info;
+  ASSERT_TRUE(info);
+  EXPECT_FALSE(info->NeedsExistenceConstraintVerification());
+  EXPECT_TRUE(info->GetVerticesForExistenceConstraintChecking().empty());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+}
+
+TEST_F(ExistencePropertyTrackingTest, RemovingAConstrainedPropertyIsReportedAndRejected) {
+  auto const gid = Seed();
+
+  auto acc = this->storage->Access(WRITE);
+  auto vertex = acc->FindVertex(gid, View::NEW);
+  ASSERT_TRUE(vertex);
+  ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue()));
+
+  auto &info = acc->GetTransaction()->constraint_verification_info;
+  ASSERT_TRUE(info);
+  EXPECT_TRUE(info->NeedsExistenceConstraintVerification());
+  ASSERT_NO_FATAL_FAILURE(ExpectExistenceFailure(*acc));
+}
+
+// ClearProperties removes the constrained property among the rest, so it has to report that
+// rather than report the vertex without saying what went.
+TEST_F(ExistencePropertyTrackingTest, ClearingEveryPropertyIsReportedAndRejected) {
+  auto const gid = Seed();
+
+  auto acc = this->storage->Access(WRITE);
+  auto vertex = acc->FindVertex(gid, View::NEW);
+  ASSERT_TRUE(vertex);
+  ASSERT_NO_ERROR(vertex->ClearProperties());
+
+  auto &info = acc->GetTransaction()->constraint_verification_info;
+  ASSERT_TRUE(info);
+  EXPECT_TRUE(info->NeedsExistenceConstraintVerification());
+  ASSERT_NO_FATAL_FAILURE(ExpectExistenceFailure(*acc));
+}
+
+// A vertex holding only unconstrained values must not be reported when they all go.
+TEST_F(ExistencePropertyTrackingTest, ClearingOnlyUnconstrainedPropertiesIsNotReported) {
+  auto gid = Gid::FromUint(0);
+  {
+    auto acc = this->storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(2)));
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(WRITE);
+  auto vertex = acc->FindVertex(gid, View::NEW);
+  ASSERT_TRUE(vertex);
+  ASSERT_NO_ERROR(vertex->ClearProperties());
+
+  auto &info = acc->GetTransaction()->constraint_verification_info;
+  ASSERT_TRUE(info);
+  EXPECT_FALSE(info->NeedsExistenceConstraintVerification());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 }

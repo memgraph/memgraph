@@ -153,7 +153,8 @@ struct Transaction {
         constraint_verification_info{
             (active_constraints && !active_constraints->empty())
                 ? std::optional<ConstraintVerificationInfo>{std::in_place,
-                                                            active_constraints->unique_->ConstrainedProperties()}
+                                                            active_constraints->unique_->ConstrainedProperties(),
+                                                            active_constraints->existence_->ConstrainedProperties()}
                 : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                       ? std::optional<utils::SkipListDb<Vertex>>{std::in_place}

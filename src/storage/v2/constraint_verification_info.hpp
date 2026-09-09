@@ -23,12 +23,14 @@ struct Transaction;
 /// it writes and read at commit.
 ///
 /// A caller reports what it wrote and this decides whether the write can reach a constraint at
-/// all, so the rule lives here rather than at each write site. `unique_constrained` names the
-/// properties the unique constraints are keyed on, borrowed from the constraint snapshot the
-/// transaction holds, so it must not name a set that does not outlive this.
+/// all, so the rule lives here rather than at each write site. Each kind of constraint narrows a
+/// different report, so each gets its own set of properties: writing a value can only collide
+/// with a unique constraint, and removing one can only leave an existence constraint unmet. The
+/// sets are borrowed from the constraint snapshot the transaction holds, so they must not name a
+/// set that does not outlive this.
 struct ConstraintVerificationInfo final {
   ConstraintVerificationInfo();
-  explicit ConstraintVerificationInfo(InterestingProperties unique_constrained);
+  ConstraintVerificationInfo(InterestingProperties unique_constrained, InterestingProperties existence_constrained);
   ~ConstraintVerificationInfo();
 
   // By design would be a mistake to copy the cache
@@ -44,7 +46,9 @@ struct ConstraintVerificationInfo final {
   /// under a property none of them mention cannot collide with anything they hold.
   void AddedProperty(PropertyId property, Vertex const *vertex);
 
-  void RemovedProperty(Vertex const *vertex);
+  /// The value under `property` is gone. Ignored when no existence constraint is keyed on it: a
+  /// constraint that never asked for that property cannot be left unmet by its absence.
+  void RemovedProperty(PropertyId property, Vertex const *vertex);
 
   auto GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *>;
   auto GetVerticesForExistenceConstraintChecking() const -> std::unordered_set<Vertex const *>;
@@ -66,5 +70,6 @@ struct ConstraintVerificationInfo final {
   std::unordered_set<Vertex const *> removed_properties_;
 
   InterestingProperties unique_constrained_{};
+  InterestingProperties existence_constrained_{};
 };
 }  // namespace memgraph::storage
