@@ -409,14 +409,13 @@ bool InMemoryUniqueConstraints::ActiveConstraints::empty() const { return contai
 
 InMemoryUniqueConstraints::ActiveConstraints::ActiveConstraints(ContainerPtr snapshot)
     : container_{std::move(snapshot)} {
+  auto gathered = std::vector<PropertyId>{};
   for (const auto &[label, properties_constraints] : *container_) {
     for (const auto &[properties, constraint] : properties_constraints) {
-      constrained_properties_.insert(constrained_properties_.end(), properties.begin(), properties.end());
+      gathered.insert(gathered.end(), properties.begin(), properties.end());
     }
   }
-  std::ranges::sort(constrained_properties_);
-  auto const duplicates = std::ranges::unique(constrained_properties_);
-  constrained_properties_.erase(duplicates.begin(), duplicates.end());
+  constrained_properties_ = SortedUniqueIds(std::move(gathered));
 }
 
 auto InMemoryUniqueConstraints::ActiveConstraints::ConstrainedProperties() const -> InterestingProperties {
