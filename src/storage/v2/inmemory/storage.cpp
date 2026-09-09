@@ -1353,8 +1353,7 @@ bool InMemoryStorage::InMemoryAccessor::PipelineEligible(Transaction const &tran
              Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
 }
 
-auto InMemoryStorage::InMemoryAccessor::CommitWithTicket(CommitArgs const &commit_args,
-                                                         CommitLock commit_serializer)
+auto InMemoryStorage::InMemoryAccessor::CommitWithTicket(CommitArgs const &commit_args, CommitLock commit_serializer)
     -> std::expected<void, StorageManipulationError> {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   // S1: mint and register, under engine_lock_, serializer held. Registration is noexcept and the mint is a plain
@@ -1394,8 +1393,7 @@ auto InMemoryStorage::InMemoryAccessor::CommitWithTicket(CommitArgs const &commi
   return result;
 }
 
-auto InMemoryStorage::InMemoryAccessor::OrderedLegacyCommit(CommitArgs const &commit_args,
-                                                            CommitLock commit_serializer,
+auto InMemoryStorage::InMemoryAccessor::OrderedLegacyCommit(CommitArgs const &commit_args, CommitLock commit_serializer,
                                                             CommitTicket &ticket, uint64_t durability_commit_timestamp,
                                                             TransactionReplication *replicating_txn)
     -> std::expected<void, StorageManipulationError> {
@@ -1409,6 +1407,16 @@ auto InMemoryStorage::InMemoryAccessor::OrderedLegacyCommit(CommitArgs const &co
     AbortTicketOrTerminate(ticket);
     return std::unexpected{std::move(error)};
   };
+  // Time inside the ordered stage, from gate entry to return, whatever the outcome; a borrowed continuation entered
+  // the gate in its caller, which counted its own part up to the hand-off, so its clock starts here.
+  std::optional<std::chrono::steady_clock::time_point> s3_started;
+  if (replicating_txn != nullptr) s3_started = std::chrono::steady_clock::now();
+  utils::OnScopeExit const s3_timer{[&]() noexcept {
+    if (!s3_started) return;
+    mem_storage->pipeline_stats_.s3_ns.fetch_add(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - *s3_started).count(),
+        std::memory_order_relaxed);
+  }};
   std::optional<TransactionReplication> local_replication;  // owned by this scope
   if (replicating_txn == nullptr) {
     {
@@ -1417,6 +1425,7 @@ auto InMemoryStorage::InMemoryAccessor::OrderedLegacyCommit(CommitArgs const &co
       mem_storage->pipeline_stats_.gate_wait_ns.fetch_add(
           std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - wait_started).count(),
           std::memory_order_relaxed);
+      s3_started = std::chrono::steady_clock::now();
     }
     // Legacy writers only, once; a fallback (no serializer) already fired it before its encode stage.
     if (commit_serializer.owns_lock()) InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_ticket);
@@ -1472,13 +1481,6 @@ auto InMemoryStorage::InMemoryAccessor::OrderedLegacyCommit(CommitArgs const &co
         if (two_pc) AbortTwoPcOrTerminate(repl, abort_state, durability_commit_timestamp, commit_args);
         return;
     }
-  }};
-
-  auto const s3_started = std::chrono::steady_clock::now();
-  utils::OnScopeExit const s3_timer{[&]() noexcept {
-    mem_storage->pipeline_stats_.s3_ns.fetch_add(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - s3_started).count(),
-        std::memory_order_relaxed);
   }};
 
   bool const repl_prepare_phase_ok =
@@ -1582,14 +1584,12 @@ auto InMemoryStorage::InMemoryAccessor::PipelinedCommit(CommitArgs const &commit
     commands.reset();
     mem_storage->pipeline_stats_.budget_fallbacks.fetch_add(1, std::memory_order_relaxed);
     InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_legacy_fallback);
-    return OrderedLegacyCommit(
-        commit_args, CommitLock{}, ticket, durability_commit_timestamp, nullptr);
+    return OrderedLegacyCommit(commit_args, CommitLock{}, ticket, durability_commit_timestamp, nullptr);
   } catch (std::bad_alloc const &) {
     wal_buffer.reset();
     commands.reset();
     InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_legacy_fallback);
-    return OrderedLegacyCommit(
-        commit_args, CommitLock{}, ticket, durability_commit_timestamp, nullptr);
+    return OrderedLegacyCommit(commit_args, CommitLock{}, ticket, durability_commit_timestamp, nullptr);
   }
   // Any other exception from S2 propagates to CommitWithTicket's boundary, which aborts in order and retires.
   // ---- S3: ordered. No try/catch here: CommitWithTicket owns cleanup and retirement; this function records outcomes.
@@ -1642,8 +1642,7 @@ auto InMemoryStorage::InMemoryAccessor::PipelinedCommit(CommitArgs const &commit
     mem_storage->pipeline_stats_.two_pc_fallbacks.fetch_add(1, std::memory_order_relaxed);
     add_s3_elapsed();
     s3_timer_armed = false;
-    return OrderedLegacyCommit(
-        commit_args, CommitLock{}, ticket, durability_commit_timestamp, &*replicating_txn);
+    return OrderedLegacyCommit(commit_args, CommitLock{}, ticket, durability_commit_timestamp, &*replicating_txn);
   }
   {
     InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_append);
@@ -5540,7 +5539,7 @@ uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 auto InMemoryStorage::QuiesceCommits() const -> CommitLock {
   CommitLock guard{commit_mutex_};  // no new mint, hence no new ticket
-  commit_order_gate_.WaitIdle();          // every issued ticket has retired
+  commit_order_gate_.WaitIdle();    // every issued ticket has retired
   return guard;
 }
 

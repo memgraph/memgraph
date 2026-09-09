@@ -126,7 +126,9 @@ inline int RunReplicaRole(int argc, char **argv) {
         emit("ok");
         static_cast<storage::InMemoryStorage *>(replica.db.storage())->SetReplicationTestHooks(nullptr);
         // A prepared transaction the main never decided on (it was killed by a death test) lives in the static 2PC
-        // cache and would be destroyed after the storage; abort it while the storage is still alive.
+        // cache and would be destroyed after the storage; abort it while the storage is still alive. The abort
+        // hands the transaction's deltas to GC, so it runs under the database's arena scope like any storage work.
+        const memory::DbArenaScope arena_scope{&replica.db.Arena()};
         dbms::InMemoryReplicationHandlers::AbortTwoPCForTenant(replica.db.storage()->uuid());
         return 0;
       } else {
