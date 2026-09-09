@@ -1,0 +1,35 @@
+{% set target_arch = {"amd64": "x86_64", "aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
+
+# What the FreeBSD host and build profiles agree on. Each adds the C++ standard it needs,
+# and the host profile adds what only applies to building memgraph itself.
+
+[settings]
+arch={{ target_arch }}
+build_type=Release
+compiler=clang
+compiler.cstd=gnu17
+compiler.libcxx=libc++
+compiler.version=21
+os=FreeBSD
+
+[conf]
+tools.build:compiler_executables={"c": "/usr/bin/cc", "cpp": "/usr/bin/c++"}
+
+# Both have GNU-only makefiles and FreeBSD's `make` is not GNU make, so name gmake for
+# them. This must stay scoped to the packages that need it: CMakeToolchain also feeds
+# tools.gnu:make_program into CMAKE_MAKE_PROGRAM, so setting it globally makes CMake run
+# gmake as if it were ninja and every CMake-based dependency fails at configure time.
+jemalloc/*:tools.gnu:make_program=gmake
+libbcrypt/*:tools.gnu:make_program=gmake
+
+# Provided by ports rather than built here. These must be exact versions: conan accepts a
+# pattern such as `cmake/*` and then silently matches nothing.
+[platform_tool_requires]
+# Ports carries cmake 3.31.x, which satisfies the dependencies whose range excludes 4.x.
+# Memgraph's own pinned cmake 4.3.3 is not listed because it is not in ports: conan
+# builds that one from source.
+cmake/3.31.12
+ninja/1.13.2
+flex/2.6.4
+antlr4/4.13.1
+openjdk/21.0.1
