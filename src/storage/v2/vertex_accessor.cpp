@@ -481,7 +481,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     if (!new_value.IsNull()) {
       transaction_->constraint_verification_info->AddedProperty(property, vertex_);
     } else {
-      transaction_->constraint_verification_info->RemovedProperty(vertex_);
+      transaction_->constraint_verification_info->RemovedProperty(property, vertex_);
     }
   }
   storage_->indices_.UpdateOnSetProperty(property, old_value, new_value, vertex_, *transaction_);
@@ -528,7 +528,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
             if (!new_value.IsNull()) {
               transaction->constraint_verification_info->AddedProperty(property, vertex);
             } else {
-              transaction->constraint_verification_info->RemovedProperty(vertex);
+              transaction->constraint_verification_info->RemovedProperty(property, vertex);
             }
           }
           if (schema_acc) {
@@ -605,7 +605,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
         if (!new_value.IsNull()) {
           transaction->constraint_verification_info->AddedProperty(id, vertex);
         } else {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
+          transaction->constraint_verification_info->RemovedProperty(id, vertex);
         }
       }
       if (schema_acc) {
@@ -654,6 +654,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
           storage->indices_.UpdateOnSetProperty(property, old_value, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+          if (transaction->constraint_verification_info) {
+            transaction->constraint_verification_info->RemovedProperty(property, vertex);
+          }
           if (schema_acc) {
             std::visit(utils::Overloaded{
                            [&](SchemaInfo::VertexModifyingAccessor &acc) {
@@ -662,9 +665,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
                            [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                        *schema_acc);
           }
-        }
-        if (transaction->constraint_verification_info) {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
         }
         vertex->properties.ClearProperties();
       });
