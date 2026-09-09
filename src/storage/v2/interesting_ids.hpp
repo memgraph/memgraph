@@ -54,6 +54,19 @@ class InterestingIds {
   bool all_{true};
 };
 
+/// Puts gathered ids into the form `InterestingIds::Only` borrows: sorted, and each id once.
+///
+/// Gathering differs with the shape of whatever holds the ids, so callers do that themselves and
+/// hand the result here. Several constraints or indexes can be keyed on one id and each names it
+/// separately, so duplicates are expected rather than a caller's mistake.
+template <typename TId>
+auto SortedUniqueIds(std::vector<TId> ids) -> std::vector<TId> {
+  std::ranges::sort(ids);
+  auto const duplicates = std::ranges::unique(ids);
+  ids.erase(duplicates.begin(), duplicates.end());
+  return ids;
+}
+
 using InterestingProperties = InterestingIds<PropertyId>;
 using InterestingLabels = InterestingIds<LabelId>;
 

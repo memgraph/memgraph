@@ -53,13 +53,12 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstrai
 bool ExistenceConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
 ExistenceConstraints::ActiveConstraints::ActiveConstraints(ContainerPtr container) : container_{std::move(container)} {
-  constrained_properties_.reserve(container_->size());
+  auto gathered = std::vector<PropertyId>{};
+  gathered.reserve(container_->size());
   for (auto const &[key, constraint] : *container_) {
-    constrained_properties_.push_back(key.property);
+    gathered.push_back(key.property);
   }
-  std::ranges::sort(constrained_properties_);
-  auto const duplicates = std::ranges::unique(constrained_properties_);
-  constrained_properties_.erase(duplicates.begin(), duplicates.end());
+  constrained_properties_ = SortedUniqueIds(std::move(gathered));
 }
 
 auto ExistenceConstraints::ActiveConstraints::ConstrainedProperties() const -> InterestingProperties {
