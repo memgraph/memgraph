@@ -30,7 +30,6 @@ class BufferEncoder final : public BaseEncoder {
  public:
   /// A policy with a null budget selects the plain allocator (no charging).
   explicit BufferEncoder(TxnAllocPolicy policy);
-  ~BufferEncoder();
 
   BufferEncoder(BufferEncoder const &) = delete;
   BufferEncoder &operator=(BufferEncoder const &) = delete;

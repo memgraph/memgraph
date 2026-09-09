@@ -31,7 +31,7 @@ void CommitOrderGate::Issue(Node &node) noexcept {
 
 void CommitOrderGate::Enter(uint64_t ticket) {
   auto guard = std::unique_lock{mutex_};
-  cv_.wait(guard, [&] { return head_ != nullptr && head_->ticket == ticket; });
+  cv_.wait(guard, [this, ticket] { return head_ != nullptr && head_->ticket == ticket; });
 }
 
 void CommitOrderGate::Retire(Node &node) noexcept {
@@ -58,7 +58,7 @@ void CommitOrderGate::Retire(Node &node) noexcept {
 
 void CommitOrderGate::WaitIdle() {
   auto guard = std::unique_lock{mutex_};
-  cv_.wait(guard, [&] { return head_ == nullptr; });
+  cv_.wait(guard, [this] { return head_ == nullptr; });
 }
 
 auto CommitOrderGate::Pending() const -> size_t {

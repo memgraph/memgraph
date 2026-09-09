@@ -30,8 +30,6 @@ constexpr uint64_t kInitialCapacity = 64;
 
 BufferEncoder::BufferEncoder(TxnAllocPolicy policy) : policy_{policy}, buffer_{BudgetAllocator<uint8_t>{policy}} {}
 
-BufferEncoder::~BufferEncoder() = default;
-
 void BufferEncoder::Write(const uint8_t *data, uint64_t size) {
   auto const needed = buffer_.size() + size;
   if (needed > buffer_.capacity()) {
