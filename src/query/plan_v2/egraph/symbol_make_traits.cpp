@@ -19,8 +19,9 @@ auto symbol_make_traits<Once>::make(storage_type &s) -> seeded_node {
   return {.lowered = {.children = {}, .disambiguator = s.counter++}, .seed = default_analysis_seed<Once>()};
 }
 
-auto symbol_make_traits<Symbol>::make(storage_type &s, int32_t pos, std::string_view name) -> seeded_node {
-  s.store.try_emplace(pos, std::string{name});
+auto symbol_make_traits<Symbol>::make(storage_type &s, int32_t pos, std::string_view name, int64_t token_position)
+    -> seeded_node {
+  s.store.try_emplace(pos, SymbolInfo{.name = std::string{name}, .token_position = token_position});
   return {.lowered = {.children = {}, .disambiguator = static_cast<uint64_t>(pos)},
           .seed = default_analysis_seed<Symbol>()};
 }
