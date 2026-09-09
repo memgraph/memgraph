@@ -7,14 +7,31 @@ START_TIME=$(date +%s)
 START_TIME_READABLE=$(date)
 echo "Script execution started at: $START_TIME_READABLE"
 
-# Set image type
-IMAGE_TYPE=${1:-"mage"}
+# Set image type, and whether this is the FIPS image.
+IMAGE_TYPE="mage"
+MODE="normal"
+for arg in "$@"; do
+  case "$arg" in
+    --fips) MODE="fips" ;;
+    *)      IMAGE_TYPE="$arg" ;;
+  esac
+done
 # exit if not memgraph or mage
 if [[ "$IMAGE_TYPE" != "mage" && "$IMAGE_TYPE" != "memgraph" ]]; then
   echo "Error: Invalid image type '$IMAGE_TYPE'"
   exit 1
 fi
-echo "Testing container with image type: $IMAGE_TYPE"
+if [[ "$MODE" == "fips" && "$IMAGE_TYPE" != "memgraph" ]]; then
+  echo "Error: --fips is only supported for the memgraph image (got '$IMAGE_TYPE')"
+  exit 1
+fi
+echo "Testing container with image type: $IMAGE_TYPE (mode: $MODE)"
+
+# Starts the container in approved mode. Exported so utils.bash picks it up
+# when it runs the container.
+if [[ "$MODE" == "fips" ]]; then
+  export MEMGRAPH_FIPS_FLAGS="--fips-mode=true"
+fi
 
 # NOTE: The arg is how to pull the image under test.
 spinup_and_cleanup_memgraph_docker RC
@@ -33,11 +50,11 @@ check_container_licenses
 # Test features using mgconsole. The list of tests lives in suite.bash so that
 # test_k8s.bash can run exactly the same set.
 source "$SCRIPT_DIR/suite.bash"
-run_feature_tests "$IMAGE_TYPE" docker
+run_feature_tests "$IMAGE_TYPE" docker "$MODE"
 
 # Add all the users to be able to perform the tests.
 create_test_users
-run_auth_feature_tests
+run_auth_feature_tests "$MODE"
 
 # NOTE: Kerberos is deliberately outside run_feature_tests: SSO has to be
 # enabled at startup, so this brings up its own memgraph container (from the
@@ -45,8 +62,19 @@ run_auth_feature_tests
 # also why test_k8s.bash, which shares run_feature_tests, doesn't run it.
 # Setup is its own step so that this script's errexit stops on the exact
 # command that broke, rather than the feature having to police itself.
-test_kerberos_auth_setup
-test_kerberos_auth
+if [[ "$MODE" != "fips" ]]; then
+  test_kerberos_auth_setup
+  test_kerberos_auth
+else
+  echo "SKIP FEATURE: Kerberos SSO (its auth module is Python, absent from the FIPS image)"
+fi
+
+# Refusing to start on a non-approved password algorithm is a startup-time
+# guarantee, so it needs its own container rather than the running one.
+if [[ "$MODE" == "fips" ]]; then
+  test_fips_refuses_non_approved_algorithm
+  test_fips_requires_enterprise_licence
+fi
 
 # End timing and calculate execution time
 END_TIME=$(date +%s)

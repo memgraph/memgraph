@@ -33,6 +33,10 @@ on:
           - prod
           - debug
           - both
+      fips:
+        type: boolean
+        description: "Build the FIPS 140-3 variant (Python-less package + prod-fips image). Requires build_docker_image 'none' or 'prod'."
+        default: false
       push_to_s3:
         type: boolean
         description: Push to S3
@@ -90,6 +94,10 @@ on:
         type: string
         description: "Docker image(s) to produce alongside the deb: 'none' (default), 'prod', 'debug', or 'both'"
         default: none
+      fips:
+        type: boolean
+        description: "Build the FIPS 140-3 variant (Python-less package + prod-fips image). Requires build_docker_image 'none' or 'prod'."
+        default: false
       push_to_s3:
         type: boolean
         description: Push to S3
@@ -178,6 +186,7 @@ jobs:
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
       run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
       package_smoke_os: ${{ needs.PackageSetup.outputs.workflow_input_package_smoke_os }}
+      fips: ${{ inputs.fips || false }}
     secrets: inherit
 
   # ARM counterpart, driven by the '-arm' PR labels (e.g.
@@ -201,4 +210,5 @@ jobs:
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
       run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
       package_smoke_os: ${{ needs.PackageSetup.outputs.workflow_input_package_smoke_os_arm }}
+      fips: ${{ inputs.fips || false }}
     secrets: inherit

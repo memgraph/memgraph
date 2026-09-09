@@ -956,6 +956,11 @@ class User final {
     return true;
   }
 
+  auto PasswordHashAlgo() const -> std::optional<PasswordHashAlgorithm> {
+    if (!password_hash_) return std::nullopt;
+    return password_hash_->HashAlgo();
+  }
+
   /// @throw AuthException if unable to set the password.
   void UpdatePassword(const std::optional<std::string> &password = {},
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);

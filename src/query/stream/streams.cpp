@@ -32,6 +32,7 @@
 #include "query/query_user.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
+#include "utils/fips.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
@@ -657,7 +658,13 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
         }
         spdlog::info("Stream '{}' is loaded", stream_name);
       } catch (const utils::BasicException &exception) {
-        spdlog::warn(get_failed_message("unexpected error", exception.what()));
+        auto message = get_failed_message("unexpected error", exception.what());
+        if (utils::FipsEnabled()) {
+          message +=
+              " FIPS mode is enabled: approved mode restricts the TLS versions and ciphers available to the stream's "
+              "client library, so a broker requiring TLS below 1.2 or a non-approved cipher will no longer connect.";
+        }
+        spdlog::warn(message);
       }
     };
 

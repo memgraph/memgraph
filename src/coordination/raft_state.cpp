@@ -44,6 +44,7 @@
 #include <utility>
 #include <vector>
 
+#include "communication/context.hpp"
 #include "coordination/constants.hpp"
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cert_reloader.hpp"
@@ -312,6 +313,10 @@ auto RaftState::InitRaftServer(std::optional<utils::TlsConfig> const &tls_config
     // up cert/key/CA file changes on disk (mtime-checked). See
     // src/coordination/coordinator_cert_reloader.hpp.
     asio_opts.ssl_ctx_init_ = [cfg = *tls_config](SSL_CTX *server_ctx, SSL_CTX *client_ctx) {
+      MG_ASSERT(communication::ApplyTlsVersionPolicy(server_ctx),
+                "Couldn't apply the TLS version policy to NuRaft's server SSL_CTX!");
+      MG_ASSERT(communication::ApplyTlsVersionPolicy(client_ctx),
+                "Couldn't apply the TLS version policy to NuRaft's client SSL_CTX!");
       if (auto r = CoordinatorCertReloader::Instance().Register(server_ctx, client_ctx, cfg); !r.has_value()) {
         spdlog::error("Failed to register coordinator cert reloader: {}", r.error().msg);
       }

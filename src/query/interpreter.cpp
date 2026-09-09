@@ -41,6 +41,7 @@
 #include <vector>
 
 #include "auth/auth.hpp"
+#include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "communication/cluster_tls.hpp"
@@ -124,6 +125,7 @@
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/fips.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -8165,10 +8167,27 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
     case SystemInfoQuery::InfoType::BUILD: {
       header = {"build info", "value"};
       handler = [] {
-        std::vector<std::vector<TypedValue>> results{
+        const std::vector<std::vector<TypedValue>> results{
             {TypedValue("build_type"), TypedValue(utils::GetBuildInfo().build_name)}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
+    } break;
+    case SystemInfoQuery::InfoType::FIPS: {
+#ifdef MG_ENTERPRISE
+      header = {"fips info", "value"};
+      handler = [] {
+        auto const fips = utils::GetFipsStatus();
+        const std::vector<std::vector<TypedValue>> results{
+            {TypedValue("enabled"), TypedValue(fips->enabled)},
+            {TypedValue("module_name"), TypedValue(fips->provider_name)},
+            {TypedValue("module_version"), TypedValue(fips->provider_version)},
+            {TypedValue("password_algorithm"), TypedValue(std::string{auth::AsString(auth::CurrentHashAlgorithm())})},
+            {TypedValue("tls_min_version"), TypedValue(fips->tls_min_version)}};
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+#else
+      throw EnterpriseOnlyException();
+#endif
     } break;
     case SystemInfoQuery::InfoType::ACTIVE_USERS: {
       header = {"username", "session uuid", "login timestamp"};

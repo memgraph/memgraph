@@ -18,7 +18,7 @@
 
 namespace memgraph::auth {
 /// Need to be stable, auth durability depends on this
-enum class PasswordHashAlgorithm : uint8_t { BCRYPT = 0, SHA256 = 1, SHA256_MULTIPLE = 2 };
+enum class PasswordHashAlgorithm : uint8_t { BCRYPT = 0, SHA256 = 1, SHA256_MULTIPLE = 2, PBKDF2_SHA256 = 3 };
 
 struct HashSize {
   size_t unsalted;  //!< size defined by the algorithm
@@ -28,6 +28,40 @@ struct HashSize {
 void SetHashAlgorithm(std::string_view algo);
 
 auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
+
+/**
+ * @brief Whether `hash_algo` may be used in FIPS 140-3 approved mode.
+ *
+ * bcrypt is Blowfish and can never be approved; the sha256 variants hash as
+ * SHA256(salt ‖ password×N), which is not an approved KDF under SP 800-132.
+ */
+[[nodiscard]] auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool;
+
+#ifdef MG_ENTERPRISE
+/**
+ * @brief Enable FIPS approved-mode password policy, or exit if the configured
+ * algorithm is not approved.
+ *
+ * Call once at startup when `--fips-mode=true`, after the logger is
+ * initialised. `communication::EnableFipsMode()` covers the OpenSSL module;
+ * this covers the password hashing that never goes through EVP and would
+ * otherwise keep working unnoticed.
+ *
+ * Reads and publishes `utils::FipsStatus`.
+ */
+void EnableFipsMode();
+
+/**
+ * @brief As above, but told whether `--password-encryption-algorithm` was left
+ * at its default rather than looking it up.
+ *
+ * `true` selects the approved algorithm; `false` means the operator chose one,
+ * so a non-approved choice is an error instead of being overridden. gflags only
+ * exposes that bit through a flag-name lookup, so taking it as an argument lets
+ * tests drive both branches without depending on process-wide flag state.
+ */
+void EnableFipsMode(bool algorithm_flag_is_default);
+#endif
 
 /**
  * @brief Return algorithm name. Needs to be stable; auth queries depend on it.

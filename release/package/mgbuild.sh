@@ -106,6 +106,8 @@ print_help () {
   echo -e "  run [OPTIONS]                      Run mgbuild container"
   echo -e "  stop [OPTIONS]                     Stop mgbuild container"
   echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "                                     'smoke' accepts --image IMAGE and --fips (FIPS image: the feature subset"
+  echo -e "                                     available without embedded Python, plus the FIPS compliance checks)"
   echo -e "  check-core-dumps                   Check the runner is configured to produce Memgraph core dumps (warn-only)"
   echo -e "  test-mage TEST                     Run a selected test TEST (see supported tests below) inside MAGE docker image"
   echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
@@ -188,7 +190,7 @@ print_help () {
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
-  echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling."
+  echo -e "  --package-flavour string        Docker package flavour: 'prod', 'debug' or 'fips' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling. 'fips' builds the FIPS 140-3 image and requires a package built with --no-python plus the FIPS OpenSSL packages staged in build/ (fetch-openssl-packages.sh --fips)."
 
   echo -e "\npackage-mage-deb / package-mage-rpm options:"
   echo -e "  --malloc                      Variant flag — affects the output filename only"
@@ -1293,8 +1295,9 @@ package_docker() {
         exit 1
       fi
     ;;
+    fips) ;;
     *)
-      echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')" >&2
+      echo "Error: --package-flavour must be 'prod', 'debug' or 'fips' (got '$package_flavour')" >&2
       exit 1
     ;;
   esac
@@ -1313,6 +1316,9 @@ package_docker() {
   if [[ "$package_flavour" == "prod" ]]; then
     echo "Package prod flavour"
     ./package_docker --latest --package-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
+  elif [[ "$package_flavour" == "fips" ]]; then
+    echo "Package fips flavour"
+    ./package_docker --package-flavour fips --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package debug flavour"
     ./package_docker --package-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
@@ -2252,6 +2258,7 @@ test_memgraph() {
       shift 1
       smoke_image=""
       reuse_env=false
+      smoke_fips=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --image)
@@ -2261,6 +2268,10 @@ test_memgraph() {
           --reuse-env)
             reuse_env=$2
             shift 2
+          ;;
+          --fips)
+            smoke_fips="--fips"
+            shift
           ;;
           *)
             echo "Error: Unknown flag '$1'"
@@ -2290,7 +2301,7 @@ test_memgraph() {
         source env/bin/activate
         pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
       fi
-      ./test_single.bash "memgraph"
+      ./test_single.bash "memgraph"  $smoke_fips
     ;;
     *)
       echo "Error: Unknown test '$1'"
