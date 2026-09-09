@@ -112,6 +112,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
     auto ConstrainedProperties() const -> InterestingProperties override;
+    auto ConstrainedLabels() const -> InterestingLabels override;
 
     // Unique constraints are validated at commit time via UpdateBeforeCommit(),
     // so label changes don't require incremental updates during the transaction.
@@ -123,10 +124,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
    private:
     ContainerPtr container_;
-    // Sorted union of the properties of every constraint in `container_`, regardless of label. Every
-    // transaction started against this snapshot borrows it, so it is built with the snapshot rather
-    // than per transaction.
+    // Sorted unions of the properties and of the labels of every constraint in `container_`. Every
+    // transaction started against this snapshot borrows them, so they are built with the snapshot
+    // rather than per transaction.
     std::vector<PropertyId> constrained_properties_;
+    std::vector<LabelId> constrained_labels_;
   };
 
   /// Creates an ActiveConstraints snapshot for transaction use.

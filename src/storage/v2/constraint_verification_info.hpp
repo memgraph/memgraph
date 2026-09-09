@@ -22,15 +22,25 @@ struct Transaction;
 /// The objects a transaction's writes oblige it to re-check against the constraints, gathered as
 /// it writes and read at commit.
 ///
+/// The ids each kind of constraint is keyed on, gathered as one value so that a kind added later
+/// gains a field here rather than a parameter at every call site. Every field defaults to
+/// reporting everything, so a kind whose fields are left unfilled over-reports rather than losing
+/// a check. All of them are borrowed from the constraint snapshot the transaction holds, so none
+/// may name a set that does not outlive the transaction.
+struct ConstraintRelevance {
+  InterestingProperties unique_properties{};
+  InterestingLabels unique_labels{};
+  InterestingProperties existence_properties{};
+  InterestingLabels existence_labels{};
+};
+
 /// A caller reports what it wrote and this decides whether the write can reach a constraint at
-/// all, so the rule lives here rather than at each write site. Each kind of constraint narrows a
-/// different report, so each gets its own set of properties: writing a value can only collide
-/// with a unique constraint, and removing one can only leave an existence constraint unmet. The
-/// sets are borrowed from the constraint snapshot the transaction holds, so they must not name a
-/// set that does not outlive this.
+/// all, so the rule lives here rather than at each write site. Which ids matter differs by
+/// report: writing a value can only collide with a unique constraint, removing one can only leave
+/// an existence constraint unmet, and gaining a label can do either.
 struct ConstraintVerificationInfo final {
   ConstraintVerificationInfo();
-  ConstraintVerificationInfo(InterestingProperties unique_constrained, InterestingProperties existence_constrained);
+  explicit ConstraintVerificationInfo(ConstraintRelevance relevance);
   ~ConstraintVerificationInfo();
 
   // By design would be a mistake to copy the cache
@@ -40,7 +50,9 @@ struct ConstraintVerificationInfo final {
   ConstraintVerificationInfo(ConstraintVerificationInfo &&) noexcept;
   ConstraintVerificationInfo &operator=(ConstraintVerificationInfo &&) noexcept;
 
-  void AddedLabel(Vertex const *vertex);
+  /// `vertex` gained `label`. Ignored when no unique or existence constraint is keyed on it: a
+  /// constraint that never mentions the label cannot start applying to a vertex that gains it.
+  void AddedLabel(LabelId label, Vertex const *vertex);
 
   /// A value was written to `property`. Ignored when no unique constraint is keyed on it: a value
   /// under a property none of them mention cannot collide with anything they hold.
@@ -69,7 +81,6 @@ struct ConstraintVerificationInfo final {
   // Update existence constraints because it might be the referenced property of the constraint
   std::unordered_set<Vertex const *> removed_properties_;
 
-  InterestingProperties unique_constrained_{};
-  InterestingProperties existence_constrained_{};
+  ConstraintRelevance relevance_{};
 };
 }  // namespace memgraph::storage

@@ -230,7 +230,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   transaction_->active_constraints_->unique_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
-  if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
+  if (transaction_->constraint_verification_info)
+    transaction_->constraint_verification_info->AddedLabel(label, vertex_);
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 

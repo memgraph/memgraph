@@ -152,9 +152,16 @@ struct Transaction {
         // transaction goes on to hold for its whole lifetime.
         constraint_verification_info{
             (active_constraints && !active_constraints->empty())
-                ? std::optional<ConstraintVerificationInfo>{std::in_place,
-                                                            active_constraints->unique_->ConstrainedProperties(),
-                                                            active_constraints->existence_->ConstrainedProperties()}
+                ? std::optional<
+                      ConstraintVerificationInfo>{std::in_place,
+                                                  ConstraintRelevance{
+                                                      .unique_properties =
+                                                          active_constraints->unique_->ConstrainedProperties(),
+                                                      .unique_labels = active_constraints->unique_->ConstrainedLabels(),
+                                                      .existence_properties =
+                                                          active_constraints->existence_->ConstrainedProperties(),
+                                                      .existence_labels =
+                                                          active_constraints->existence_->ConstrainedLabels()}}
                 : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                       ? std::optional<utils::SkipListDb<Vertex>>{std::in_place}

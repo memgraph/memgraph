@@ -17,23 +17,25 @@ namespace memgraph::storage {
 
 ConstraintVerificationInfo::ConstraintVerificationInfo() = default;
 
-ConstraintVerificationInfo::ConstraintVerificationInfo(InterestingProperties unique_constrained,
-                                                       InterestingProperties existence_constrained)
-    : unique_constrained_{unique_constrained}, existence_constrained_{existence_constrained} {}
+ConstraintVerificationInfo::ConstraintVerificationInfo(ConstraintRelevance relevance) : relevance_{relevance} {}
 
 ConstraintVerificationInfo::~ConstraintVerificationInfo() = default;
 ConstraintVerificationInfo::ConstraintVerificationInfo(ConstraintVerificationInfo &&) noexcept = default;
 ConstraintVerificationInfo &ConstraintVerificationInfo::operator=(ConstraintVerificationInfo &&) noexcept = default;
 
-void ConstraintVerificationInfo::AddedLabel(Vertex const *vertex) { added_labels_.insert(vertex); }
+void ConstraintVerificationInfo::AddedLabel(LabelId label, Vertex const *vertex) {
+  // One set feeds both checks, so a label either kind is keyed on is reported to both.
+  if (!relevance_.unique_labels.IsInteresting(label) && !relevance_.existence_labels.IsInteresting(label)) return;
+  added_labels_.insert(vertex);
+}
 
 void ConstraintVerificationInfo::AddedProperty(PropertyId property, Vertex const *vertex) {
-  if (!unique_constrained_.IsInteresting(property)) return;
+  if (!relevance_.unique_properties.IsInteresting(property)) return;
   added_properties_.insert(vertex);
 }
 
 void ConstraintVerificationInfo::RemovedProperty(PropertyId property, Vertex const *vertex) {
-  if (!existence_constrained_.IsInteresting(property)) return;
+  if (!relevance_.existence_properties.IsInteresting(property)) return;
   removed_properties_.insert(vertex);
 }
 
