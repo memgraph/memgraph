@@ -826,6 +826,25 @@ add_unit_test(storage_v2_gc_index_sweep
     LINK_TARGETS mg::storage
 )
 
+# Compares the engine's MVCC visibility predicates against an independent
+# transcription of them that lives in an external reference library. The
+# transcription is deliberately not vendored here, so point MVCC2_ORACLE_DIR at
+# the directory holding engine_oracle.hpp to build this. Without it the test is
+# absent rather than skipped: a skip reports as a pass and establishes nothing.
+set(MVCC2_ORACLE_DIR "" CACHE PATH "Directory containing the mvcc2 reference library's engine_oracle.hpp")
+if(MVCC2_ORACLE_DIR)
+    if(NOT EXISTS "${MVCC2_ORACLE_DIR}/engine_oracle.hpp")
+        message(FATAL_ERROR
+            "MVCC2_ORACLE_DIR is set to '${MVCC2_ORACLE_DIR}' but there is no engine_oracle.hpp there. "
+            "A wrong path must fail loudly: silently dropping the test would leave the transcription unchecked.")
+    endif()
+    add_unit_test(storage_v2_mvcc_oracle_shadow
+        SOURCES storage_v2_mvcc_oracle_shadow.cpp
+        LINK_TARGETS mg::storage
+        INCLUDE_DIRS ${MVCC2_ORACLE_DIR}
+    )
+endif()
+
 add_unit_test(storage_v2_index_arming
     SOURCES storage_v2_index_arming.cpp
     LINK_TARGETS mg::storage
