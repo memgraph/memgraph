@@ -25,7 +25,6 @@
 #include <sstream>
 #include <utility>
 
-#include "flags/general.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
 #include "utils/exceptions.hpp"
@@ -89,13 +88,17 @@ auto PostProgressCallback(void *clientp, curl_off_t /*dltotal*/, curl_off_t /*dl
 }
 
 // libcurl's default CA bundle path is a build-time constant, wrong on distros
-// other than the build host's; use --ca-bundle-file if set, otherwise probe the
-// standard locations. Resolved once and cached for the process lifetime.
-const char *ResolveCaBundle() {
-  static const std::string resolved = []() -> std::string {
+// other than the build host's; use the path given here if there is one,
+// otherwise probe the standard locations.
+//
+// Resolved on the first call and fixed for the process lifetime, which is why
+// Init() must call it before anything issues a request: the path it was given
+// is only read on that first call.
+const char *ResolveCaBundle(std::string_view ca_bundle_file = {}) {
+  static const std::string resolved = [ca_bundle_file]() -> std::string {
     // An explicit path is passed through unvalidated so a bad value fails
     // loudly (CURLE_SSL_CACERT_BADFILE) instead of silently falling back.
-    if (!FLAGS_ca_bundle_file.empty()) return FLAGS_ca_bundle_file;
+    if (!ca_bundle_file.empty()) return std::string{ca_bundle_file};
     constexpr std::array paths = {
         "/etc/ssl/certs/ca-certificates.crt",      // Debian/Ubuntu
         "/etc/pki/tls/certs/ca-bundle.crt",        // RHEL/Fedora/CentOS/Rocky
@@ -123,7 +126,10 @@ void SetCaInfo(CURL *curl) {
 
 }  // namespace
 
-void Init() { curl_global_init(CURL_GLOBAL_ALL); }
+void Init(std::string_view ca_bundle_file) {
+  ResolveCaBundle(ca_bundle_file);
+  curl_global_init(CURL_GLOBAL_ALL);
+}
 
 bool RequestPostJson(const std::string &url, const nlohmann::json &data, int timeout_in_seconds,
                      std::atomic<bool> const *abort_flag) {
