@@ -87,11 +87,21 @@ class Neo4jClient(PythonClient):
 
     def execute_query(self, query, params=None):
         if self._routing:
-            session = self._write_session if _is_write_query(query) else self._read_session
-        else:
-            session = self._session
+            # Managed read/write transactions, not session.run(): an auto-commit run() pins the
+            # session to the first server it connects to and never re-routes, so reads would never
+            # reach a replica. execute_read/execute_write route each transaction by access mode
+            # (readers load-balanced across the routing table's READ servers, writes to main) and
+            # release the connection on commit, so routing actually distributes the load.
+            start = time.time()
+            if _is_write_query(query):
+                self._write_session.execute_write(lambda tx: tx.run(query, parameters=params or {}).consume())
+            else:
+                self._read_session.execute_read(lambda tx: tx.run(query, parameters=params or {}).consume())
+            end = time.time()
+            return (end - start) * 1000
+
         start = time.time()
-        result = session.run(query, parameters=params or {})
+        result = self._session.run(query, parameters=params or {})
         _ = result.consume()
         end = time.time()
         return (end - start) * 1000
