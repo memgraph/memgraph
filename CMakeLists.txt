@@ -25,8 +25,16 @@ find_program(CCACHE_PROGRAM ccache)
 
 if(CCACHE_PROGRAM)
     message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
-    set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
-    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
+    # Lets checkouts at different paths share entries. base_dir must be this checkout's root:
+    # a wider one rewrites the dependency paths they share. nohashdir needs -ffile-prefix-map.
+    find_program(ENV_PROGRAM env REQUIRED)
+    set(MG_CCACHE_LAUNCHER
+        ${ENV_PROGRAM}
+        CCACHE_BASEDIR=${PROJECT_SOURCE_DIR}
+        CCACHE_NOHASHDIR=true
+        ${CCACHE_PROGRAM})
+    set(CMAKE_C_COMPILER_LAUNCHER   ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
 endif()
 
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
@@ -320,6 +328,9 @@ add_compile_options(
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-ctor>
         $<$<CXX_COMPILER_ID:GNU>:-Werror=reorder>
 )
+
+# Tree-relative source paths, so no object names the directory that built it. nvcc rejects it.
+add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-ffile-prefix-map=${PROJECT_SOURCE_DIR}=.>)
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
