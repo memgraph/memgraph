@@ -1,13 +1,25 @@
 import argparse
 import json
+import re
 import time
 from abc import ABC, abstractmethod
 from multiprocessing import Array, Lock, Manager, Process, Value
 
+import neo4j
 import psycopg2
 import psycopg2.extras
 from falkordb import FalkorDB
 from neo4j import GraphDatabase
+
+# A query is routed as a write (to main) when it contains a write clause, and as a read otherwise.
+# Whole-word match so substrings like OFFSET or a "set"-containing property name are not mistaken
+# for the SET clause. Sufficient for the mgbench workloads; a read misrouted to a replica would be
+# rejected, so keep this in sync with the clauses the workloads actually emit.
+_WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP|CALL)\b", re.IGNORECASE)
+
+
+def _is_write_query(query):
+    return bool(_WRITE_CLAUSE.search(query))
 
 
 class PythonClient(ABC):
@@ -47,17 +59,36 @@ class FalkorDBClient(PythonClient):
 
 
 class Neo4jClient(PythonClient):
-    def __init__(self, host, port, user="", password=""):
-        self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
-        self._session = self._driver.session()
+    def __init__(self, host, port, user="", password="", routing=False):
+        self._routing = routing
+        if routing:
+            # bolt+routing against a coordinator: the driver discovers the cluster and routes each
+            # query by its session's access mode. Two long-lived sessions carry the two modes so
+            # writes always land on main while reads use a read server (main included when the
+            # coordinator has enabled_reads_on_main), which is what makes reads and writes contend
+            # on main's worker pool as a routed client would.
+            self._driver = GraphDatabase.driver(f"neo4j://{host}:{port}", auth=(user, password))
+            self._read_session = self._driver.session(default_access_mode=neo4j.READ_ACCESS)
+            self._write_session = self._driver.session(default_access_mode=neo4j.WRITE_ACCESS)
+        else:
+            self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
+            self._session = self._driver.session()
 
     def close(self):
-        self._session.close()
+        if self._routing:
+            self._read_session.close()
+            self._write_session.close()
+        else:
+            self._session.close()
         self._driver.close()
 
     def execute_query(self, query, params=None):
+        if self._routing:
+            session = self._write_session if _is_write_query(query) else self._read_session
+        else:
+            session = self._session
         start = time.time()
-        result = self._session.run(query, parameters=params or {})
+        result = session.run(query, parameters=params or {})
         _ = result.consume()
         end = time.time()
         return (end - start) * 1000
@@ -95,15 +126,23 @@ def get_python_client(vendor):
     raise Exception(f"Unknown vendor {vendor} when running benchmarks with a Python client!")
 
 
+def _make_client(vendor, host, port, routing):
+    # Only the neo4j/bolt client speaks bolt+routing; other vendors ignore the flag.
+    client_cls = get_python_client(vendor)
+    if client_cls is Neo4jClient:
+        return client_cls(host, port, routing=routing)
+    return client_cls(host, port)
+
+
 def execute_validation_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit, routing
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
     # For this reason, in this function we will not use the following argumetns:
     # - Time limit: Validation queries are performed which are independent from timed execution
     # - Position and lock: There is no synchronization needed as validation query is the sole query needed
     #   to be executed.
-    client = get_python_client(vendor)(host, port)
+    client = _make_client(vendor, host, port, routing)
 
     if len(queries) != 1:
         raise Exception("Validation query should be performed with only one query!")
@@ -126,12 +165,12 @@ def execute_validation_task(
 
 
 def execute_queries_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit, routing
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
     # For this reason, in this function we will not use the following argumetns:
     # - Time limit: This task is independent from timed execution as every query will be executed only once
-    client = get_python_client(vendor)(host, port)
+    client = _make_client(vendor, host, port, routing)
 
     size = len(queries)
 
@@ -170,9 +209,9 @@ def execute_queries_task(
 
 
 def execute_time_dependent_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit, routing
 ):
-    client = get_python_client(vendor)(host, port)
+    client = _make_client(vendor, host, port, routing)
 
     size = len(queries)
 
@@ -244,6 +283,7 @@ def execute_workload(queries, args):
                 durations,
                 args.max_retries,
                 time_limit,
+                args.routing,
             ),
         )
         process.start()
@@ -299,6 +339,15 @@ def main():
     parser.add_argument("--password", default="", help="Password for the database")
     parser.add_argument("--num-workers", type=int, default=1, help="Number of worker threads")
     parser.add_argument("--max-retries", type=int, default=50, help="Maximum number of retries for each query")
+    parser.add_argument(
+        "--routing",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="Connect with bolt+routing (neo4j://) to a coordinator and route reads/writes by access "
+        "mode, instead of a direct bolt:// connection to a single instance.",
+    )
     parser.add_argument("--input", default="", help="Input file containing queries in JSON format")
     parser.add_argument("--output", default="", help="Output file to write results in JSON format")
     parser.add_argument(

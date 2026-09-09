@@ -40,6 +40,7 @@ jobs:
       DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_sync_async.json'
       DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
       DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync.json'
+      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync_routing.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -148,6 +149,25 @@ jobs:
             "mgbench-ha --realistic" \
             mgbench-ha-realistic-sync \
             ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-realistic-sync-routing
+        id: mgbench-ha-realistic-sync-routing
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync-routing,') }}
+        continue-on-error: true
+        env:
+          # Same realistic mix as the direct-to-main step above, but reached through a bolt+routing
+          # python client against a coordinator, so reads/writes are dispatched by the routing table
+          # (reads-on-main enabled) as a real HA client connects. Same repeat rationale.
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --routing" \
+            mgbench-ha-realistic-sync-routing \
+            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \

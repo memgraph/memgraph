@@ -337,6 +337,14 @@ def parse_args():
         help="Client language implementation (cpp or python)",
     )
 
+    benchmark_parser.add_argument(
+        "--client-bolt-routing",
+        action="store_true",
+        help="Connect the (python) client with bolt+routing (neo4j://) to a coordinator and route "
+        "reads/writes by access mode, instead of a direct bolt connection to main. Requires an HA "
+        "cluster and --client-language python.",
+    )
+
     return benchmark_parser.parse_args()
 
 
@@ -348,7 +356,14 @@ def resolve_high_availability_args(args):
     """
     args.run_ha_leg = False
     if not (args.run_ha or args.ha_only):
+        if args.client_bolt_routing:
+            raise ValueError("--client-bolt-routing needs an HA cluster; pass --ha-only or --run-ha.")
         return
+
+    if args.client_bolt_routing and args.client_language != BenchmarkClientLanguage.PYTHON:
+        raise ValueError(
+            "--client-bolt-routing is only implemented by the python client; pass --client-language python."
+        )
 
     # A cluster is started from binaries on this machine, so it cannot be measured through a type that
     # runs the database in a container or expects one to be running already.
@@ -1305,6 +1320,7 @@ if __name__ == "__main__":
             else None
         ),
         client_language=args.client_language,
+        client_bolt_routing=args.client_bolt_routing,
         databases=args.databases,
         client_bolt_address=args.client_bolt_address,
         num_workers_for_import=args.num_workers_for_import,

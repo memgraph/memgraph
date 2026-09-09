@@ -27,6 +27,7 @@ class BenchmarkContext:
         installation_type: str = None,
         client_binary: str = None,
         client_language: str = None,
+        client_bolt_routing: bool = False,
         num_workers_for_import: int = None,
         num_workers_for_benchmark: int = None,
         database_workers: int = None,
@@ -60,6 +61,7 @@ class BenchmarkContext:
         self.installation_type = installation_type
         self.client_binary = client_binary
         self.client_language = client_language
+        self.client_bolt_routing = client_bolt_routing
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark
         # If database_workers is not specified, use num_workers_for_benchmark for backward compatibility

@@ -2052,6 +2052,10 @@ test_memgraph() {
       # workers that would otherwise stall behind a commit holding its lock across the replication ACK.
       local MODE='isolated'
       local NUM_WORKERS=''
+      # routing: reach the cluster through a bolt+routing (neo4j://) python client against a
+      # coordinator instead of a direct bolt connection to main, so reads and writes are dispatched
+      # by the routing table the way a real HA client connects. Only meaningful with --realistic.
+      local ROUTING=0
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2071,19 +2075,36 @@ test_memgraph() {
             MODE='realistic'
             shift 1
           ;;
+          --routing)
+            ROUTING=1
+            shift 1
+          ;;
           --num-workers)
             NUM_WORKERS="$2"
             shift 2
           ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench-ha"
-            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --num-workers"
+            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --num-workers"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
+      # bolt+routing goes through a python client speaking neo4j:// to a coordinator; the default
+      # cluster description switches to the one that enables reads on main so routed reads reach it.
+      local ROUTING_ARGS=''
+      if [[ "$ROUTING" == "1" ]]; then
+        if [[ "$MODE" != "realistic" ]]; then
+          echo "Error: --routing is only supported with --realistic for mgbench-ha"
+          exit 1
+        fi
+        ROUTING_ARGS='--client-language python --client-bolt-routing'
+        if [[ "$CLUSTER_DESCRIPTION" == "ha_cluster.yaml" ]]; then
+          CLUSTER_DESCRIPTION='ha_cluster_routing.yaml'
+        fi
+      fi
       if [[ "$MODE" == "realistic" ]]; then
         # Read-heavy realistic mix (20% write, 80% read, 0% update, 0% analytical) over the pokec arango
         # group, at high concurrency so many clients contend for the commit path while writes replicate.
@@ -2094,7 +2115,7 @@ test_memgraph() {
         # "50000_20_80_0_0" distribution string, so every run executes the identical query stream — an
         # A/B (baseline vs funnel) differs only in timing, not in composition.
         local WORKERS="${NUM_WORKERS:-18}"
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot --num-workers-for-benchmark $WORKERS --workload-realistic 50000 20 80 0 0 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 20 80 0 0 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
       else
         local WORKERS="${NUM_WORKERS:-6}"
         docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark $WORKERS --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
