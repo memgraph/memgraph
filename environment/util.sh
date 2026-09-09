@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 function operating_system() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -50,6 +50,10 @@ function operating_system() {
                 echo "$detected_os"
                 ;;
         esac
+    elif [[ "$OSTYPE" == "freebsd"* ]]; then
+        # A FreeBSD release is identified by its major version; uname -r carries the
+        # patch and branch as well ("16.0-CURRENT"), which no consumer needs.
+        echo "freebsd-$(uname -r | cut -d '.' -f 1)"
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         echo "$(sw_vers -productName)-$(sw_vers -productVersion | cut -d '.' -f 1)"
     else
