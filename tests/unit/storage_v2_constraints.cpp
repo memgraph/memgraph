@@ -2641,6 +2641,76 @@ TEST_F(UniqueConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotReport
   EXPECT_FALSE(WriteIsReported(unconstrained));
 }
 
+// The removal counterpart of UniqueConstrainedPropertyCoverageTest. A property the existence
+// constrained set fails to name is a property whose removal is never reported, so its vertex is
+// never checked and a vertex holding the label without the value commits. The properties tried
+// come from the active constraints, so a derivation that stops naming one fails here. Three
+// constraints over two labels, because one constraint cannot tell an exhaustive walk from a walk
+// that stops after the first.
+class ExistenceConstrainedPropertyCoverageTest : public ConstraintsTest<InMemoryStorage> {
+ public:
+  void SetUp() override {
+    prop3 = this->storage->NameToProperty("prop3");
+    unconstrained = this->storage->NameToProperty("unconstrained");
+
+    auto acc = CreateConstraintAccessor();
+    ASSERT_TRUE(acc->CreateExistenceConstraint(label1, prop1).has_value());
+    ASSERT_TRUE(acc->CreateExistenceConstraint(label2, prop2).has_value());
+    ASSERT_TRUE(acc->CreateExistenceConstraint(label2, prop3).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Removes a committed value for `property` from an unlabelled vertex, and answers whether the
+  // transaction came away owing the existence constraints a check. Unlabelled so the removal is
+  // always legal; what is under test is whether it was reported, not whether it violates.
+  bool RemovalIsReported(PropertyId property) {
+    auto gid = Gid::FromUint(0);
+    {
+      auto acc = this->storage->Access(WRITE);
+      auto vertex = acc->CreateVertex();
+      EXPECT_TRUE(vertex.SetProperty(property, PropertyValue(1)).has_value());
+      gid = vertex.Gid();
+      EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    auto acc = this->storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::NEW);
+    EXPECT_TRUE(vertex.has_value());
+    if (!vertex) return false;
+    EXPECT_TRUE(vertex->SetProperty(property, PropertyValue()).has_value());
+    auto &info = acc->GetTransaction()->constraint_verification_info;
+    EXPECT_TRUE(info.has_value());
+    return info.has_value() && info->NeedsExistenceConstraintVerification();
+  }
+
+  PropertyId prop3;
+  PropertyId unconstrained;
+};
+
+TEST_F(ExistenceConstrainedPropertyCoverageTest, EveryConstrainedPropertyIsReportedOnRemoval) {
+  auto const listing = this->storage->Access(WRITE)->ListAllConstraints().existence;
+  ASSERT_EQ(listing.size(), 3);
+
+  auto reported = std::set<PropertyId>{};
+  for (auto const &[label, property] : listing) {
+    SCOPED_TRACE(property.ToString());
+    EXPECT_TRUE(RemovalIsReported(property));
+    reported.insert(property);
+  }
+
+  // Guards the loop above against passing because it ran over nothing.
+  EXPECT_EQ(reported, (std::set<PropertyId>{prop1, prop2, prop3}));
+}
+
+TEST_F(ExistenceConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotReportedOnRemoval) {
+  auto const listing = this->storage->Access(WRITE)->ListAllConstraints().existence;
+  for (auto const &[label, property] : listing) {
+    ASSERT_NE(property, unconstrained);
+  }
+
+  EXPECT_FALSE(RemovalIsReported(unconstrained));
+}
+
 // Removing a value can only break an existence constraint keyed on that property, so removals of
 // anything else need not be reported. The rejections are what keep the narrowing honest: they
 // fail if a removal that does matter stops being reported.
