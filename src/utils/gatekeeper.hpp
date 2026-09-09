@@ -271,6 +271,24 @@ struct Gatekeeper {
       return {run_t{}, std::forward<Func>(func), *owner_->value_};
     }
 
+    // Bounded-wait variant of the check above: wait up to `timeout` for count_ == 1 (sole live
+    // accessor) before running `func` exclusively, so a transient holder doesn't force a refusal.
+    // Safe under the same invariants as try_delete: every count_ decrement notifies cv_ under mutex_
+    // (no missed wakeup), and our own live accessor keeps count_ >= 1 so value_ cannot be destroyed.
+    template <typename Func>
+    [[nodiscard]] auto try_exclusively(std::chrono::steady_clock::duration timeout, Func &&func)
+        -> EvalResult<std::invoke_result_t<Func, T &>> {
+      if (!owner_) return {not_run_t{}};
+      // Prevent new access
+      auto guard = std::unique_lock{owner_->mutex_};
+      // Wait for exclusive access; on timeout refuse without running func.
+      if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
+        return {not_run_t{}};
+      }
+      // Invoke and hold result in wrapper type
+      return {run_t{}, std::forward<Func>(func), *owner_->value_};
+    }
+
     // Completely invalidated the accessor if return true
     template <typename Func = decltype([](T &) { return true; })>
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
