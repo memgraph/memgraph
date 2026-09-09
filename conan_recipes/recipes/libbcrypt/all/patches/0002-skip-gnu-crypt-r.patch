@@ -1,0 +1,30 @@
+--- a/Makefile
++++ b/Makefile
+@@ -5,14 +5,14 @@
+ all: bcrypt.a
+ 
+ test: bcrypt.c crypt_blowfish
+-	$(CC) $(CFLAGS) -DTEST_BCRYPT -c bcrypt.c
++	$(CC) $(CFLAGS) -D__SKIP_GNU -DTEST_BCRYPT -c bcrypt.c
+ 	$(CC) -o bcrypt_test bcrypt.o crypt_blowfish/*.o
+ 
+ bcrypt.a: bcrypt.o crypt_blowfish
+ 	ar r bcrypt.a bcrypt.o crypt_blowfish/*.o
+ 
+ bcrypt.o: bcrypt.c
+-	$(CC) $(CFLAGS) -c bcrypt.c
++	$(CC) $(CFLAGS) -D__SKIP_GNU -c bcrypt.c
+ 
+ crypt_blowfish:
+ 	$(MAKE) -C crypt_blowfish
+--- a/crypt_blowfish/Makefile
++++ b/crypt_blowfish/Makefile
+@@ -18,7 +18,7 @@
+ AS = $(CC)
+ LD = $(CC)
+ RM = rm -f
+-CFLAGS = -W -Wall -Wbad-function-cast -Wcast-align -Wcast-qual -Wmissing-prototypes -Wstrict-prototypes -Wshadow -Wundef -Wpointer-arith -O2 -fomit-frame-pointer -funroll-loops
++CFLAGS = -W -Wall -Wbad-function-cast -Wcast-align -Wcast-qual -Wmissing-prototypes -Wstrict-prototypes -Wshadow -Wundef -Wpointer-arith -O2 -fomit-frame-pointer -funroll-loops -D__SKIP_GNU
+ ASFLAGS = -c
+ LDFLAGS = -s
+ 

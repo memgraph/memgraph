@@ -2090,10 +2090,14 @@ class BoostConan(ConanFile):
             if is_msvc(self) or self._is_clang_cl:
                 # https://github.com/conan-community/conan-boost/issues/127#issuecomment-404750974
                 self.cpp_info.components["_libboost"].system_libs.append("bcrypt")
-            elif self.settings.os in ["Linux", "FreeBSD"]:
+            elif self.settings.os == "Linux":
                 # https://github.com/conan-community/community/issues/135
-                if self.settings.os == "Linux":
-                    self.cpp_info.components["_libboost"].system_libs.append("rt")
+                self.cpp_info.components["_libboost"].system_libs.append("rt")
+                if self.options.multithreading:
+                    self.cpp_info.components["_libboost"].system_libs.append("pthread")
+            elif self.settings.os == "FreeBSD":
+                # Threading lives in libthr, reached through libpthread, and a consumer of
+                # Boost.Thread will not link without it. Upstream covers only Linux here.
                 if self.options.multithreading:
                     self.cpp_info.components["_libboost"].system_libs.append("pthread")
             elif self.settings.os == "Emscripten":
