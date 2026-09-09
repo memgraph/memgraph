@@ -28,6 +28,7 @@ class BenchmarkContext:
         client_binary: str = None,
         client_language: str = None,
         client_bolt_routing: bool = False,
+        client_bolt_routing_tx_mode: str = "managed",
         num_workers_for_import: int = None,
         num_workers_for_benchmark: int = None,
         database_workers: int = None,
@@ -62,6 +63,7 @@ class BenchmarkContext:
         self.client_binary = client_binary
         self.client_language = client_language
         self.client_bolt_routing = client_bolt_routing
+        self.client_bolt_routing_tx_mode = client_bolt_routing_tx_mode
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark
         # If database_workers is not specified, use num_workers_for_benchmark for backward compatibility

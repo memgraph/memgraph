@@ -345,6 +345,16 @@ def parse_args():
         "cluster and --client-language python.",
     )
 
+    benchmark_parser.add_argument(
+        "--client-bolt-routing-tx-mode",
+        type=str,
+        default="managed",
+        choices=["managed", "implicit"],
+        help="bolt+routing transaction style: 'managed' (execute_read/execute_write transaction "
+        "functions) or 'implicit' (auto-commit run() with a manually set session access mode). Only "
+        "used with --client-bolt-routing.",
+    )
+
     return benchmark_parser.parse_args()
 
 
@@ -1321,6 +1331,7 @@ if __name__ == "__main__":
         ),
         client_language=args.client_language,
         client_bolt_routing=args.client_bolt_routing,
+        client_bolt_routing_tx_mode=args.client_bolt_routing_tx_mode,
         databases=args.databases,
         client_bolt_address=args.client_bolt_address,
         num_workers_for_import=args.num_workers_for_import,

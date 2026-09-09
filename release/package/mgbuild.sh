@@ -2056,6 +2056,9 @@ test_memgraph() {
       # coordinator instead of a direct bolt connection to main, so reads and writes are dispatched
       # by the routing table the way a real HA client connects. Only meaningful with --realistic.
       local ROUTING=0
+      # managed (execute_read/execute_write transaction functions) vs implicit (auto-commit run()
+      # with a manually set session access mode); measured separately to compare the two styles.
+      local ROUTING_TX_MODE='managed'
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2079,13 +2082,17 @@ test_memgraph() {
             ROUTING=1
             shift 1
           ;;
+          --routing-tx-mode)
+            ROUTING_TX_MODE="$2"
+            shift 2
+          ;;
           --num-workers)
             NUM_WORKERS="$2"
             shift 2
           ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench-ha"
-            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --num-workers"
+            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --routing-tx-mode, --num-workers"
             exit 1
           ;;
         esac
@@ -2100,7 +2107,7 @@ test_memgraph() {
           echo "Error: --routing is only supported with --realistic for mgbench-ha"
           exit 1
         fi
-        ROUTING_ARGS='--client-language python --client-bolt-routing'
+        ROUTING_ARGS="--client-language python --client-bolt-routing --client-bolt-routing-tx-mode $ROUTING_TX_MODE"
         if [[ "$CLUSTER_DESCRIPTION" == "ha_cluster.yaml" ]]; then
           CLUSTER_DESCRIPTION='ha_cluster_routing.yaml'
         fi

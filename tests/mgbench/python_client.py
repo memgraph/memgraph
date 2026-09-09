@@ -62,41 +62,55 @@ class FalkorDBClient(PythonClient):
 
 
 class Neo4jClient(PythonClient):
-    def __init__(self, host, port, user="", password="", routing=False):
+    # bolt+routing transaction styles (routing_tx_mode):
+    #   "managed"  - session.execute_read/execute_write (transaction functions). Each query is a
+    #                BEGIN/run/COMMIT managed transaction, routed by access mode and retried on
+    #                transient errors.
+    #   "implicit" - a fresh access-mode session per query with auto-commit session.run() (implicit
+    #                transactions). Lighter per query (single RUN+PULL, no explicit BEGIN/COMMIT).
+    # A fresh session per query is used in implicit mode because a reused session pins to the server
+    # it first connected to and never re-routes, so reads would never reach a replica.
+    ROUTING_TX_MODES = ("managed", "implicit")
+
+    def __init__(self, host, port, user="", password="", routing=False, routing_tx_mode="managed"):
         self._routing = routing
+        self._routing_tx_mode = routing_tx_mode
         if routing:
-            # bolt+routing against a coordinator: the driver discovers the cluster and routes each
-            # query by its session's access mode. Two long-lived sessions carry the two modes so
-            # writes always land on main while reads use a read server (main included when the
-            # coordinator has enabled_reads_on_main), which is what makes reads and writes contend
-            # on main's worker pool as a routed client would.
             self._driver = GraphDatabase.driver(f"neo4j://{host}:{port}", auth=(user, password))
-            self._read_session = self._driver.session(default_access_mode=neo4j.READ_ACCESS)
-            self._write_session = self._driver.session(default_access_mode=neo4j.WRITE_ACCESS)
+            if routing_tx_mode == "managed":
+                self._read_session = self._driver.session(default_access_mode=neo4j.READ_ACCESS)
+                self._write_session = self._driver.session(default_access_mode=neo4j.WRITE_ACCESS)
         else:
             self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
             self._session = self._driver.session()
 
     def close(self):
         if self._routing:
-            self._read_session.close()
-            self._write_session.close()
+            if self._routing_tx_mode == "managed":
+                self._read_session.close()
+                self._write_session.close()
         else:
             self._session.close()
         self._driver.close()
 
     def execute_query(self, query, params=None):
         if self._routing:
-            # Managed read/write transactions, not session.run(): an auto-commit run() pins the
-            # session to the first server it connects to and never re-routes, so reads would never
-            # reach a replica. execute_read/execute_write route each transaction by access mode
-            # (readers load-balanced across the routing table's READ servers, writes to main) and
-            # release the connection on commit, so routing actually distributes the load.
+            write = _is_write_query(query)
             start = time.time()
-            if _is_write_query(query):
-                self._write_session.execute_write(lambda tx: tx.run(query, parameters=params or {}).consume())
+            if self._routing_tx_mode == "managed":
+                # Managed transaction functions: route each query by access mode (readers
+                # load-balanced across the routing table's READ servers, writes to main) and release
+                # the connection on commit, so routing distributes the load per query.
+                if write:
+                    self._write_session.execute_write(lambda tx: tx.run(query, parameters=params or {}).consume())
+                else:
+                    self._read_session.execute_read(lambda tx: tx.run(query, parameters=params or {}).consume())
             else:
-                self._read_session.execute_read(lambda tx: tx.run(query, parameters=params or {}).consume())
+                # Implicit (auto-commit) transaction with a manually set session access mode. A fresh
+                # session per query so each one re-routes by access mode rather than pinning.
+                mode = neo4j.WRITE_ACCESS if write else neo4j.READ_ACCESS
+                with self._driver.session(default_access_mode=mode) as session:
+                    session.run(query, parameters=params or {}).consume()
             end = time.time()
             return (end - start) * 1000
 
@@ -142,11 +156,11 @@ def get_python_client(vendor):
     raise Exception(f"Unknown vendor {vendor} when running benchmarks with a Python client!")
 
 
-def _make_client(vendor, host, port, routing):
-    # Only the neo4j/bolt client speaks bolt+routing; other vendors ignore the flag.
+def _make_client(vendor, host, port, routing, routing_tx_mode):
+    # Only the neo4j/bolt client speaks bolt+routing; other vendors ignore the flags.
     client_cls = get_python_client(vendor)
     if client_cls is Neo4jClient:
-        return client_cls(host, port, routing=routing)
+        return client_cls(host, port, routing=routing, routing_tx_mode=routing_tx_mode)
     return client_cls(host, port)
 
 
@@ -172,14 +186,26 @@ def _probe_routing_read_servers(args):
 
 
 def execute_validation_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit, routing
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
+    routing,
+    routing_tx_mode,
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
     # For this reason, in this function we will not use the following argumetns:
     # - Time limit: Validation queries are performed which are independent from timed execution
     # - Position and lock: There is no synchronization needed as validation query is the sole query needed
     #   to be executed.
-    client = _make_client(vendor, host, port, routing)
+    client = _make_client(vendor, host, port, routing, routing_tx_mode)
 
     if len(queries) != 1:
         raise Exception("Validation query should be performed with only one query!")
@@ -202,12 +228,24 @@ def execute_validation_task(
 
 
 def execute_queries_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit, routing
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
+    routing,
+    routing_tx_mode,
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
     # For this reason, in this function we will not use the following argumetns:
     # - Time limit: This task is independent from timed execution as every query will be executed only once
-    client = _make_client(vendor, host, port, routing)
+    client = _make_client(vendor, host, port, routing, routing_tx_mode)
 
     size = len(queries)
 
@@ -246,9 +284,21 @@ def execute_queries_task(
 
 
 def execute_time_dependent_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit, routing
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
+    routing,
+    routing_tx_mode,
 ):
-    client = _make_client(vendor, host, port, routing)
+    client = _make_client(vendor, host, port, routing, routing_tx_mode)
 
     size = len(queries)
 
@@ -321,6 +371,7 @@ def execute_workload(queries, args):
                 args.max_retries,
                 time_limit,
                 args.routing,
+                args.routing_tx_mode,
             ),
         )
         process.start()
@@ -384,6 +435,15 @@ def main():
         default=False,
         help="Connect with bolt+routing (neo4j://) to a coordinator and route reads/writes by access "
         "mode, instead of a direct bolt:// connection to a single instance.",
+    )
+    parser.add_argument(
+        "--routing-tx-mode",
+        type=str,
+        default="managed",
+        choices=Neo4jClient.ROUTING_TX_MODES,
+        help="bolt+routing transaction style: 'managed' (execute_read/execute_write transaction "
+        "functions) or 'implicit' (auto-commit session.run() with a manually set session access "
+        "mode). Only used with --routing.",
     )
     parser.add_argument("--input", default="", help="Input file containing queries in JSON format")
     parser.add_argument("--output", default="", help="Output file to write results in JSON format")

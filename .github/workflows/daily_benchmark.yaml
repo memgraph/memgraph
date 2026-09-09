@@ -41,6 +41,7 @@ jobs:
       DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
       DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync.json'
       DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync_routing.json'
+      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync_routing_implicit.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -161,13 +162,33 @@ jobs:
         env:
           # Same realistic mix as the direct-to-main step above, but reached through a bolt+routing
           # python client against a coordinator, so reads/writes are dispatched by the routing table
-          # (reads-on-main enabled) as a real HA client connects. Same repeat rationale.
+          # (reads-on-main enabled) as a real HA client connects. Managed transactions
+          # (execute_read/execute_write). Same repeat rationale.
           LOOP_COUNT: ${{ inputs.loop_count || 3 }}
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --realistic --routing" \
             mgbench-ha-realistic-sync-routing \
             ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-realistic-sync-routing-implicit
+        id: mgbench-ha-realistic-sync-routing-implicit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync-routing-implicit,') }}
+        continue-on-error: true
+        env:
+          # Same routed realistic mix as the step above, but with implicit (auto-commit) transactions
+          # and a manually set session access mode instead of managed transaction functions, to
+          # compare the two transaction styles under routing.
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --routing --routing-tx-mode implicit" \
+            mgbench-ha-realistic-sync-routing-implicit \
+            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \

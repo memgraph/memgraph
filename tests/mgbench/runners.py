@@ -466,6 +466,7 @@ class PythonClient(BaseClient):
         self._configured_database_port = database_port
         self._runner = runner
         self._routing = benchmark_context.client_bolt_routing
+        self._routing_tx_mode = benchmark_context.client_bolt_routing_tx_mode
 
     @property
     def _database_port(self):
@@ -511,6 +512,7 @@ class PythonClient(BaseClient):
             password=self._password,
             port=self._database_port,
             routing=self._routing,
+            routing_tx_mode=self._routing_tx_mode,
             validation=False,
             time_dependent_execution=time_dependent_execution,
         )
@@ -548,6 +550,7 @@ class PythonClient(BaseClient):
             password=self._password,
             port=self._database_port,
             routing=self._routing,
+            routing_tx_mode=self._routing_tx_mode,
             validation=validation,
             time_dependent_execution=time_dependent_execution,
         )
