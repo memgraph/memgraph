@@ -25,8 +25,25 @@ find_program(CCACHE_PROGRAM ccache)
 
 if(CCACHE_PROGRAM)
     message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
-    set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
-    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
+    # base_dir has to be this checkout's own root. ccache rewrites absolute paths under
+    # base_dir to be relative to the build directory, so a base_dir wide enough to span
+    # several checkouts also rewrites the dependency and toolchain paths those checkouts
+    # share, and two checkouts at different directory depths then hash differently and
+    # share nothing.
+    #
+    # nohashdir keeps the build directory out of the hash, which is what lets one checkout
+    # reuse another's entries. It is sound only because the build also compiles with
+    # -ffile-prefix-map: without that, a reused object still records the directory that
+    # produced it, and a debugger would resolve source against a checkout that may hold
+    # different content at the same relative path.
+    find_program(ENV_PROGRAM env REQUIRED)
+    set(MG_CCACHE_LAUNCHER
+        ${ENV_PROGRAM}
+        CCACHE_BASEDIR=${PROJECT_SOURCE_DIR}
+        CCACHE_NOHASHDIR=true
+        ${CCACHE_PROGRAM})
+    set(CMAKE_C_COMPILER_LAUNCHER   ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
 endif()
 
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
