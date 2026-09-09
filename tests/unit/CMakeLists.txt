@@ -608,8 +608,8 @@ add_unit_test(utils_id_bitmap
     LINK_TARGETS mg-utils
 )
 
-add_unit_test(storage_v2_interesting_properties
-    SOURCES storage_v2_interesting_properties.cpp
+add_unit_test(storage_v2_interesting_ids
+    SOURCES storage_v2_interesting_ids.cpp
     LINK_TARGETS mg::storage
 )
 
