@@ -91,8 +91,16 @@ jobs:
             arch: amd
             malloc: true
             build_type: Release
+          - target: deb
+            arch: arm
+            malloc: true
+            build_type: Release
           - target: rpm
             arch: amd
+            malloc: true
+            build_type: Release
+          - target: rpm
+            arch: arm
             malloc: true
             build_type: Release
           # FIPS packages. The deb/rpm are named for what makes them different
@@ -903,6 +911,77 @@ jobs:
           else
             echo "Skipping deletion for arm64: image not promoted."
           fi
+
+  PromoteSBOM:
+    name: Promote SBOMs (${{ matrix.product }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [memgraph, mage]
+    steps:
+      - name: Validate “use_test_rc” only with test
+        if: inputs.use_test_rc && ! inputs.test
+        run: |
+          echo "Must not run 'use_test_rc=true' without setting 'test=true'"
+          exit 1
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Setup SBOM paths
+        run: |
+          # Both products stage their SBOMs flat under <rc_dir>/sbom/; the
+          # release layout mirrors that under the product's release dir.
+          # memgraph: memgraph-build-sbom.{json,txt}, memgraph-docker-sbom.{json,txt}
+          # mage:     mage-sbom.{json,txt}, memgraph-build-sbom.json
+          case "${{ matrix.product }}" in
+            memgraph)
+              src="s3://${rc_bucket}/${rc_dir}/sbom/"
+              dst="s3://${release_bucket}/${release_dir}/sbom/"
+              ;;
+            mage)
+              src="s3://${rc_bucket}/${mage_rc_dir}/sbom/"
+              dst="s3://${release_bucket}/${mage_release_dir}/sbom/"
+              ;;
+          esac
+          echo "sbom_src=${src}" >> $GITHUB_ENV
+          echo "sbom_dst=${dst}" >> $GITHUB_ENV
+
+      - name: Check if RC SBOMs exist
+        run: |
+          # SBOM generation is gated on `generate_sbom` at build time (only the
+          # amd, non-malloc, non-cuda/cugraph builds emit them), so an RC built
+          # with it turned off legitimately has none — warn rather than fail.
+          if [[ -z "$(aws s3 ls "${sbom_src}" 2>/dev/null)" ]]; then
+            echo "has_rc_sbom=false" >> $GITHUB_ENV
+            echo "::warning::No RC SBOMs found at ${sbom_src} — nothing to promote."
+          else
+            echo "has_rc_sbom=true" >> $GITHUB_ENV
+            aws s3 ls "${sbom_src}"
+          fi
+
+      - name: Check if release SBOMs already exist
+        if: ${{ env.has_rc_sbom == 'true' }}
+        run: |
+          if [[ -n "$(aws s3 ls "${sbom_dst}" 2>/dev/null)" ]]; then
+            echo "SBOMs already exist at ${sbom_dst}"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing SBOMs ..."
+          fi
+
+      - name: Promote SBOMs to release bucket
+        if: ${{ env.has_rc_sbom == 'true' }}
+        run: |
+          aws s3 cp "${sbom_src}" "${sbom_dst}" --recursive
+          echo "Promoted ${{ matrix.product }} SBOMs to ${sbom_dst}"
 
   PromoteDebugSymbols:
     name: Promote debug symbols to memgraph-debugsym
