@@ -648,7 +648,9 @@ def warmup(condition: str, client, queries: list = None):
     if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         warmup_to_hot_queries = get_warmup_to_hot_queries(client)
-        if len(queries) > 0:
+        # queries is None on the realistic/mixed paths (no explicit benchmark query list); only an
+        # explicitly empty list means "nothing to benchmark, skip warm-up".
+        if queries is None or len(queries) > 0:
             client.execute(
                 queries=warmup_to_hot_queries,
                 num_workers=1,

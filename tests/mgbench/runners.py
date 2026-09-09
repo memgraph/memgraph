@@ -150,6 +150,10 @@ class BaseClient(ABC):
         self.benchmark_context = benchmark_context
         self._vendor = benchmark_context.vendor_name
 
+    @property
+    def vendor(self):
+        return self._vendor
+
     @abstractmethod
     def execute(self):
         pass
