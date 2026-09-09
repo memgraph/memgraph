@@ -6,10 +6,11 @@ from abc import ABC, abstractmethod
 from multiprocessing import Array, Lock, Manager, Process, Value
 
 import neo4j
-import psycopg2
-import psycopg2.extras
-from falkordb import FalkorDB
 from neo4j import GraphDatabase
+
+# psycopg2 (PostgreSQL) and falkordb are optional vendor drivers, imported lazily in their client
+# classes so this module loads with only the neo4j driver present, which is all the mgbench venv
+# installs. A memgraph run must not fail because an unrelated vendor's driver is absent.
 
 # A query is routed as a write (to main) when it contains a write clause, and as a read otherwise.
 # Whole-word match so substrings like OFFSET or a "set"-containing property name are not mistaken
@@ -47,6 +48,8 @@ class FalkorDBClient(PythonClient):
 
     def __init__(self, host, port):
         super().__init__()
+        from falkordb import FalkorDB
+
         self._db = FalkorDB(host=host, port=port)
         self._graph = self._db.select_graph(FalkorDBClient.GRAPH_NAME)
 
@@ -96,6 +99,9 @@ class Neo4jClient(PythonClient):
 
 class PostgreSQLClient(PythonClient):
     def __init__(self, host, port, user="postgres", password="postgres", database="postgres"):
+        import psycopg2
+        import psycopg2.extras
+
         self._conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
         self._conn.autocommit = True
         self._cursor = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
