@@ -59,10 +59,11 @@ def parse_file_os_arch(file, image_type):
     """
 
     if image_type == "mage":
-        # MAGE packages sit in a flat S3 prefix (no per-os subdir), so the os is
-        # derived from the file type: Docker tarballs -> Docker (<arch>), debs ->
-        # ubuntu-24.04, and rpms -> the distro encoded in the filename dist-tag
-        # slot (memgraph-mage[-debuginfo]-<ver>-1.<os>.<arch>[<suffix>].rpm).
+        # MAGE packages sit in per-kind/flavour dirs mirroring memgraph
+        # (<arch>-deb[...], docker-<arch>[...]), but the os/arch here are still
+        # derived from the file type and filename rather than the dir: Docker
+        # tarballs -> Docker (<arch>), debs -> DEB, rpms -> RPM, .run ->
+        # Offline Installer.
         is_deb = file.endswith(".deb")
         is_rpm = file.endswith(".rpm")
         is_run = file.endswith(".run")
