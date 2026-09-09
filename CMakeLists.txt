@@ -37,18 +37,13 @@ if(NOT UNIX)
     message(FATAL_ERROR "Unsupported operating system.")
 endif()
 
-# This is used to so that 3rd party libs can find the
-# correct libraries from our toolchain
-if (NOT MG_TOOLCHAIN_ROOT OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
-    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
-endif ()
-message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
-
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(MgToolchain)
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
-set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
+set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_RUNTIME_DIR}")
 set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
@@ -167,43 +162,6 @@ if (IS_DIRECTORY "${git_directory}")
         CMAKE_CONFIGURE_DEPENDS "${git_directory}/${git_head_ref}")
   endif()
 endif()
-
-# -----------------------------------------------------------------------------
-
-# Custom libstdc++ configuration - REQUIRED
-set(CUSTOM_LIBSTDCXX_DIR "${MG_TOOLCHAIN_ROOT}/lib64" CACHE PATH "Directory containing custom libstdc++.so.6")
-set(CUSTOM_LIBSTDCXX "${CUSTOM_LIBSTDCXX_DIR}/libstdc++.so.6")
-
-if(NOT EXISTS "${CUSTOM_LIBSTDCXX}")
-    message(FATAL_ERROR "Custom libstdc++.so.6 not found at: ${CUSTOM_LIBSTDCXX}. Please ensure the toolchain is properly built.")
-endif()
-
-message(STATUS "Found custom libstdc++.so.6 at: ${CUSTOM_LIBSTDCXX}")
-
-# Verify the library has the correct SONAME
-execute_process(
-    COMMAND readelf -d "${CUSTOM_LIBSTDCXX}"
-    OUTPUT_VARIABLE ELF_INFO
-    RESULT_VARIABLE READ_RESULT
-)
-
-if(NOT READ_RESULT EQUAL 0 OR NOT ELF_INFO MATCHES "SONAME.*libstdc\\+\\+\\.so\\.6")
-    message(FATAL_ERROR "Invalid libstdc++.so.6: bad or missing SONAME. Please ensure the toolchain is properly built.")
-endif()
-
-message(STATUS "Custom libstdc++.so.6 validation successful")
-
-# Create imported target for custom libstdc++
-add_library(libstdc++_custom SHARED IMPORTED GLOBAL)
-set_target_properties(libstdc++_custom PROPERTIES
-    IMPORTED_LOCATION "${CUSTOM_LIBSTDCXX}"
-    INTERFACE_LINK_LIBRARIES ""
-)
-
-# Set global property to use custom libstdc++
-set_property(GLOBAL PROPERTY MG_USE_CUSTOM_LIBSTDCXX TRUE)
-set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
-# -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
@@ -324,7 +282,9 @@ add_compile_options(
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
-link_directories("${MG_TOOLCHAIN_ROOT}/lib")
+if (MG_TOOLCHAIN_LINK_DIR)
+    link_directories("${MG_TOOLCHAIN_LINK_DIR}")
+endif ()
 
 # After linker is set, check we can use link-time optimization
 include(CheckIPOSupported)
