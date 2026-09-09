@@ -35,6 +35,7 @@ jobs:
       DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_async.json'
       DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_sync_async.json'
       DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
+      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -119,6 +120,24 @@ jobs:
             mgbench-ha \
             mgbench-ha \
             ${{ env.DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      # Concurrent read+write mix on the SYNC cluster (ha_cluster.yaml). Unlike the isolated legs above,
+      # this drives many clients through the commit path while writes wait on the SYNC replica ACK, so it
+      # measures the aggregate-throughput win from parking pool workers instead of blocking them.
+      - name: Run and upload mgbench-ha-realistic-sync
+        id: mgbench-ha-realistic-sync
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic" \
+            mgbench-ha-realistic-sync \
+            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \

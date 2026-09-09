@@ -2047,6 +2047,11 @@ test_memgraph() {
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
       local CLUSTER_DESCRIPTION='ha_cluster.yaml'
+      # isolated (default): each query benchmarked on its own, the per-query "replication tax".
+      # realistic: one concurrent read+write mix, to expose throughput wins from unblocking pool
+      # workers that would otherwise stall behind a commit holding its lock across the replication ACK.
+      local MODE='isolated'
+      local NUM_WORKERS=''
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2062,16 +2067,33 @@ test_memgraph() {
             CLUSTER_DESCRIPTION="$2"
             shift 2
           ;;
+          --realistic)
+            MODE='realistic'
+            shift 1
+          ;;
+          --num-workers)
+            NUM_WORKERS="$2"
+            shift 2
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench-ha"
-            echo "Supported flags: --size, --export-results-file, --cluster-description"
+            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --num-workers"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+      if [[ "$MODE" == "realistic" ]]; then
+        # Read-heavy realistic mix (20% write, 80% read, 0% update, 0% analytical) over the pokec arango
+        # group, at high concurrency so many clients contend for the commit path while writes replicate.
+        # This is the workload the funnel improves and that isolated per-query benchmarks cannot show.
+        local WORKERS="${NUM_WORKERS:-18}"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark $WORKERS --workload-realistic 5000 20 80 0 0 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
+      else
+        local WORKERS="${NUM_WORKERS:-6}"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark $WORKERS --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+      fi
     ;;
     mgbench-supernode)
       shift 1
