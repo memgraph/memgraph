@@ -162,6 +162,7 @@ print_help () {
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
   echo -e "  --no-python                   Build memgraph without the embedded Python interpreter (maps to -DMG_PYTHON_SUPPORT=OFF; the package then has no libpython/python3/pip dependencies)."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
+  echo -e "  --compiler llvm|gcc           Compiler family from the toolchain (default \"llvm\"). Sets MG_COMPILER for conan and cmake."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
@@ -698,6 +699,7 @@ build_memgraph () {
   local conan_username=""
   local conan_password=""
   local build_dependency=""
+  local compiler="llvm"
   local link_threads=0
   local split_debug=false
   local mage_mode="off"
@@ -791,6 +793,14 @@ build_memgraph () {
       ;;
       --python-runtime-version)
         python_runtime_version="$2"
+        shift 2
+      ;;
+      --compiler)
+        compiler="$2"
+        if [[ "$compiler" != "llvm" && "$compiler" != "gcc" ]]; then
+          echo "Error: --compiler must be 'llvm' or 'gcc' (got '$compiler')" >&2
+          exit 1
+        fi
         shift 2
       ;;
       *)
@@ -929,7 +939,8 @@ build_memgraph () {
 
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
-  local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
+  # MG_COMPILER is read by the conan profile template and the CMake toolchain file.
+  local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version} MG_COMPILER=$compiler"
 
   # Build profile list from sanitizer flags
   local SANITIZER_PROFILES=""
