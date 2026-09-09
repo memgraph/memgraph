@@ -19,6 +19,7 @@
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
 #include "utils/counter.hpp"
@@ -519,8 +520,9 @@ InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndi
 }
 
 EdgePropertyIndex::AbortProcessor InMemoryEdgePropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  std::call_once(indexed_built_,
-                 [this] { indexed_ = index_container_->indices_ | std::views::keys | ranges::to_vector; });
+  std::call_once(indexed_built_, [this] {
+    indexed_ = SortedUniqueIds(index_container_->indices_ | std::views::keys | ranges::to_vector);
+  });
   return AbortProcessor{indexed_};
 }
 

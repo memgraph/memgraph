@@ -11,6 +11,7 @@
 
 #include "storage/v2/inmemory/label_index.hpp"
 #include <range/v3/all.hpp>
+#include "storage/v2/interesting_ids.hpp"
 
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
@@ -440,7 +441,7 @@ auto InMemoryLabelIndex::ActiveIndices::BuildIndexedLabels() const -> std::vecto
   for (const auto &[label, _] : *index_container_) {
     res.emplace_back(label);
   }
-  return res;
+  return SortedUniqueIds(std::move(res));
 }
 
 void InMemoryLabelIndex::DropGraphClearIndices() {
