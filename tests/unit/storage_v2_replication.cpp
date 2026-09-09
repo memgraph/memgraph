@@ -1983,11 +1983,11 @@ TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
               .snapshot_retention_count = 1,
               .restore_replication_state_on_startup = true,
           },
-      .salient.items =
-          {
-              .properties_on_edges = true,
-              .enable_schema_info = true,
-          },
+      .salient = {.items =
+                      {
+                          .properties_on_edges = true,
+                          .enable_schema_info = true,
+                      }},
       .register_metrics = false,
   };
 

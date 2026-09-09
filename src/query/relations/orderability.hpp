@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <compare>
+#include <utility>
 
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
@@ -123,6 +124,7 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
         LOG_FATAL("Invalid type");
     }
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::query::relations::orderability
