@@ -90,10 +90,14 @@ class ExistenceConstraints {
     /// per transaction, so a write does not reach this.
     auto ConstrainedProperties() const -> InterestingProperties;
 
+    /// The labels any active existence constraint is keyed on. Asked once per transaction.
+    auto ConstrainedLabels() const -> InterestingLabels;
+
    private:
     ContainerPtr container_;
     // Sorted, and borrowed by every transaction started against this snapshot.
     std::vector<PropertyId> constrained_properties_;
+    std::vector<LabelId> constrained_labels_;
   };
 
   /// Creates an ActiveConstraints snapshot for transaction use.
