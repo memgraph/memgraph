@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.distinct([true, false, true]) AS result;
+
+output:
+  - result: [true, false]

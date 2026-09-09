@@ -1650,10 +1650,18 @@ class Value {
   /// @brief Returns whether the value is an @ref Enum object.
   bool IsEnum() const;
 
+  /// @brief Equivalence: what DISTINCT and grouping read, and what std::hash<Value> agrees with, so the
+  /// relation to dedupe by. Any two nulls are the same value. Despite the operator, this is not the
+  /// relation `=` reads - see DefinitelyEquals.
   /// @exception std::runtime_error Unknown value type.
   bool operator==(const Value &other) const;
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
+
+  /// @brief Equality: what `=`, `<>` and `IN` read, so the relation to search a list by. A null on
+  /// either side leaves the comparison undecided, which is reported as not equal. Differs from
+  /// operator== only where a null is involved, directly or nested in a list or map.
+  bool DefinitelyEquals(const Value &other) const;
 
   bool operator<(const Value &other) const;
 
@@ -2092,10 +2100,23 @@ TDest MemcpyCast(TSrc src) {
   return dest;
 }
 
-/// @brief Returns whether two MGP API values are equal.
+/// @brief Equivalence: the relation DISTINCT and grouping read, and the one a hash container is keyed
+/// by. Two-valued - a Null it holds equivalent to a Null, directly or nested in a list or map. Use it to
+/// dedupe and hash by; std::hash<mgp::Value> is the hash that agrees with it.
+///
+/// Named before the relations were told apart, so the name says "equal" where the relation is
+/// equivalence. The kernel spells this one Equivalent (src/query/relations/equivalence.hpp) and keeps
+/// Equal for the other relation, so the two names cross here. Read the relation, not the name.
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2);
 
-/// @brief Returns whether two MGP API lists are equal.
+/// @brief Equality: the relation `=`, `<>` and `IN` read, so the one to search a list for a value by. In
+/// the language it is three-valued - a comparison turning on a Null answers Null and decides nothing -
+/// and this collapses that to false, since an undecided element is not a match. Differs from ValuesEqual
+/// only where a Null is involved. The kernel's three-valued form is Equal
+/// (src/query/relations/equality.hpp).
+inline bool ValuesDefinitelyEqual(mgp_value *value1, mgp_value *value2);
+
+/// @brief Returns whether two MGP API lists are equivalent, holding a null equivalent to a null.
 inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   if (list1 == list2) {
     return true;
@@ -2112,25 +2133,64 @@ inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   return true;
 }
 
-/// @brief Returns whether two MGP API maps are equal.
+/// @brief Returns whether two MGP API maps are equivalent, holding a null equivalent to a null.
 inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   if (map1 == map2) {
     return true;
   }
-  if (mgp::map_size(map1) != mgp::map_size(map2)) {
+  const size_t size = mgp::map_size(map1);
+  if (size != mgp::map_size(map2)) {
     return false;
   }
+  if (size == 0) {
+    return true;
+  }
+  // The sizes agree, so every key of map1 resolving in map2 means the key sets are the same.
   auto *items_it = mgp::MemHandlerCallback(map_iter_items, map1);
-  for (auto *item = mgp::map_items_iterator_get(items_it); item; item = mgp::map_items_iterator_next(items_it)) {
-    if (mgp::map_item_key(item) == mgp::map_item_key(item)) {
-      return false;
-    }
-    if (!util::ValuesEqual(mgp::map_item_value(item), mgp::map_item_value(item))) {
+  bool equal = true;
+  for (auto *item = mgp::map_items_iterator_get(items_it); item != nullptr && equal;
+       item = mgp::map_items_iterator_next(items_it)) {
+    auto *other_value = mgp::map_at(map2, mgp::map_item_key(item));
+    equal = other_value != nullptr && util::ValuesEqual(mgp::map_item_value(item), other_value);
+  }
+  mgp::map_items_iterator_destroy(items_it);
+  return equal;
+}
+
+/// @brief Returns whether two MGP API lists are equal, leaving a comparison against null undecided.
+/// Unlike ListsEqual there is no identity shortcut, because a list holding a null is not equal to itself.
+inline bool ListsDefinitelyEqual(mgp_list *list1, mgp_list *list2) {
+  const size_t len = mgp::list_size(list1);
+  if (len != mgp::list_size(list2)) {
+    return false;
+  }
+  for (size_t i = 0; i < len; ++i) {
+    if (!util::ValuesDefinitelyEqual(mgp::list_at(list1, i), mgp::list_at(list2, i))) {
       return false;
     }
   }
-  mgp::map_items_iterator_destroy(items_it);
   return true;
+}
+
+/// @brief Returns whether two MGP API maps are equal, leaving a comparison against null undecided.
+/// Differing key sets are still decidably unequal, so only a shared key holding a null is undecided.
+inline bool MapsDefinitelyEqual(mgp_map *map1, mgp_map *map2) {
+  const size_t size = mgp::map_size(map1);
+  if (size != mgp::map_size(map2)) {
+    return false;
+  }
+  if (size == 0) {
+    return true;
+  }
+  auto *items_it = mgp::MemHandlerCallback(map_iter_items, map1);
+  bool equal = true;
+  for (auto *item = mgp::map_items_iterator_get(items_it); item != nullptr && equal;
+       item = mgp::map_items_iterator_next(items_it)) {
+    auto *other_value = mgp::map_at(map2, mgp::map_item_key(item));
+    equal = other_value != nullptr && util::ValuesDefinitelyEqual(mgp::map_item_value(item), other_value);
+  }
+  mgp::map_items_iterator_destroy(items_it);
+  return equal;
 }
 
 /// @brief Returns whether two MGP API nodes are equal.
@@ -2261,6 +2321,23 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
       return util::EnumsEqual(mgp::value_get_enum(value1), mgp::value_get_enum(value2));
   }
   throw ValueException("Invalid value; does not match any Memgraph type.");
+}
+
+inline bool ValuesDefinitelyEqual(mgp_value *value1, mgp_value *value2) {
+  if (mgp::value_is_null(value1) || mgp::value_is_null(value2)) {
+    return false;
+  }
+  // Only lists and maps can nest a null, so every other type answers the same under both relations.
+  switch (mgp::value_get_type(value1)) {
+    case MGP_VALUE_TYPE_LIST:
+      return mgp::value_get_type(value2) == MGP_VALUE_TYPE_LIST &&
+             util::ListsDefinitelyEqual(mgp::value_get_list(value1), mgp::value_get_list(value2));
+    case MGP_VALUE_TYPE_MAP:
+      return mgp::value_get_type(value2) == MGP_VALUE_TYPE_MAP &&
+             util::MapsDefinitelyEqual(mgp::value_get_map(value1), mgp::value_get_map(value2));
+    default:
+      return util::ValuesEqual(value1, value2);
+  }
 }
 
 /// @brief Converts C++ API types to their MGP API equivalents.
@@ -4664,6 +4741,10 @@ inline bool Value::operator==(const Value &other) const { return util::ValuesEqu
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
 
+inline bool Value::DefinitelyEquals(const Value &other) const {
+  return util::ValuesDefinitelyEqual(this->ptr(), other.ptr());
+}
+
 inline bool Value::operator<(const Value &other) const {
   const mgp::Type &type = Type();
   if (type != other.Type() && !(IsNumeric() && other.IsNumeric())) {
@@ -5741,13 +5822,22 @@ struct hash<mgp::ZonedDateTime> {
 
 template <>
 struct hash<mgp::MapItem> {
-  size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
+  // Defined below, once hash<mgp::Value> is complete.
+  size_t operator()(const mgp::MapItem &x) const;
 };
 
 template <>
 struct hash<mgp::Map> {
   size_t operator()(const mgp::Map &x) const {
-    return mgp::util::FnvCollection<mgp::Map, mgp::MapItem, std::hash<mgp::MapItem>>{}(x);
+    if (x.Size() == 0) {
+      return 0;
+    }
+    // Combined commutatively: equal maps must hash alike whatever order their storage iterates in.
+    size_t result = 0;
+    for (const auto &item : x) {
+      result ^= hash<mgp::MapItem>{}(item);
+    }
+    return result;
   }
 };
 
@@ -5839,4 +5929,11 @@ struct hash<mgp::List> {
     return mgp::util::FnvCollection<mgp::List, mgp::Value, std::hash<mgp::Value>>{}(x);
   }
 };
+
+inline size_t hash<mgp::MapItem>::operator()(const mgp::MapItem &x) const {
+  // The value is hashed too, or same-shaped maps all land in one bucket and dedupe goes quadratic.
+  size_t seed = hash<std::string_view>{}(x.key);
+  seed ^= hash<mgp::Value>{}(x.value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  return seed;
+}
 }  // namespace std

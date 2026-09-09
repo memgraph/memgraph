@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.to_set([9, 3, 7, 3, 1, 9]) AS result;
+
+output:
+  - result: [9, 3, 7, 1]

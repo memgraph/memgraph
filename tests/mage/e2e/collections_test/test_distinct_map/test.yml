@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.distinct([{a: 1}, {a: 1}, {a: 2}]) AS result;
+
+output:
+  - result: [{a: 1}, {a: 2}]

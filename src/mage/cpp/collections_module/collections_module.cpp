@@ -154,6 +154,15 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       auto *func = mgp::module_add_function(module, Collections::kProcedureDuplicates, Collections::Duplicates);
       mgp::func_add_arg(func, Collections::kDuplicatesArg1, ListOfNullable());
     }
+    {
+      auto *func = mgp::module_add_function(module, Collections::kProcedureIndexOf, Collections::IndexOf);
+      mgp::func_add_arg(func, Collections::kIndexOfArg1, ListOfNullable());
+      mgp::func_add_arg(func, Collections::kIndexOfArg2, NullableAny());
+    }
+    {
+      auto *func = mgp::module_add_function(module, Collections::kProcedureDistinct, Collections::Distinct);
+      mgp::func_add_arg(func, Collections::kDistinctArg1, ListOfNullable());
+    }
 
   } catch (const std::exception &e) {
     return 1;
