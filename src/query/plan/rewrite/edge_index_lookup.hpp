@@ -62,17 +62,6 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
 
-    // A retained post-filter is not removed, but may still have keyed the seek below (STARTS WITH),
-    // so `did_remove` alone would miss the dependency it created.
-    bool keyed_a_seek = false;
-    {
-      Filters own_filters;
-      own_filters.CollectFilterExpression(op.expression_, *symbol_table_);
-      keyed_a_seek = std::ranges::any_of(own_filters, [this](FilterInfo const &filter) {
-        return filter_exprs_keying_a_seek_.contains(filter.expression);
-      });
-    }
-
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
@@ -84,7 +73,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     // Filters are pushed down as far as they can go.
     // If there is a Cartesian after, that means that the filter is working on data from both branches.
     // In that case, we need to convert the Cartesian into a Join
-    if (removal.did_remove || keyed_a_seek) {
+    if (removal.did_remove) {
       LogicalOperator *input = op.input().get();
       LogicalOperator *parent = &op;
 
@@ -713,8 +702,6 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   Filters filters_;
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
-  // Expressions kept in a Filter that still supplied a seek key to a scan below it.
-  std::unordered_set<Expression *> filter_exprs_keying_a_seek_;
   std::vector<LogicalOperator *> prev_ops_;
   OrderByEliminator<TDbAccessor> order_by_eliminator_;
   std::unordered_set<Symbol> additional_bound_symbols_;
@@ -1079,8 +1066,6 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       const auto prop_filter = *found_index->filter.property_filter;
       if (!PropertyFilter::RequiresPostFilterOnEdgeScan(prop_filter.type_)) {
         filter_exprs_for_removal_.insert(found_index->filter.expression);
-      } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
-        filter_exprs_keying_a_seek_.insert(found_index->filter.expression);
       }
       filters_.EraseFilter(found_index->filter);
       if (FoundIndexWithFilteredLabel(found_index.value())) {
@@ -1140,8 +1125,6 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       const auto prop_filter = *found_property_index->filter.property_filter;
       if (!PropertyFilter::RequiresPostFilterOnEdgeScan(prop_filter.type_)) {
         filter_exprs_for_removal_.insert(found_property_index->filter.expression);
-      } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
-        filter_exprs_keying_a_seek_.insert(found_property_index->filter.expression);
       }
       filters_.EraseFilter(found_property_index->filter);
       auto [scan_input, range] = MakeExpressionRange(prop_filter, input);
