@@ -7,11 +7,14 @@ def check_packages(os, packages):
     """Check which packages are missing from the system"""
     apt_dists = ["debian", "ubuntu"]
     dnf_dists = ["fedora", "centos", "rocky"]
+    pkg_dists = ["freebsd"]
 
     if any([dist in os for dist in apt_dists]):
         return check_packages_apt(packages)
     elif any([dist in os for dist in dnf_dists]):
         return check_packages_dnf(packages)
+    elif any([dist in os for dist in pkg_dists]):
+        return check_packages_pkg(packages)
     else:
         raise NotImplementedError(f"OS: {os} not supported")
 
@@ -20,11 +23,14 @@ def install_packages(os, packages, dry_run=False):
     """Install missing packages on the system"""
     apt_dists = ["debian", "ubuntu"]
     dnf_dists = ["fedora", "centos", "rocky"]
+    pkg_dists = ["freebsd"]
 
     if any([dist in os for dist in apt_dists]):
         return install_packages_apt(packages, dry_run)
     elif any([dist in os for dist in dnf_dists]):
         return install_packages_dnf(packages, dry_run)
+    elif any([dist in os for dist in pkg_dists]):
+        return install_packages_pkg(packages, dry_run)
     else:
         raise NotImplementedError(f"OS: {os} not supported")
 
@@ -54,6 +60,15 @@ def check_packages_dnf(packages):
     return compare_packages(installed, packages)
 
 
+def check_packages_pkg(packages):
+    """Check which pkg packages are missing"""
+    # list installed packages
+    pkg = subprocess.run(["pkg", "query", "%n"], capture_output=True, text=True)
+
+    installed = pkg.stdout.splitlines()
+    return compare_packages(installed, packages)
+
+
 def install_packages_apt(packages, dry_run=False):
     """Install missing apt packages"""
     # Check which packages are missing
@@ -77,6 +92,21 @@ def install_packages_dnf(packages, dry_run=False):
     if missing and not dry_run:
         print(f"Installing missing packages: {' '.join(missing)}")
         result = subprocess.run(["dnf", "install", "-y"] + missing)
+        if result.returncode != 0:
+            print(f"Error installing packages: {result.stderr}")
+            return False
+
+    return True
+
+
+def install_packages_pkg(packages, dry_run=False):
+    """Install missing pkg packages"""
+    # Check which packages are missing
+    missing = check_packages_pkg(packages)
+
+    if missing and not dry_run:
+        print(f"Installing missing packages: {' '.join(missing)}")
+        result = subprocess.run(["pkg", "install", "-y"] + missing)
         if result.returncode != 0:
             print(f"Error installing packages: {result.stderr}")
             return False

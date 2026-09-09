@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Source the util.sh file to get the parse_operating_system function
@@ -130,6 +130,9 @@ if [[ -n "$SET_OS" ]]; then
         echo "Error: Invalid OS format: $SET_OS. Expected format: os-version"
         exit 1
     fi
+elif [[ "$OSTYPE" == "freebsd"* ]]; then
+    # No /etc/os-release here; the shared detection reads uname instead.
+    parse_operating_system
 elif [ -f /etc/os-release ]; then
     . /etc/os-release
     parse_operating_system
