@@ -12,8 +12,12 @@
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "license/license.hpp"
+#include "slk/serialization.hpp"
+#include "slk/streams.hpp"
+#include "utils/base64.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/settings.hpp"
 
@@ -50,6 +54,9 @@ TEST_F(LicenseTest, EncodeDecode) {
       memgraph::license::License{
           "Some very long name for the organization Ltd", -999, -9999, memgraph::license::LicenseType::ENTERPRISE},
       memgraph::license::License{"AI Org", 0, 1024, memgraph::license::LicenseType::AI_PLATFORM},
+      memgraph::license::License{"Core Org", 0, 0, memgraph::license::LicenseType::ENTERPRISE, 16},
+      memgraph::license::License{"Core And Memory Org", 42, 1024, memgraph::license::LicenseType::OEM, 8},
+      memgraph::license::License{"Negative Core Org", -1, 0, memgraph::license::LicenseType::OEM_COMMUNITY, -4},
   };
 
   for (const auto &license : licenses) {
@@ -57,7 +64,29 @@ TEST_F(LicenseTest, EncodeDecode) {
     auto maybe_license = memgraph::license::Decode(result);
     ASSERT_TRUE(maybe_license);
     ASSERT_EQ(*maybe_license, license);
+    ASSERT_EQ(maybe_license->core_limit, license.core_limit);
   }
+}
+
+TEST_F(LicenseTest, DecodeLegacyKeyWithoutCoreLimit) {
+  const auto encode_without_core_limit = [](const memgraph::license::License &license) {
+    std::vector<uint8_t> buffer;
+    memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool /*have_more*/) {
+      buffer.insert(buffer.end(), data, data + size);
+    });
+    memgraph::slk::Save(license.organization_name, &builder);
+    memgraph::slk::Save(license.valid_until, &builder);
+    memgraph::slk::Save(license.memory_limit, &builder);
+    memgraph::slk::Save(license.type, &builder);
+    builder.Finalize();
+    return "mglk-" + memgraph::utils::base64_encode(buffer.data(), buffer.size());
+  };
+
+  const memgraph::license::License license{"Legacy Org", 0, 1024, memgraph::license::LicenseType::ENTERPRISE, 0};
+  const auto maybe_license = memgraph::license::Decode(encode_without_core_limit(license));
+  ASSERT_TRUE(maybe_license);
+  ASSERT_EQ(*maybe_license, license);
+  ASSERT_EQ(maybe_license->core_limit, 0);
 }
 
 TEST_F(LicenseTest, TestingFlag) {

@@ -48,16 +48,19 @@ inline constexpr std::string_view kLicenseTypeAiPlatform = "ai_platform";
 struct License {
   License() = default;
 
-  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type)
+  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type,
+          int64_t core_limit = 0)
       : organization_name{std::move(organization_name)},
         valid_until{valid_until},
         memory_limit{memory_limit},
-        type{license_type} {}
+        type{license_type},
+        core_limit{core_limit} {}
 
   std::string organization_name;
   int64_t valid_until;
   int64_t memory_limit;
   LicenseType type;
+  int64_t core_limit{0};
 
   bool operator==(const License &) const = default;
 };

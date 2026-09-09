@@ -469,6 +469,7 @@ std::string Encode(const License &license) {
   slk::Save(license.valid_until, &builder);
   slk::Save(license.memory_limit, &builder);
   slk::Save(license.type, &builder);
+  slk::Save(license.core_limit, &builder);
   builder.Finalize();
 
   return std::string{license_key_prefix} + utils::base64_encode(buffer.data(), buffer.size());
@@ -503,13 +504,19 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&memory_limit, &reader);
     std::underlying_type_t<LicenseType> license_type{0};
     slk::Load(&license_type, &reader);
+    int64_t core_limit{0};
+    try {
+      slk::Load(&core_limit, &reader);
+    } catch (const slk::SlkReaderException & /*exception*/) {
+      core_limit = 0;
+    }
     const auto typed = static_cast<LicenseType>(license_type);
     switch (typed) {
       case LicenseType::ENTERPRISE:
       case LicenseType::OEM_COMMUNITY:
       case LicenseType::AI_PLATFORM:
       case LicenseType::OEM:
-        return License{organization_name, valid_until, memory_limit, typed};
+        return License{organization_name, valid_until, memory_limit, typed, core_limit};
     }
     return std::nullopt;
   } catch (const slk::SlkReaderException &e) {
