@@ -435,7 +435,7 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   // Verify the SHOW TRANSACTIONS header includes the status column
   auto [stream, qid] = this->main_interpreter.Prepare("SHOW TRANSACTIONS");
   auto header = stream.GetHeader();
-  ASSERT_EQ(header.size(), 7U);
+  ASSERT_EQ(header.size(), 8U);
   EXPECT_EQ(header[0], "username");
   EXPECT_EQ(header[1], "transaction_id");
   EXPECT_EQ(header[2], "query");
@@ -443,6 +443,26 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   EXPECT_EQ(header[4], "metadata");
   EXPECT_EQ(header[5], "start_time");
   EXPECT_EQ(header[6], "elapsed_ms");
+  EXPECT_EQ(header[7], "database");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, DatabaseColumnPresentWithCorrectArity) {
+  // Pins the "database" column: it must exist at index 7, and the row must stay 8 wide --
+  // that's what actually breaks on a revert. This fixture never sets config.salient.name, so
+  // this->db->name() is the empty string; the EXPECT_EQ below therefore only proves the column
+  // carries the fixture's (empty) name, not that ShowTransactions reports a real, non-empty
+  // per-session database name. That value-level check lives in
+  // tests/e2e/transaction_queue/test_transaction_queue.py::test_show_transactions_database_column.
+  //
+  // The column is the last one appended by ShowTransactions, sourced from CurrentDB::name().
+  auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+  ASSERT_EQ(show_stream.GetResults().size(), 1U);
+
+  auto &row = show_stream.GetResults()[0];
+  ASSERT_EQ(row.size(), 8U);
+  EXPECT_EQ(row[2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
+  ASSERT_TRUE(row[7].IsString());
+  EXPECT_EQ(row[7].ValueString(), this->db->name());
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ElapsedMsAdvances) {
@@ -517,3 +537,48 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowFilteredTransactionsExcludesNonMatchi
 }
 
 // ShowFilteredTransactionsWithTerminated removed
+
+// Structural regression test for the db_acc_mutex_ leaf-lock invariant (see CurrentDB::db_acc_mutex_ in
+// interpreter.hpp). Does NOT reproduce the originally-hypothesized cross-tenant stall: every long-hold
+// Gatekeeper API requires sole ownership (count_==1), which a live CurrentDB accessor rules out, and
+// GKInternals is private to Gatekeeper<T> -- not reachable for direct instrumentation from a test. What it
+// DOES assert: heavy SetCurrentDB/ResetDB/ReleaseDbIfMarked churn against concurrent foreign_db_view()
+// reads completes within bounded time and never observes a torn {name, marked_for_deletion} pair.
+TYPED_TEST(TransactionQueueSimpleTest, CurrentDBChurnVsForeignDbViewNoTornReads) {
+  memgraph::query::CurrentDB current_db{std::move(this->db_gk.access().value())};
+  auto const expected_name = this->db->name();
+
+  constexpr int kIters = 20000;
+  std::atomic<int> churn_count{0};
+
+  std::jthread churn_thread([&] {
+    for (int i = 0; i < kIters; ++i) {
+      auto acc = this->db_gk.access();
+      ASSERT_TRUE(acc.has_value());
+      current_db.SetCurrentDB(std::move(*acc), i % 2 == 0);
+      current_db.ReleaseDbIfMarked();  // never marked in this test; exercises the third writer's lock path
+      current_db.ResetDB();
+      churn_count.fetch_add(1, std::memory_order_relaxed);
+    }
+  });
+
+  std::atomic<int> read_count{0};
+  std::jthread reader_thread([&](std::stop_token st) {
+    while (!st.stop_requested()) {
+      auto view = current_db.foreign_db_view();
+      // No db held, or exactly this fixture's db -- never a partial/garbage name from a torn read.
+      EXPECT_TRUE(view.name.empty() || view.name == expected_name) << "torn read: '" << view.name << "'";
+      EXPECT_FALSE(view.marked_for_deletion);
+      read_count.fetch_add(1, std::memory_order_relaxed);
+    }
+  });
+
+  // churn_thread runs a fixed kIters loop with no wait/backoff, so this join is bounded by construction.
+  churn_thread.join();
+  reader_thread.request_stop();
+  reader_thread.join();
+
+  EXPECT_EQ(churn_count.load(), kIters);
+  EXPECT_GT(read_count.load(), 0);
+  current_db.ResetDB();
+}
