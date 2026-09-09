@@ -27,6 +27,7 @@ enum class BuiltinKind : std::uint8_t {
   Unknown,  ///< UDFs / unrecognised builtins; estimator falls back to default.
   Range,    ///< Cypher range(start, end[, step]); estimator deduces from
             ///< constant int args.
+  Size,     ///< Cypher size(list); folds to the list's known length, no eval.
 };
 
 /// Classify a function name into a BuiltinKind.  Case-insensitive on the
@@ -47,15 +48,20 @@ inline auto BuiltinKindFor(std::string_view name) -> BuiltinKind {
   };
   // TODO: we know candidate is lower case eg, "range" no need to do per charater lowercase
   if (eq_ci("range")) return BuiltinKind::Range;
+  if (eq_ci("size")) return BuiltinKind::Size;
   return BuiltinKind::Unknown;
 }
 
 /// What we cache per interned function name.  Storing the exact source name
 /// (not the lowercased form) so the Builder can recreate the AST `Function`
-/// with the user's spelling.
+/// with the user's spelling.  `is_pure` is sourced from the executor's
+/// authoritative function table at the converter boundary (the planner does not
+/// re-derive it); it gates treating the call's output as a statically-known
+/// fact - only a pure function may be folded or carry a known value.
 struct FunctionInfo {
   std::string name;
   BuiltinKind kind;
+  bool is_pure;
 };
 
 }  // namespace memgraph::query::plan::v2

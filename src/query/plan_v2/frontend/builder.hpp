@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -49,10 +50,20 @@ struct BuildState {
   std::vector<std::string_view> const &named_output_info;
   std::map<std::int32_t, std::string> const &symbol_store;
   std::vector<FunctionInfo> const &function_info;
+  /// The e-graph, so a build body can read an e-class's analysis facts (e.g.
+  /// dead Unwind reading its list's statically known length).
+  EGraph const &egraph;
   // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 
   AstStorage ast_storage;
   SymbolTable symbol_table;
+
+  /// One reconstructed Symbol per logical symbol, keyed by its stable
+  /// disambiguator. A symbol e-class is built once per resolver entry, so a
+  /// variable reachable from several scopes would otherwise mint a distinct
+  /// compact position each time; caching keeps a binder and its references on
+  /// the same frame slot.
+  std::unordered_map<std::int32_t, Symbol> symbol_cache;
 
   /// Dispatch on `node.symbol()` to the per-symbol build body and wrap the
   /// result in a BuildResult. Defined in builder.cpp.

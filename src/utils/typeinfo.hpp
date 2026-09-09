@@ -86,6 +86,7 @@ enum class TypeId : uint64_t {
   MERGE,
   OPTIONAL,
   UNWIND,
+  CARDINALITY_SCALE,
   DISTINCT,
   UNION,
   CARTESIAN,

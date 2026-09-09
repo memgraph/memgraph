@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <span>
+
 #include "query/plan_v2/cost/cardinality_estimator.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 
@@ -20,30 +22,25 @@ struct egraph;  // public e-graph facade
 
 /// Default list size when a built-in's produced size can't be deduced
 /// statically.  A small guess on purpose: an unknown list is assumed short so
-/// it doesn't dominate the row cardinality an Unwind later derives from it.
-inline constexpr double kDefaultListSize = 10.0;
+/// it doesn't dominate the row cardinality an Unwind later derives from it. The
+/// exact figure is not empirically tuned - any small constant serves until the
+/// stats-backed estimator lands.
+inline constexpr double kDefaultListSize = 12.0;
 
-/// Computes the statically-known list size produced by a built-in Cypher
-/// function.  This is type/size analysis, not cardinality (rows): a known size
-/// becomes a known operator cardinality only once an Unwind consumes the list.
+/// Estimates the produced size of a built-in whose size is *not* statically
+/// known.  A statically-known size (e.g. `range` over constant bounds) is
+/// carried as a `known_list_length` analysis fact and read by the cost model
+/// directly; the estimator is the fallback for the genuinely-unknown, and is
+/// the seam a future storage-stats-backed estimator slots into.  Today every
+/// Function falls back to kDefaultListSize.
 ///
-/// `Estimate` is a two-level dispatch:
-///   1. on `enode.symbol()` - currently only `Function` is modelled; every
-///      other symbol falls through to kDefaultCardinalityEstimate (the
-///      interface default is a cardinality, not a list size).
-///   2. for `Function`, on the cached `BuiltinKind` (set up by
-///      symbol_make_traits<symbol::Function>) - each recognised builtin has a
-///      dedicated `Estimate<Name>` helper; `Unknown` (UDFs / unrecognised
-///      builtins) returns kDefaultListSize.
-///
-/// Adding a new builtin: add a `BuiltinKind` enumerator, an `Estimate<Name>`
-/// helper, and one switch case in `EstimateFunction`.
-///
-/// The estimator looks up FunctionInfo through the public e-graph facade
-/// (which the cost model passes alongside the EGraph for the e-class walk).
-/// The constructor takes that facade by reference so the estimator can find
-/// the right interner without round-tripping through the cost model.
+/// The estimator looks up FunctionInfo through the public e-graph facade (which
+/// the cost model passes alongside the EGraph for the e-class walk).
 struct BuiltinEstimator final : CardinalityEstimator {
+  // Reserved for the future storage-stats-backed estimator: the FunctionInfo
+  // lookup facade. Unused today - known sizes are analysis facts the cost model
+  // reads directly, and Estimate only returns kDefaultListSize - but kept so
+  // that seam needs no signature change later.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   egraph const &facade;
 
