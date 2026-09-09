@@ -50,10 +50,12 @@ struct LabelIndexAbortProcessor {
   explicit LabelIndexAbortProcessor(std::span<LabelId const> indexed) : indexed_{indexed} {}
 
   void CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
-    if (std::ranges::binary_search(indexed_, label)) {
+    if (IsInteresting(label)) {
       cleanup_collection_[label].emplace_back(vertex);  // TODO (ivan): check that this is sorted
     }
   }
+
+  bool IsInteresting(LabelId label) const { return std::ranges::binary_search(indexed_, label); }
 
   /// Borrowed from the set of indexes the aborting transaction holds for its whole life; copying
   /// it for every abort is the cost this avoids.

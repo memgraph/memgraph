@@ -52,7 +52,7 @@ struct ActionSet {
 /// the provided timestamp, and calls the provided callback function for each
 /// delta. If the callback ever returns true, traversal is stopped and the
 /// function returns true. Otherwise, the function returns false.
-template <ActionSet interesting, typename TCallback>
+template <ActionSet handled_actions, typename TCallback>
 inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
   while (delta != nullptr) {
     const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
@@ -60,7 +60,7 @@ inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
     if (ts < timestamp) {
       break;
     }
-    if (interesting.contains(delta->action) && predicate(*delta)) {
+    if (handled_actions.contains(delta->action) && predicate(*delta)) {
       return true;
     }
     // Move to the next delta.
@@ -86,12 +86,12 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   if (!deleted && has_label) {
     return true;
   }
-  constexpr auto interesting = details::ActionSet<Delta::Action::ADD_LABEL,
-                                                  Delta::Action::REMOVE_LABEL,
-                                                  Delta::Action::RECREATE_OBJECT,
-                                                  Delta::Action::DELETE_DESERIALIZED_OBJECT,
-                                                  Delta::Action::DELETE_OBJECT>{};
-  return details::AnyVersionSatisfiesPredicate<interesting>(
+  constexpr auto handled_actions = details::ActionSet<Delta::Action::ADD_LABEL,
+                                                      Delta::Action::REMOVE_LABEL,
+                                                      Delta::Action::RECREATE_OBJECT,
+                                                      Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                      Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<handled_actions>(
       timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
@@ -140,10 +140,10 @@ inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
     return true;
   }
 
-  constexpr auto interesting = details::ActionSet<Delta::Action::RECREATE_OBJECT,
-                                                  Delta::Action::DELETE_DESERIALIZED_OBJECT,
-                                                  Delta::Action::DELETE_OBJECT>{};
-  return details::AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&deleted](const Delta &delta) {
+  constexpr auto handled_actions = details::ActionSet<Delta::Action::RECREATE_OBJECT,
+                                                      Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                      Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<handled_actions>(timestamp, delta, [&deleted](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::RECREATE_OBJECT: {
         MG_ASSERT(deleted, "Invalid database state!");
@@ -189,11 +189,11 @@ inline bool AnyVersionHasProperty(TEntity const &entity, PropertyId key, Propert
     return true;
   }
 
-  constexpr auto interesting = details::ActionSet<Delta::Action::SET_PROPERTY,
-                                                  Delta::Action::RECREATE_OBJECT,
-                                                  Delta::Action::DELETE_DESERIALIZED_OBJECT,
-                                                  Delta::Action::DELETE_OBJECT>{};
-  return details::AnyVersionSatisfiesPredicate<interesting>(
+  constexpr auto handled_actions = details::ActionSet<Delta::Action::SET_PROPERTY,
+                                                      Delta::Action::RECREATE_OBJECT,
+                                                      Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                      Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<handled_actions>(
       timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](Delta const &delta) {
         switch (delta.action) {
           case Delta::Action::SET_PROPERTY:
