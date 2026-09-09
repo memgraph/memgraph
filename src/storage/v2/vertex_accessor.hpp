@@ -88,8 +88,10 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
+  /// When `with_vector_reconstruction` is false, a vector-index embedding is returned as its compact
+  /// VectorIndexId reference (empty float list) instead of being reconstructed — the lazy read path.
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  Result<PropertyValue> GetProperty(PropertyId property, View view, bool with_vector_reconstruction = true) const;
 
   /// Reconstruct a vertex's indexed vector into `out` (resized to the index dimension); false if absent.
   /// Zero owning PropertyValue — used to materialize an embedding transiently.

@@ -671,7 +671,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
+Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view,
+                                                  bool with_vector_reconstruction) const {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -680,11 +681,15 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
     delta = vertex_->delta();
-    auto prop_value = vertex_->properties.GetProperty(
-        property,
-        IndexedPropertyDecoder<Vertex>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
-    return prop_value;
+    // Without reconstruction, an embedding stays a compact VectorIndexId reference; the caller keeps
+    // it lazy instead of paying an O(dim) reconstruction it would immediately discard.
+    return with_vector_reconstruction
+               ? vertex_->properties.GetProperty(
+                     property,
+                     IndexedPropertyDecoder<Vertex>{.indices = &storage_->indices_,
+                                                    .name_id_mapper = storage_->name_id_mapper_.get(),
+                                                    .entity = vertex_})
+               : vertex_->properties.GetProperty(property);
   });
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -758,7 +763,8 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view, bool with_vector_reconstruction) const {
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view,
+                                                                       bool with_vector_reconstruction) const {
   bool exists = true;
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
@@ -769,12 +775,11 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
     deleted = vertex_->deleted();
     // Without reconstruction, embeddings come back as compact VectorIndexId references (empty float
     // list) — the caller keeps them lazy instead of paying an O(dim) reconstruction per property.
-    properties = with_vector_reconstruction
-                     ? vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
-                           .indices = &storage_->indices_,
-                           .name_id_mapper = storage_->name_id_mapper_.get(),
-                           .entity = vertex_})
-                     : vertex_->properties.Properties();
+    properties =
+        with_vector_reconstruction
+            ? vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
+                  .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_})
+            : vertex_->properties.Properties();
     delta = vertex_->delta();
   }
 

@@ -1170,7 +1170,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     RequireAccessor("Reading a property");
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
+    // Keep a vector-index embedding as its compact reference; PropertyLookup wraps it as a lazy
+    // VectorRef, so reconstructing the floats here would only be discarded.
+    auto maybe_prop =
+        record_accessor.GetProperty(view_, ctx_->properties[prop.ix], /*with_vector_reconstruction=*/false);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1178,7 +1181,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
+      maybe_prop = record_accessor.GetProperty(
+          storage::View::NEW, ctx_->properties[prop.ix], /*with_vector_reconstruction=*/false);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {

@@ -33,8 +33,9 @@ class EdgeAccessor final {
     return impl_.Properties(view, with_vector_reconstruction);
   }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(key, view);
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key,
+                                                      bool with_vector_reconstruction = true) const {
+    return impl_.GetProperty(key, view, with_vector_reconstruction);
   }
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
