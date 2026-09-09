@@ -1035,6 +1035,9 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   EXPECT_TRUE(both_recovered) << "both t1 and t2 must eventually be reclaimed once t1_acc is released; "
                                  "current amount: "
                               << memgraph::utils::graph_memory_tracker.Amount() << ", baseline: " << global_baseline;
+  // Memory is freed when the Gatekeeper value is destroyed (in TryReserve), which happens before
+  // post_delete_func removes the directory; wait for the directory too so the check below is race-free.
+  WaitUntil(std::chrono::seconds(10), [&] { return !std::filesystem::exists(t1_dir); });
 #else
   // Without jemalloc the memory tracker reads 0, so t1_dir's disappearance is the completion signal
   // that both deferred destructions ran once t1_acc was released.
