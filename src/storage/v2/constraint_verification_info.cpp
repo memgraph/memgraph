@@ -17,8 +17,9 @@ namespace memgraph::storage {
 
 ConstraintVerificationInfo::ConstraintVerificationInfo() = default;
 
-ConstraintVerificationInfo::ConstraintVerificationInfo(InterestingProperties unique_constrained)
-    : unique_constrained_{unique_constrained} {}
+ConstraintVerificationInfo::ConstraintVerificationInfo(InterestingProperties unique_constrained,
+                                                       InterestingProperties existence_constrained)
+    : unique_constrained_{unique_constrained}, existence_constrained_{existence_constrained} {}
 
 ConstraintVerificationInfo::~ConstraintVerificationInfo() = default;
 ConstraintVerificationInfo::ConstraintVerificationInfo(ConstraintVerificationInfo &&) noexcept = default;
@@ -31,7 +32,10 @@ void ConstraintVerificationInfo::AddedProperty(PropertyId property, Vertex const
   added_properties_.insert(vertex);
 }
 
-void ConstraintVerificationInfo::RemovedProperty(Vertex const *vertex) { removed_properties_.insert(vertex); }
+void ConstraintVerificationInfo::RemovedProperty(PropertyId property, Vertex const *vertex) {
+  if (!existence_constrained_.IsInteresting(property)) return;
+  removed_properties_.insert(vertex);
+}
 
 auto ConstraintVerificationInfo::GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *> {
   std::unordered_set<Vertex const *> updated_vertices;
