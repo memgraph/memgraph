@@ -159,7 +159,7 @@ class FileRetainer {
    * any of the lockers, the file will be deleted after all the locks are
    * lifted.
    */
-  void DeleteFile(const std::filesystem::path &path);
+  void DeleteFile(const std::filesystem::path &path) noexcept;
 
   void RenameFile(const std::filesystem::path &orig, const std::filesystem::path &dest);
 

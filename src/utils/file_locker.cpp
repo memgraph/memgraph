@@ -30,19 +30,31 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 }  // namespace
 
 ////// FileRetainer //////
-void FileRetainer::DeleteFile(const std::filesystem::path &path) {
-  if (!std::filesystem::exists(path)) {
-    spdlog::info("File {} doesn't exist.", path);
+void FileRetainer::DeleteFile(const std::filesystem::path &path) noexcept try {
+  std::error_code error_code;
+  if (!std::filesystem::exists(path, error_code)) {
+    if (error_code) {
+      spdlog::warn("Couldn't check file {} for deletion. Err: {}", path, error_code.message());
+    } else {
+      spdlog::info("File {} doesn't exist.", path);
+    }
     return;
   }
 
-  auto absolute_path = std::filesystem::absolute(path);
+  auto absolute_path = std::filesystem::absolute(path, error_code);
+  if (error_code) {
+    spdlog::warn("Couldn't resolve file {} for deletion. Err: {}", path, error_code.message());
+    return;
+  }
   if (active_accessors_.load(std::memory_order_acquire)) {
     files_for_deletion_.WithLock([&](auto &files) { files.emplace(std::move(absolute_path)); });
     return;
   }
   auto guard = std::unique_lock{main_lock_};
   DeleteOrAddToQueue(absolute_path);
+} catch (...) {
+  // Deletion is best-effort (see DeleteFromSystem); a failure leaves the file behind.
+  spdlog::warn("Couldn't delete file {}!", path);
 }
 
 void FileRetainer::RenameFile(const std::filesystem::path &orig, const std::filesystem::path &dest) {

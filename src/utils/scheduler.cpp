@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -205,14 +205,14 @@ void Scheduler::Stop() {
 }
 
 // Sets atomic is_paused_ to true.
-void Scheduler::Pause() {
+void Scheduler::Pause() noexcept {
   // Lock needs to be held when modifying cv even if atomic
   auto lk = std::unique_lock{mutex_};
   is_paused_ = true;
 }
 
 // Sets atomic is_paused_ to false and notifies thread
-void Scheduler::Resume() {
+void Scheduler::Resume() noexcept {
   {
     // Lock needs to be held when modifying cv even if atomic
     auto lk = std::unique_lock{mutex_};
