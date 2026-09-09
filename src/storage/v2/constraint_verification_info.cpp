@@ -16,13 +16,20 @@
 namespace memgraph::storage {
 
 ConstraintVerificationInfo::ConstraintVerificationInfo() = default;
+
+ConstraintVerificationInfo::ConstraintVerificationInfo(InterestingProperties unique_constrained)
+    : unique_constrained_{unique_constrained} {}
+
 ConstraintVerificationInfo::~ConstraintVerificationInfo() = default;
 ConstraintVerificationInfo::ConstraintVerificationInfo(ConstraintVerificationInfo &&) noexcept = default;
 ConstraintVerificationInfo &ConstraintVerificationInfo::operator=(ConstraintVerificationInfo &&) noexcept = default;
 
 void ConstraintVerificationInfo::AddedLabel(Vertex const *vertex) { added_labels_.insert(vertex); }
 
-void ConstraintVerificationInfo::AddedProperty(Vertex const *vertex) { added_properties_.insert(vertex); }
+void ConstraintVerificationInfo::AddedProperty(PropertyId property, Vertex const *vertex) {
+  if (!unique_constrained_.IsInteresting(property)) return;
+  added_properties_.insert(vertex);
+}
 
 void ConstraintVerificationInfo::RemovedProperty(Vertex const *vertex) { removed_properties_.insert(vertex); }
 

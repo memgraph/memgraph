@@ -147,9 +147,14 @@ struct Transaction {
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
-        constraint_verification_info{(active_constraints && !active_constraints->empty())
-                                         ? std::optional<ConstraintVerificationInfo>{std::in_place}
-                                         : std::nullopt},
+        // Reads the parameter rather than active_constraints_, which is declared later and so is
+        // not yet initialised here. The properties are borrowed from the snapshot, which this
+        // transaction goes on to hold for its whole lifetime.
+        constraint_verification_info{
+            (active_constraints && !active_constraints->empty())
+                ? std::optional<ConstraintVerificationInfo>{std::in_place,
+                                                            active_constraints->unique_->ConstrainedProperties()}
+                : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                       ? std::optional<utils::SkipListDb<Vertex>>{std::in_place}
                       : std::nullopt},

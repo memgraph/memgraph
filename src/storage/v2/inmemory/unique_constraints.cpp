@@ -411,13 +411,16 @@ InMemoryUniqueConstraints::ActiveConstraints::ActiveConstraints(ContainerPtr sna
     : container_{std::move(snapshot)} {
   for (const auto &[label, properties_constraints] : *container_) {
     for (const auto &[properties, constraint] : properties_constraints) {
-      constrained_properties_.insert(properties.begin(), properties.end());
+      constrained_properties_.insert(constrained_properties_.end(), properties.begin(), properties.end());
     }
   }
+  std::ranges::sort(constrained_properties_);
+  auto const duplicates = std::ranges::unique(constrained_properties_);
+  constrained_properties_.erase(duplicates.begin(), duplicates.end());
 }
 
-bool InMemoryUniqueConstraints::ActiveConstraints::MayInvolveProperty(PropertyId property) const {
-  return constrained_properties_.contains(property);
+auto InMemoryUniqueConstraints::ActiveConstraints::ConstrainedProperties() const -> InterestingProperties {
+  return InterestingProperties::Only(constrained_properties_);
 }
 
 auto InMemoryUniqueConstraints::GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> {
