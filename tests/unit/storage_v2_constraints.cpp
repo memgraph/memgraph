@@ -2580,3 +2580,62 @@ TEST_P(UniquePropertyTrackingTest, SkippedWritesPreserveEntriesAcrossAbortAndGc)
 }
 
 INSTANTIATE_TEST_SUITE_P(DeltaOnIdenticalUpdate, UniquePropertyTrackingTest, testing::Bool());
+
+// A write is only validated at commit if it was reported when it happened, so a property the
+// constrained set fails to name is a property whose vertex is never checked and whose duplicate
+// commits. These tests take the properties to try from the active constraints themselves, so a
+// constraint shape that stops contributing to that set fails here rather than admitting a
+// duplicate. Several labels and a composite key, because a derivation that stops after the first
+// of either looks correct with one constraint.
+class UniqueConstrainedPropertyCoverageTest : public ConstraintsTest<InMemoryStorage> {
+ public:
+  void SetUp() override {
+    prop3 = this->storage->NameToProperty("prop3");
+    unconstrained = this->storage->NameToProperty("unconstrained");
+
+    auto acc = CreateConstraintAccessor();
+    ASSERT_NO_ERROR(acc->CreateUniqueConstraint(label1, {prop1}));
+    ASSERT_NO_ERROR(acc->CreateUniqueConstraint(label2, {prop2, prop3}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Reports a single write to `property` on a fresh vertex, and answers whether the transaction
+  // came away owing the unique constraints a check. The transaction is abandoned.
+  bool WriteIsReported(PropertyId property) {
+    auto acc = this->storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    EXPECT_TRUE(vertex.SetProperty(property, PropertyValue(1)).has_value());
+    auto &info = acc->GetTransaction()->constraint_verification_info;
+    EXPECT_TRUE(info.has_value());
+    return info.has_value() && info->NeedsUniqueConstraintVerification();
+  }
+
+  PropertyId prop3;
+  PropertyId unconstrained;
+};
+
+TEST_F(UniqueConstrainedPropertyCoverageTest, EveryConstrainedPropertyIsReported) {
+  auto const listing = this->storage->Access(WRITE)->ListAllConstraints().unique;
+  ASSERT_EQ(listing.size(), 2);
+
+  auto reported = std::set<PropertyId>{};
+  for (auto const &[label, properties] : listing) {
+    for (auto const property : properties) {
+      SCOPED_TRACE(property.ToString());
+      EXPECT_TRUE(WriteIsReported(property));
+      reported.insert(property);
+    }
+  }
+
+  // Guards the loop above against passing because it ran over nothing.
+  EXPECT_EQ(reported, (std::set<PropertyId>{prop1, prop2, prop3}));
+}
+
+TEST_F(UniqueConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotReported) {
+  auto const listing = this->storage->Access(WRITE)->ListAllConstraints().unique;
+  for (auto const &[label, properties] : listing) {
+    ASSERT_FALSE(properties.contains(unconstrained));
+  }
+
+  EXPECT_FALSE(WriteIsReported(unconstrained));
+}
