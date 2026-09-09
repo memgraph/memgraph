@@ -11,20 +11,24 @@
 
 #include "gtest/gtest.h"
 
-#include "storage/v2/interesting_properties.hpp"
+#include "storage/v2/interesting_ids.hpp"
 
 #include <vector>
 
+using memgraph::storage::InterestingIds;
 using memgraph::storage::InterestingProperties;
+using memgraph::storage::LabelId;
 using memgraph::storage::PropertyId;
 
 namespace {
 
 PropertyId Prop(uint64_t const id) { return PropertyId::FromUint(id); }
 
+LabelId Label(uint64_t const id) { return LabelId::FromUint(id); }
+
 }  // namespace
 
-TEST(InterestingProperties, EverythingIsInterestedInAnyProperty) {
+TEST(InterestingIds, EverythingIsInterestedInAnyProperty) {
   auto const interesting = InterestingProperties::Everything();
 
   EXPECT_TRUE(interesting.IsInteresting(Prop(0)));
@@ -32,7 +36,7 @@ TEST(InterestingProperties, EverythingIsInterestedInAnyProperty) {
   EXPECT_TRUE(interesting.IsInteresting(Prop(1'000'000)));
 }
 
-TEST(InterestingProperties, ANarrowSetAnswersByMembership) {
+TEST(InterestingIds, ANarrowSetAnswersByMembership) {
   auto const properties = std::vector{Prop(2), Prop(5), Prop(9)};
   auto const interesting = InterestingProperties::Only(properties);
 
@@ -48,7 +52,7 @@ TEST(InterestingProperties, ANarrowSetAnswersByMembership) {
 // The two ways of holding nothing must stay distinguishable: a holder with no constrained
 // properties narrows everything away, while one that cannot enumerate its properties must
 // narrow nothing.
-TEST(InterestingProperties, AnEmptyNarrowSetIsNotEverything) {
+TEST(InterestingIds, AnEmptyNarrowSetIsNotEverything) {
   auto const none = InterestingProperties::Only({});
 
   EXPECT_FALSE(none.IsInteresting(Prop(0)));
@@ -59,18 +63,37 @@ TEST(InterestingProperties, AnEmptyNarrowSetIsNotEverything) {
 
 // The default has to be the safe one: a value nobody filled in must report every write
 // rather than suppress every write.
-TEST(InterestingProperties, TheDefaultNarrowsNothing) {
+TEST(InterestingIds, TheDefaultNarrowsNothing) {
   auto const interesting = InterestingProperties{};
 
   EXPECT_TRUE(interesting.IsInteresting(Prop(0)));
   EXPECT_TRUE(interesting.IsInteresting(Prop(42)));
 }
 
-TEST(InterestingProperties, ASingleMemberSetAnswersOnBothSides) {
+TEST(InterestingIds, ASingleMemberSetAnswersOnBothSides) {
   auto const properties = std::vector{Prop(4)};
   auto const interesting = InterestingProperties::Only(properties);
 
   EXPECT_TRUE(interesting.IsInteresting(Prop(4)));
   EXPECT_FALSE(interesting.IsInteresting(Prop(3)));
   EXPECT_FALSE(interesting.IsInteresting(Prop(5)));
+}
+
+// The same set over a different id type, because the label channel narrows by label and would
+// otherwise need a second copy of this class.
+TEST(InterestingIds, ANarrowLabelSetAnswersByMembership) {
+  auto const labels = std::vector{Label(1), Label(4)};
+  auto const interesting = InterestingIds<LabelId>::Only(labels);
+
+  EXPECT_TRUE(interesting.IsInteresting(Label(1)));
+  EXPECT_TRUE(interesting.IsInteresting(Label(4)));
+  EXPECT_FALSE(interesting.IsInteresting(Label(0)));
+  EXPECT_FALSE(interesting.IsInteresting(Label(2)));
+  EXPECT_FALSE(interesting.IsInteresting(Label(5)));
+}
+
+TEST(InterestingIds, EverythingAndTheDefaultAgreeForLabels) {
+  EXPECT_TRUE(InterestingIds<LabelId>::Everything().IsInteresting(Label(9)));
+  EXPECT_TRUE((InterestingIds<LabelId>{}).IsInteresting(Label(9)));
+  EXPECT_FALSE(InterestingIds<LabelId>::Only({}).IsInteresting(Label(9)));
 }

@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "storage/v2/interesting_properties.hpp"
+#include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/vertex.hpp"
 
 namespace memgraph::storage {
