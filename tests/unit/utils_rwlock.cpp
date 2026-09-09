@@ -166,29 +166,32 @@ TEST(RWLock, WritePriority) {
   // two would be a data race here rather than a passing test.
   bool writer_went_first = false;
 
-  std::binary_semaphore writer_requesting{0};
   std::binary_semaphore reader_behind_writer{0};
 
   std::thread writer([&] {
-    writer_requesting.release();
     auto lock = std::unique_lock{rwlock};
     writer_went_first = true;
   });
 
-  // Announcing is not the same as having asked, and the reader needs the request itself to be
-  // registered before it asks. It establishes that below rather than trusting this.
-  writer_requesting.acquire();
-
   std::thread reader([&] {
     // A waiting writer cannot be read off the lock. On a write-priority lock it is, however,
     // exactly what refuses a shared request while another shared hold is live, so probing until one
-    // is refused is how this thread learns the writer is queued ahead of it. Nothing here is timed.
-    // The bound only stops a hang: giving up leaves the assertion below to fail instead.
+    // is refused is how this thread learns the writer is queued ahead of it. The order the
+    // assertion checks is decided by the lock, never by how long anything took, which is what a
+    // reader starting from a sleep could not establish.
+    //
+    // The bound stops a lock without write priority from spinning here forever. It does not
+    // guarantee a failure: a writer that arrives after the bound expires still takes the lock
+    // first, and the assertion then passes without this thread having established what it set out
+    // to. That needs a writer delayed by the whole bound, so it costs a missed check rather than a
+    // false one.
     auto const give_up_at = std::chrono::steady_clock::now() + 10s;
     while (rwlock.try_lock_shared()) {
       rwlock.unlock_shared();
       if (std::chrono::steady_clock::now() > give_up_at) break;
-      std::this_thread::yield();
+      // Sleeping rather than yielding: on a lock that never refuses, yielding spins a core for the
+      // whole bound, and nothing here needs to observe the refusal promptly.
+      std::this_thread::sleep_for(100us);
     }
     reader_behind_writer.release();
     auto lock = std::shared_lock{rwlock};
