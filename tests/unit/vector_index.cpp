@@ -65,7 +65,8 @@ class VectorIndexTest : public testing::Test {
                                                           .vector = memgraph::utils::small_vector<float>{}});
   }
 
-  void CreateIndex(std::uint16_t dimension, std::size_t capacity) {
+  void CreateIndex(std::uint16_t dimension, std::size_t capacity,
+                   unum::usearch::scalar_kind_t index_scalar_kind = scalar_kind) {
     auto unique_acc = this->storage->UniqueAccess();
     const auto label = unique_acc->NameToLabel(test_label.data());
     const auto property = unique_acc->NameToProperty(test_property.data());
@@ -79,7 +80,7 @@ class VectorIndexTest : public testing::Test {
                         .dimension = dimension,
                         .resize_coefficient = resize_coefficient,
                         .capacity = capacity,
-                        .scalar_kind = scalar_kind};
+                        .scalar_kind = index_scalar_kind};
 
     EXPECT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -96,6 +97,49 @@ class VectorIndexTest : public testing::Test {
     return vertex;
   }
 };
+
+TEST(VectorIndexScalarKind, NameAndScalarAgreeOnEverySupportedKind) {
+  for (const auto *name : {"b1x8",
+                           "u40",
+                           "uuid",
+                           "bf16",
+                           "f64",
+                           "f32",
+                           "f16",
+                           "e5m2",
+                           "e4m3",
+                           "e3m2",
+                           "e2m3",
+                           "u64",
+                           "u32",
+                           "u16",
+                           "u8",
+                           "i64",
+                           "i32",
+                           "i16",
+                           "i8"}) {
+    EXPECT_STREQ(memgraph::storage::NameFromScalar(memgraph::storage::ScalarFromName(name)), name) << name;
+  }
+}
+
+TEST(VectorIndexScalarKind, EightBitFloatAliasesResolveToTheOcpLayout) {
+  EXPECT_EQ(memgraph::storage::ScalarFromName("f8"), unum::usearch::scalar_kind_t::e4m3_k);
+  EXPECT_EQ(memgraph::storage::ScalarFromName("float8"), unum::usearch::scalar_kind_t::e4m3_k);
+}
+
+TEST_F(VectorIndexTest, EightBitFloatIndexStoresAndFindsAVector) {
+  this->CreateIndex(3, 2, unum::usearch::scalar_kind_t::e4m3_k);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+
+  const memgraph::utils::small_vector<float> vector{1.0F, 2.0F, 3.0F};
+  auto property_value = MakeVectorIndexProperty(acc.get(), vector);
+  const auto vertex = this->CreateVertex(acc.get(), test_property, property_value, test_label);
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, std::vector<float>{1.0F, 2.0F, 3.0F});
+  ASSERT_EQ(result.size(), 1);
+  EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex.Gid());
+}
 
 TEST_F(VectorIndexTest, HighDimensionalSearchTest) {
   // Create index with high dimension
@@ -457,24 +501,23 @@ TEST_F(VectorIndexTest, SerializeAllVectorIndicesConcurrentAddRemoveTest) {
 }
 
 TEST_F(VectorIndexTest, IndexResizeTest) {
-  this->CreateIndex(2, 1);
-  auto size = 0;
-  auto capacity = 1;
+  constexpr std::size_t initial_capacity = 1;
+  this->CreateIndex(2, initial_capacity);
 
-  while (size <= capacity) {
+  for (std::size_t inserted = 0; inserted <= initial_capacity; inserted++) {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
     [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    size++;
   }
 
-  // Expect the index to have increased its capacity
+  // Inserting past the declared capacity grows the index rather than failing, and every
+  // inserted vector still fits.
   auto acc = this->storage->Access(memgraph::storage::WRITE);
   const auto vector_index_info = acc->ListAllVectorIndices();
-  size = vector_index_info[0].size;
-  capacity = vector_index_info[0].capacity;
-  EXPECT_GT(capacity, size);
+  EXPECT_EQ(vector_index_info[0].size, initial_capacity + 1);
+  EXPECT_GT(vector_index_info[0].capacity, initial_capacity);
+  EXPECT_GE(vector_index_info[0].capacity, vector_index_info[0].size);
 }
 
 TEST_F(VectorIndexTest, DropIndexTest) {

@@ -113,6 +113,7 @@ class Memgraph(ConanFile):
         self.requires("cppitertools/2.2")
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
+        self.requires("fp16/cci.20210320")
         self.requires("gflags/2.2.0-memgraph", force=True)
         self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
@@ -135,7 +136,7 @@ class Memgraph(ConanFile):
         self.requires("simdjson/4.2.2")
         self.requires("spdlog/1.17.0")
         self.requires("strong_type/v15")
-        self.requires("usearch/2.21.4")
+        self.requires("usearch/2.26.2")
         self.requires("zlib/1.3.1")
         self.requires("prometheus-cpp/1.3.0")
 

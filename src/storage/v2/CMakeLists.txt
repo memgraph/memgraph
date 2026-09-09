@@ -179,6 +179,7 @@ target_link_libraries(mg-storage-v2
     mgcxx_text_search
     tantivy_text_search
     usearch
+    fp16::fp16
     rollbear::strong_type
     atomic
     PRIVATE

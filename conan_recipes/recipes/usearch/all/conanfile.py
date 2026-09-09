@@ -30,22 +30,9 @@ class USearchConan(ConanFile):
     def package_id(self):
         self.info.clear()
 
-    def requirements(self):
-        self.requires("fp16/cci.20210320")
-        self.requires("stringzilla/[>=3.11 <4]")
-
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
         apply_conandata_patches(self)
-
-        data = self.conan_data["submodules"][self.version]["simsimd"]
-        get(
-            self,
-            url=data["url"],
-            sha256=data["sha256"],
-            destination=os.path.join(self.source_folder, "simsimd"),
-            strip_root=True,
-        )
 
     def package(self):
         copy(self, "LICENSE", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
@@ -61,12 +48,6 @@ class USearchConan(ConanFile):
             src=os.path.join(self.source_folder, "include"),
             dst=os.path.join(self.package_folder, "include"),
         )
-        copy(
-            self,
-            pattern="*.h",
-            src=os.path.join(self.source_folder, "simsimd", "include"),
-            dst=os.path.join(self.package_folder, "include"),
-        )
 
     def package_info(self):
         self.cpp_info.bindirs = []
@@ -74,9 +55,9 @@ class USearchConan(ConanFile):
         self.cpp_info.set_property("cmake_file_name", "usearch")
         self.cpp_info.set_property("cmake_target_name", "usearch::usearch")
         self.cpp_info.set_property("pkg_config_name", "usearch")
-        self.cpp_info.requires = ["fp16::fp16", "stringzilla::stringzilla"]
+        # With the SIMD kernels off, the headers include nothing outside the standard
+        # library, so this package carries no dependencies of its own.
         self.cpp_info.defines.extend([
             "USEARCH_USE_OPENMP=0",
-            "USEARCH_USE_SIMSIMD=0",
-            "USEARCH_USE_FP16LIB=1",
+            "USEARCH_USE_NUMKONG=0",
         ])

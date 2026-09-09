@@ -60,7 +60,7 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
   TrackedVectorAllocator<8> vectors_tape_allocator{memory_tracker_};
 
   auto mg_edge_index =
-      mg_vector_edge_index_t::make(metric, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
+      mg_vector_edge_index_t::make(metric, {}, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
   if (!mg_edge_index) {
     throw query::VectorSearchException(fmt::format(
         "Failed to create vector edge index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));

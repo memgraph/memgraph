@@ -392,22 +392,23 @@ TEST_F(VectorEdgeIndexTest, RemoveEntriesTest) {
 }
 
 TEST_F(VectorEdgeIndexTest, IndexResizeTest) {
-  this->CreateEdgeIndex(2, 1);
-  auto size = 0;
-  auto capacity = 1;
+  constexpr std::size_t initial_capacity = 1;
+  this->CreateEdgeIndex(2, initial_capacity);
   PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
-  while (size <= capacity) {
+  for (std::size_t inserted = 0; inserted <= initial_capacity; inserted++) {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    size++;
   }
+
+  // Inserting past the declared capacity grows the index rather than failing, and every
+  // inserted vector still fits.
   auto acc = this->storage->Access(memgraph::storage::WRITE);
   const auto all_vector_indices = acc->ListAllVectorEdgeIndices();
-  size = all_vector_indices[0].size;
-  capacity = all_vector_indices[0].capacity;
-  EXPECT_GT(capacity, size);
+  EXPECT_EQ(all_vector_indices[0].size, initial_capacity + 1);
+  EXPECT_GT(all_vector_indices[0].capacity, initial_capacity);
+  EXPECT_GE(all_vector_indices[0].capacity, all_vector_indices[0].size);
 }
 
 TEST_F(VectorEdgeIndexTest, DropIndexTest) {

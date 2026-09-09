@@ -177,8 +177,14 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
       return "f32";
     case unum::usearch::scalar_kind_t::f16_k:
       return "f16";
-    case unum::usearch::scalar_kind_t::f8_k:
-      return "f8";
+    case unum::usearch::scalar_kind_t::e5m2_k:
+      return "e5m2";
+    case unum::usearch::scalar_kind_t::e4m3_k:
+      return "e4m3";
+    case unum::usearch::scalar_kind_t::e3m2_k:
+      return "e3m2";
+    case unum::usearch::scalar_kind_t::e2m3_k:
+      return "e2m3";
     case unum::usearch::scalar_kind_t::u64_k:
       return "u64";
     case unum::usearch::scalar_kind_t::u32_k:
@@ -197,8 +203,8 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
       return "i8";
     default:
       throw query::VectorSearchException(
-          "Unsupported scalar kind. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
-          "u64, u32, u16, u8, i64, i32, i16, and i8.");
+          "Unsupported scalar kind. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, "
+          "e5m2, e4m3, e3m2, e2m3, u64, u32, u16, u8, i64, i32, i16, and i8.");
   }
 }
 
@@ -228,8 +234,19 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
   if (name == "f16" || name == "float16") {
     return unum::usearch::scalar_kind_t::f16_k;
   }
-  if (name == "f8" || name == "float8") {
-    return unum::usearch::scalar_kind_t::f8_k;
+  if (name == "e5m2") {
+    return unum::usearch::scalar_kind_t::e5m2_k;
+  }
+  // usearch offers no plain 8-bit float: "f8" maps to the OCP FP8 layout, which is the one
+  // quantised embeddings are usually published in.
+  if (name == "e4m3" || name == "f8" || name == "float8") {
+    return unum::usearch::scalar_kind_t::e4m3_k;
+  }
+  if (name == "e3m2") {
+    return unum::usearch::scalar_kind_t::e3m2_k;
+  }
+  if (name == "e2m3") {
+    return unum::usearch::scalar_kind_t::e2m3_k;
   }
   if (name == "u64" || name == "uint64") {
     return unum::usearch::scalar_kind_t::u64_k;
@@ -257,8 +274,8 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
   }
 
   throw query::VectorSearchException(
-      "Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
-      "u64, u32, u16, u8, i64, i32, i16, and i8.",
+      "Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, "
+      "e5m2, e4m3, e3m2, e2m3, u64, u32, u16, u8, i64, i32, i16, and i8.",
       name);
 }
 

@@ -38,7 +38,7 @@
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
 
-#include <fp16.h>  // Taken via usearch (seems like _Float16 is broken on some platforms)
+#include <fp16.h>  // _Float16 is broken on some platforms, so convert halves in software
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_property_store_compression_enabled, false,

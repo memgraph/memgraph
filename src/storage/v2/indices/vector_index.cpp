@@ -75,7 +75,7 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   TrackedVectorAllocator<8> vectors_tape_allocator{memory_tracker_};
 
   auto mg_vector_index =
-      mg_vector_index_t::make(metric, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
+      mg_vector_index_t::make(metric, {}, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
   if (!mg_vector_index) {
     throw query::VectorSearchException(fmt::format(
         "Failed to create vector index {}, error message: {}", spec.index_name, mg_vector_index.error.what()));

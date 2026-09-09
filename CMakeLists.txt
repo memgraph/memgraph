@@ -254,6 +254,7 @@ if(MG_BUILD_MEMGRAPH)
     find_package(asio REQUIRED)
     find_package(RocksDB REQUIRED CONFIG)
     find_package(usearch CONFIG REQUIRED)
+    find_package(fp16 REQUIRED)
     find_package(ZLIB REQUIRED)
     find_package(RdKafka REQUIRED)
     find_package(jemalloc REQUIRED)
@@ -524,8 +525,6 @@ if(MG_BUILD_MEMGRAPH)
 
   add_library(usearch INTERFACE IMPORTED GLOBAL)
   set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
-  # Suppress the guarded #warning in usearch/index_plugins.hpp.
-  target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
 
   add_library(nuraft INTERFACE IMPORTED GLOBAL)
   set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
