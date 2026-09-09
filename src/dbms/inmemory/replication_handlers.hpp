@@ -113,6 +113,9 @@ class InMemoryReplicationHandlers {
       rpc::ProgressHeartbeat &heartbeat, bool two_phase_commit, bool loading_wal);
 
   static TwoPCCache two_pc_cache_;
+  // Replica data/recovery RPCs are serialized, so one persistent worker can serve every handler without creating and
+  // joining a thread for each request.
+  static rpc::ProgressHeartbeat progress_heartbeat_;
 };
 
 }  // namespace memgraph::dbms
