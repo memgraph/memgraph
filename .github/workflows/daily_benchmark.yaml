@@ -138,10 +138,11 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync,') }}
         continue-on-error: true
         env:
-          # 5 repeats (each re-runs and re-uploads as its own point) so the series shows a median and a
+          # 3 repeats (each re-runs and re-uploads as its own point) so the series shows a median and a
           # spread rather than one measurement; the aggregate mix throughput is noisier than an isolated
           # per-query number, so a single point is not enough to compare baseline against the funnel.
-          LOOP_COUNT: ${{ inputs.loop_count || 5 }}
+          # Overridable per-dispatch via the loop_count input.
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --realistic" \
