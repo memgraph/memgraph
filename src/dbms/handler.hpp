@@ -60,12 +60,9 @@ class Handler {
   using NewResult = std::expected<typename utils::Gatekeeper<T>::Accessor, NewError>;
 
   /**
-   * @brief Handler constructor.
-   *
-   * Starts the single deferred-destruction reschedule worker, paused (nothing to drain yet). Every
-   * later deferred destruction rides this one worker instead of a thread of its own: on each tick it
-   * trylocks each pending tenant and destroys the ones whose last accessor has been released, leaving
-   * the still-held ones for the next tick (round-robin). See DeferDelete / DrainDeferred_.
+   * Starts the single deferred-destruction worker, paused. Each tick trylocks all pending tenants and
+   * destroys those whose last accessor was released, leaving still-held ones for the next tick.
+   * See DeferDelete / DrainDeferred_.
    */
   Handler() {
     defer_scheduler_.SetInterval(kDeferRetryInterval);
@@ -75,10 +72,8 @@ class Handler {
     defer_scheduler_.Pause();
   }
 
-  // Defaulted: defer_scheduler_ is the LAST member, so ~Scheduler (which Stop()s and JOINS the tick
-  // worker) runs FIRST, before pending_/items_ are torn down -- the tick references both. Any tenant
-  // still pending after the join is destroyed by pending_'s own teardown (blocking ~Gatekeeper),
-  // exactly as before: a genuinely un-drainable tenant still holds up shutdown, by design.
+  // Defaulted: defer_scheduler_ is declared LAST, so ~Scheduler (Stop+join) runs before pending_/items_.
+  // Un-drainable tenants block shutdown by design — see the member-order block near the declarations.
   virtual ~Handler() = default;
 
   /**
@@ -223,21 +218,14 @@ class Handler {
       // Defer deletion
       db_acc->reset();
       auto guard = std::lock_guard{defer_lock_};
-      // `gk` is the LAST-evaluated member of the aggregate below: designated initializers run in
-      // member-declaration order (post_delete_func, then the ScopedGauge, then gk), so if an earlier
-      // one throws -- post_delete_func's move, or the gauge's non-noexcept Increment() -- `itr->second`
-      // is never moved from. Nothing is left half-destroyed and the unconditional items_.erase(itr)
-      // below still removes a fully-intact entry. On the happy path the node now owns the Gatekeeper.
+      // `gk` is declared LAST in PendingDestruction: designated initializers evaluate in declaration order,
+      // so if post_delete_func's move or the gauge Increment() throws, itr->second is never half-moved.
       pending_.emplace_back(
           PendingDestruction{.post_delete_func = std::forward<Func>(post_delete_func),
                              .pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
                              .gk = std::move(itr->second)});
-      // Guarded and swallowed: the node above already owns the only handle to the Gatekeeper, so if the
-      // counter Increment, the throwing-capable spdlog::warn, or the Scheduler Wake escaped, it would
-      // skip the unconditional items_.erase(itr) below and strand a moved-from husk under a live name.
-      // Silent on purpose -- logging is one of the things being guarded against. Wake() un-pauses the
-      // (possibly parked) worker and spins it so the first retry is prompt; if a tick was concurrently
-      // deciding to pause on the now-stale empty list, Wake() cancels that pause (no lost wakeup).
+      // Swallowed: a throw from Increment/warn/Wake would skip items_.erase(itr) and strand a moved-from
+      // husk under a live name. Wake() un-pauses the worker; a concurrent pause is cancelled by it.
       try {
         metrics::Metrics().global.deferred_tenant_destructions->Increment();
         spdlog::warn(
@@ -309,22 +297,14 @@ class Handler {
   // A tenant dropped while an accessor is still held: its Gatekeeper is moved out of items_ into one of
   // these nodes and destroyed later, on the reschedule worker, once the last accessor is released.
   struct PendingDestruction {
-    // Members are declared in the order DeferDelete's designated-init aggregate evaluates them; `gk` is
-    // LAST so a throw while building an earlier member never leaves the source Gatekeeper half-moved
-    // (see DeferDelete). Destruction (reverse order) tears `gk` down first: on a completed entry that is
-    // a moved-from no-op, on a shutdown-surviving entry it is the blocking ~Gatekeeper drain.
+    // `gk` is declared LAST: a throw during earlier members never half-moves the source Gatekeeper
+    // (see DeferDelete). Reverse-order destruction tears gk first: no-op if completed, blocking if live.
     std::move_only_function<void()> post_delete_func;  //!< runs once, OFF defer_lock_, after teardown
     metrics::ScopedGauge pending;                      //!< holds the pending-destructions gauge up while queued
     utils::Gatekeeper<T> gk;                           //!< the tenant awaiting its last accessor's release
 
-    // Non-blocking trylock, called OFF defer_lock_ (so the value teardown never runs under the list
-    // mutex). Mints an accessor and try_delete()s it with a zero timeout: succeeds only if this is the
-    // sole live accessor RIGHT NOW (all external holders
-    // released), in which case the managed value is destroyed here and true is returned so the tick
-    // splices this node out. Otherwise the accessor is released and false leaves the node for the next
-    // tick -- a tenant nobody releases is retried forever but never blocks the others (round-robin).
-    // A dropped tenant is unaddressable (erased from items_) so its accessor count only ever falls, and
-    // its state stays HOT, so access() cannot fail; the nullopt branch is a dead-state backstop.
+    // Called OFF defer_lock_ (value teardown must not run under the list mutex). Zero-timeout try_delete:
+    // succeeds only if sole holder (value destroyed → true). Nullopt from access() is a dead-state backstop.
     bool TryReserve() {
       auto acc = gk.access();
       if (!acc) return true;
@@ -336,11 +316,8 @@ class Handler {
       return true;
     }
 
-    // Runs after a successful TryReserve(), OFF defer_lock_ -- matching the old per-tenant worker's
-    // lock-free context, so a callback that re-enters the Handler cannot self-deadlock on defer_lock_.
-    // Tears the (already value-less) Gatekeeper down first -- non-blocking, its wait predicate (HOT +
-    // count 0) is already satisfied -- then fires the callback, preserving the old destroy-then-notify
-    // order the detached-tenant registry's ForgetDetached_ depends on.
+    // Called OFF defer_lock_, so a re-entrant callback cannot self-deadlock. Destroys gk first
+    // (non-blocking: value already gone, count 0), then fires post_delete_func (destroy-then-notify order).
     void RunCallback() {
       {
         auto dying = std::move(gk);
@@ -351,13 +328,11 @@ class Handler {
 
   using PendingList = std::list<PendingDestruction>;
 
-  // The reschedule tick: one pass over the pending tenants. Trylock each OFF defer_lock_ (so neither the
-  // ~Gatekeeper teardown nor a re-entrant callback runs while the list mutex is held), splice out the
-  // ones that drained, run their callbacks, and ask the scheduler to park once nothing is left to retry.
+  // One tick: snapshot the list under defer_lock_, trylock each tenant OFF the lock (so ~Gatekeeper and
+  // re-entrant callbacks don't run under the list mutex), splice drained nodes, park if empty.
   utils::SchedulerResult DrainDeferred_() {
-    // Snapshot the nodes present now, under the lock, briefly. std::list nodes are stable and only this
-    // (single) worker ever erases them, so each iterator stays valid until we splice it out below; a
-    // concurrent DeferDelete only appends, and those newcomers are simply picked up on the next tick.
+    // Brief lock: stable std::list iterators stay valid until we splice below (only this worker erases);
+    // a concurrent DeferDelete can only append — newcomers are picked up on the next tick.
     std::vector<typename PendingList::iterator> snapshot;
     {
       auto guard = std::lock_guard{defer_lock_};
@@ -371,7 +346,6 @@ class Handler {
       if (it->TryReserve()) completed.push_back(it);
     }
 
-    // Splice the drained nodes out under the lock and read whether anything is left to retry.
     PendingList ready;
     bool drained_empty = false;
     {
@@ -383,21 +357,16 @@ class Handler {
     // Callbacks OFF the lock; `ready` then destructs -- moved-from gks are no-ops, ScopedGauges decrement.
     for (auto &entry : ready) entry.RunCallback();
 
-    // Park iff still empty. A DeferDelete that raced a new entry in either appended to pending_ before
-    // the empty check above (so drained_empty is false) or ran its Wake() after we return -- and Wake()
-    // cancels this pause (the scheduler skips it when a wake landed during the tick). No lost wakeup.
+    // Park iff still empty: a racing DeferDelete either appended before the check (drained_empty = false)
+    // or its Wake() after return cancels the pause (scheduler skips pause when a wake landed mid-tick).
     return drained_empty ? utils::SchedulerResult::Pause : utils::SchedulerResult::KeepRunning;
   }
 
-  // Declaration order is LOAD-BEARING for shutdown (members destruct in reverse):
-  //   defer_scheduler_ FIRST -> ~Scheduler Stop()s+JOINs the tick worker, so no tick touches pending_/
-  //     items_ after this point;
-  //   pending_ NEXT           -> ~Gatekeeper drains any tenant still held (blocking, as before);
-  //   items_ LAST             -> the live gatekeepers outlive every tick that could reach into them.
-  // `items_` before `pending_` is future-proofing: today's only caller (DbmsHandler) passes a callback
-  // that touches neither items_ nor this Handler, but a future caller's could, so the join stays ahead
-  // of items_'s teardown.
-  container_type items_;   //!< map to all active items
+  // Declaration order is LOAD-BEARING (members destruct in reverse declaration order):
+  //   defer_scheduler_ LAST  (destructs FIRST)  → Stop+join; no tick runs after.
+  //   pending_               (destructs SECOND)  → blocking ~Gatekeeper drain; callbacks finish before items_.
+  //   items_                 (destructs LAST)    → live gatekeepers outlive all ticks and pending drains.
+  container_type items_;
   std::mutex defer_lock_;  //!< guards pending_; taken by DeferDelete and the tick, never held across a callback
   PendingList pending_;    //!< node-stable queue of tenants awaiting their last accessor's release
   utils::Scheduler defer_scheduler_;  //!< single round-robin worker; declared LAST so it stops+joins first

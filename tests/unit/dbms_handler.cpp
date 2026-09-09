@@ -1104,6 +1104,7 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
         all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
     ASSERT_NE(it, all_detached.end()) << "the force-dropped, still-held tenant must have a detached row";
     EXPECT_EQ(it->name, "detached_mem_t1");
+    // Unfalsifiable while DetachReason has only DROP; kept as the anchor for a future second reason.
     EXPECT_EQ(it->reason, memgraph::dbms::DbmsHandler::DetachReason::DROP);
     EXPECT_GE(it->holders_at_detach, 1u);
 #if USE_JEMALLOC

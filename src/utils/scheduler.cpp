@@ -34,7 +34,6 @@ namespace memgraph::utils {
  * @throw std::bad_alloc
  */
 void Scheduler::Run(const std::string &service_name, const std::function<void()> &f) {
-  // A plain void callback always keeps running; pausing stays under the caller's Pause()/Resume().
   RunSelfPaced(service_name, [f]() -> SchedulerResult {
     f();
     return SchedulerResult::KeepRunning;
@@ -195,10 +194,8 @@ void Scheduler::ThreadRun(std::string service_name, std::function<SchedulerResul
 
     const auto result = f();
 
-    // Apply a self-pause request atomically with Wake(): if a Wake() landed while f() ran (or between
-    // its return and here), wake_requested_ is set and we skip the pause and re-tick — so work that
-    // arrived just as the tick decided "nothing to do" is never left parked. wake_requested_ is
-    // consumed every tick so a stale one can't suppress a later, legitimate pause.
+    // No lost wakeup: if Wake() fires during f(), wake_requested_ prevents is_paused_ from being set.
+    // wake_requested_ is cleared unconditionally here so one Wake() does not suppress the next pause.
     {
       auto lk = std::unique_lock{mutex_};
       if (result == SchedulerResult::Pause && !wake_requested_) is_paused_ = true;
@@ -240,9 +237,8 @@ void Scheduler::Resume() {
   condition_variable_.notify_one();
 }
 
-// Un-pauses and spins the worker promptly, and records the wake so a self-pacing tick that is
-// concurrently deciding to pause skips that pause (see ThreadRun). wake_requested_ makes the wake
-// win regardless of whether it lands before or after the tick's pause decision.
+// Un-pauses and spins the worker. Sets wake_requested_ so a concurrent self-pause decision in
+// ThreadRun's post-f() block is suppressed — Wake() wins whether it arrives before or after.
 void Scheduler::Wake() {
   {
     auto lk = std::unique_lock{mutex_};

@@ -860,9 +860,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   uint64_t holders = 0;
   if (auto *gk = db_handler_.GetGatekeeper(db_name)) holders = gk->holder_count();
 
-  // Publish before DeferDelete, not after: the drain thread can finish and invoke the post-delete
-  // callback the moment DeferDelete returns, so publishing afterwards would race ForgetDetached_
-  // and leave a permanent phantom row.
+  // Publish before DeferDelete: the inline path calls ForgetDetached_ synchronously inside DeferDelete, so publishing
+  // after would orphan the row permanently.
   RecordDetached_(DetachedTenant{.name = std::string{db_name},
                                  .uuid = tenant_uuid,
                                  .detached_at = std::chrono::system_clock::now(),
@@ -872,14 +871,12 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 
   // Check if db exists
   // Low level handlers
-  // The row above is already published; if constructing the deferred closure or DeferDelete itself
-  // throws before the Gatekeeper is actually handed off, undo the publish or it outlives the
-  // still-live tenant and double-counts it forever.
+  // Row is published above; if DeferDelete throws before ForgetDetached_ runs, undo or the row outlives the tenant
+  // forever.
   try {
     db_handler_.DeferDelete(
         db_name, [this, tenant_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
           ForgetDetached_(tenant_uuid);
-          // Delete disk storage
           std::error_code ec;
           (void)std::filesystem::remove_all(storage_path, ec);
           if (ec) {

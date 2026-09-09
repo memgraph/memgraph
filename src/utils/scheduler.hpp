@@ -60,12 +60,8 @@ struct SchedulerInterval {
   }
 };
 
-// Returned by a self-pacing Run() callback to tell the worker what to do after the tick:
-//   KeepRunning — keep ticking on the interval;
-//   Pause       — nothing left to do, park until Wake() (or an explicit Resume()).
-// A callback that returns Pause and a concurrent Wake() cannot race into a lost wakeup: the worker
-// applies the pause under the same mutex_ Wake() takes, and skips it if a Wake() landed since the
-// tick started (see ThreadRun / Wake).
+// Self-pacing tick result: KeepRunning ticks again; Pause parks until Wake() (or Resume()).
+// Pause and a concurrent Wake() cannot lose the wakeup: both hold mutex_ before touching is_paused_.
 enum class SchedulerResult : uint8_t { KeepRunning, Pause };
 
 /**
@@ -76,10 +72,8 @@ class Scheduler {
   Scheduler() = default;
   void Run(const std::string &service_name, const std::function<void()> &f);
 
-  // Self-pacing variant: the callback returns SchedulerResult to park itself when idle instead of the
-  // caller juggling Pause()/Resume() around a shared flag. Wake() the worker when new work arrives.
-  // Distinct name (not a Run() overload) because a SchedulerResult-returning callable also converts to
-  // std::function<void()> (return discarded), which would make the two overloads ambiguous.
+  // Self-pacing variant: callback returns SchedulerResult to self-park when idle; Wake() when work arrives.
+  // Named RunSelfPaced, not Run(), because SchedulerResult→void makes a Run() overload ambiguous.
   void RunSelfPaced(const std::string &service_name, std::function<SchedulerResult()> f);
 
   void SetInterval(const SchedulerInterval &setup);
@@ -110,7 +104,7 @@ class Scheduler {
   void Pause();
 
   // Un-pause and run the tick promptly, and guarantee no self-pause from an in-flight tick is lost.
-  // Pairs with a Run(SchedulerResult) callback: call it after enqueueing work the callback drains.
+  // Pairs with RunSelfPaced: call after enqueueing work the callback drains.
   void Wake();
 
   void Stop();
@@ -153,8 +147,7 @@ class Scheduler {
   bool is_paused_ = false;
 
   /**
-   * Set by Wake(), consumed after each tick. Records that work arrived while a self-pacing tick was
-   * deciding to pause, so the worker skips that pause instead of parking on just-arrived work.
+   * Set by Wake(); prevents the self-pacing worker from parking on work that just arrived.
    */
   bool wake_requested_ = false;
 
