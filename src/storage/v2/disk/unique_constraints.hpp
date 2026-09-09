@@ -47,6 +47,8 @@ class DiskUniqueConstraints : public UniqueConstraints {
     // cannot be narrowed by.
     auto ConstrainedProperties() const -> InterestingProperties override { return InterestingProperties::Everything(); }
 
+    auto ConstrainedLabels() const -> InterestingLabels override { return InterestingLabels::Everything(); }
+
     void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                              uint64_t transaction_start_timestamp) override;
 

@@ -53,16 +53,24 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstrai
 bool ExistenceConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
 ExistenceConstraints::ActiveConstraints::ActiveConstraints(ContainerPtr container) : container_{std::move(container)} {
-  auto gathered = std::vector<PropertyId>{};
-  gathered.reserve(container_->size());
+  auto gathered_properties = std::vector<PropertyId>{};
+  auto gathered_labels = std::vector<LabelId>{};
+  gathered_properties.reserve(container_->size());
+  gathered_labels.reserve(container_->size());
   for (auto const &[key, constraint] : *container_) {
-    gathered.push_back(key.property);
+    gathered_properties.push_back(key.property);
+    gathered_labels.push_back(key.label);
   }
-  constrained_properties_ = SortedUniqueIds(std::move(gathered));
+  constrained_properties_ = SortedUniqueIds(std::move(gathered_properties));
+  constrained_labels_ = SortedUniqueIds(std::move(gathered_labels));
 }
 
 auto ExistenceConstraints::ActiveConstraints::ConstrainedProperties() const -> InterestingProperties {
   return InterestingProperties::Only(constrained_properties_);
+}
+
+auto ExistenceConstraints::ActiveConstraints::ConstrainedLabels() const -> InterestingLabels {
+  return InterestingLabels::Only(constrained_labels_);
 }
 
 auto ExistenceConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints> {

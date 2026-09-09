@@ -2702,6 +2702,107 @@ TEST_F(ExistenceConstrainedPropertyCoverageTest, EveryConstrainedPropertyIsRepor
   EXPECT_EQ(reported, (std::set<PropertyId>{prop1, prop2, prop3}));
 }
 
+// The label channel feeds both the unique and the existence check, so a label either constraint
+// kind is keyed on must be reported and a label neither mentions need not be. The rejections are
+// what keep it honest: they fail if a label addition that does matter stops being reported.
+class LabelTrackingTest : public ConstraintsTest<InMemoryStorage> {
+ public:
+  void SetUp() override {
+    label3 = this->storage->NameToLabel("label3");
+    unconstrained_label = this->storage->NameToLabel("unconstrained_label");
+
+    auto acc = CreateConstraintAccessor();
+    ASSERT_NO_ERROR(acc->CreateUniqueConstraint(label1, {prop1}));
+    ASSERT_TRUE(acc->CreateExistenceConstraint(label2, prop2).has_value());
+    ASSERT_NO_ERROR(acc->CreateUniqueConstraint(label3, {prop3()}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  PropertyId prop3() { return this->storage->NameToProperty("prop3"); }
+
+  // Adds `label` to a fresh vertex and answers what the transaction came away owing. The
+  // transaction is abandoned.
+  std::pair<bool, bool> AdditionIsReported(LabelId label) {
+    auto acc = this->storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    EXPECT_TRUE(vertex.AddLabel(label).has_value());
+    auto &info = acc->GetTransaction()->constraint_verification_info;
+    EXPECT_TRUE(info.has_value());
+    if (!info) return {false, false};
+    return {info->NeedsUniqueConstraintVerification(), info->NeedsExistenceConstraintVerification()};
+  }
+
+  LabelId label3;
+  LabelId unconstrained_label;
+};
+
+TEST_F(LabelTrackingTest, AddingAnUnconstrainedLabelIsNotReported) {
+  auto const [unique, existence] = AdditionIsReported(unconstrained_label);
+
+  EXPECT_FALSE(unique);
+  EXPECT_FALSE(existence);
+}
+
+// Every label either kind is keyed on has to reach both channels, because a label addition is the
+// one write that can newly bring a vertex under a constraint without touching a property. The
+// labels tried come from the active constraints, so a derivation that stops naming one fails here.
+TEST_F(LabelTrackingTest, EveryConstrainedLabelIsReported) {
+  auto const listing = this->storage->Access(WRITE)->ListAllConstraints();
+  auto constrained = std::set<LabelId>{};
+  for (auto const &[label, properties] : listing.unique) constrained.insert(label);
+  for (auto const &[label, property] : listing.existence) constrained.insert(label);
+  ASSERT_EQ(constrained, (std::set<LabelId>{label1, label2, label3}));
+
+  for (auto const label : constrained) {
+    SCOPED_TRACE(label.ToString());
+    auto const [unique, existence] = AdditionIsReported(label);
+    EXPECT_TRUE(unique);
+    EXPECT_TRUE(existence);
+  }
+}
+
+// Narrowing must not lose a violation that only a label addition creates.
+TEST_F(LabelTrackingTest, AddingAConstrainedLabelStillRejectsADuplicate) {
+  {
+    auto acc = this->storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  // A second vertex carrying the value but not yet the label commits legally.
+  auto gid = Gid::FromUint(0);
+  {
+    auto acc = this->storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Giving it the label is the only write, and it must still be caught.
+  auto acc = this->storage->Access(WRITE);
+  auto vertex = acc->FindVertex(gid, View::NEW);
+  ASSERT_TRUE(vertex);
+  ASSERT_NO_ERROR(vertex->AddLabel(label1));
+  auto result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  ASSERT_FALSE(result.has_value());
+  ASSERT_TRUE(std::holds_alternative<ConstraintViolation>(result.error()));
+  EXPECT_EQ(std::get<ConstraintViolation>(result.error()),
+            (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
+}
+
+TEST_F(LabelTrackingTest, AddingAConstrainedLabelStillRejectsAMissingProperty) {
+  auto acc = this->storage->Access(WRITE);
+  auto vertex = acc->CreateVertex();
+  ASSERT_NO_ERROR(vertex.AddLabel(label2));
+  auto result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  ASSERT_FALSE(result.has_value());
+  ASSERT_TRUE(std::holds_alternative<ConstraintViolation>(result.error()));
+  EXPECT_EQ(std::get<ConstraintViolation>(result.error()),
+            (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label2, std::set<PropertyId>{prop2}}));
+}
+
 TEST_F(ExistenceConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotReportedOnRemoval) {
   auto const listing = this->storage->Access(WRITE)->ListAllConstraints().existence;
   for (auto const &[label, property] : listing) {

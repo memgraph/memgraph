@@ -68,6 +68,9 @@ class UniqueConstraints {
     /// transaction, so a write does not reach this.
     virtual auto ConstrainedProperties() const -> InterestingProperties = 0;
 
+    /// The labels any active unique constraint is keyed on. Asked once per transaction.
+    virtual auto ConstrainedLabels() const -> InterestingLabels = 0;
+
     virtual void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                                      uint64_t transaction_start_timestamp) = 0;
 
