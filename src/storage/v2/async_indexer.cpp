@@ -146,8 +146,13 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
 
 void AsyncIndexer::Shutdown() {
   index_creator_thread_.request_stop();
-  cv_.notify_all();
+  // The notification must be issued under the mutex the worker evaluates its wait condition under.
+  // Issued before taking it, it can land in the window where the worker has read that condition as
+  // false and has not yet registered on the condition variable. The wake-up then reaches nobody,
+  // the worker sleeps with a stop already requested, and the wait below never finishes, because
+  // only the worker can satisfy it.
   auto guard = std::unique_lock{mutex_};
+  cv_.notify_all();
   cv_.wait(guard, [this] { return HasThreadStopped(); });
 }
 

@@ -881,6 +881,11 @@ add_unit_test(storage_v2_index_drop_visibility
     LINK_TARGETS mg::storage mg-utils
 )
 
+add_unit_test(storage_v2_async_indexer
+    SOURCES storage_v2_async_indexer.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
 add_unit_test(storage_v2_index_entry_lifetime
     SOURCES storage_v2_index_entry_lifetime.cpp
     LINK_TARGETS mg::storage mg-utils
