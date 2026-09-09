@@ -31,6 +31,8 @@
 #include <type_traits>
 #include <utility>
 
+#include <nlohmann/json.hpp>
+
 #include "dbms/database.hpp"
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"

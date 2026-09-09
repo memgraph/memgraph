@@ -909,7 +909,7 @@ add_unit_test(storage_v2_wal_file
 
 add_unit_test(storage_v2_replication
     SOURCES storage_v2_replication.cpp
-    LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue
+    LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue storage_test_utils
 )
 
 add_unit_test(storage_v2_error
@@ -944,7 +944,7 @@ add_unit_test(storage_v2_storage_mode
 
 add_unit_test(storage_v2_schema_info
     SOURCES storage_v2_schema_info.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage storage_test_utils
 )
 
 add_unit_test(storage_v2_config

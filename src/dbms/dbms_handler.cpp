@@ -20,6 +20,8 @@
 #include <thread>
 #include <utility>
 
+#include <nlohmann/json.hpp>
+
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "dbms/rpc.hpp"
@@ -1623,5 +1625,43 @@ void DbmsHandler::ApplyColdRecoveryMeta(std::string_view name, const storage::Co
 }
 
 #endif  // MG_ENTERPRISE
+
+nlohmann::json ToJson(const Statistics &stats) {
+  nlohmann::json res;
+
+  res["edges"] = stats.num_edges;
+  res["vertices"] = stats.num_vertex;
+  res["triggers"] = stats.triggers;
+  res["streams"] = stats.streams;
+  res["users"] = stats.users;
+  res["roles"] = stats.roles;
+  res["databases"] = stats.num_databases;
+  res["indices"] = stats.indices;
+  res["constraints"] = stats.constraints;
+  res["storage_modes"] = {{storage::StorageModeToString(static_cast<storage::StorageMode>(0)), stats.storage_modes[0]},
+                          {storage::StorageModeToString(static_cast<storage::StorageMode>(1)), stats.storage_modes[1]},
+                          {storage::StorageModeToString(static_cast<storage::StorageMode>(2)), stats.storage_modes[2]}};
+  res["isolation_levels"] = {
+      {storage::IsolationLevelToString(static_cast<storage::IsolationLevel>(0)), stats.isolation_levels[0]},
+      {storage::IsolationLevelToString(static_cast<storage::IsolationLevel>(1)), stats.isolation_levels[1]},
+      {storage::IsolationLevelToString(static_cast<storage::IsolationLevel>(2)), stats.isolation_levels[2]}};
+  res["durability"] = {{"snapshot_enabled", stats.snapshot_enabled}, {"WAL_enabled", stats.wal_enabled}};
+  res["property_store_compression_enabled"] = stats.property_store_compression_enabled;
+  res["property_store_compression_level"] = {
+      {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
+      {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
+      {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
+  res["label_node_count_histogram"] = {{"1-9", stats.label_node_count_histogram[0]},
+                                       {"10-99", stats.label_node_count_histogram[1]},
+                                       {"100-999", stats.label_node_count_histogram[2]},
+                                       {"1K-9.99K", stats.label_node_count_histogram[3]},
+                                       {"10K-99.9K", stats.label_node_count_histogram[4]},
+                                       {"100K-999K", stats.label_node_count_histogram[5]},
+                                       {"1M+", stats.label_node_count_histogram[6]}};
+  res["num_parameters"] = stats.num_parameters;
+  res["num_descriptions"] = stats.num_descriptions;
+
+  return res;
+}
 
 }  // namespace memgraph::dbms

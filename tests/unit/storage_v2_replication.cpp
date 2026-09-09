@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include <storage/v2/inmemory/storage.hpp>
 #include <storage/v2/property_value.hpp>
