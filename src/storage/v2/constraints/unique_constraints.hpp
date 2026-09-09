@@ -15,7 +15,7 @@
 #include <set>
 
 #include "storage/v2/constraints/constraint_violation.hpp"
-#include "storage/v2/interesting_properties.hpp"
+#include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/vertex.hpp"
 
 namespace memgraph::storage {

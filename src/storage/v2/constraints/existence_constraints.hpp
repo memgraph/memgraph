@@ -25,7 +25,7 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
-#include "storage/v2/interesting_properties.hpp"
+#include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
