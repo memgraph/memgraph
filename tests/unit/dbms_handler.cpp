@@ -927,6 +927,8 @@ TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
   EXPECT_TRUE(fs::exists(TenantDataDir(sr, seeded.uuid))) << "the tenant's data directory must be untouched by RENAME";
 
   fs::remove_all(sr.root);
+}
+
 // --- Memory attribution for a force-deleted-while-held Database ---
 //
 // A Database force-deleted via DbmsHandler::Delete (NOT TryDelete, which would refuse with USING)
