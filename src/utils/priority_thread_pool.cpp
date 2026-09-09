@@ -12,16 +12,17 @@
 #include "utils/priority_thread_pool.hpp"
 
 #include <atomic>
+#include <barrier>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <latch>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <thread>
 
-#include "utils/barrier.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
@@ -83,13 +84,21 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   hp_workers_.resize(high_priority_threads_count);
 
   const size_t nthreads = mixed_work_threads_count + high_priority_threads_count;
-  SimpleBarrier barrier{nthreads};
+  // No worker enters its loop until every slot is published, because each one steals from all the
+  // others. The latch then holds this constructor until the same point, since the monitor started
+  // below and every task scheduled afterwards dereference the slots too.
+  //
+  // Both are shared rather than locals: a thread released by either is still inside the call that
+  // released it, so the objects have to outlive this frame and die with the last worker to leave.
+  auto const barrier = std::make_shared<std::barrier<>>(static_cast<std::ptrdiff_t>(nthreads));
+  auto const published = std::make_shared<std::latch>(static_cast<std::ptrdiff_t>(nthreads));
 
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
-    pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
+    pool_.emplace_back([this, i, barrier, published, thread_init_callback]() {
       // Divide work by each thread
       workers_[i] = std::make_unique<Worker>();
-      barrier.arrive_and_wait();
+      barrier->arrive_and_wait();
+      published->count_down();
       // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
       if (thread_init_callback) {
         thread_init_callback();
@@ -99,9 +108,10 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   }
 
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
-    pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
+    pool_.emplace_back([this, i, barrier, published, thread_init_callback]() {
       hp_workers_[i] = std::make_unique<Worker>();
-      barrier.arrive_and_wait();
+      barrier->arrive_and_wait();
+      published->count_down();
       // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
       if (thread_init_callback) {
         thread_init_callback();
@@ -110,7 +120,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
     });
   }
 
-  barrier.wait();
+  published->wait();
 
   // Under heavy load a task can get stuck, monitor and move to different thread
   monitoring_.SetInterval(std::chrono::milliseconds(100));

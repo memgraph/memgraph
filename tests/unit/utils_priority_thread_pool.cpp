@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,9 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <thread>
 
 #include <utils/priority_thread_pool.hpp>
@@ -181,6 +183,35 @@ TEST(PriorityThreadPool, MultipleLow) {
 }
 
 // TaskCollection Tests
+TEST(PriorityThreadPool, StartupAdmitsEveryWorker) {
+  using namespace memgraph;
+  constexpr uint16_t kMixed = 8;
+  constexpr uint16_t kHighPriority = 4;
+  constexpr size_t kPools = 200;
+
+  // The constructor holds every thread at a barrier until all of them have published their worker,
+  // so a task scheduled straight afterwards must find a complete pool. Repeated because a torn
+  // startup is a race, not a deterministic failure.
+  for (size_t pool_num = 0; pool_num < kPools; ++pool_num) {
+    std::atomic<size_t> ran{0};
+    {
+      utils::PriorityThreadPool pool{kMixed, kHighPriority};
+      for (size_t i = 0; i < kMixed; ++i) {
+        pool.ScheduledAddTask([&ran](auto) { ++ran; }, utils::Priority::LOW);
+      }
+      for (size_t i = 0; i < kHighPriority; ++i) {
+        pool.ScheduledAddTask([&ran](auto) { ++ran; }, utils::Priority::HIGH);
+      }
+
+      auto const deadline = std::chrono::steady_clock::now() + 30s;
+      while (ran != kMixed + kHighPriority && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(1ms);
+      }
+    }
+    ASSERT_EQ(ran, kMixed + kHighPriority) << "pool " << pool_num << " did not run every task";
+  }
+}
+
 TEST(TaskCollection, BasicAddAndSize) {
   using namespace memgraph;
   memgraph::utils::TaskCollection collection;
