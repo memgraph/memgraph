@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <latch>
 #include <mutex>
@@ -27,7 +28,6 @@
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "utils/on_scope_exit.hpp"
-#include "utils/timer.hpp"
 
 using namespace memgraph::rpc;
 using namespace std::literals::chrono_literals;
@@ -59,34 +59,69 @@ TEST(Rpc, Call) {
 }
 
 TEST(Rpc, Abort) {
+  // What this establishes is an ordering: the call ends because it was aborted, and not because the
+  // response arrived. Both of the waits below are bounded, and neither bound is the thing being
+  // checked -- reaching one means a step never happened, which fails the test rather than hanging it.
+  static constexpr auto kStepTimeout = 30s;
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  // The server has the request, so the client has sent it and is waiting for the response. That is
+  // the state the abort has to arrive in, and waiting for the server to say so is exact where
+  // waiting for a duration is a guess.
+  bool handler_entered = false;
+  // Set by the test once it has judged the call, so the handler cannot respond until then.
+  bool response_released = false;
+  // Set immediately before the response goes out. A call that has already returned while this
+  // reads false cannot have been ended by the response.
+  std::atomic<bool> response_sent{false};
+
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                          uint64_t const request_version,
-                          auto *req_reader,
-                          auto *res_builder) {
+  server.Register<Sum>([&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
-    std::this_thread::sleep_for(500ms);
+    {
+      std::lock_guard const lock{mutex};
+      handler_entered = true;
+    }
+    cv.notify_all();
+    {
+      std::unique_lock lock{mutex};
+      // Responding anyway on the timeout is what turns a client that never aborts into a failing
+      // assertion below: the call returns a sum instead of throwing.
+      cv.wait_for(lock, kStepTimeout, [&] { return response_released; });
+    }
+    response_sent.store(true);
     SumRes const res({sum});
     memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
-  std::this_thread::sleep_for(100ms);
 
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
 
-  std::thread thread([&client]() {
-    std::this_thread::sleep_for(100ms);
+  std::thread thread([&]() {
+    std::unique_lock lock{mutex};
+    if (!cv.wait_for(lock, kStepTimeout, [&] { return handler_entered; })) return;
+    lock.unlock();
     spdlog::info("Aborting the connection!");
     client.Abort();
   });
 
-  memgraph::utils::Timer const timer;
   EXPECT_THROW(client.Call<SumV1>(10, 20), RpcFailedException);
-  EXPECT_LT(timer.Elapsed(), 200ms);
+  EXPECT_FALSE(response_sent.load())
+      << "the call ended only once the server had responded, so the abort did not end it";
+
+  {
+    std::lock_guard const lock{mutex};
+    response_released = true;
+  }
+  cv.notify_all();
 
   thread.join();
   client.Shutdown();
