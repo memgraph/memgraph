@@ -500,9 +500,8 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const memgraph::storage::InvalidOperationException &e) {
-    // The engine rejected the query as invalid, so it stays invalid however
-    // many times it is sent. Without this it would fall to the branch below and
-    // be presented as worth retrying.
+    // The engine rejected the request as invalid, so it stays invalid however many times it is
+    // sent. Without this it would fall to the branch below and be presented as worth retrying.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
@@ -527,9 +526,8 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const memgraph::storage::InvalidOperationException &e) {
-    // The engine rejected the query as invalid, so it stays invalid however
-    // many times it is sent. Without this it would fall to the branch below and
-    // be presented as worth retrying.
+    // The engine rejected the request as invalid, so it stays invalid however many times it is
+    // sent. Without this it would fall to the branch below and be presented as worth retrying.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
@@ -656,6 +654,11 @@ void SessionHL::RollbackTransaction() {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::storage::InvalidOperationException &e) {
+    // The engine rejected the request as invalid, so it stays invalid however many times it is
+    // sent. Without this it would fall to the branch below and be presented as worth retrying.
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
     // Exceptions inheriting from BasicException will result in a TransientError
     // i. e. client will be encouraged to retry execution because it
@@ -678,6 +681,11 @@ bolt_map_t SessionHL::CommitTransaction() {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::storage::InvalidOperationException &e) {
+    // The engine rejected the request as invalid, so it stays invalid however many times it is
+    // sent. Without this it would fall to the branch below and be presented as worth retrying.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
