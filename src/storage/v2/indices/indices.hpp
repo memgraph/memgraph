@@ -57,6 +57,10 @@ struct Indices {
   /// vertex indices.
   /// TODO: unused in disk indices
   /// Sweeps only the indexes `arming` names; returns how many that was.
+  ///
+  /// The label, label-property and vertex-property indexes are what a sweep reaches. The text,
+  /// vector and point indexes hold no entries a sweep collects, so nothing arms them and a write
+  /// to one is gathered when it happens instead.
   uint64_t RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                        IndexArming const &arming) const;
 
