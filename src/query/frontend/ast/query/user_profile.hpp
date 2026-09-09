@@ -16,6 +16,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace memgraph::query {
@@ -66,6 +67,7 @@ class UserProfileQuery : public memgraph::query::Query {
         case Type::QUANTITY:
           return quantity.value == other.quantity.value;
       }
+      std::unreachable();
     }
   };
 

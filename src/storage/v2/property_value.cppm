@@ -1476,6 +1476,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) 
     case PropertyValueType::VectorIndexId:
       return os << "vector index id";
   }
+  std::unreachable();
 }
 
 /// @throw anything std::ostream::operator<< may throw.

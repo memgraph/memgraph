@@ -16,6 +16,7 @@
 #include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -277,6 +278,7 @@ std::string ProcNameFor(const GraphAccess access) {
     case GraphAccess::Write:
       return "write";
   }
+  std::unreachable();
 }
 
 class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Base>> {

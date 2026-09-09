@@ -115,7 +115,7 @@ class SnapshotRpcProgressTest : public ::testing::Test {
             {
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
             },
-        .salient.items = {.properties_on_edges = false},
+        .salient = {.items = {.properties_on_edges = false}},
     };
     UpdatePaths(config, main_directory);
     return config;

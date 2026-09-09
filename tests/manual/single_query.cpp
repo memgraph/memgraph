@@ -31,8 +31,8 @@ int main(int argc, char *argv[]) {
   std::filesystem::remove_all(data_directory);
   auto cleanup_on_exit =
       memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
-  memgraph::storage::Config db_config{.durability.storage_directory = data_directory,
-                                      .disk.main_storage_directory = data_directory / "disk"};
+  memgraph::storage::Config db_config{.durability = {.storage_directory = data_directory},
+                                      .disk = {.main_storage_directory = data_directory / "disk"}};
 
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state(

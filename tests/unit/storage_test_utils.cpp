@@ -11,6 +11,8 @@
 
 #include "storage_test_utils.hpp"
 
+#include <utility>
+
 size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, memgraph::storage::View view) {
   auto vertices = storage_accessor.Vertices(view);
   size_t count = 0U;
@@ -29,4 +31,5 @@ std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode
     case memgraph::storage::StorageMode::N:
       __builtin_unreachable();
   }
+  std::unreachable();
 }

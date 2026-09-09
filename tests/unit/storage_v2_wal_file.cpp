@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
@@ -655,6 +656,7 @@ class DeltaGenerator final {
           case DESCRIPTION_DELETE:
             return {WalDescriptionDelete{memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}}};
         }
+        std::unreachable();
       });
       data_.emplace_back(timestamp_, data);
     }
