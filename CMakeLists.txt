@@ -45,7 +45,11 @@ if(NOT UNIX)
     message(FATAL_ERROR "Unsupported operating system.")
 endif()
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MgToolchain.cmake")
+# setup CMake module path, defines path for include() and find_package()
+# https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+include(MgToolchain)
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
@@ -169,10 +173,6 @@ if (IS_DIRECTORY "${git_directory}")
         CMAKE_CONFIGURE_DEPENDS "${git_directory}/${git_head_ref}")
   endif()
 endif()
-
-# setup CMake module path, defines path for include() and find_package()
-# https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # custom function definitions
 include(functions)
