@@ -8229,11 +8229,17 @@ TEST_P(CypherMainVisitorTest, CollectSubqueryNeedsExactlyOneReturnColumn) {
   // Every UNION branch is checked, not only the first: a branch is its own SingleQuery with its own RETURN.
   TestInvalidQueryWithMessage<SyntaxException>(
       "RETURN COLLECT { MATCH (n) RETURN n AS v UNION MATCH (m) RETURN m AS v, m AS w } AS r;", ast_generator, message);
-  // A bare pattern has no column at all, so the list fold can never take one - the other two folds still can.
-  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { (n)-[]->(m) } AS r;",
-                                               ast_generator,
-                                               "COLLECT needs a body returning a single column, and a bare pattern "
-                                               "returns none.");
+  // A bare pattern has no column at all, so the list fold can never take one - the other two folds still can. The
+  // refusal is keyed off the alternative, not the pattern's content, so every shape a body now admits hits it.
+  const auto *const bare = "COLLECT needs a body returning a single column, and a bare pattern returns none.";
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { (n)-[]->(m) } AS r;", ast_generator, bare);
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { (n) } AS r;", ast_generator, bare);
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { p = (n)-[]->(m) } AS r;", ast_generator, bare);
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { (n)-[]->(m), (n)-[]->(o) } AS r;", ast_generator, bare);
+  // The WHERE is visited only after the fold check, so it cannot pre-empt the message with a parse error.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { (n)-[]->(m) WHERE m.x = 1 } AS r;", ast_generator, bare);
 }
 
 TEST_P(CypherMainVisitorTest, CollectSubqueryCarriesTheListFold) {

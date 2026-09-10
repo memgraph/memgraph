@@ -2480,6 +2480,51 @@ Feature: Subquery expressions
           | 'Alice' | true |
           | 'Bob'   | true |
 
+  # The five above are all projections, so they only ever reach the forced fold. These two put a bare body in a
+  # WHERE, which is the deferred fold - a different operator, and the one a bare pattern is most often written in.
+  Scenario: Test a bare pattern with a trailing WHERE in a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE EXISTS { (p)-[:KNOWS]->(f:Friend) WHERE f.name = 'F2' }
+          RETURN p.name AS name
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Alice' |
+
+  # Only Alice has two distinct edges to satisfy both patterns, since relationship uniqueness spans the body.
+  Scenario: Test a bare comma-separated pattern list in a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE EXISTS { (p)-[:KNOWS]->(f:Friend), (p)-[:KNOWS]->(g:Friend) }
+          RETURN p.name AS name
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Alice' |
+
   # COUNT takes the same positions as EXISTS, through the same gate. A MATCH's WHERE is the deferred fold, so a
   # disjunct the evaluator never reaches skips the branch's whole drain; everything else is the forced fold.
 
