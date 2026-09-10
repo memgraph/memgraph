@@ -32,6 +32,7 @@ enum class LicenseType : uint8_t {
   OEM = 1,
   AI_PLATFORM = 2,
   OEM_COMMUNITY = 3,
+  MEMGQL = 4,
 };
 
 constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
@@ -44,20 +45,25 @@ inline constexpr std::string_view kLicenseTypeEnterprise = "enterprise";
 inline constexpr std::string_view kLicenseTypeOem = "oem";
 inline constexpr std::string_view kLicenseTypeOemCommunity = "oem_community";
 inline constexpr std::string_view kLicenseTypeAiPlatform = "ai_platform";
+inline constexpr std::string_view kLicenseTypeMemgql = "memgql";
 
 struct License {
   License() = default;
 
-  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type)
+  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type,
+          int64_t core_limit = 0)
       : organization_name{std::move(organization_name)},
         valid_until{valid_until},
         memory_limit{memory_limit},
-        type{license_type} {}
+        type{license_type},
+        core_limit{core_limit} {}
 
   std::string organization_name;
   int64_t valid_until;
   int64_t memory_limit;
   LicenseType type;
+  // a core_limit of 0 means unlimited — legacy keys decode to 0.
+  int64_t core_limit{0};
 
   bool operator==(const License &) const = default;
 };
