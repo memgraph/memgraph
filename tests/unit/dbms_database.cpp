@@ -17,6 +17,7 @@
 #include "dbms/database_handler.hpp"
 #include "dbms/global.hpp"
 #include "memory/db_arena.hpp"
+#include "metrics/prometheus_metrics.hpp"
 
 #include "license/license.hpp"
 #include "query_plan_common.hpp"
@@ -234,6 +235,47 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
       ASSERT_EQ(dba.VerticesCount(), 3);
     }
   }
+}
+
+// The metrics registration is made before recovery runs, so it must follow the uuid recovery adopts.
+TEST_F(DBMS_Database, MetricsFollowUuidAdoptedDuringRecovery) {
+  memgraph::license::global_license_checker.EnableTesting();
+  memgraph::dbms::DatabaseHandler db_handler;
+
+  auto make_conf = [](memgraph::utils::UUID uuid, bool recover) {
+    memgraph::storage::Config conf{
+        .durability = {.storage_directory = storage_directory / "recov",
+                       .recover_on_startup = recover,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_on_exit = true},
+        .disk = {.main_storage_directory = storage_directory / "recov" / "disk"},
+        .salient.name = "recov"};
+    conf.salient.uuid = uuid;
+    return conf;
+  };
+
+  memgraph::utils::UUID const snapshot_uuid{};
+  {
+    auto db = db_handler.New(make_conf(snapshot_uuid, false));
+    ASSERT_TRUE(db.has_value());
+    const memgraph::memory::DbArenaScope arena_scope{&db.value()->Arena()};
+    auto storage_dba = db.value()->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba{storage_dba.get()};
+    dba.InsertVertex();
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_TRUE(db_handler.TryDelete("recov"));
+
+  // Rebuild from the snapshot, with a config carrying a different uuid.
+  memgraph::utils::UUID const config_uuid{};
+  ASSERT_NE(std::string(config_uuid), std::string(snapshot_uuid));
+  auto db = db_handler.New(make_conf(config_uuid, true));
+  ASSERT_TRUE(db.has_value());
+
+  ASSERT_EQ(std::string(db.value()->uuid()), std::string(snapshot_uuid));
+
+  EXPECT_TRUE(memgraph::metrics::Metrics().GetDbMetricsInfo(db.value()->uuid()).has_value());
 }
 
 #endif
