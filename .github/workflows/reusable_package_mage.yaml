@@ -279,6 +279,47 @@ jobs:
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
+      - name: "Set S3 artifact dirs"
+        run: |
+          # Mirrors the memgraph layout (reusable_package.yaml, "Set artifact
+          # name and dir"): one S3 directory per artifact kind and flavour,
+          # with file basenames left untouched.
+          #
+          #   <arch>-deb[-malloc][-cuda|-cugraph]/   debs + offline installer
+          #   <arch>-rpm[-malloc][-cuda|-cugraph]/   rpms
+          #   docker-<arch>[-malloc][-cuda|-cugraph]/                  prod image
+          #   docker-<arch>[-malloc]-relwithdebinfo[-cuda|-cugraph]/   debug image
+          #   <arch>[-malloc][-cuda|-cugraph]/       debug-symbols manifest
+          #   sbom/                                  SBOMs
+          [[ "$ARCH" == "arm" ]] && arch_str="aarch64" || arch_str="x86_64"
+
+          flavour=""
+          [[ "$MALLOC" == "true" ]] && flavour="-malloc"
+          # cugraph takes precedence over cuda, matching mage-artifact-name-tag.sh.
+          if [[ "$CUGRAPH" == "true" ]]; then
+            gpu="-cugraph"
+          elif [[ "$CUDA" == "true" ]]; then
+            gpu="-cuda"
+          else
+            gpu=""
+          fi
+
+          s3_dir_docker_prod="docker-${arch_str}${flavour}${gpu}"
+          s3_dir_docker_debug="docker-${arch_str}${flavour}-relwithdebinfo${gpu}"
+
+          echo "S3_DIR_DEB=${arch_str}-deb${flavour}${gpu}" >> $GITHUB_ENV
+          echo "S3_DIR_RPM=${arch_str}-rpm${flavour}${gpu}" >> $GITHUB_ENV
+          echo "S3_DIR_DEBUGSYM=${arch_str}${flavour}${gpu}" >> $GITHUB_ENV
+          echo "S3_DIR_DOCKER_PROD=${s3_dir_docker_prod}" >> $GITHUB_ENV
+          echo "S3_DIR_DOCKER_DEBUG=${s3_dir_docker_debug}" >> $GITHUB_ENV
+
+          # The dir matching ARTIFACT_NAME, i.e. whichever image this job treats
+          # as primary (see the case in "Set image tag and artifact name").
+          case "$BUILD_DOCKER_IMAGE" in
+            debug) echo "S3_DIR_DOCKER=${s3_dir_docker_debug}" >> $GITHUB_ENV ;;
+            *)     echo "S3_DIR_DOCKER=${s3_dir_docker_prod}" >> $GITHUB_ENV ;;
+          esac
+
       - name: Get Current Memgraph Commit/Tag
         env:
           INPUT_REF: "${{ inputs.ref }}"
@@ -500,10 +541,10 @@ jobs:
           # build (see "Stage memgraph debug symbols"); this second
           # copy-debug-symbols pass picks up MAGE's own sidecars from the
           # container's current (mage-only) build tree — works for both deb
-          # and rpm distros, unlike extracting them from a package. All MAGE
-          # jobs share one s3_dest_dir, so the manifest filename includes
-          # ARTIFACT_NAME to avoid collisions between amd/arm/cugraph/malloc
-          # jobs.
+          # and rpm distros, unlike extracting them from a package. The
+          # manifest goes in this job's own S3_DIR_DEBUGSYM dir (unique per
+          # arch/malloc/gpu flavour), so amd/arm/cugraph/malloc jobs no longer
+          # need a filename suffix to avoid colliding.
           DBG_DIR=build/debug-symbols
           mkdir -p "$DBG_DIR"
 
@@ -515,7 +556,7 @@ jobs:
           copy-debug-symbols \
           --dest-dir "$DBG_DIR"
 
-          manifest_url="s3://deps.memgraph.io/${S3_DEST_DIR}/debug-symbols-manifest-${ARTIFACT_NAME}.tsv"
+          manifest_url="s3://deps.memgraph.io/${S3_DEST_DIR}/${S3_DIR_DEBUGSYM}/debug-symbols-manifest.tsv"
           bash tools/ci/upload-debug-symbols.sh "$DBG_DIR" \
             --manifest-s3-url "$manifest_url"
           rm -rf "$DBG_DIR"
@@ -1116,20 +1157,38 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
           SOURCE_DIR: "output"
-          DEST_DIR: "${{ inputs.s3_dest_dir }}/"
+          DEST_DIR: "${{ inputs.s3_dest_dir }}"
         run: |
-          max_attempts=3
-          attempt_num=1
-          until [ $attempt_num -gt $max_attempts ]
-          do
-            echo "Attempt $attempt_num..."
-            # Replace the next line with your actual s3 sync command or action logic
-            aws s3 sync $SOURCE_DIR s3://$AWS_S3_BUCKET/$DEST_DIR && break || {
+          sync_with_retry() {
+            local dest="$1"; shift
+            local max_attempts=3 attempt_num=1
+            until [ $attempt_num -gt $max_attempts ]; do
+              echo "Syncing to ${dest} (attempt ${attempt_num}) ..."
+              aws s3 sync "$SOURCE_DIR" "$dest" "$@" && return 0
               echo "Attempt $attempt_num failed. Retrying in 5 seconds..."
               sleep 5
               attempt_num=$((attempt_num+1))
-            }
-          done
+            done
+            echo "Error: failed to sync to ${dest} after ${max_attempts} attempts" >&2
+            return 1
+          }
+
+          base="s3://${AWS_S3_BUCKET}/${DEST_DIR}"
+
+          # debs live with the offline installer they bundle (amd only).
+          sync_with_retry "${base}/${S3_DIR_DEB}/" \
+            --exclude "*" --include "*.deb" --include "*.run"
+          sync_with_retry "${base}/${S3_DIR_RPM}/" \
+            --exclude "*" --include "*.rpm"
+
+          if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            sync_with_retry "${base}/${S3_DIR_DOCKER_PROD}/" \
+              --exclude "*" --include "${PROD_ARTIFACT_NAME}.tar.gz"
+          fi
+          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            sync_with_retry "${base}/${S3_DIR_DOCKER_DEBUG}/" \
+              --exclude "*" --include "${DEBUG_ARTIFACT_NAME}.tar.gz"
+          fi
 
       - name: Construct Output URL
         id: output-url
@@ -1141,12 +1200,13 @@ jobs:
           prod_url=""
           debug_url=""
           if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
-            prod_url="$base/${PROD_ARTIFACT_NAME}.tar.gz"
+            prod_url="$base/${S3_DIR_DOCKER_PROD}/${PROD_ARTIFACT_NAME}.tar.gz"
           fi
           if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
-            debug_url="$base/${DEBUG_ARTIFACT_NAME}.tar.gz"
+            debug_url="$base/${S3_DIR_DOCKER_DEBUG}/${DEBUG_ARTIFACT_NAME}.tar.gz"
           fi
-          primary_url="$base/${ARTIFACT_NAME}.tar.gz"
+          # S3_DIR_DOCKER is the dir matching ARTIFACT_NAME (see "Set S3 artifact dirs").
+          primary_url="$base/${S3_DIR_DOCKER}/${ARTIFACT_NAME}.tar.gz"
           echo "s3_url=$primary_url" >> $GITHUB_OUTPUT
           echo "s3_url_prod=$prod_url" >> $GITHUB_OUTPUT
           echo "s3_url_debug=$debug_url" >> $GITHUB_OUTPUT
@@ -1165,10 +1225,22 @@ jobs:
           fi
           for f in "${artifacts[@]}"; do
             [[ -f "$f" ]] || continue
+            name="$(basename "$f")"
+            # Route each file to the dir "Push to S3 with retry" sent it to.
+            case "$name" in
+              *.deb|*.run)                     subdir="$S3_DIR_DEB" ;;
+              *.rpm)                           subdir="$S3_DIR_RPM" ;;
+              "${PROD_ARTIFACT_NAME}.tar.gz")  subdir="$S3_DIR_DOCKER_PROD" ;;
+              "${DEBUG_ARTIFACT_NAME}.tar.gz") subdir="$S3_DIR_DOCKER_DEBUG" ;;
+              *)
+                echo "::warning::Unrecognised artifact '$name' in output/ — not uploaded to S3"
+                continue
+                ;;
+            esac
             # URL-encode the filename so unsafe chars (+, ~, etc. in daily-build
             # versions like 3.12.0+5~<commit>) resolve correctly over HTTP.
-            enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$f")")
-            echo "::notice::Artifact URL: ${base}/${enc}"
+            enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$name")
+            echo "::notice::Artifact URL: ${base}/${subdir}/${enc}"
           done
 
       - name: Memgraph Docker Cleanup

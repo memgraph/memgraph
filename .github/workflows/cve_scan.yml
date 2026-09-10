@@ -102,8 +102,8 @@ jobs:
             base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io"
             memgraph_amd_url="${base}/${memgraph_prefix}/${tag}/docker-x86_64/memgraph-${VERSION}-docker.tar.gz"
             memgraph_arm_url="${base}/${memgraph_prefix}/${tag}/docker-aarch64/memgraph-${VERSION}-docker.tar.gz"
-            mage_amd_url="${base}/${mage_prefix}/${tag}/mage-${VERSION}.tar.gz"
-            mage_arm_url="${base}/${mage_prefix}/${tag}/mage-${VERSION}-arm64.tar.gz"
+            mage_amd_url="${base}/${mage_prefix}/${tag}/docker-x86_64/mage-${VERSION}.tar.gz"
+            mage_arm_url="${base}/${mage_prefix}/${tag}/docker-aarch64/mage-${VERSION}-arm64.tar.gz"
           elif [[ -n "$CURRENT_BUILD_DATE" ]]; then
             # Daily-build mode: resolve URLs by listing the daily-build S3 prefix.
             mage_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'mage')"

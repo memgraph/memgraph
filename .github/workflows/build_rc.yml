@@ -339,7 +339,7 @@ jobs:
           VERSION: "${{ inputs.version }}"
         run: |
           echo "Setting next image URLs"
-          amd_mage_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/mage${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/mage-${VERSION}.tar.gz"
+          amd_mage_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/mage${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-x86_64/mage-${VERSION}.tar.gz"
           echo "amd_mage_image_url=$amd_mage_image_url" >> $GITHUB_OUTPUT
           echo "AMD MAGE Image URL: $amd_mage_image_url"
 

@@ -63,38 +63,57 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The packages are distro-agnostic: one deb and one rpm per arch,
-        # stored under <arch>-{deb,rpm}[-malloc]/; docker tarballs live under
-        # docker-<arch>[-malloc][-relwithdebinfo]/.
+        # The packages are distro-agnostic: one deb and one rpm per arch.
+        # Each entry promotes one S3 dir, key-for-key with the RC:
+        #   <arch>-{deb,rpm} plus -malloc and -no-python (used for FIPS) variants
+        #   docker-<arch> plus -relwithdebinfo, -malloc-relwithdebinfo, -fips
+        # 10 dirs per arch, 20 jobs.
         target: [deb, rpm, docker]
         arch: [amd, arm]
         malloc: [false]
         build_type: [Release]
+        fips: [false]
         include:
           - target: docker
             arch: amd
             malloc: false
             build_type: RelWithDebInfo
+            fips: false
           - target: docker
             arch: arm
             malloc: false
             build_type: RelWithDebInfo
+            fips: false
           - target: docker
             arch: amd
             malloc: true
             build_type: RelWithDebInfo
+            fips: false
           - target: docker
             arch: arm
             malloc: true
             build_type: RelWithDebInfo
+            fips: false
           - target: deb
             arch: amd
             malloc: true
             build_type: Release
+            fips: false
+          - target: deb
+            arch: arm
+            malloc: true
+            build_type: Release
+            fips: false
           - target: rpm
             arch: amd
             malloc: true
             build_type: Release
+            fips: false
+          - target: rpm
+            arch: arm
+            malloc: true
+            build_type: Release
+            fips: false
           # FIPS packages. The deb/rpm are named for what makes them different
           # as packages (no embedded Python); only the image is -fips.
           - target: deb
@@ -518,8 +537,10 @@ jobs:
         run: |
           mage_version="$RELEASE_VERSION"
           image_tag="${mage_version}${{ matrix.image_ext }}"
-          # Release dirs mirror the memgraph docker scheme:
+          # Both the RC and the release dirs use the memgraph docker scheme:
           # docker-<arch>[-malloc][-relwithdebinfo][-cuda|-cugraph]/
+          # reusable_package_mage.yaml stages the RC tarballs under the same
+          # dirs, so promotion is a path-preserving copy.
           docker_dir_amd="docker-x86_64"
           docker_dir_arm="docker-aarch64"
 
@@ -552,8 +573,8 @@ jobs:
 
       - name: Setup S3 Paths
         run: |
-          echo "s3_input_amd=s3://${rc_bucket}/${mage_rc_dir}/${docker_tar_amd}" >> $GITHUB_ENV
-          echo "s3_input_arm=s3://${rc_bucket}/${mage_rc_dir}/${docker_tar_arm}" >> $GITHUB_ENV
+          echo "s3_input_amd=s3://${rc_bucket}/${mage_rc_dir}/${docker_dir_amd}/${docker_tar_amd}" >> $GITHUB_ENV
+          echo "s3_input_arm=s3://${rc_bucket}/${mage_rc_dir}/${docker_dir_arm}/${docker_tar_arm}" >> $GITHUB_ENV
           echo "s3_output_amd=s3://${release_bucket}/${mage_release_dir}/${docker_dir_amd}/${docker_tar_amd}" >> $GITHUB_ENV
           echo "s3_output_arm=s3://${release_bucket}/${mage_release_dir}/${docker_dir_arm}/${docker_tar_arm}" >> $GITHUB_ENV
 
@@ -654,103 +675,6 @@ jobs:
             echo "Copied ARM tarball to ${s3_output_arm}"
           else
             echo "Skipping ARM tarball copy: RC package not available."
-          fi
-
-      - name: Check if MAGE deb packages already exist
-        if: ${{ matrix.image_ext == '' }}
-        run: |
-          # Match both memgraph-mage_*.deb (main) and
-          # memgraph-mage-debuginfo_*.deb (split-debug companion).
-          release_deb_check=$(aws s3 ls "s3://${release_bucket}/${mage_release_dir}/deb/" | awk '/memgraph-mage.*\.deb/ {print}')
-          if [[ -n "${release_deb_check}" ]]; then
-            echo "MAGE deb packages already exist under s3://${release_bucket}/${mage_release_dir}/deb/"
-            if [[ "$FORCE_PROMOTE" != "true" ]]; then
-              echo "Set force_promote to true to override existing release!"
-              exit 1
-            fi
-            echo "Forcing promotion of existing deb packages ..."
-          fi
-
-      - name: Promote MAGE deb packages to release bucket
-        if: ${{ matrix.image_ext == '' }}
-        run: |
-          # The debs are distro-agnostic and stored flat in the RC dir with
-          # arch and flavour in the filename (memgraph-mage*_<ver>-1_<arch>
-          # [-cuda|-cugraph].deb — main + debuginfo).
-          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/deb/" --recursive --exclude "*" --include "memgraph-mage*_${RELEASE_VERSION}-1_*.deb"
-          echo "Copied MAGE deb packages (main + debuginfo) to s3://${release_bucket}/${mage_release_dir}/deb/"
-
-      - name: Promote MAGE rpm packages to release bucket
-        if: ${{ matrix.image_ext == '' }}
-        run: |
-          # The rpms are distro-agnostic and stored flat in the RC dir:
-          # memgraph-mage*<ver>_1-1.<arch>[-cuda|-cugraph].rpm — main + debuginfo
-          dst="s3://${release_bucket}/${mage_release_dir}/rpm/"
-          existing=$(aws s3 ls "$dst" 2>/dev/null | awk '/memgraph-mage.*\.rpm/ {print}')
-          if [[ -n "${existing}" && "$FORCE_PROMOTE" != "true" ]]; then
-            echo "MAGE rpm packages already exist under ${dst}"
-            echo "Set force_promote to true to override existing release!"
-            exit 1
-          fi
-          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "${dst}" --recursive --exclude "*" --include "memgraph-mage*${RELEASE_VERSION}_1-1.*.rpm"
-          echo "Copied MAGE rpm packages (main + debuginfo) to ${dst}"
-
-      - name: Setup offline installer paths
-        run: |
-          offline_run_amd="memgraph-mage-offline-${RELEASE_VERSION}-amd64${{ matrix.image_ext }}.run"
-          offline_run_arm="memgraph-mage-offline-${RELEASE_VERSION}-arm64${{ matrix.image_ext }}.run"
-          echo "offline_run_amd=${offline_run_amd}" >> $GITHUB_ENV
-          echo "offline_run_arm=${offline_run_arm}" >> $GITHUB_ENV
-          echo "s3_input_offline_amd=s3://${rc_bucket}/${mage_rc_dir}/${offline_run_amd}" >> $GITHUB_ENV
-          echo "s3_input_offline_arm=s3://${rc_bucket}/${mage_rc_dir}/${offline_run_arm}" >> $GITHUB_ENV
-          echo "s3_output_offline_amd=s3://${release_bucket}/${mage_release_dir}/deb/${offline_run_amd}" >> $GITHUB_ENV
-          echo "s3_output_offline_arm=s3://${release_bucket}/${mage_release_dir}/deb/${offline_run_arm}" >> $GITHUB_ENV
-
-      - name: Check if RC offline installers for this build exist
-        run: |
-          if aws s3 ls "${s3_input_offline_amd}" &> /dev/null; then
-            echo "has_rc_offline_amd=true" >> $GITHUB_ENV
-            echo "Found amd64 RC offline installer at ${s3_input_offline_amd}"
-          else
-            echo "has_rc_offline_amd=false" >> $GITHUB_ENV
-            echo "No amd64 RC offline installer at ${s3_input_offline_amd}"
-          fi
-          if aws s3 ls "${s3_input_offline_arm}" &> /dev/null; then
-            echo "has_rc_offline_arm=true" >> $GITHUB_ENV
-            echo "Found arm64 RC offline installer at ${s3_input_offline_arm}"
-          else
-            echo "has_rc_offline_arm=false" >> $GITHUB_ENV
-            echo "No arm64 RC offline installer at ${s3_input_offline_arm}"
-          fi
-
-      - name: Check if release offline installers for this build already exist
-        run: |
-          if [[ "${has_rc_offline_amd}" == "true" ]] && aws s3 ls "${s3_output_offline_amd}" &> /dev/null; then
-            echo "Release amd64 offline installer already exists at ${s3_output_offline_amd}"
-            if [[ "$FORCE_PROMOTE" != "true" ]]; then
-              echo "Set force_promote to true to override existing release!"
-              exit 1
-            fi
-            echo "Forcing promotion of existing amd64 offline installer ..."
-          fi
-          if [[ "${has_rc_offline_arm}" == "true" ]] && aws s3 ls "${s3_output_offline_arm}" &> /dev/null; then
-            echo "Release arm64 offline installer already exists at ${s3_output_offline_arm}"
-            if [[ "$FORCE_PROMOTE" != "true" ]]; then
-              echo "Set force_promote to true to override existing release!"
-              exit 1
-            fi
-            echo "Forcing promotion of existing arm64 offline installer ..."
-          fi
-
-      - name: Promote offline installers to release bucket
-        run: |
-          if [[ "${has_rc_offline_amd}" == "true" ]]; then
-            aws s3 cp "${s3_input_offline_amd}" "${s3_output_offline_amd}"
-            echo "Copied amd64 offline installer to ${s3_output_offline_amd}"
-          fi
-          if [[ "${has_rc_offline_arm}" == "true" ]]; then
-            aws s3 cp "${s3_input_offline_arm}" "${s3_output_offline_arm}"
-            echo "Copied arm64 offline installer to ${s3_output_offline_arm}"
           fi
 
       - name: Log in to Docker Hub
@@ -904,9 +828,153 @@ jobs:
             echo "Skipping deletion for arm64: image not promoted."
           fi
 
+  PromotePackageMAGE:
+    name: Promote MAGE packages (${{ matrix.arch }}${{ matrix.flavour }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # MAGE deb/rpm packages exist for the non-malloc flavours only
+        # (reusable_package_mage.yaml scrubs the ingredient-only packages from
+        # malloc builds and skips the rpm build entirely), and cuda/cugraph are
+        # amd-only — see the BuildAndTestMAGE matrix in build_rc.yml.
+        include:
+          - arch: amd
+            flavour: ""
+          - arch: arm
+            flavour: ""
+          - arch: amd
+            flavour: "-cuda"
+          - arch: amd
+            flavour: "-cugraph"
+    steps:
+      - name: Validate “use_test_rc” only with test
+        if: inputs.use_test_rc && ! inputs.test
+        run: |
+          echo "Must not run 'use_test_rc=true' without setting 'test=true'"
+          exit 1
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Setup package dirs
+        run: |
+          [[ "${{ matrix.arch }}" == "arm" ]] && arch_str="aarch64" || arch_str="x86_64"
+          echo "deb_dir=${arch_str}-deb${{ matrix.flavour }}" >> $GITHUB_ENV
+          echo "rpm_dir=${arch_str}-rpm${{ matrix.flavour }}" >> $GITHUB_ENV
+
+      - name: Check if RC packages for this flavour exist
+        run: |
+          for dir in "$deb_dir" "$rpm_dir"; do
+            src="s3://${rc_bucket}/${mage_rc_dir}/${dir}/"
+            if [[ -z "$(aws s3 ls "$src" 2>/dev/null)" ]]; then
+              echo "MAGE RC packages do not exist at $src"
+              exit 1
+            fi
+            aws s3 ls "$src"
+          done
+
+      - name: Check if release packages for this flavour already exist
+        run: |
+          for dir in "$deb_dir" "$rpm_dir"; do
+            dst="s3://${release_bucket}/${mage_release_dir}/${dir}/"
+            if [[ -n "$(aws s3 ls "$dst" 2>/dev/null)" ]]; then
+              echo "MAGE release packages already exist at $dst"
+              if [[ "$FORCE_PROMOTE" != "true" ]]; then
+                echo "Set force_promote to true to override existing release!"
+                exit 1
+              fi
+              echo "Forcing promotion of existing packages ..."
+            fi
+          done
+
+      - name: Promote MAGE packages to release bucket
+        run: |
+          for dir in "$deb_dir" "$rpm_dir"; do
+            src="s3://${rc_bucket}/${mage_rc_dir}/${dir}/"
+            dst="s3://${release_bucket}/${mage_release_dir}/${dir}/"
+            aws s3 cp "$src" "$dst" --recursive
+            echo "Promoted $src to $dst"
+          done
+
+  PromoteSBOM:
+    name: Promote SBOMs (${{ matrix.product }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [memgraph, mage]
+    steps:
+      - name: Validate “use_test_rc” only with test
+        if: inputs.use_test_rc && ! inputs.test
+        run: |
+          echo "Must not run 'use_test_rc=true' without setting 'test=true'"
+          exit 1
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Setup SBOM paths
+        run: |
+          # Both products stage their SBOMs flat under <rc_dir>/sbom/; the
+          # release layout mirrors that under the product's release dir.
+          # memgraph: memgraph-build-sbom.{json,txt}, memgraph-docker-sbom.{json,txt}
+          # mage:     mage-sbom.{json,txt}, memgraph-build-sbom.json
+          case "${{ matrix.product }}" in
+            memgraph)
+              src="s3://${rc_bucket}/${rc_dir}/sbom/"
+              dst="s3://${release_bucket}/${release_dir}/sbom/"
+              ;;
+            mage)
+              src="s3://${rc_bucket}/${mage_rc_dir}/sbom/"
+              dst="s3://${release_bucket}/${mage_release_dir}/sbom/"
+              ;;
+          esac
+          echo "sbom_src=${src}" >> $GITHUB_ENV
+          echo "sbom_dst=${dst}" >> $GITHUB_ENV
+
+      - name: Check if RC SBOMs exist
+        run: |
+          # SBOM generation is gated on `generate_sbom` at build time (only the
+          # amd, non-malloc, non-cuda/cugraph builds emit them), so an RC built
+          # with it turned off legitimately has none — warn rather than fail.
+          if [[ -z "$(aws s3 ls "${sbom_src}" 2>/dev/null)" ]]; then
+            echo "has_rc_sbom=false" >> $GITHUB_ENV
+            echo "::warning::No RC SBOMs found at ${sbom_src} — nothing to promote."
+          else
+            echo "has_rc_sbom=true" >> $GITHUB_ENV
+            aws s3 ls "${sbom_src}"
+          fi
+
+      - name: Check if release SBOMs already exist
+        if: ${{ env.has_rc_sbom == 'true' }}
+        run: |
+          if [[ -n "$(aws s3 ls "${sbom_dst}" 2>/dev/null)" ]]; then
+            echo "SBOMs already exist at ${sbom_dst}"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing SBOMs ..."
+          fi
+
+      - name: Promote SBOMs to release bucket
+        if: ${{ env.has_rc_sbom == 'true' }}
+        run: |
+          aws s3 cp "${sbom_src}" "${sbom_dst}" --recursive
+          echo "Promoted ${{ matrix.product }} SBOMs to ${sbom_dst}"
+
   PromoteDebugSymbols:
     name: Promote debug symbols to memgraph-debugsym
-    needs: [PromotePackage, PromoteDocker, PromoteDockerMAGE]
+    needs: [PromotePackage, PromoteDocker, PromoteDockerMAGE, PromotePackageMAGE]
     runs-on: ubuntu-latest
     steps:
       - name: Validate “use_test_rc” only with test
@@ -926,21 +994,24 @@ jobs:
         id: collect
         run: |
           # Walk both the memgraph and MAGE RC subtrees and pull every
-          # debug-symbols-manifest*.tsv. memgraph emits one per package
-          # subdir (PKG_ARTIFACT_NAME); MAGE emits one per artifact (flat
-          # dest_dir, so the ARTIFACT_NAME suffix in the filename prevents
-          # collisions).
+          # debug-symbols-manifest*.tsv. Both now emit one per package subdir,
+          # named <arch>[-malloc][-cuda|-cugraph]/debug-symbols-manifest.tsv —
+          # so the two subtrees use overlapping relative keys and MUST land in
+          # separate local dirs, or the second copy silently overwrites the
+          # first (both have, e.g., x86_64/debug-symbols-manifest.tsv).
           mkdir -p manifests
-          for src in "s3://${rc_bucket}/${rc_dir}/" "s3://${rc_bucket}/${mage_rc_dir}/"; do
+          for product in memgraph mage; do
+            case "$product" in
+              memgraph) src="s3://${rc_bucket}/${rc_dir}/" ;;
+              mage)     src="s3://${rc_bucket}/${mage_rc_dir}/" ;;
+            esac
             echo "Pulling manifests from $src ..."
             # Leading `*` is load-bearing: aws s3 cp's filter rules treat
             # the pattern as a glob against the full relative key, so a bare
-            # `debug-symbols-manifest*.tsv` only matches files at the
-            # immediate root of the recursion. MAGE manifests live flat at
-            # the RC root, but memgraph manifests sit one level deep at
-            # <PKG_ARTIFACT_NAME>/debug-symbols-manifest.tsv and were
-            # being silently skipped.
-            aws s3 cp "$src" manifests/ --recursive \
+            # `debug-symbols-manifest*.tsv` would only match files at the
+            # immediate root of the recursion, and every manifest now sits one
+            # level deep.
+            aws s3 cp "$src" "manifests/${product}/" --recursive \
               --exclude '*' --include '*debug-symbols-manifest*.tsv' || true
           done
           # Manifest format is "<build-id>\t<basename>" — extract column 1
