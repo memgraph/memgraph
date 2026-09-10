@@ -8,7 +8,6 @@ target_link_libraries(mg-communication-metrics PRIVATE nlohmann_json::nlohmann_j
 add_library(mg-communication STATIC)
 target_sources(mg-communication
     PRIVATE
-    websocket/auth.cpp
     websocket/server.cpp
     websocket/listener.cpp
     websocket/session.cpp
@@ -29,5 +28,5 @@ target_sources(mg-communication
 )
 target_link_libraries(mg-communication
     PUBLIC Boost::headers mg-io mg-utils gflags
-    PRIVATE Threads::Threads mg-auth fmt::fmt mg-communication-metrics mg-metrics openssl::openssl
+    PRIVATE Threads::Threads fmt::fmt mg-communication-metrics mg-metrics openssl::openssl
 )

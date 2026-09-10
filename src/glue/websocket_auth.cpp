@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,19 +9,21 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "communication/websocket/auth.hpp"
+#include "glue/websocket_auth.hpp"
 
 #include <string>
+
+#include "dbms/constants.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace memgraph::communication::websocket {
+namespace memgraph::glue {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
   user_or_role_ = auth_->Lock()->Authenticate(username, password);
   return user_or_role_.has_value();
 }
 
-bool SafeAuth::HasPermission(const auth::Permission permission) const {
+bool SafeAuth::HasWebsocketPermission() const {
   auto locked_auth = auth_->ReadLock();
   // Update if cache invalidated
   if (!locked_auth->UpToDate(auth_epoch_) && user_or_role_) {
@@ -62,7 +64,8 @@ bool SafeAuth::HasPermission(const auth::Permission permission) const {
 #else
                             dbms::kDefaultDB;
 #endif
-                        return user_or_role.GetPermissions(db_name).Has(permission) == auth::PermissionLevel::GRANT;
+                        return user_or_role.GetPermissions(db_name).Has(auth::Permission::WEBSOCKET) ==
+                               auth::PermissionLevel::GRANT;
                       }},
                       *user_or_role_);
   }
@@ -71,4 +74,5 @@ bool SafeAuth::HasPermission(const auth::Permission permission) const {
 }
 
 bool SafeAuth::AccessControlled() const { return auth_->ReadLock()->AccessControlled(); }
-}  // namespace memgraph::communication::websocket
+
+}  // namespace memgraph::glue
