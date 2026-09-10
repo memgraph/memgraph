@@ -4383,15 +4383,15 @@ class KShortestPathsCursor : public Cursor {
 
   // Trie of the found paths' edges: a root prefix's children are exactly the edges a deviation
   // there must block. Children form an intrusive sibling list, so a node holds no container.
-  static constexpr uint32_t kNoChild = std::numeric_limits<uint32_t>::max();
+  static constexpr uint64_t kNoChild = std::numeric_limits<uint64_t>::max();
 
   struct TrieChild {
     storage::Gid edge;
-    uint32_t node;
-    uint32_t next_sibling;
+    uint64_t node;
+    uint64_t next_sibling;
   };
 
-  utils::pmr::vector<uint32_t> trie_first_child_;
+  utils::pmr::vector<uint64_t> trie_first_child_;
   utils::pmr::vector<TrieChild> trie_children_;
 
   // Probe buffer for `found_paths_set_`.
@@ -4454,12 +4454,12 @@ class KShortestPathsCursor : public Cursor {
       blocked_vertices_.clear();
       VertexAccessor deviation_vertex = source;
       // The base path is itself a found path, so this walk never falls off the trie.
-      uint32_t trie_node = 0;
+      uint64_t trie_node = 0;
 
       for (size_t i = 0UZ; i < base_path.edges.size(); ++i) {
         if (i >= first_deviation) {
           blocked_edges_.clear();
-          for (uint32_t c = trie_first_child_[trie_node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+          for (uint64_t c = trie_first_child_[trie_node]; c != kNoChild; c = trie_children_[c].next_sibling) {
             blocked_edges_.insert(trie_children_[c].edge);
           }
           GenerateCandidatesFromDeviation(target, base_path, i, deviation_vertex, frame, evaluator, context);
@@ -4789,30 +4789,29 @@ class KShortestPathsCursor : public Cursor {
     }
     found_paths_set_.insert(std::move(path_gids));
 
-    uint32_t node = 0;
+    uint64_t node = 0;
     for (const auto &edge : path.edges) {
       node = TrieDescendOrCreate(node, edge.Gid());
     }
   }
 
   /// The child of `node` reached by `edge`, created if this is the first path to take it.
-  uint32_t TrieDescendOrCreate(uint32_t node, storage::Gid edge) {
-    for (uint32_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+  uint64_t TrieDescendOrCreate(uint64_t node, storage::Gid edge) {
+    for (uint64_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
       if (trie_children_[c].edge == edge) return trie_children_[c].node;
     }
-    // `kNoChild` is the sentinel, so it is also the ceiling on the node count. Reaching it needs
-    // tens of GB of trie, but the narrowing below would alias node 0 rather than fail.
-    DMG_ASSERT(trie_first_child_.size() < kNoChild, "KSHORTEST trie outgrew its 32-bit node ids");
-    const auto fresh = static_cast<uint32_t>(trie_first_child_.size());
+    // Ids are as wide as the vector's own index, so `fresh` cannot narrow and the only ceiling
+    // left is the sentinel - which a vector of these cannot reach before the allocator gives out.
+    const auto fresh = static_cast<uint64_t>(trie_first_child_.size());
     trie_first_child_.push_back(kNoChild);
     trie_children_.push_back(TrieChild{.edge = edge, .node = fresh, .next_sibling = trie_first_child_[node]});
-    trie_first_child_[node] = static_cast<uint32_t>(trie_children_.size() - 1);
+    trie_first_child_[node] = trie_children_.size() - 1;
     return fresh;
   }
 
   /// The child of `node` reached by `edge`; `kNoChild` when no found path took it.
-  uint32_t TrieDescend(uint32_t node, storage::Gid edge) const {
-    for (uint32_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
+  uint64_t TrieDescend(uint64_t node, storage::Gid edge) const {
+    for (uint64_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
       if (trie_children_[c].edge == edge) return trie_children_[c].node;
     }
     return kNoChild;
