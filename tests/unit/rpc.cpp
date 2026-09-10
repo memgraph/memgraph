@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <latch>
 #include <mutex>
@@ -27,7 +29,6 @@
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "utils/on_scope_exit.hpp"
-#include "utils/timer.hpp"
 
 using namespace memgraph::rpc;
 using namespace std::literals::chrono_literals;
@@ -59,34 +60,88 @@ TEST(Rpc, Call) {
 }
 
 TEST(Rpc, Abort) {
+  // Two separate claims. The ordering, that the call ends because it was aborted and not because
+  // the response arrived, is checked below without a clock, and it is the one that carries this
+  // test: an abort that does nothing, or that only takes effect once the response is out, fails
+  // there.
+  //
+  // Promptness is the second claim and is inherently temporal, so it keeps a bound. No absolute
+  // bound survives arbitrary starvation, since a thread given a small enough share of a CPU misses
+  // any deadline; this one is loose enough to clear the delays a loaded runner actually produces by
+  // more than an order of magnitude, and tight enough that an abort taking seconds to land still
+  // fails. If it ever does flake, delete it rather than widen it: widening only moves the
+  // threshold, and the ordering check is what the test is for.
+  static constexpr auto kPromptly = 10s;
+  // Only stops a hang; reaching it means a step never happened, which fails the test below.
+  static constexpr auto kStepTimeout = 30s;
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  // The server has the request, so the client has sent it and is waiting for the response. That is
+  // the state the abort has to arrive in, and waiting for the server to say so is exact where
+  // waiting for a duration is a guess.
+  bool handler_entered = false;
+  // Set by the test once it has judged the call, so the handler cannot respond until then.
+  bool response_released = false;
+  // Set by the handler immediately before it starts sending. Reading it false once the call has
+  // returned says the handler had not begun its response, which is what stands in for nothing
+  // having reached the client: this handler is the only thing that sends.
+  std::atomic<bool> response_sent{false};
+
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                          uint64_t const request_version,
-                          auto *req_reader,
-                          auto *res_builder) {
+  server.Register<Sum>([&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
-    std::this_thread::sleep_for(500ms);
+    {
+      std::lock_guard const lock{mutex};
+      handler_entered = true;
+    }
+    cv.notify_all();
+    {
+      std::unique_lock lock{mutex};
+      // Responding anyway on the timeout is what turns a client that never aborts into a failing
+      // assertion below: the call returns a sum instead of throwing.
+      cv.wait_for(lock, kStepTimeout, [&] { return response_released; });
+    }
+    response_sent.store(true);
     SumRes const res({sum});
     memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
-  std::this_thread::sleep_for(100ms);
 
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
 
-  std::thread thread([&client]() {
-    std::this_thread::sleep_for(100ms);
+  std::thread thread([&]() {
+    {
+      std::unique_lock lock{mutex};
+      cv.wait_for(lock, kStepTimeout, [&] { return handler_entered; });
+    }
+    // Aborted even if the server never took the request, because this call has no deadline of its
+    // own: returning here instead would leave nothing to end it and the test would hang rather
+    // than report. Aborting late still ends it, and the bound below then fails.
     spdlog::info("Aborting the connection!");
     client.Abort();
   });
 
-  memgraph::utils::Timer const timer;
+  auto const call_started = std::chrono::steady_clock::now();
   EXPECT_THROW(client.Call<SumV1>(10, 20), RpcFailedException);
-  EXPECT_LT(timer.Elapsed(), 200ms);
+  auto const call_took = std::chrono::steady_clock::now() - call_started;
+
+  EXPECT_FALSE(response_sent.load())
+      << "the call ended only once the server had begun responding, so the abort did not end it";
+  EXPECT_LT(call_took, kPromptly) << "the abort ended the call, but not while anyone was waiting";
+
+  {
+    std::lock_guard const lock{mutex};
+    response_released = true;
+  }
+  cv.notify_all();
 
   thread.join();
   client.Shutdown();
