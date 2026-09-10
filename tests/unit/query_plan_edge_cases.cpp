@@ -200,3 +200,21 @@ TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNull) {
   ASSERT_EQ(results.size(), 1U);
   EXPECT_EQ(results[0][0].ValueInt(), 0);
 }
+
+TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNotANode) {
+  // A null cannot match a pattern, but a value of any other type cannot even be asked: the pattern says the
+  // variable holds a node, so anything else is a type error rather than a row that quietly matches.
+  this->Execute("CREATE (:Person)-[:KNOWS]->(:Person)");
+
+  EXPECT_THROW(this->Execute("WITH 1 AS f MATCH (f) RETURN count(*) AS c"), memgraph::query::QueryRuntimeException);
+
+  // The type is not always known before the query runs: here only the rows without a friend hold the integer.
+  EXPECT_THROW(this->Execute("MATCH (p:Person) OPTIONAL MATCH (p)-[:KNOWS]->(f) "
+                             "WITH coalesce(f, 1) AS g MATCH (g) RETURN count(*) AS c"),
+               memgraph::query::QueryRuntimeException);
+
+  // A node still matches, so the guard reads the value rather than the pattern.
+  auto results = this->Execute("MATCH (p:Person) WITH p AS g MATCH (g) RETURN count(*) AS c");
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 2);
+}

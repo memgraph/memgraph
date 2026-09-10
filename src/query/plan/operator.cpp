@@ -5073,6 +5073,13 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      // Testing no labels asks only whether the value is a node, so the pattern it came from is the whole story.
+      if (filter_expression->labels_.empty() && filter_expression->or_labels_.empty()) {
+        if (const auto *identifier = utils::Downcast<Identifier>(filter_expression->expression_)) {
+          return fmt::format("({})", identifier->name_);
+        }
+        return "()";
+      }
       std::set<std::string, std::less<>> AND_label_names;
       for (const auto &label : filter_expression->labels_) {
         AND_label_names.insert(label.name);
