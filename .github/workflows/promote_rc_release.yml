@@ -63,9 +63,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The packages are distro-agnostic: one deb and one rpm per arch,
-        # stored under <arch>-{deb,rpm}[-malloc|-no-python]/; docker tarballs
-        # live under docker-<arch>[-malloc][-relwithdebinfo] | -fips/.
+        # The packages are distro-agnostic: one deb and one rpm per arch.
+        # Each entry promotes one S3 dir, key-for-key with the RC:
+        #   <arch>-{deb,rpm} plus -malloc and -no-python (used for FIPS) variants
+        #   docker-<arch> plus -relwithdebinfo, -malloc-relwithdebinfo, -fips
+        # 10 dirs per arch, 20 jobs.
         target: [deb, rpm, docker]
         arch: [amd, arm]
         malloc: [false]
