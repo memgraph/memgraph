@@ -23,11 +23,9 @@ namespace memgraph::storage {
 /// Which ids a write has to be reported against, so that whatever validates later can find the
 /// object again.
 ///
-/// Answering "not interesting" suppresses the report, which does not make a later check cheaper
-/// but removes it. A holder that cannot enumerate the ids it is keyed on therefore has to answer
-/// `Everything()`; handing over a set that is merely incomplete loses writes silently. The
-/// default is `Everything()` for the same reason: a value nobody filled in reports everything
-/// rather than nothing.
+/// Answering "not interesting" removes a later check rather than making it cheaper, so an
+/// incomplete set loses writes silently. A holder that cannot enumerate the ids it is keyed on
+/// has to answer `Everything()`, and the default is `Everything()` for the same reason.
 template <typename TId>
 class InterestingIds {
  public:
@@ -35,12 +33,10 @@ class InterestingIds {
 
   static InterestingIds Everything() { return {}; }
 
-  /// `narrow` is borrowed, must be sorted, and must outlive every use of the result. It is held by
-  /// whatever owns the snapshot the ids were read from, which a transaction keeps for its whole
-  /// lifetime.
+  /// `narrow` is borrowed, must be sorted, and must outlive every use of the result. Its owner is
+  /// the snapshot the ids were read from, which a transaction keeps for its whole lifetime.
   static InterestingIds Only(std::span<TId const> narrow) {
-    // An unsorted set makes the search below answer false for an id that is in it, which is the
-    // direction that loses writes.
+    // Unsorted, the search below answers false for an id that is in the set, losing writes.
     DMG_ASSERT(std::ranges::is_sorted(narrow), "InterestingIds::Only needs a sorted set");
     return InterestingIds{narrow};
   }
@@ -55,10 +51,8 @@ class InterestingIds {
 };
 
 /// Puts gathered ids into the form `InterestingIds::Only` borrows: sorted, and each id once.
-///
-/// Gathering differs with the shape of whatever holds the ids, so callers do that themselves and
-/// hand the result here. Several constraints or indexes can be keyed on one id and each names it
-/// separately, so duplicates are expected rather than a caller's mistake.
+/// Several constraints or indexes can be keyed on one id and each names it separately, so
+/// duplicates are expected rather than a caller's mistake.
 template <typename TId>
 auto SortedUniqueIds(std::vector<TId> ids) -> std::vector<TId> {
   std::ranges::sort(ids);

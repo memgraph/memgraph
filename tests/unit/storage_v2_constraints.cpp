@@ -2549,7 +2549,7 @@ TEST_P(UniquePropertyTrackingTest, IdenticalConstrainedWritesKeepExistingFlagSem
     auto vertex = acc->FindVertex(gid, View::NEW);
     ASSERT_TRUE(vertex);
     ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop1, PropertyValue(7), method));
-    // UpdateProperties currently uses the opposite flag polarity to SetProperty.
+    // UpdateProperties uses the opposite flag polarity to SetProperty.
     EXPECT_EQ(acc->GetTransaction()->constraint_verification_info->NeedsUniqueConstraintVerification(),
               method == 0 ? GetParam() : !GetParam());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -2582,12 +2582,11 @@ TEST_P(UniquePropertyTrackingTest, SkippedWritesPreserveEntriesAcrossAbortAndGc)
 
 INSTANTIATE_TEST_SUITE_P(DeltaOnIdenticalUpdate, UniquePropertyTrackingTest, testing::Bool());
 
-// A write is only validated at commit if it was reported when it happened, so a property the
-// constrained set fails to name is a property whose vertex is never checked and whose duplicate
-// commits. These tests take the properties to try from the active constraints themselves, so a
-// constraint shape that stops contributing to that set fails here rather than admitting a
-// duplicate. Several labels and a composite key, because a derivation that stops after the first
-// of either looks correct with one constraint.
+// Every constrained property is reported when written. One the constrained set fails to name is
+// never checked at commit, so its duplicate commits. The properties tried come from the active
+// constraints, so a constraint shape that stops contributing fails here. Several labels and a
+// composite key, because a derivation that stops after the first of either looks correct with one
+// constraint.
 class UniqueConstrainedPropertyCoverageTest : public ConstraintsTest<InMemoryStorage> {
  public:
   void SetUp() override {
@@ -2641,12 +2640,9 @@ TEST_F(UniqueConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotReport
   EXPECT_FALSE(WriteIsReported(unconstrained));
 }
 
-// The removal counterpart of UniqueConstrainedPropertyCoverageTest. A property the existence
-// constrained set fails to name is a property whose removal is never reported, so its vertex is
-// never checked and a vertex holding the label without the value commits. The properties tried
-// come from the active constraints, so a derivation that stops naming one fails here. Three
-// constraints over two labels, because one constraint cannot tell an exhaustive walk from a walk
-// that stops after the first.
+// Every existence-constrained property is reported when removed. One the set fails to name leaves
+// a vertex holding the label without the value able to commit. Three constraints over two labels,
+// because one cannot tell an exhaustive derivation from one that stops after the first.
 class ExistenceConstrainedPropertyCoverageTest : public ConstraintsTest<InMemoryStorage> {
  public:
   void SetUp() override {
@@ -2702,9 +2698,8 @@ TEST_F(ExistenceConstrainedPropertyCoverageTest, EveryConstrainedPropertyIsRepor
   EXPECT_EQ(reported, (std::set<PropertyId>{prop1, prop2, prop3}));
 }
 
-// The label channel feeds both the unique and the existence check, so a label either constraint
-// kind is keyed on must be reported and a label neither mentions need not be. The rejections are
-// what keep it honest: they fail if a label addition that does matter stops being reported.
+// The label channel feeds both checks, so a label either kind is keyed on must be reported and a
+// label neither mentions need not be.
 class LabelTrackingTest : public ConstraintsTest<InMemoryStorage> {
  public:
   void SetUp() override {
@@ -2743,9 +2738,9 @@ TEST_F(LabelTrackingTest, AddingAnUnconstrainedLabelIsNotReported) {
   EXPECT_FALSE(existence);
 }
 
-// Every label either kind is keyed on has to reach both channels, because a label addition is the
-// one write that can newly bring a vertex under a constraint without touching a property. The
-// labels tried come from the active constraints, so a derivation that stops naming one fails here.
+// A label addition is the one write that can bring a vertex under a constraint without touching a
+// property. The labels tried come from the active constraints, so a derivation that stops naming
+// one fails here.
 TEST_F(LabelTrackingTest, EveryConstrainedLabelIsReported) {
   auto const listing = this->storage->Access(WRITE)->ListAllConstraints();
   auto constrained = std::set<LabelId>{};
@@ -2813,8 +2808,7 @@ TEST_F(ExistenceConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotRep
 }
 
 // Removing a value can only break an existence constraint keyed on that property, so removals of
-// anything else need not be reported. The rejections are what keep the narrowing honest: they
-// fail if a removal that does matter stops being reported.
+// anything else need not be reported.
 class ExistencePropertyTrackingTest : public ConstraintsTest<InMemoryStorage> {
  public:
   void SetUp() override {
@@ -2872,8 +2866,8 @@ TEST_F(ExistencePropertyTrackingTest, RemovingAConstrainedPropertyIsReportedAndR
   ASSERT_NO_FATAL_FAILURE(ExpectExistenceFailure(*acc));
 }
 
-// ClearProperties removes the constrained property among the rest, so it has to report that
-// rather than report the vertex without saying what went.
+// ClearProperties removes the constrained property among the rest, so it has to report which
+// properties went.
 TEST_F(ExistencePropertyTrackingTest, ClearingEveryPropertyIsReportedAndRejected) {
   auto const gid = Seed();
 
