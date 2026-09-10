@@ -2,13 +2,3 @@ include(memgraph_freebsd_base)
 
 [settings]
 compiler.cppstd=gnu17
-
-# fmt 11.1.1, which ccache pins, allocates with malloc and free in a header that
-# includes neither <cstdlib> nor <stdlib.h>, and libc++ 21 stopped supplying them
-# through another header. Both the library and the code that includes its headers need
-# the declarations, so both name the include. This belongs in the build profile because
-# ccache and the fmt it pins are tools, and conf reaches a tool through the profile that
-# describes the machine building it.
-[conf]
-fmt/*:tools.build:cxxflags=["-include", "cstdlib"]
-ccache/*:tools.build:cxxflags=["-include", "cstdlib"]
