@@ -198,7 +198,11 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
   if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
     spdlog::trace("Error trace: {}", p->trace());
   }
-  session.encoder_buffer_.Clear();
+  // Complete any record already partially on the wire (64 KiB auto-flush split) before the summary.
+  if (!session.encoder_buffer_.FlushFinalized()) {
+    spdlog::trace("Couldn't flush finalized record chunks!");
+    return State::Close;
+  }
 
   auto code_message = ExceptionToErrorMessage(e, session.GetMetricHandles());
   bool fail_sent = session.encoder_.MessageFailure({{"code", code_message.first}, {"message", code_message.second}});
@@ -506,7 +510,10 @@ State HandleNoop(const State state) {
 }
 
 template <typename TSession>
-State HandleGoodbye() {
+State HandleGoodbye(TSession &session) {
+  // Deliver any responses deferred by encoder response-batching before the connection closes; the flush
+  // result is moot since the SessionClosedException below closes the connection regardless.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
   throw SessionClosedException("Closing connection.");
 }
 
@@ -574,7 +581,8 @@ State HandleRoute(TSession &session, const Marker marker) {
   }
 
 #else
-  session.encoder_buffer_.Clear();
+  // Deliver any responses deferred earlier in this burst before the FAILURE, rather than discarding them.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
   bool fail_sent =
       session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message is not supported in Memgraph!"}});
   if (!fail_sent) {
