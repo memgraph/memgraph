@@ -1,7 +1,18 @@
 {% set target_arch = {"amd64": "x86_64", "aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
+{% set clang_version = detect_api.default_compiler_version("clang", detect_api.detect_clang_compiler("/usr/bin/cc")[1]) %}
+{% set cmake_version = os.popen("cmake --version").read().split()[2] %}
+{% set ninja_version = os.popen("ninja --version").read().strip() %}
+{% set flex_version = os.popen("flex --version").read().split()[1] %}
 
 # What the FreeBSD host and build profiles agree on. Each adds the C++ standard it needs,
 # and the host profile adds what only applies to building memgraph itself.
+#
+# The compiler and the build tools belong to the host here rather than to a toolchain
+# this repository builds, and they differ between FreeBSD releases: 15 carries clang 19
+# where 16 carries clang 21. Reading the versions off the host is what lets one profile
+# describe any of them, and it keeps conan's package ids computed for the compiler that
+# will actually run. A missing tool surfaces as a render error; build.sh checks the
+# packages this needs before it reaches conan.
 
 [settings]
 arch={{ target_arch }}
@@ -9,7 +20,7 @@ build_type=Release
 compiler=clang
 compiler.cstd=gnu17
 compiler.libcxx=libc++
-compiler.version=21
+compiler.version={{ clang_version }}
 os=FreeBSD
 
 [conf]
@@ -22,12 +33,21 @@ tools.build:compiler_executables={"c": "/usr/bin/cc", "cpp": "/usr/bin/c++"}
 jemalloc/*:tools.gnu:make_program=gmake
 libbcrypt/*:tools.gnu:make_program=gmake
 
-# Provided by the host rather than built here. Each entry must name an exact version so
-# conan can match it against the version a recipe pins.
+# Taken from the host rather than built here. Conan matches each entry against what a
+# recipe asks for, so it has to name the version the host really has, which is what the
+# lines at the top read off. cmake is the one with no alternative: its conancenter recipe
+# packages prebuilt binaries for Linux, macOS and Windows, and a FreeBSD build of it
+# fails looking its own platform up in that list.
+#
+# openjdk names the version conan's antlr4 recipe requires. What runs is the host's JDK,
+# which only has to be new enough for the antlr4 jar.
 [platform_tool_requires]
-cmake/3.31.12
-cmake/4.3.3
-ninja/1.13.2
-flex/2.6.4
-antlr4/4.13.1
+cmake/{{ cmake_version }}
+ninja/{{ ninja_version }}
+flex/{{ flex_version }}
 openjdk/21.0.1
+
+# Memgraph pins a cmake newer than any FreeBSD port carries, and dependencies pin ranges
+# below it. The host has one cmake, so every such requirement resolves to it.
+[replace_tool_requires]
+cmake/*: cmake/{{ cmake_version }}
