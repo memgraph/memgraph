@@ -11,6 +11,10 @@ on:
         type: number
         description: "Number of times to run the benchmarks. Default is 10. Not applied to HA suites"
         default: 10
+      benchmarks:
+        type: string
+        description: "workflow_dispatch only: comma-separated step ids to run (e.g. mgbench-ha-realistic-sync), or all. Ignored by the nightly schedule, which always runs everything."
+        default: 'all'
   schedule:
     - cron: "0 0 * * *"
 
@@ -35,6 +39,9 @@ jobs:
       DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_async.json'
       DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_sync_async.json'
       DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
+      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync.json'
+      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync_routing.json'
+      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync_routing_implicit.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -111,6 +118,7 @@ jobs:
 
       - name: Run and upload mgbench-ha
         id: mgbench-ha
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha,') }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -124,8 +132,71 @@ jobs:
             $BRANCH_NAME \
             mgbench
 
+      # Concurrent read+write mix on the SYNC cluster (ha_cluster.yaml). Unlike the isolated legs above,
+      # this drives many clients through the commit path while writes wait on the SYNC replica ACK, so it
+      # measures the aggregate-throughput win from parking pool workers instead of blocking them.
+      - name: Run and upload mgbench-ha-realistic-sync
+        id: mgbench-ha-realistic-sync
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync,') }}
+        continue-on-error: true
+        env:
+          # 3 repeats (each re-runs and re-uploads as its own point) so the series shows a median and a
+          # spread rather than one measurement; the aggregate mix throughput is noisier than an isolated
+          # per-query number, so a single point is not enough to compare baseline against the funnel.
+          # Overridable per-dispatch via the loop_count input.
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic" \
+            mgbench-ha-realistic-sync \
+            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-realistic-sync-routing
+        id: mgbench-ha-realistic-sync-routing
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync-routing,') }}
+        continue-on-error: true
+        env:
+          # Same realistic mix as the direct-to-main step above, but reached through a bolt+routing
+          # python client against a coordinator, so reads/writes are dispatched by the routing table
+          # (reads-on-main enabled) as a real HA client connects. Managed transactions
+          # (execute_read/execute_write). Same repeat rationale.
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --routing" \
+            mgbench-ha-realistic-sync-routing \
+            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-realistic-sync-routing-implicit
+        id: mgbench-ha-realistic-sync-routing-implicit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync-routing-implicit,') }}
+        continue-on-error: true
+        env:
+          # Same routed realistic mix as the step above, but with implicit (auto-commit) transactions
+          # and a manually set session access mode instead of managed transaction functions, to
+          # compare the two transaction styles under routing.
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --routing --routing-tx-mode implicit" \
+            mgbench-ha-realistic-sync-routing-implicit \
+            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
       - name: Run and upload mgbench-ha-2-replicas
         id: mgbench-ha-2-replicas
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2-replicas,') }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -141,6 +212,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-async
         id: mgbench-ha-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-async,') }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -156,6 +228,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-strict-sync
         id: mgbench-ha-strict-sync
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-strict-sync,') }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -171,6 +244,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-strict-sync
         id: mgbench-ha-2-strict-sync
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2-strict-sync,') }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -186,6 +260,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-sync-async
         id: mgbench-ha-sync-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-sync-async,') }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -201,6 +276,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-strict-sync-async
         id: mgbench-ha-strict-sync-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-strict-sync-async,') }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -216,6 +292,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-async
         id: mgbench-ha-2-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2-async,') }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -231,6 +308,7 @@ jobs:
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',load-parquet,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -243,6 +321,7 @@ jobs:
 
       - name: Run and upload mgbench-vector-search-index
         id: mgbench-vector-search-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-vector-search-index,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -256,6 +335,7 @@ jobs:
 
       - name: Run and upload mgbench-vector-search-edge-index
         id: mgbench-vector-search-edge-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-vector-search-edge-index,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -269,6 +349,7 @@ jobs:
 
       - name: Run and upload mgbench-text-search-index
         id: mgbench-text-search-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-text-search-index,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -282,6 +363,7 @@ jobs:
 
       - name: Run and upload mgbench-text-search-edge-index
         id: mgbench-text-search-edge-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-text-search-edge-index,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -295,6 +377,7 @@ jobs:
 
       - name: Run and upload macro benchmarks
         id: macro-benchmark
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',macro-benchmark,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -308,6 +391,7 @@ jobs:
 
       - name: Run and upload mgbench-supernode
         id: mgbench-supernode
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-supernode,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -321,6 +405,7 @@ jobs:
 
       - name: Run and upload mgbench
         id: mgbench
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -334,6 +419,7 @@ jobs:
 
       - name: Run extended planner optimizations mgbench
         id: planner
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',planner,') }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \

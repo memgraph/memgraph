@@ -1842,23 +1842,43 @@ test_memgraph() {
     fi
   fi
 
+  # ctest's per-test results are what say which test failed and how often across
+  # repeated runs, and they matter most on the runs that failed. Copy them out of
+  # the container whatever the exit status was, then hand that status back.
+  # A failure here is reported rather than hidden: an empty summary otherwise
+  # reads the same as a clean run.
+  collect_ctest_results() {
+    local status=$1
+    mkdir -p "$PROJECT_ROOT/build/test-results"
+    if ! docker cp "$build_container:$BUILD_DIR/test-results/." "$PROJECT_ROOT/build/test-results/" 2>&1; then
+      echo "Warning: could not copy ctest results out of $build_container; this run will be absent from the flake summary." >&2
+    fi
+    return "$status"
+  }
+
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
   echo "Running $test_name test on $build_container..."
   case "$test_name" in
     unit)
+      local status=0
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$(nproc) --output-junit test-results/unit.xml' || status=$?
       else
         local EXPORT_THREADS="export THREADS=$threads"
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$THREADS'
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$THREADS --output-junit test-results/unit.xml' || status=$?
       fi
+      collect_ctest_results "$status"
     ;;
     unit-coverage)
       local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=halt_on_error=1"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& ctest -R memgraph__unit --output-on-failure -j2'
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j2 --output-junit test-results/unit-coverage.xml' || status=$?
+      collect_ctest_results "$status"
     ;;
     leftover-CTest)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure'
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure --output-junit test-results/leftover-ctest.xml' || status=$?
+      collect_ctest_results "$status"
     ;;
     drivers)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run.sh'
@@ -2027,6 +2047,18 @@ test_memgraph() {
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
       local CLUSTER_DESCRIPTION='ha_cluster.yaml'
+      # isolated (default): each query benchmarked on its own, the per-query "replication tax".
+      # realistic: one concurrent read+write mix, to expose throughput wins from unblocking pool
+      # workers that would otherwise stall behind a commit holding its lock across the replication ACK.
+      local MODE='isolated'
+      local NUM_WORKERS=''
+      # routing: reach the cluster through a bolt+routing (neo4j://) python client against a
+      # coordinator instead of a direct bolt connection to main, so reads and writes are dispatched
+      # by the routing table the way a real HA client connects. Only meaningful with --realistic.
+      local ROUTING=0
+      # managed (execute_read/execute_write transaction functions) vs implicit (auto-commit run()
+      # with a manually set session access mode); measured separately to compare the two styles.
+      local ROUTING_TX_MODE='managed'
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2042,16 +2074,59 @@ test_memgraph() {
             CLUSTER_DESCRIPTION="$2"
             shift 2
           ;;
+          --realistic)
+            MODE='realistic'
+            shift 1
+          ;;
+          --routing)
+            ROUTING=1
+            shift 1
+          ;;
+          --routing-tx-mode)
+            ROUTING_TX_MODE="$2"
+            shift 2
+          ;;
+          --num-workers)
+            NUM_WORKERS="$2"
+            shift 2
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench-ha"
-            echo "Supported flags: --size, --export-results-file, --cluster-description"
+            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --routing-tx-mode, --num-workers"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+      # bolt+routing goes through a python client speaking neo4j:// to a coordinator; the default
+      # cluster description switches to the one that enables reads on main so routed reads reach it.
+      local ROUTING_ARGS=''
+      if [[ "$ROUTING" == "1" ]]; then
+        if [[ "$MODE" != "realistic" ]]; then
+          echo "Error: --routing is only supported with --realistic for mgbench-ha"
+          exit 1
+        fi
+        ROUTING_ARGS="--client-language python --client-bolt-routing --client-bolt-routing-tx-mode $ROUTING_TX_MODE"
+        if [[ "$CLUSTER_DESCRIPTION" == "ha_cluster.yaml" ]]; then
+          CLUSTER_DESCRIPTION='ha_cluster_routing.yaml'
+        fi
+      fi
+      if [[ "$MODE" == "realistic" ]]; then
+        # Read-heavy realistic mix (20% write, 80% read, 0% update, 0% analytical) over the pokec arango
+        # group, at high concurrency so many clients contend for the commit path while writes replicate.
+        # This is the workload the funnel improves and that isolated per-query benchmarks cannot show.
+        # 50k queries (not 5k) so the measured window is ~80s of steady state rather than ~8s: relative
+        # timing noise scales ~1/sqrt(window), and the aggregate throughput is the only signal here.
+        # --warm-up hot excludes cold-cache/first-touch cost from the sample. The mix is seeded on the
+        # "50000_20_80_0_0" distribution string, so every run executes the identical query stream — an
+        # A/B (baseline vs funnel) differs only in timing, not in composition.
+        local WORKERS="${NUM_WORKERS:-18}"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 20 80 0 0 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
+      else
+        local WORKERS="${NUM_WORKERS:-6}"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark $WORKERS --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+      fi
     ;;
     mgbench-supernode)
       shift 1
