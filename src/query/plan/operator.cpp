@@ -5073,13 +5073,6 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
-      // Testing no labels asks only whether the value is a node, so the pattern it came from is the whole story.
-      if (filter_expression->labels_.empty() && filter_expression->or_labels_.empty()) {
-        if (const auto *identifier = utils::Downcast<Identifier>(filter_expression->expression_)) {
-          return fmt::format("({})", identifier->name_);
-        }
-        return "()";
-      }
       std::set<std::string, std::less<>> AND_label_names;
       for (const auto &label : filter_expression->labels_) {
         AND_label_names.insert(label.name);
@@ -5134,6 +5127,15 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
     }
     case Type::Pattern: {
       return "Pattern";
+    }
+    case Type::Node: {
+      // Only the planner writes this, over the identifier of a node the query has already bound, so the
+      // pattern that asked the question is the whole of what there is to say.
+      if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
+        LOG_FATAL("Node filters not using LabelsTest are not supported for query inspection!");
+      }
+      const auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      return fmt::format("({})", static_cast<Identifier *>(filter_expression->expression_)->name_);
     }
     case Type::Point: {
       return fmt::format(

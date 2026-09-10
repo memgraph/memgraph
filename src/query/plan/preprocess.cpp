@@ -195,6 +195,10 @@ void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &match
 
 auto MatchesIdentifier(Identifier *identifier) {
   return [identifier](FilterInfo const &existing) {
+    // Only a label filter accumulates labels. A node test carries a `LabelsTest` too, and merging into it would
+    // make it demand labels the pattern it came from never stated.
+    if (existing.type != FilterInfo::Type::Label) return false;
+
     auto *existing_label_test = dynamic_cast<LabelsTest *>(existing.expression);
     if (!existing_label_test) return false;
 
@@ -860,6 +864,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
+      if (labels_test->labels_.empty() && labels_test->or_labels_.empty()) {
+        all_filters_.emplace_back(make_filter(FilterInfo::Type::Node));
+        return;
+      }
       auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
