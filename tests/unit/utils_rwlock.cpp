@@ -14,7 +14,6 @@
 #include "utils/rw_lock.hpp"
 #include "utils/timer.hpp"
 
-#include <barrier>
 #include <latch>
 #include <semaphore>
 #include <shared_mutex>
@@ -22,35 +21,36 @@
 
 using namespace std::chrono_literals;
 
-TEST(RWLock, MultipleReaders) {
+TEST(RWLock, SupportsMultipleConcurrentReaders) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
   constexpr int num_workers{3};
 
-  std::vector<std::thread> threads;
-  threads.reserve(num_workers);
+  std::counting_semaphore<> holding_lock{0};
+  std::counting_semaphore<> may_release{0};
 
-  auto timer = memgraph::utils::Timer();
-  auto start = std::chrono::duration<double>();
-
-  std::barrier start_sync(num_workers, [&start, &timer]() { start = timer.Elapsed(); });
-  std::barrier end_sync(num_workers, [&start, &timer]() {
-    auto const elapsed = timer.Elapsed() - start;
-    EXPECT_LE(elapsed, 150ms);
-    EXPECT_GE(elapsed, 90ms);
-  });
+  auto readers = std::vector<std::jthread>{};
+  readers.reserve(num_workers);
 
   for (int i = 0; i < num_workers; ++i) {
-    threads.emplace_back([&]() {
-      start_sync.arrive_and_wait();
+    readers.emplace_back([&] {
       auto lock = std::shared_lock{rwlock};
-      std::this_thread::sleep_for(100ms);
-      end_sync.arrive_and_wait();
+      // Released while the lock is still held, so an arrival means this reader is
+      // inside the critical section, not merely that it got in at some point.
+      holding_lock.release();
+      // Timed, so a reader unwinds and gives up its lock even if the test fails
+      // and the gate below is never opened.
+      may_release.try_acquire_for(10s);
     });
   }
 
-  for (auto &thread : threads) {
-    thread.join();
+  // Every reader is holding the shared lock at the same time, or the lock is not
+  // granting shared access. Timed out rather than waited on forever, so a lock
+  // that never admits them all fails here instead of hanging.
+  for (int i = 0; i < num_workers; ++i) {
+    EXPECT_TRUE(holding_lock.try_acquire_for(10s)) << "readers did not hold the shared lock concurrently";
   }
+
+  may_release.release(num_workers);
 }
 
 TEST(RWLock, SingleWriter) {
