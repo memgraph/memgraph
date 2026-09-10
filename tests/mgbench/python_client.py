@@ -18,9 +18,17 @@ from neo4j import GraphDatabase
 # rejected, so keep this in sync with the clauses the workloads actually emit.
 _WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP|CALL)\b", re.IGNORECASE)
 
+# DDL / schema commands that Memgraph refuses inside an explicit (multicommand) transaction and so
+# must run as an implicit auto-commit query even in managed routing (e.g. dataset-import index setup).
+_DDL_CLAUSE = re.compile(r"\b(INDEX|CONSTRAINT|TRIGGER)\b", re.IGNORECASE)
+
 
 def _is_write_query(query):
     return bool(_WRITE_CLAUSE.search(query))
+
+
+def _is_ddl_query(query):
+    return bool(_DDL_CLAUSE.search(query))
 
 
 class PythonClient(ABC):
@@ -102,7 +110,12 @@ class Neo4jClient(PythonClient):
                 # load-balanced across the routing table's READ servers, writes to main) and release
                 # the connection on commit, so routing distributes the load per query.
                 if write:
-                    self._write_session.execute_write(lambda tx: tx.run(query, parameters=params or {}).consume())
+                    if _is_ddl_query(query):
+                        # DDL cannot run in a managed (explicit) transaction; auto-commit on the
+                        # write session so it still routes to main but as an implicit transaction.
+                        self._write_session.run(query, parameters=params or {}).consume()
+                    else:
+                        self._write_session.execute_write(lambda tx: tx.run(query, parameters=params or {}).consume())
                 else:
                     self._read_session.execute_read(lambda tx: tx.run(query, parameters=params or {}).consume())
             else:
