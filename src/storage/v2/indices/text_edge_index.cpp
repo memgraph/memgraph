@@ -11,6 +11,7 @@
 
 #include "storage/v2/indices/text_edge_index.hpp"
 #include <spdlog/spdlog.h>
+#include <nlohmann/json.hpp>
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/exceptions.hpp"

@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <cstdint>
 
+#include <nlohmann/json.hpp>
+
 #include "dbms/database.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"

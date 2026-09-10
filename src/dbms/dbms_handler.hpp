@@ -31,6 +31,8 @@
 #include <type_traits>
 #include <utility>
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "constants.hpp"
 #include "dbms/database.hpp"
 #include "dbms/database_info.hpp"
@@ -82,42 +84,7 @@ struct Statistics {
   uint64_t num_descriptions;               //!< Number of server-side descriptions
 };
 
-static inline nlohmann::json ToJson(const Statistics &stats) {
-  nlohmann::json res;
-
-  res["edges"] = stats.num_edges;
-  res["vertices"] = stats.num_vertex;
-  res["triggers"] = stats.triggers;
-  res["streams"] = stats.streams;
-  res["users"] = stats.users;
-  res["roles"] = stats.roles;
-  res["databases"] = stats.num_databases;
-  res["indices"] = stats.indices;
-  res["constraints"] = stats.constraints;
-  res["storage_modes"] = {{storage::StorageModeToString((storage::StorageMode)0), stats.storage_modes[0]},
-                          {storage::StorageModeToString((storage::StorageMode)1), stats.storage_modes[1]},
-                          {storage::StorageModeToString((storage::StorageMode)2), stats.storage_modes[2]}};
-  res["isolation_levels"] = {{storage::IsolationLevelToString((storage::IsolationLevel)0), stats.isolation_levels[0]},
-                             {storage::IsolationLevelToString((storage::IsolationLevel)1), stats.isolation_levels[1]},
-                             {storage::IsolationLevelToString((storage::IsolationLevel)2), stats.isolation_levels[2]}};
-  res["durability"] = {{"snapshot_enabled", stats.snapshot_enabled}, {"WAL_enabled", stats.wal_enabled}};
-  res["property_store_compression_enabled"] = stats.property_store_compression_enabled;
-  res["property_store_compression_level"] = {
-      {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
-      {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
-      {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
-  res["label_node_count_histogram"] = {{"1-9", stats.label_node_count_histogram[0]},
-                                       {"10-99", stats.label_node_count_histogram[1]},
-                                       {"100-999", stats.label_node_count_histogram[2]},
-                                       {"1K-9.99K", stats.label_node_count_histogram[3]},
-                                       {"10K-99.9K", stats.label_node_count_histogram[4]},
-                                       {"100K-999K", stats.label_node_count_histogram[5]},
-                                       {"1M+", stats.label_node_count_histogram[6]}};
-  res["num_parameters"] = stats.num_parameters;
-  res["num_descriptions"] = stats.num_descriptions;
-
-  return res;
-}
+nlohmann::json ToJson(const Statistics &stats);
 
 // Retry/timeout knobs for Resume_'s single-flight loser loop. Defaults are the production values;
 // a test can shrink them (via the DbmsHandler constructor or SetResumeRetryPolicy) to exercise the

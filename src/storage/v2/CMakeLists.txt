@@ -74,6 +74,7 @@ target_sources(mg-storage-v2
         replication/slk.cpp
         gc_status.cpp
         schema_info.cpp
+        schema_info_types.cpp
         snapshot_progress.cpp
         storage.cpp
         storage_error.cpp

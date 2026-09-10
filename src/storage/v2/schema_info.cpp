@@ -476,6 +476,28 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(
   return json;
 }
 
+nlohmann::json SchemaInfo::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
+  auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
+  return tracking_.ToJson(name_id_mapper, enum_store);
+}
+
+nlohmann::json SchemaInfo::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+                                  const std::function<bool(VertexKey const &)> &node_predicate,
+                                  const std::function<bool(EdgeTypeId)> &edge_predicate) const {
+  auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
+  return tracking_.ToJson(name_id_mapper, enum_store, node_predicate, edge_predicate);
+}
+
+nlohmann::json SchemaInfo::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+                                  const std::function<bool(VertexKey const &)> &node_predicate,
+                                  const std::function<bool(EdgeTypeId)> &edge_predicate,
+                                  const std::function<bool(VertexKey const &, PropertyId)> &node_property_predicate,
+                                  const std::function<bool(EdgeTypeId, PropertyId)> &edge_property_predicate) const {
+  auto lock = std::unique_lock{operation_ordering_mutex_};
+  return tracking_.ToJson(
+      name_id_mapper, enum_store, node_predicate, edge_predicate, node_property_predicate, edge_property_predicate);
+}
+
 template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::DeleteVertex(Vertex *vertex) {
   auto &info = vertex_state_[vertex->labels];

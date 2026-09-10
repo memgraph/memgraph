@@ -4,6 +4,7 @@ target_sources(mg-dbms
     PRIVATE
     dbms_handler.cpp
     database.cpp
+    database_info.cpp
     tenant_profiles.cpp
     coordinator_handler.cpp
     inmemory/replication_handlers.cpp

@@ -9,27 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "dbms/database_info.hpp"
 
-#include <cstdint>
-
-#include <nlohmann/json_fwd.hpp>
-
-#include "storage/v2/storage.hpp"
+#include <nlohmann/json.hpp>
 
 namespace memgraph::dbms {
 
-struct DatabaseInfo {
-  storage::StorageInfo storage_info;
-  uint64_t triggers;
-  uint64_t streams;
-  int64_t db_memory_tracked{0};
-  int64_t db_peak_memory_tracked{0};
-  int64_t db_storage_memory_tracked{0};
-  int64_t db_embedding_memory_tracked{0};
-  int64_t db_query_memory_tracked{0};
-};
-
-nlohmann::json ToJson(const DatabaseInfo &info);
+nlohmann::json ToJson(const DatabaseInfo &info) {
+  auto res = storage::ToJson(info.storage_info);
+  res["triggers"] = info.triggers;
+  res["streams"] = info.streams;
+  res["db_memory_tracked"] = info.db_memory_tracked;
+  res["db_peak_memory_tracked"] = info.db_peak_memory_tracked;
+  res["db_storage_memory_tracked"] = info.db_storage_memory_tracked;
+  res["db_embedding_memory_tracked"] = info.db_embedding_memory_tracked;
+  res["db_query_memory_tracked"] = info.db_query_memory_tracked;
+  return res;
+}
 
 }  // namespace memgraph::dbms
