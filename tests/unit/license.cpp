@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
