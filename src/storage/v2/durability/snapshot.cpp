@@ -795,9 +795,10 @@ class SnapshotIdMap {
     return EdgeTypeId::FromUint(Get(snapshot_id, "Couldn't find edge type id in snapshot_id_map!"));
   }
 
-  // An unmapped id raises std::out_of_range here rather than RecoveryFailure. The trace logging resolves ids the
-  // surrounding code has already translated through a typed getter, so it never meets one that is missing.
-  uint64_t At(uint64_t snapshot_id) const { return map_.at(snapshot_id); }
+  // Resolves an id for the trace logging, which at some call sites runs before the typed getter for the same id. An
+  // id the mapper section never defined therefore surfaces here first, and has to raise the failure recovery catches
+  // rather than a lookup error it does not.
+  uint64_t At(uint64_t snapshot_id) const { return Get(snapshot_id, "Couldn't find id in snapshot_id_map!"); }
 
  private:
   uint64_t Get(uint64_t snapshot_id, const char *not_found) const {
