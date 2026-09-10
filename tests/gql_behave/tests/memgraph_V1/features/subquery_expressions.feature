@@ -3060,3 +3060,77 @@ Feature: Subquery expressions
       Then the result should be:
           | r        |
           | ['Ozzy'] |
+
+  # A body of one already-bound node has no pattern of its own to match, so it reads the value bound to the
+  # name. A null, which is what an OPTIONAL MATCH leaves behind, matches nothing.
+  Scenario: Test EXISTS and COUNT with a body of one bound node holding null
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'has_friend'})-[:KNOWS]->(:Person {name: 'lonely'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          OPTIONAL MATCH (p)-[:KNOWS]->(f)
+          RETURN p.name AS name, EXISTS { MATCH (f) } AS e, COUNT { MATCH (f) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name         | e     | c |
+          | 'has_friend' | true  | 1 |
+          | 'lonely'     | false | 0 |
+
+  # The path a body names over one already-bound node has no relationship to expand, so it is the node on its own.
+  Scenario: Test COUNT with a body naming a path over one bound node
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Alice'}), (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH path = (p) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 1 |
+          | 'Bob'   | 1 |
+
+  # A node atom in a body reads the name from outside it, so a pattern name that reuses one would mean the
+  # caller's value in one place and the body's own path in another.
+  Scenario: Test COUNT with a body naming a path after a name from outside it
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:A)-[:R]->(:B)-[:R]->(:C)
+          """
+      When executing query:
+          """
+          MATCH p = (:A)-[]->()-[]->()
+          RETURN COUNT { MATCH p = (:A)-[]->(x) } AS n, size(p) AS len;
+          """
+      Then an error should be raised
+
+  # Two patterns in one body are matched separately, so a filter naming the caller's variable together with a
+  # variable of one pattern has to be applied once both are known.
+  Scenario: Test COUNT with a body of two patterns and a filter reaching outside
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'a', age: 5}), (:Person {name: 'b', age: 1})
+          CREATE (:X {name: 'a'})-[:R]->(:Y {name: 'a'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          RETURN a.name AS name,
+                 COUNT { MATCH (a), (x)-[:R]->(y) WHERE y.name = a.name AND a.age > 3 } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name | c |
+          | 'a'  | 1 |
+          | 'b'  | 0 |
