@@ -86,11 +86,10 @@ class ExistenceConstraints {
     auto ListConstraints(uint64_t start_timestamp) const -> std::vector<std::pair<LabelId, PropertyId>>;
     bool empty() const;
 
-    /// The properties any active existence constraint is keyed on, whatever the label. Asked once
-    /// per transaction, so a write does not reach this.
+    /// The properties and the labels any active existence constraint is keyed on, as two
+    /// independent unions rather than per-constraint pairs. Asked once per transaction, so a write
+    /// does not reach these.
     auto ConstrainedProperties() const -> InterestingProperties;
-
-    /// The labels any active existence constraint is keyed on. Asked once per transaction.
     auto ConstrainedLabels() const -> InterestingLabels;
 
    private:

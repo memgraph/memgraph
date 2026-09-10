@@ -66,7 +66,7 @@ struct VectorMembershipFilter {
   bool Matches(IdT entity_id) const { return Matches(std::span<const IdT>(&entity_id, 1)); }
 
   /// Whether a change to `id` can have changed what this filter admits. A wildcard admits every
-  /// id, so no change to one alters its membership, which is what separates this from `Matches`.
+  /// id, so no change to one alters its membership.
   bool IsInteresting(IdT id) const {
     if (mode == VectorMatchMode::WILDCARD) return false;
     return std::ranges::contains(ids, id);

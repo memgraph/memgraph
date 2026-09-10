@@ -124,9 +124,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
    private:
     ContainerPtr container_;
-    // Sorted unions of the properties and of the labels of every constraint in `container_`. Every
-    // transaction started against this snapshot borrows them, so they are built with the snapshot
-    // rather than per transaction.
+    // Sorted, and borrowed by every transaction started against this snapshot.
     std::vector<PropertyId> constrained_properties_;
     std::vector<LabelId> constrained_labels_;
   };

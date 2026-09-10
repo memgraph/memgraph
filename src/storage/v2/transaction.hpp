@@ -148,8 +148,7 @@ struct Transaction {
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
         active_constraints_{std::move(active_constraints)},
-        // Reads the member, which is already initialised, so the ids below are borrowed from a
-        // snapshot this transaction holds for its whole lifetime.
+        // The parameter has been moved from by now, so these ids come from the member.
         constraint_verification_info{
             (active_constraints_ && !active_constraints_->empty())
                 ? std::optional<
@@ -266,9 +265,8 @@ struct Transaction {
   /// Concurrent safe constraints that existed at the beginning of the transaction
   /// Used for constraint validation during commit.
   ///
-  /// Declared ahead of `constraint_verification_info`, which borrows the constrained id sets out
-  /// of this snapshot: the borrower is then initialised second and destroyed first, so the ids
-  /// cannot outlive it.
+  /// Declared ahead of `constraint_verification_info`, which borrows the constrained id sets from
+  /// this snapshot: the borrower is then initialised second and destroyed first.
   ActiveConstraintsPtr active_constraints_;
 
   // A cache which is consistent to the current transaction_id + command_id.

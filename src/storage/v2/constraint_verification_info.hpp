@@ -19,14 +19,9 @@ namespace memgraph::storage {
 struct Vertex;
 struct Transaction;
 
-/// The objects a transaction's writes oblige it to re-check against the constraints, gathered as
-/// it writes and read at commit.
-///
-/// The ids each kind of constraint is keyed on, gathered as one value so that a kind added later
-/// gains a field here rather than a parameter at every call site. Every field defaults to
-/// reporting everything, so a kind whose fields are left unfilled over-reports rather than losing
-/// a check. All of them are borrowed from the constraint snapshot the transaction holds, so none
-/// may name a set that does not outlive the transaction.
+/// The ids each kind of constraint is keyed on. Every field defaults to reporting everything, so
+/// a kind left unfilled over-reports rather than losing a check. All are borrowed from the
+/// constraint snapshot the transaction holds and may not outlive it.
 struct ConstraintRelevance {
   InterestingProperties unique_properties{};
   InterestingLabels unique_labels{};
@@ -34,10 +29,8 @@ struct ConstraintRelevance {
   InterestingLabels existence_labels{};
 };
 
-/// A caller reports what it wrote and this decides whether the write can reach a constraint at
-/// all, so the rule lives here rather than at each write site. Which ids matter differs by
-/// report: writing a value can only collide with a unique constraint, removing one can only leave
-/// an existence constraint unmet, and gaining a label can do either.
+/// The objects a transaction's writes oblige it to re-check at commit, gathered as it writes. A
+/// caller reports what it wrote and this decides whether the write can reach a constraint at all.
 struct ConstraintVerificationInfo final {
   ConstraintVerificationInfo();
   explicit ConstraintVerificationInfo(ConstraintRelevance relevance);
@@ -50,16 +43,16 @@ struct ConstraintVerificationInfo final {
   ConstraintVerificationInfo(ConstraintVerificationInfo &&) noexcept;
   ConstraintVerificationInfo &operator=(ConstraintVerificationInfo &&) noexcept;
 
-  /// `vertex` gained `label`. Ignored when no unique or existence constraint is keyed on it: a
-  /// constraint that never mentions the label cannot start applying to a vertex that gains it.
+  /// Ignored when no constraint of either kind is keyed on `label`: one that never mentions it
+  /// cannot start applying to a vertex that gains it.
   void AddedLabel(LabelId label, Vertex const *vertex);
 
-  /// A value was written to `property`. Ignored when no unique constraint is keyed on it: a value
-  /// under a property none of them mention cannot collide with anything they hold.
+  /// Ignored when no unique constraint is keyed on `property`: a value under a property none of
+  /// them mention cannot collide with anything they hold.
   void AddedProperty(PropertyId property, Vertex const *vertex);
 
-  /// The value under `property` is gone. Ignored when no existence constraint is keyed on it: a
-  /// constraint that never asked for that property cannot be left unmet by its absence.
+  /// Ignored when no existence constraint is keyed on `property`: one that never asked for it
+  /// cannot be left unmet by its absence.
   void RemovedProperty(PropertyId property, Vertex const *vertex);
 
   auto GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *>;
