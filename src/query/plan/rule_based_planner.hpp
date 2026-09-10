@@ -322,6 +322,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     for (const auto &query_part : query_parts.query_parts) {
       context.bound_symbols = initial_bound_symbols;
       std::unique_ptr<LogicalOperator> input_op;
+      // A subquery expression's body works on the row its caller is on, so the part starts by naming what the
+      // caller has bound. An expansion asks its input which symbols it modifies to decide what the rest of the
+      // pattern may correlate to, and a filter over the caller's variables alone would otherwise be all it found
+      // there - leaving a filter that names one of those variables and one of the pattern's own belonging to
+      // neither.
+      if (context.in_subquery_body) {
+        input_op =
+            std::make_unique<Once>(std::vector<Symbol>(initial_bound_symbols.begin(), initial_bound_symbols.end()));
+      }
 
       context.is_write_query = false;
       for (const auto &single_query_part : query_part.single_query_parts) {
@@ -1294,13 +1303,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       storage::View view) {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
     const bool is_unseen_node = bound_symbols.insert(node1_symbol).second;
-
-    // A pattern that is one node the query has already bound scans nothing, so where it also begins a query part,
-    // as a subquery expression's body does, nothing below produces the row the rest of this function builds on.
-    // With an expansion, `GenExpand` reaches the node through the edge instead.
-    if (!is_unseen_node && !expansion.edge && !last_op) {
-      last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
-    }
 
     // we can just perform scanning from an edge if it's a simple edge
     // we don't take into consideration path expansion as part of edge scanning

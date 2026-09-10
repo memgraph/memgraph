@@ -218,3 +218,20 @@ TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNotANode) {
   ASSERT_EQ(results.size(), 1U);
   EXPECT_EQ(results[0][0].ValueInt(), 2);
 }
+
+TYPED_TEST(QueryExecution, SubqueryBodyCorrelatesAcrossSeparatePatterns) {
+  // Two patterns in a body reach each other's variables through what the body's first operator says it modifies.
+  // The caller's variables have to be among them, or a filter naming one of them together with a variable of the
+  // other pattern belongs to neither, and planning gives up.
+  this->Execute("CREATE (:Person {name: 'a', age: 5}), (:Person {name: 'b', age: 1})");
+  this->Execute("CREATE (:X {name: 'a'})-[:R]->(:Y {name: 'a'})");
+
+  auto results = this->Execute(
+      "MATCH (a:Person) "
+      "RETURN COUNT { MATCH (a), (x)-[:R]->(y) WHERE y.name = a.name AND a.age > 3 } AS c "
+      "ORDER BY c DESC");
+
+  ASSERT_EQ(results.size(), 2U);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+  EXPECT_EQ(results[1][0].ValueInt(), 0);
+}
