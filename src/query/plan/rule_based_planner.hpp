@@ -1287,6 +1287,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last_op;
   }
 
+  /// Whether @p node states no labels and no properties, so preprocessing collects no filter from it.
+  static bool IsBareNodeAtom(const NodeAtom &node) {
+    if (!node.labels_.empty()) return false;
+    const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_);
+    return properties != nullptr && properties->empty();
+  }
+
   std::unique_ptr<LogicalOperator> GenerateOperatorsForExpansion(
       std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const Expansion &expansion,
       const SymbolTable &symbol_table, AstStorage &storage, std::unordered_set<Symbol> &bound_symbols,
@@ -1328,6 +1335,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
     } else if (!named_paths.empty()) {
+      // The node is already bound, so nothing here scans it. A query part that begins at this expansion, as a
+      // subquery expression's body does, has no input yet for the path construction to read a row from.
+      if (!last_op) last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
@@ -1344,9 +1354,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                           named_paths,
                           new_symbols,
                           view);
-    } else if (!last_op) {
-      // If we hit here: already seen node + it's not a path or expansion
-      last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
+    } else if (!is_unseen_node) {
+      if (!last_op) last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
+      // An already-bound node is the whole of this expansion, so nothing above reads its value, and a bare one
+      // brings no filter with it. The pattern still has to match, and a null node, as an OPTIONAL MATCH leaves
+      // behind, matches nothing.
+      if (IsBareNodeAtom(*expansion.node1)) {
+        auto *identifier = storage.Create<Identifier>(node1_symbol.name())->MapTo(node1_symbol);
+        auto *is_bound = storage.Create<NotOperator>(storage.Create<IsNullOperator>(identifier));
+        last_op =
+            std::make_unique<Filter>(std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, is_bound);
+      }
     }
 
     return last_op;

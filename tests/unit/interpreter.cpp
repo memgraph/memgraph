@@ -2863,3 +2863,36 @@ TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   EXPECT_EQ(failures.load(), 0);
   EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
 }
+
+// A subquery expression's body starts from no input operator, so a body whose whole pattern is one
+// already-bound node has nothing to build the named path on top of.
+TYPED_TEST(InterpreterTest, SubqueryBodyNamedPathOverBoundNode) {
+  this->Interpret("CREATE (:Node)");
+
+  auto stream = this->Interpret("MATCH (n) RETURN COUNT { MATCH p = (n) } AS c");
+
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+}
+
+// A pattern never matches a null node, so a body that is one already-bound node has to read the bound value
+// rather than fold to a constant.
+TYPED_TEST(InterpreterTest, SubqueryBodyBoundNodeIsNull) {
+  this->Interpret("CREATE (:Person {name: 'lonely'})");
+
+  auto stream = this->Interpret(
+      "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(f) "
+      "RETURN EXISTS { MATCH (f) } AS e, COUNT { MATCH (f) } AS c");
+
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 0);
+}
+
+// The same holds outside a subquery: re-stating a bound node as a whole pattern is a match, not a no-op.
+TYPED_TEST(InterpreterTest, MatchOnBoundNodeIsNull) {
+  auto stream = this->Interpret("WITH null AS f MATCH (f) RETURN count(*) AS c");
+
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+}
