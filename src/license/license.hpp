@@ -60,6 +60,7 @@ struct License {
   int64_t valid_until;
   int64_t memory_limit;
   LicenseType type;
+  // a core_limit of 0 means unlimited — legacy keys decode to 0.
   int64_t core_limit{0};
 
   bool operator==(const License &) const = default;
