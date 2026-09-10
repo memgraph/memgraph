@@ -509,8 +509,11 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name. Shadowed: declare here, as for node and edge atoms below.
-    symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH)
-                                : GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
+    // A pattern name is always a declaration: unlike a node, it has nothing to correlate with, so in a subquery
+    // expression's body, which shares the caller's frame, it must not resolve to the caller's slot.
+    const bool declares_path = shadows_outer_name || (scope.in_subquery_body && name_in_scope);
+    symbol = declares_path ? CreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH)
+                           : GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
   } else if (scope.in_pattern && scope.in_pattern_atom_identifier) {
     //  Patterns used to create nodes and edges cannot redeclare already
     //  established bindings. Declaration only happens in single node

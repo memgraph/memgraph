@@ -2896,3 +2896,16 @@ TYPED_TEST(InterpreterTest, MatchOnBoundNodeIsNull) {
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
 }
+
+// A pattern name is a declaration, so a body reusing an outer one names its own path: the body shares the
+// caller's frame, and the caller's path must survive the fold.
+TYPED_TEST(InterpreterTest, SubqueryBodyNamedPathReusesOuterName) {
+  this->Interpret("CREATE (:A)-[:R]->(:B)-[:R]->(:C)");
+
+  auto stream =
+      this->Interpret("MATCH p = (:A)-[]->()-[]->() RETURN COUNT { MATCH p = (:A)-[]->(x) } AS n, size(p) AS len");
+
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+}
