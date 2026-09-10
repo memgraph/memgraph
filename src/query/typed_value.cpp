@@ -19,6 +19,7 @@
 #include <nlohmann/json.hpp>
 #include <string_view>
 #include <utility>
+#include <variant>
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
@@ -694,6 +695,15 @@ TypedValue::operator storage::ExternalPropertyValue() const {
       return storage::ExternalPropertyValue(point_2d_v);
     case TypedValue::Type::Point3d:
       return storage::ExternalPropertyValue(point_3d_v);
+    case Type::VectorRef: {
+      // Materialize the lazy embedding ref into a plain list of doubles, matching the List case above.
+      std::vector<float> tmp;
+      MaterializeVectorRefInto(tmp);
+      std::vector<storage::ExternalPropertyValue> list;
+      list.reserve(tmp.size());
+      for (const float f : tmp) list.emplace_back(static_cast<double>(f));
+      return storage::ExternalPropertyValue(std::move(list));
+    }
     case Type::Vertex:
     case Type::Edge:
     case Type::VirtualEdge:
@@ -787,6 +797,9 @@ TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{a
       alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
       return;
     }
+    case Type::VectorRef:
+      vector_ref_v = other.vector_ref_v;
+      return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -891,6 +904,9 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
         alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
       }
       break;
+    case Type::VectorRef:
+      vector_ref_v = other.vector_ref_v;
+      break;
   }
 }
 
@@ -962,6 +978,16 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(point_2d_v);
     case TypedValue::Type::Point3d:
       return storage::PropertyValue(point_3d_v);
+    case Type::VectorRef: {
+      // A lazy embedding ref materializes to the same DoubleList a literal `SET n.emb = [...]` stores,
+      // so a persisted copy is re-indexed by the vector index exactly like any other double list.
+      std::vector<float> tmp;
+      MaterializeVectorRefInto(tmp);
+      storage::PropertyValue::list_t list;
+      list.reserve(tmp.size());
+      for (const float f : tmp) list.emplace_back(static_cast<double>(f));
+      return storage::PropertyValue(storage::DoubleListTag{}, std::move(list));
+    }
     case Type::Vertex:
     case Type::Edge:
     case Type::VirtualEdge:
@@ -1005,7 +1031,44 @@ DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
 DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
 DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
+
+// List is hand-written (not macro-generated) so a lazy VectorRef materializes into an owned List on
+// first access. The ordering/equality/hash fast-paths dispatch on type() and never reach here, so a
+// value used only as a sort/dedup key stays compact.
+void TypedValue::EnsureListMaterialized() const {
+  if (type_ != Type::VectorRef) return;
+  std::vector<float> tmp;
+  MaterializeVectorRefInto(tmp);
+  auto *self = const_cast<TypedValue *>(this);
+  TVector list(alloc_);
+  list.reserve(tmp.size());
+  for (const float f : tmp) list.emplace_back(static_cast<double>(f));
+  std::destroy_at(&self->vector_ref_v);
+  std::construct_at(&self->list_v, std::move(list));
+  self->type_ = Type::List;
+}
+
+TypedValue::TVector &TypedValue::ValueList() {
+  EnsureListMaterialized();
+  if (type_ != Type::List) [[unlikely]]
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::List);
+  return list_v;
+}
+
+const TypedValue::TVector &TypedValue::ValueList() const {
+  EnsureListMaterialized();
+  if (type_ != Type::List) [[unlikely]]
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::List);
+  return list_v;
+}
+
+bool TypedValue::IsList() const { return type_ == Type::List || type_ == Type::VectorRef; }
+
+const TypedValue::TVector &TypedValue::UnsafeValueList() const {
+  EnsureListMaterialized();
+  return list_v;
+}
+
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
@@ -1023,9 +1086,32 @@ DEFINE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(LazyVectorRef, VectorRef, vector_ref_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 #undef DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
+
+TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
+  MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRef called on non-VectorRef TypedValue");
+  std::vector<float> tmp;
+  std::visit([&](auto const &acc) { acc.GetVectorInto(vector_ref_v.prop, tmp); }, vector_ref_v.entity);
+  TVector list(alloc);
+  list.reserve(tmp.size());
+  for (const float f : tmp) {
+    // The pmr vector injects its own allocator (uses_allocator); do not pass it explicitly.
+    list.emplace_back(static_cast<double>(f));
+  }
+  return {std::move(list), alloc};
+}
+
+void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
+  MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRefInto called on non-VectorRef TypedValue");
+  const bool ok =
+      std::visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, out); }, vector_ref_v.entity);
+  // On any miss GetVectorInto leaves `out` untouched (or resized but unfilled); clear the reused
+  // thread-local scratch so a failed lookup never compares/hashes against a prior entity's floats.
+  if (!ok) out.clear();
+}
 
 bool TypedValue::ContainsDeleted() const {
   switch (type_) {
@@ -1064,6 +1150,8 @@ bool TypedValue::ContainsDeleted() const {
     case Type::VirtualGraph:
     case Type::Function:
       throw TypedValueException("Value of unknown type");
+    case Type::VectorRef:
+      return false;
   }
   return false;
 }
@@ -1096,6 +1184,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Graph:
     case Type::VirtualGraph:
     case Type::Function:
+    case Type::VectorRef:
       return false;
   }
 }
@@ -1147,6 +1236,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "virtual_graph";
     case TypedValue::Type::Function:
       return os << "function";
+    case TypedValue::Type::VectorRef:
+      return os << "vector";
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -1406,6 +1497,9 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Point3d:
           point_3d_v = other.point_3d_v;
           break;
+        case Type::VectorRef:
+          vector_ref_v = other.vector_ref_v;
+          break;
       }
       return *this;
     }
@@ -1520,6 +1614,9 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Point3d:
           point_3d_v = other.point_3d_v;
           break;
+        case Type::VectorRef:
+          vector_ref_v = other.vector_ref_v;
+          break;
       }
 
       return *this;
@@ -1592,7 +1689,8 @@ TypedValue::~TypedValue() {
     case Type::Point2d:
     case Type::Point3d:
     case Type::ZonedDateTime:
-      // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
+    case Type::VectorRef:
+      // Trivially destructible: no heap ownership.
       break;
     case Type::Function:
       std::destroy_at(&function_v);
@@ -1994,6 +2092,20 @@ size_t Hash(const TypedValue &value) {
       throw TypedValueException("Unsupported hash function for Graph");
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported hash function for VirtualGraph");
+    case TypedValue::Type::VectorRef: {
+      // A VectorRef is equal to the List<Double> that MaterializeVectorRef produces, so it must hash
+      // identically or DISTINCT/GROUP BY would keep duplicates. Fold the same FnvCollection hash over
+      // a reused thread-local float buffer (no List allocated in the monotonic query arena), hashing
+      // each float exactly as its materialized Double element would be.
+      thread_local std::vector<float> tmp;
+      value.MaterializeVectorRefInto(tmp);
+
+      struct FloatAsDoubleHash {
+        size_t operator()(float f) const { return Hash(TypedValue(static_cast<double>(f))); }
+      };
+
+      return utils::FnvCollection<std::vector<float>, float, FloatAsDoubleHash>{}(tmp);
+    }
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }
@@ -2051,6 +2163,7 @@ void to_json(nlohmann::json &j, TypedValue const &value) {
       j = value.ValueString();
       break;
     case TypedValue::Type::List:
+    case TypedValue::Type::VectorRef:  // a lazy embedding materializes to its list of doubles
       j = value.ValueList();
       break;
     case TypedValue::Type::Map:

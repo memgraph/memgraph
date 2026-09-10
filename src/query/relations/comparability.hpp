@@ -18,6 +18,9 @@
 /// must place every pair because a sort is undefined without that.
 #pragma once
 
+#include <algorithm>
+#include <vector>
+
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::relations::comparability {
@@ -53,6 +56,7 @@ constexpr bool Admits(TypedValue::Type type) {
     case TypedValue::Type::Enum:
     case TypedValue::Type::Point2d:
     case TypedValue::Type::Point3d:
+    case TypedValue::Type::VectorRef:
       return false;
   }
 }
@@ -78,6 +82,19 @@ constexpr bool IsTemporal(TypedValue::Type type) {
 ///
 /// @throw TypedValueException for a pair of types this relation does not admit.
 inline TypedValue Less(const TypedValue &a, const TypedValue &b) {
+  // Lazy embedding refs: reconstruct both operands into reused thread-local float buffers (never the
+  // query's monotonic arena) and compare the floats directly. Mixed operands fall back to a transient
+  // List materialization, which Admits rejects like any other list.
+  if (a.IsVectorRef() && b.IsVectorRef()) {
+    thread_local std::vector<float> fa;
+    thread_local std::vector<float> fb;
+    a.MaterializeVectorRefInto(fa);
+    b.MaterializeVectorRefInto(fb);
+    return TypedValue(std::lexicographical_compare(fa.begin(), fa.end(), fb.begin(), fb.end()), a.get_allocator());
+  }
+  if (a.IsVectorRef()) return a.MaterializeVectorRef(a.get_allocator()) < b;
+  if (b.IsVectorRef()) return a < b.MaterializeVectorRef(b.get_allocator());
+
   if (!Admits(a.type()) || !Admits(b.type())) {
     if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type())) return {};
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());

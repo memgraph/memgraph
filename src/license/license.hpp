@@ -109,6 +109,9 @@ struct LicenseChecker {
   void CheckEnvLicense(utils::Settings &settings);
   void SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings);
   void EnableTesting(LicenseType license_type = LicenseType::ENTERPRISE);
+  // Test-only: additionally applies a license memory limit through the real routing
+  // (AI_PLATFORM -> graph_memory_tracker, others -> total_memory_tracker).
+  void EnableTesting(LicenseType license_type, int64_t memory_limit);
   void DisableTesting();
   // Checks if license is valid and if enterprise is enabled
   LicenseCheckResult IsEnterpriseValid(std::string_view license_key, std::string_view organization_name) const;

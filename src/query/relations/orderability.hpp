@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <compare>
+#include <vector>
 
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
@@ -69,6 +70,15 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
         return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
       case TypedValue::Type::List:
         return CompareOfLists(a, b);
+      case TypedValue::Type::VectorRef: {
+        // Lazy embedding: reconstruct both operands into reused thread-local float buffers (never the
+        // query's monotonic arena) and compare the floats, so a full ORDER BY holds only references.
+        thread_local std::vector<float> la;
+        thread_local std::vector<float> lb;
+        a.MaterializeVectorRefInto(la);
+        b.MaterializeVectorRefInto(lb);
+        return std::lexicographical_compare_three_way(la.begin(), la.end(), lb.begin(), lb.end());
+      }
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
       case TypedValue::Type::Edge:
@@ -120,6 +130,7 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case TypedValue::Type::Graph:
       case TypedValue::Type::VirtualGraph:
       case TypedValue::Type::Function:
+      case TypedValue::Type::VectorRef:  // unreachable: not numeric, rejected by the IsNumeric guard above
         LOG_FATAL("Invalid type");
     }
   }

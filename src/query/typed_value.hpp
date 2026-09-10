@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "query/path.hpp"
@@ -36,6 +37,14 @@ class Graph;         // fwd declare
 class VirtualGraph;  // fwd declare
 class VirtualEdge;   // fwd declare
 class VirtualNode;   // fwd declare
+
+/// Lazy handle for a vector-index embedding stored as a VectorIndexId reference. Holds a copy of the
+/// storage accessor (vertex or edge; both trivially copyable) and the property id. No floats are
+/// reconstructed until MaterializeVectorRef() / MaterializeVectorRefInto() is called.
+struct LazyVectorRef {
+  std::variant<storage::VertexAccessor, storage::EdgeAccessor> entity;
+  storage::PropertyId prop;
+};
 
 namespace {
 template <typename T>
@@ -111,7 +120,8 @@ class TypedValue {
     Point2d,
     Point3d,
     VirtualEdge,
-    VirtualNode
+    VirtualNode,
+    VectorRef
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -211,6 +221,10 @@ class TypedValue {
 
   explicit TypedValue(const storage::Point3d &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Point3d) {
     point_3d_v = value;
+  }
+
+  explicit TypedValue(LazyVectorRef ref, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VectorRef) {
+    vector_ref_v = ref;
   }
 
   // conversion function to storage::ExternalPropertyValue
@@ -517,7 +531,16 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
-  DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
+  // A VectorRef is a lazy list of the embedding's floats. IsList() reports it as a list and the
+  // ValueList() accessors force it (materialize-on-access, cached in place); the distinct type() lets
+  // the ordering/equality/hash fast-paths keep it compact (they read type(), never call ValueList()).
+  // So every list operation — subscript, slicing, UNWIND, IN, list functions — works without special
+  // casing a VectorRef.
+  TVector &ValueList();
+  const TVector &ValueList() const;
+  bool IsList() const;
+  const TVector &UnsafeValueList() const;
+
   DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
@@ -536,9 +559,21 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(LazyVectorRef, VectorRef, vector_ref_v)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
 #undef DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
+
+  /// Reconstruct the referenced embedding into a TypedValue::List of Doubles.
+  /// Transient: the returned list is freed when the TypedValue goes out of scope.
+  /// Must only be called when type() == Type::VectorRef.
+  TypedValue MaterializeVectorRef(allocator_type alloc) const;
+
+  /// Reconstruct the referenced embedding into a caller-owned float buffer (std::allocator).
+  /// This is the allocation-free path for the hot compare / hash / equality routines: the buffer
+  /// frees at the caller's scope, so it never accumulates in the query's monotonic arena the way a
+  /// materialized pmr List would. Must only be called when type() == Type::VectorRef.
+  void MaterializeVectorRefInto(std::vector<float> &out) const;
 
   bool ContainsDeleted() const;
 
@@ -762,6 +797,11 @@ class TypedValue {
   friend auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem>;
 
  private:
+  // If this is a VectorRef, reconstruct the embedding into an owned List (in this value's allocator)
+  // and become a List. Const because it is a lazy load of a value already logically present; callers
+  // observe no change other than the list materializing. No-op for any other type.
+  void EnsureListMaterialized() const;
+
   [[no_unique_address]] allocator_type alloc_{};
 
   // storage for the value of the property
@@ -794,6 +834,8 @@ class TypedValue {
     std::function<void(TypedValue *)> function_v;
     std::unique_ptr<VirtualEdge> virtual_edge_v;
     std::unique_ptr<VirtualNode> virtual_node_v;
+    // Trivially copyable: storage accessor + property id, no heap allocation.
+    LazyVectorRef vector_ref_v;
   };
 
   /**

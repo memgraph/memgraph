@@ -361,6 +361,10 @@ class VectorIndex {
   utils::small_vector<float> GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name,
                                                         NameIdMapper *name_id_mapper) const;
 
+  /// Reconstruct a vertex's indexed vector into `out` (resized to the index dimension); false if absent. Zero owning PropertyValue — used to materialize an embedding transiently.
+  bool GetVectorInto(Vertex *vertex, std::string_view index_name, NameIdMapper *name_id_mapper,
+                     std::vector<float> &out) const;
+
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
   std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;

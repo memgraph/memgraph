@@ -514,6 +514,18 @@ utils::small_vector<float> VectorEdgeIndex::GetVectorPropertyFromEdgeIndex(Edge 
   return vector;
 }
 
+bool VectorEdgeIndex::GetVectorInto(Edge *edge, std::string_view index_name, NameIdMapper *name_id_mapper,
+                                    std::vector<float> &out) const {
+  auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
+  if (!maybe_id.has_value()) return false;
+  auto it = index_->find(*maybe_id);
+  if (it == index_->end()) return false;
+  auto &item_ptr = it->second;
+  auto guard = utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+  out.resize(item_ptr->mg_index.index.dimensions());
+  return item_ptr->mg_index.index.get(edge, out.data());
+}
+
 utils::small_vector<uint64_t> VectorEdgeIndex::GetIndexIdsForEdgeTypeProperty(EdgeTypeId edge_type,
                                                                               PropertyId property) const {
   utils::small_vector<uint64_t> result;

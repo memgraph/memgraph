@@ -79,14 +79,18 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
+  /// When `with_vector_reconstruction` is false, a vector-index embedding is returned as its compact
+  /// VectorIndexId reference (empty float list) instead of being reconstructed — the lazy read path.
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  Result<PropertyValue> GetProperty(PropertyId property, View view, bool with_vector_reconstruction = true) const;
 
   /// Returns the size of the encoded edge property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+  /// When `with_vector_reconstruction` is false, vector-index embeddings are returned as their compact
+  /// VectorIndexId reference (empty float list) instead of being reconstructed — the lazy read path.
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view, bool with_vector_reconstruction = true) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
@@ -94,6 +98,10 @@ class EdgeAccessor final {
 
   /// Properties of this edge that are backed by a vector index.
   std::vector<PropertyId> VectorIndexedProperties() const;
+
+  /// Streams the edge's embedding for `property` into a caller-owned buffer without allocating an
+  /// owning PropertyValue. Returns false if the property is not a vector-index embedding.
+  bool GetVectorInto(PropertyId property, std::vector<float> &out) const;
 
   auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
 
