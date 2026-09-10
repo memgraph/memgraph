@@ -18,6 +18,7 @@ MEMGRAPH_BUILD_DEPS=(
     pkgconf # dependency discovery
     gmake # jemalloc and libbcrypt ship GNU-only makefiles
     bash # recipes that run shell scripts assume bash
+    rust # mgcxx/text_search needs cargo and rustc
     python3 py312-pip py312-sqlite3 # conan runs on python, and refuses to start without sqlite3
     openjdk21 # antlr4 is a java program
     flex bison # parser generation

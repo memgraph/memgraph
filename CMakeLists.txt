@@ -45,8 +45,7 @@ if(NOT UNIX)
     message(FATAL_ERROR "Unsupported operating system.")
 endif()
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-include(MgToolchain)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MgToolchain.cmake")
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host

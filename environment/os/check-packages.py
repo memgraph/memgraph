@@ -62,8 +62,10 @@ def check_packages_dnf(packages):
 
 def check_packages_pkg(packages):
     """Check which pkg packages are missing"""
-    # list installed packages
     pkg = subprocess.run(["pkg", "query", "%n"], capture_output=True, text=True)
+    if pkg.returncode != 0:
+        print(f"Error querying packages: {pkg.stderr}")
+        return list(packages)
 
     installed = pkg.stdout.splitlines()
     return compare_packages(installed, packages)
@@ -106,7 +108,7 @@ def install_packages_pkg(packages, dry_run=False):
 
     if missing and not dry_run:
         print(f"Installing missing packages: {' '.join(missing)}")
-        result = subprocess.run(["pkg", "install", "-y"] + missing)
+        result = subprocess.run(["pkg", "install", "-y"] + missing, capture_output=True, text=True)
         if result.returncode != 0:
             print(f"Error installing packages: {result.stderr}")
             return False
