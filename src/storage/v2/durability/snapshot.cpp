@@ -29,7 +29,6 @@
 
 #include <absl/container/flat_hash_map.h>
 #include "memory/db_arena_fwd.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
@@ -4056,7 +4055,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
                                     .dimension = static_cast<uint16_t>(*dimension),
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+                                    .scalar_kind = ScalarFromName(kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -4634,7 +4633,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                                     .dimension = static_cast<uint16_t>(*dimension),
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+                                    .scalar_kind = ScalarFromName(kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -5205,7 +5204,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
                                     .dimension = static_cast<uint16_t>(*dimension),
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+                                    .scalar_kind = ScalarFromName(kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
