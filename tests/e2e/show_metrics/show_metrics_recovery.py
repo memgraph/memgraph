@@ -117,7 +117,8 @@ def data_dir(name):
 def test_metrics_available_after_recovering_a_foreign_snapshot():
     """A snapshot carries the uuid of the database that wrote it, and recovery adopts it. Metrics are
     registered before recovery runs, so they must follow that uuid or SHOW METRICS INFO cannot find the
-    database. A replica recovering from MAIN is the production route into this state."""
+    database. Recovering a data directory holding a snapshot written elsewhere, such as a restored
+    backup, is the route into this state."""
     for name in FOREIGN_SNAPSHOT_DESCRIPTION:
         shutil.rmtree(data_dir(name), ignore_errors=True)
 
