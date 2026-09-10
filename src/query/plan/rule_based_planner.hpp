@@ -159,6 +159,16 @@ inline Symbol CollectedColumn(const LogicalOperator &branch, const SymbolTable &
   return columns.front();
 }
 
+/// Reports an invariant of the planner's own workings that a query reached. Planning runs for `EXPLAIN` as well,
+/// so the input is text a user chose, and failing one of these has to cost that query rather than the process.
+/// Reserve an assert for state whose corruption makes continuing unsafe.
+[[noreturn]] inline void ThrowPlannerBug(std::string_view what) {
+  throw QueryException(
+      "{} Please contact Memgraph support or submit a GitHub issue, as this scenario should not "
+      "happen and is very likely a bug in the query engine.",
+      what);
+}
+
 // These functions are an internal implementation of RuleBasedPlanner. To avoid
 // writing the whole code inline in this header file, they are declared here and
 // defined in the cpp file.
@@ -890,18 +900,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   // Check if a clause is a write clause that HandleWriteClause can process.
   /// A subquery body is read-only and carries no periodic commit: `BuildSubqueryFold` allows only MATCH, WHERE,
   /// WITH and RETURN - in every UNION branch - and rejects a body-level commit directive. Reaching either here means
-  /// that validation has a hole. Throws rather than asserts, which would abort the process from an `EXPLAIN` alone.
+  /// that validation has a hole.
   static void CheckSubqueryBodyInvariants(const TPlanningContext &context, Expression *commit_frequency) {
     if (!context.in_subquery_body) return;
     if (context.is_write_query) {
-      throw QueryException(
-          "A write clause reached the body of an EXISTS subquery, which may only read. Please contact Memgraph "
-          "support or submit a GitHub issue, as this scenario should not happen.");
+      impl::ThrowPlannerBug("A write clause reached the body of an EXISTS subquery, which may only read.");
     }
     if (commit_frequency != nullptr) {
-      throw QueryException(
-          "A periodic commit reached the body of an EXISTS subquery, which cannot commit. Please contact Memgraph "
-          "support or submit a GitHub issue, as this scenario should not happen.");
+      impl::ThrowPlannerBug("A periodic commit reached the body of an EXISTS subquery, which cannot commit.");
     }
   }
 
@@ -998,16 +1004,18 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                filters,
                                match_context.view);
 
-    MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
+    if (!named_paths.empty()) {
+      impl::ThrowPlannerBug("Expected to generate all named paths.");
+    }
     // We bound all named path symbols, so just add them to new_symbols.
     for (const auto &named_path : matching.named_paths) {
-      MG_ASSERT(bound_symbols.contains(named_path.first), "Expected generated named path to have bound symbol");
+      if (!bound_symbols.contains(named_path.first)) {
+        impl::ThrowPlannerBug("Expected a generated named path to have a bound symbol.");
+      }
       match_context.new_symbols.emplace_back(named_path.first);
     }
     if (!filters.empty()) {
-      throw QueryException(
-          "Expected to generate all filters! Please contact Memgraph support as this scenario should not happen and is "
-          "very likely a bug in the query engine!");
+      impl::ThrowPlannerBug("Expected to generate all filters.");
     }
     return last_op;
   }
@@ -1196,8 +1204,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       }
     }
 
-    MG_ASSERT(visited_expansion_groups.size() == all_expansion_groups.size(),
-              "Did not create expansions for all expansion group expansions in the planner!");
+    if (visited_expansion_groups.size() != all_expansion_groups.size()) {
+      impl::ThrowPlannerBug("Expected to create expansions for every expansion group.");
+    }
 
     return last_op;
   }
