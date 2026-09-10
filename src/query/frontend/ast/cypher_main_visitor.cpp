@@ -3990,7 +3990,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     parsing_subquery_body_ = old_flag;
     subquery->content_ = cypher_query;
 
-    // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
+    // There must be at least one clause, and only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
     // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
     auto validate_branch = [construct, fold](const SingleQuery *single_query) {
       if (!single_query || single_query->clauses_.empty()) {
@@ -4003,7 +4003,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
           throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
         }
       }
-      // 5. The list fold collects one column per branch row, so the body has to name exactly one, and `RETURN *`
+      // The list fold collects one column per branch row, so the body has to name exactly one, and `RETURN *`
       // names an unknown number. Caught here, so a multi-column body is a syntax error rather than the operator's
       // "must be of size 1".
       if (fold != SubqueryExpression::Fold::kList) {
@@ -4019,18 +4019,17 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
       validate_branch(cypher_union->single_query_);
     }
 
-    // 3. No query memory limit
     if (cypher_query->memory_limit_ != nullptr) {
       throw SyntaxException("{} subqueries cannot have a query memory limit.", construct);
     }
 
-    // 4. No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
+    // No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
     // but it would run, finalizing the caller's transaction from inside an expression.
     if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
       throw SyntaxException("{} subqueries cannot have a periodic commit.", construct);
     }
 
-    // 5. No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
+    // No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
     // and the body is a sub-plan re-executed per outer row, which the parallel cursors' Reset() mishandles.
     if (cypher_query->pre_query_directives_.parallel_execution_) {
       throw SyntaxException("{} subqueries cannot use parallel execution.", construct);
