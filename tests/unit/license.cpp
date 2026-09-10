@@ -617,3 +617,9 @@ TEST_F(LicenseTest, Decode_RejectsUnknownLicenseTypeByte) {
   const auto encoded = memgraph::license::Encode(crafted);
   EXPECT_FALSE(memgraph::license::Decode(encoded).has_value());
 }
+
+TEST_F(LicenseTest, Decode_RejectsMemgqlLicense) {
+  const auto memgql = memgraph::license::License{"Memgraph", 0, 0, memgraph::license::LicenseType::MEMGQL, 16};
+  EXPECT_FALSE(memgraph::license::Decode(memgraph::license::Encode(memgql)).has_value());
+  EXPECT_FALSE(memgraph::license::IsEnterpriseTier(memgraph::license::LicenseType::MEMGQL));
+}

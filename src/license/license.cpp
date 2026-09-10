@@ -101,6 +101,9 @@ std::string LicenseTypeToString(const LicenseType license_type) {
     case LicenseType::OEM: {
       return std::string{kLicenseTypeOem};
     }
+    case LicenseType::MEMGQL: {
+      return std::string{kLicenseTypeMemgql};
+    }
   }
   std::unreachable();
 }
@@ -445,6 +448,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
       info.status = "You are running a valid Memgraph OEM License.";
       break;
     case LicenseType::OEM_COMMUNITY:
+    case LicenseType::MEMGQL:
       std::unreachable();
   }
   return info;
@@ -516,6 +520,8 @@ std::optional<License> Decode(std::string_view license_key) {
       case LicenseType::AI_PLATFORM:
       case LicenseType::OEM:
         return License{std::move(organization_name), valid_until, memory_limit, typed, core_limit};
+      case LicenseType::MEMGQL:
+        return std::nullopt;
     }
     return std::nullopt;
   } catch (const slk::SlkReaderException &e) {

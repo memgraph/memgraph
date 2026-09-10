@@ -32,6 +32,7 @@ enum class LicenseType : uint8_t {
   OEM = 1,
   AI_PLATFORM = 2,
   OEM_COMMUNITY = 3,
+  MEMGQL = 4,
 };
 
 constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
@@ -44,6 +45,7 @@ inline constexpr std::string_view kLicenseTypeEnterprise = "enterprise";
 inline constexpr std::string_view kLicenseTypeOem = "oem";
 inline constexpr std::string_view kLicenseTypeOemCommunity = "oem_community";
 inline constexpr std::string_view kLicenseTypeAiPlatform = "ai_platform";
+inline constexpr std::string_view kLicenseTypeMemgql = "memgql";
 
 struct License {
   License() = default;
