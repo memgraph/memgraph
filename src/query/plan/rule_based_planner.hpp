@@ -1353,8 +1353,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // null node, as an OPTIONAL MATCH leaves behind, matches nothing.
       if (!expansion.node1->HasLabelsOrProperties()) {
         auto *identifier = storage.Create<Identifier>(node1_symbol.name())->MapTo(node1_symbol);
-        // Testing no labels asks only whether the value is a node: a null yields null, dropping the row, and any
-        // other type raises, because a pattern says its variable holds a node.
+        // A pattern says its variable holds a node, which a labels test naming no label is what asks.
         auto *is_node = storage.Create<LabelsTest>(identifier, std::vector<LabelIx>{});
         Filters node_filter;
         node_filter.SetFilters({FilterInfo{FilterInfo::Type::Node, is_node, {node1_symbol}}});

@@ -864,7 +864,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
-      if (labels_test->labels_.empty() && labels_test->or_labels_.empty()) {
+      if (labels_test->IsNodeTest()) {
         all_filters_.emplace_back(make_filter(FilterInfo::Type::Node));
         return;
       }

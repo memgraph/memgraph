@@ -1174,6 +1174,10 @@ class LabelsTest : public Expression {
     return visitor.PostVisit(*this);
   }
 
+  /// Whether this names no label, and so asks only whether the value is a node: a null yields null, a vertex
+  /// yields true, and any other type raises. A pattern that states nothing about a node it names tests this.
+  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty(); }
+
   Expression *expression_{nullptr};
   std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
   std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
