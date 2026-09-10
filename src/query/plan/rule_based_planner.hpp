@@ -1360,8 +1360,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         // Testing no labels asks only whether the value is a node: a null yields null, dropping the row, and any
         // other type raises, because a pattern says its variable holds a node.
         auto *is_node = storage.Create<LabelsTest>(identifier, std::vector<LabelIx>{});
-        last_op =
-            std::make_unique<Filter>(std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, is_node);
+        Filters node_filter;
+        node_filter.SetFilters({FilterInfo{FilterInfo::Type::Node, is_node, {node1_symbol}}});
+        last_op = std::make_unique<Filter>(
+            std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, is_node, std::move(node_filter));
       }
     }
 

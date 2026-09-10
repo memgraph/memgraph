@@ -399,6 +399,26 @@ TYPED_TEST(OperatorToStringTest, Filter) {
   EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
 }
 
+// A LabelsTest over no labels asks only whether the value is a node. Collecting one keeps it apart from a
+// label test on the same symbol: only the label test can be answered by an index, and folding the two would
+// leave the node test demanding labels the pattern never wrote.
+TYPED_TEST(OperatorToStringTest, FilterNodeTestStaysApartFromLabels) {
+  auto node = this->GetSymbol("person");
+  auto *node_test = LABELS_TEST(IDENT("person")->MapTo(node), std::vector<LabelIx>{});
+  auto *label_test =
+      LABELS_TEST(IDENT("person")->MapTo(node), std::vector<LabelIx>{this->storage.GetLabelIx("Customer")});
+
+  Filters filters;
+  filters.CollectFilterExpression(node_test, this->symbol_table);
+  filters.CollectFilterExpression(label_test, this->symbol_table);
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, node_test, filters);
+
+  std::string expected_string{"Filter (person :Customer), (person)"};
+  EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
+}
+
 TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels1) {
   auto node = this->GetSymbol("person");
   auto node_ident = IDENT("person");
