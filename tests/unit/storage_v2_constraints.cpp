@@ -29,6 +29,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
 
+#include "query/exceptions.hpp"
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 

@@ -9,16 +9,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 USER root
 
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
   fi && \
-  apt-get update && apt-get install -y \
+  /mirrors/retry.sh -- apt-get update && /mirrors/retry.sh -- apt-get install -y \
   python3 libpython3.12 python3-pip adduser curl \
   --no-install-recommends && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
   fi && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
@@ -58,17 +63,20 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   --mount=type=bind,source="./memgraph.deb",target=/memgraph.deb,ro \
   --mount=type=bind,source="./openssl",target=/openssl,ro \
   --mount=type=bind,source="./install_runtime_requirements.sh",target=/install_runtime_requirements.sh,ro \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
   fi && \
-  apt-get update && \
+  /mirrors/retry.sh -- apt-get update && \
   if test -n "$(find /openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
-    apt-get install -y \
+    /mirrors/retry.sh -- apt-get install -y \
     /openssl/*.deb \
     --no-install-recommends; \
   fi && \
-  apt-get install adduser libxmlsec1 python3 libpython3.12 python3-pip -y --no-install-recommends && \
+  /mirrors/retry.sh -- apt-get install adduser libxmlsec1 python3 libpython3.12 python3-pip -y --no-install-recommends && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
     --py-version ${PY_VERSION} --cuda ${CUDA} && \
   groupadd -g 103 memgraph && \
@@ -86,6 +94,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
   fi
 
 ENV LD_LIBRARY_PATH=/usr/lib/memgraph/query_modules
@@ -142,16 +152,21 @@ COPY make-dev-container.sh /make-dev-container.sh
 
 # Add gdb
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
   fi && \
-  apt-get update && apt-get install -y \
+  /mirrors/retry.sh -- apt-get update && /mirrors/retry.sh -- apt-get install -y \
   gdb libc6-dbg \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
   fi
 
 RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \

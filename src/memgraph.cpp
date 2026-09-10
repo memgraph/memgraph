@@ -39,6 +39,7 @@
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
+#include "flags/query_modules_directory.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"

@@ -617,7 +617,10 @@ class QueryCostEstimatorStringPredicates : public ::testing::Test {
   Parameters parameters_;
   int symbol_count = 0;
 
-  static constexpr int kStringCount = 1000;
+  // The index count a range estimate returns is exact only while the index stays under the size
+  // at which SkipListLayerForCountEstimation starts sampling upper skip-list layers. Above it the
+  // estimate is a random sample whose spread swamps the ratios these tests compare.
+  static constexpr int kStringCount = 400;
 
   void SetUp() override {
     {

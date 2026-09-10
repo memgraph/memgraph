@@ -1,0 +1,13 @@
+# NODE_PATH counts the start node, so a walk right round the cycle may not come back to it. The
+# breadth-first walk carries that mark on the branch's own chain rather than in a visited set, so
+# dropping the root from that chain would return the extra A-B-C-A path.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {uniqueness: "NODE_PATH", relationshipFilter: "R>", minHops: 1, maxHops: 3})
+  YIELD result
+  WITH result ORDER BY size(nodes(result))
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A", "B"]
+  - names: ["A", "B", "C"]

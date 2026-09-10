@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "general.hpp"
+#include "flags/query_modules_directory.hpp"
 
 #include <gflags/gflags.h>
 #include <algorithm>

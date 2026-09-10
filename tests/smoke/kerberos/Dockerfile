@@ -4,8 +4,12 @@
 # created per run by setup-kdc.sh.
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
-# Retry the network steps: a flaky mirror says nothing about memgraph.
-RUN for attempt in 1 2 3 4 5; do \
+# Don't take whichever mirror the redirector offers -- pin the vetted list
+# first (./mirrors is staged by tools/ci/mirrors/stage.sh), then retry what
+# still trips: a flaky mirror says nothing about memgraph.
+RUN --mount=type=bind,source=./mirrors,target=/mirrors,ro \
+    /mirrors/pin_mirrors.sh apply && \
+    for attempt in 1 2 3 4 5; do \
       [ "$attempt" -eq 1 ] || sleep $((attempt * 5)); \
       apt-get update -qq && \
       apt-get install -y -qq --no-install-recommends \

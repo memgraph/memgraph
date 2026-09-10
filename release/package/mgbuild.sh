@@ -143,7 +143,7 @@ print_help () {
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
   echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"$DEFAULT_RUST_VERSION\")"
-  echo -e "  --node-version number         Specify nodejs version which be installed (default \"20\")"
+  echo -e "  --node-version number         Specify nodejs version which be installed (default \"24.19.0\")"
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
@@ -413,9 +413,10 @@ emit_cache_volumes() {
   fi
 }
 
-# GITHUB_TOKEN is forwarded into the container so in-container git fetches from
-# github.com are authenticated (see github_auth_in_container). Anonymous clones
-# from the shared runner IP get rate-limited with a 401.
+# GITHUB_TOKEN is forwarded into the container for in-container GitHub API use
+# (e.g. release/get_version.py); git fetches are authenticated via
+# github_auth_in_container. Anonymous access from the shared runner IP gets
+# rate-limited.
 github_token_enabled() {
   [[ -n "${GITHUB_TOKEN:-}" ]]
 }
@@ -469,17 +470,20 @@ cleanup_compose_override() {
   fi
 }
 
-# Point git at the forwarded GITHUB_TOKEN via a credential helper that reads it
-# from the environment at fetch time. Written once to the system-wide
-# /etc/gitconfig so every later `docker exec`, whether -u mg or -u root (e.g.
-# package.sh runs as root), and any nested clone (mgconsole's ExternalProjects)
-# is covered without touching individual commands.
+# Make in-container git send GITHUB_TOKEN preemptively on every github.com
+# request (same header actions/checkout uses). GitHub's rate-limit reply is an
+# in-protocol error, not a 401, so a credential helper would never be consulted.
+# Written once to the system-wide /etc/gitconfig so every later `docker exec`,
+# whether -u mg or -u root (package.sh runs as root), and any nested clone
+# (mgconsole's ExternalProjects) is covered. The container is ephemeral.
 github_auth_in_container() {
   local container=$1
   if github_token_enabled; then
     echo "Configuring authenticated github.com access in $container..."
-    docker exec -u root "$container" git config --system credential.https://github.com.helper \
-      '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
+    local auth_b64
+    auth_b64="$(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 | tr -d '\n')"
+    docker exec -u root "$container" git config --system http.https://github.com/.extraheader \
+      "AUTHORIZATION: basic $auth_b64"
   fi
 }
 
@@ -1356,15 +1360,14 @@ package_smoke_image() {
 
   local base_image=""
   local pkg_format=""
-  local centos_stream=""
   case "$os" in
     ubuntu-26.04*) base_image="ubuntu:26.04"; pkg_format="deb" ;;
     ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb" ;;
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb" ;;
     debian-13*)    base_image="debian:13";    pkg_format="deb" ;;
-    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; centos_stream="9-stream" ;;
-    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm"; centos_stream="10-stream" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
+    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
     fedora-43*)    base_image="fedora:43"; pkg_format="rpm" ;;
     fedora-44*)    base_image="fedora:44"; pkg_format="rpm" ;;
@@ -1399,6 +1402,7 @@ package_smoke_image() {
   # if $build_dir's scope has unwound by the time the trap fires.
   trap "rm -rf '$build_dir'" EXIT
   cp "$package_dir/$package_name" "$build_dir/"
+  "$PROJECT_ROOT/tools/ci/mirrors/stage.sh" "$build_dir"
 
   local pip_find_links=""
   local copy_wheels_line=""
@@ -1441,54 +1445,37 @@ package_smoke_image() {
     # Add a path-include exception before installing the package, matching
     # the workaround in release/docker/v8_deb.dockerfile.
     install_cmd="export DEBIAN_FRONTEND=noninteractive && \
-      apt-get update && \
-      apt-get install -y --no-install-recommends libcurl4 libseccomp2 && \
+      /mirrors/pin_mirrors.sh apply && \
+      /mirrors/retry.sh -- apt-get install -y --no-install-recommends libcurl4 libseccomp2 && \
       if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
         echo '' >> /etc/dpkg/dpkg.cfg.d/excludes && \
         echo '# Include all memgraph documentation files (licenses, etc.)' >> /etc/dpkg/dpkg.cfg.d/excludes && \
         echo 'path-include=/usr/share/doc/memgraph/*' >> /etc/dpkg/dpkg.cfg.d/excludes; \
       fi && \
-      apt-get install -y --no-install-recommends /pkg/$package_name && \
+      /mirrors/retry.sh -- apt-get install -y --no-install-recommends /pkg/$package_name && \
       ($gssapi_cmd) && \
       rm -rf /var/lib/apt/lists/*"
   else
-    # CentOS Stream metalinks often hand dnf a mirror that is mid-sync
-    # (repomd.xml fails its metalink checksum), so pin baseos/appstream to a
-    # list of nearby mirrors that dnf tries in order, with the upstream
-    # master as the final fallback.
-    local mirror_opts=""
-    if [[ -n "$centos_stream" ]]; then
-      local rpm_arch="x86_64"
-      [[ "$arch" == "arm" ]] && rpm_arch="aarch64"
-      local mirror baseos_urls="" appstream_urls=""
-      for mirror in \
-        "https://ftp.plusline.net/centos-stream" \
-        "https://ftp.gwdg.de/pub/linux/centos-stream" \
-        "https://centos.anexia.at/centos-stream" \
-        "https://mirror.stream.centos.org"; do
-        baseos_urls+="${baseos_urls:+,}$mirror/$centos_stream/BaseOS/$rpm_arch/os/"
-        appstream_urls+="${appstream_urls:+,}$mirror/$centos_stream/AppStream/$rpm_arch/os/"
-      done
-      mirror_opts="--setopt=baseos.metalink= --setopt=baseos.baseurl=$baseos_urls \
-      --setopt=appstream.metalink= --setopt=appstream.baseurl=$appstream_urls"
-    fi
     # Fedora/CentOS/Rocky minimal docker images set tsflags=nodocs in
     # /etc/dnf/dnf.conf, which strips memgraph's license files in
     # /usr/share/doc/memgraph/. Override on the dnf install line so the
     # smoke license check passes.
     # rpm demotes %post scriptlet failures to warnings, so a failed pip
     # install would still produce an image; assert the deps actually landed.
-    install_cmd="dnf install -y --setopt=tsflags='' $mirror_opts libseccomp /pkg/$package_name && \
+    install_cmd="/mirrors/pin_mirrors.sh apply && \
+      /mirrors/retry.sh -- dnf install -y --setopt=tsflags='' libseccomp /pkg/$package_name && \
       ls /var/lib/memgraph/.local/lib/python3.*/site-packages/networkx >/dev/null && \
       ($gssapi_cmd) && \
       dnf clean all"
   fi
 
+  # The mirror scripts come in on a bind mount rather than a COPY so they
+  # leave no trace in the image the smoke tests then run.
   cat > "$build_dir/Dockerfile" <<EOF
 FROM $base_image
 COPY $package_name /pkg/$package_name
 ${copy_wheels_line}
-RUN $install_cmd
+RUN --mount=type=bind,source=./mirrors,target=/mirrors,ro $install_cmd
 USER memgraph
 WORKDIR /usr/lib/memgraph
 EXPOSE 7687
@@ -1500,9 +1487,6 @@ EOF
   cat "$build_dir/Dockerfile"
   echo "------------------"
 
-  # Transient repo-mirror failures (e.g. a CentOS Stream mirror mid-sync whose
-  # repomd.xml fails its metalink checksum) dominate here; growing waits give
-  # the sync window time to close, and each attempt refetches the metadata.
   local attempt
   local built=false
   for attempt in 1 2 3 4 5; do
@@ -1858,23 +1842,43 @@ test_memgraph() {
     fi
   fi
 
+  # ctest's per-test results are what say which test failed and how often across
+  # repeated runs, and they matter most on the runs that failed. Copy them out of
+  # the container whatever the exit status was, then hand that status back.
+  # A failure here is reported rather than hidden: an empty summary otherwise
+  # reads the same as a clean run.
+  collect_ctest_results() {
+    local status=$1
+    mkdir -p "$PROJECT_ROOT/build/test-results"
+    if ! docker cp "$build_container:$BUILD_DIR/test-results/." "$PROJECT_ROOT/build/test-results/" 2>&1; then
+      echo "Warning: could not copy ctest results out of $build_container; this run will be absent from the flake summary." >&2
+    fi
+    return "$status"
+  }
+
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
   echo "Running $test_name test on $build_container..."
   case "$test_name" in
     unit)
+      local status=0
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$(nproc) --output-junit test-results/unit.xml' || status=$?
       else
         local EXPORT_THREADS="export THREADS=$threads"
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$THREADS'
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$THREADS --output-junit test-results/unit.xml' || status=$?
       fi
+      collect_ctest_results "$status"
     ;;
     unit-coverage)
       local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=halt_on_error=1"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& ctest -R memgraph__unit --output-on-failure -j2'
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j2 --output-junit test-results/unit-coverage.xml' || status=$?
+      collect_ctest_results "$status"
     ;;
     leftover-CTest)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure'
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure --output-junit test-results/leftover-ctest.xml' || status=$?
+      collect_ctest_results "$status"
     ;;
     drivers)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run.sh'
@@ -2052,6 +2056,18 @@ test_memgraph() {
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
       local CLUSTER_DESCRIPTION='ha_cluster.yaml'
+      # isolated (default): each query benchmarked on its own, the per-query "replication tax".
+      # realistic: one concurrent read+write mix, to expose throughput wins from unblocking pool
+      # workers that would otherwise stall behind a commit holding its lock across the replication ACK.
+      local MODE='isolated'
+      local NUM_WORKERS=''
+      # routing: reach the cluster through a bolt+routing (neo4j://) python client against a
+      # coordinator instead of a direct bolt connection to main, so reads and writes are dispatched
+      # by the routing table the way a real HA client connects. Only meaningful with --realistic.
+      local ROUTING=0
+      # managed (execute_read/execute_write transaction functions) vs implicit (auto-commit run()
+      # with a manually set session access mode); measured separately to compare the two styles.
+      local ROUTING_TX_MODE='managed'
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2067,16 +2083,59 @@ test_memgraph() {
             CLUSTER_DESCRIPTION="$2"
             shift 2
           ;;
+          --realistic)
+            MODE='realistic'
+            shift 1
+          ;;
+          --routing)
+            ROUTING=1
+            shift 1
+          ;;
+          --routing-tx-mode)
+            ROUTING_TX_MODE="$2"
+            shift 2
+          ;;
+          --num-workers)
+            NUM_WORKERS="$2"
+            shift 2
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench-ha"
-            echo "Supported flags: --size, --export-results-file, --cluster-description"
+            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --routing-tx-mode, --num-workers"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+      # bolt+routing goes through a python client speaking neo4j:// to a coordinator; the default
+      # cluster description switches to the one that enables reads on main so routed reads reach it.
+      local ROUTING_ARGS=''
+      if [[ "$ROUTING" == "1" ]]; then
+        if [[ "$MODE" != "realistic" ]]; then
+          echo "Error: --routing is only supported with --realistic for mgbench-ha"
+          exit 1
+        fi
+        ROUTING_ARGS="--client-language python --client-bolt-routing --client-bolt-routing-tx-mode $ROUTING_TX_MODE"
+        if [[ "$CLUSTER_DESCRIPTION" == "ha_cluster.yaml" ]]; then
+          CLUSTER_DESCRIPTION='ha_cluster_routing.yaml'
+        fi
+      fi
+      if [[ "$MODE" == "realistic" ]]; then
+        # Read-heavy realistic mix (20% write, 80% read, 0% update, 0% analytical) over the pokec arango
+        # group, at high concurrency so many clients contend for the commit path while writes replicate.
+        # This is the workload the funnel improves and that isolated per-query benchmarks cannot show.
+        # 50k queries (not 5k) so the measured window is ~80s of steady state rather than ~8s: relative
+        # timing noise scales ~1/sqrt(window), and the aggregate throughput is the only signal here.
+        # --warm-up hot excludes cold-cache/first-touch cost from the sample. The mix is seeded on the
+        # "50000_20_80_0_0" distribution string, so every run executes the identical query stream — an
+        # A/B (baseline vs funnel) differs only in timing, not in composition.
+        local WORKERS="${NUM_WORKERS:-18}"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 20 80 0 0 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
+      else
+        local WORKERS="${NUM_WORKERS:-6}"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark $WORKERS --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+      fi
     ;;
     mgbench-supernode)
       shift 1
@@ -2575,6 +2634,10 @@ package_mage_docker() {
     build_args+=(--secret id=ubuntu_sources,src=ci.sources)
   fi
 
+  # The Dockerfile falls back to the vetted public mirror list whenever the
+  # in-network custom mirror isn't in play, so the scripts are always needed.
+  "$PROJECT_ROOT/tools/ci/mirrors/stage.sh" "$PROJECT_ROOT/release/package/mage"
+
   # build the docker image
   docker buildx build \
     ${build_args[*]} \
@@ -2814,17 +2877,16 @@ test_mage() {
           ;;
         esac
       done
+
       cleanup_container() {
-        docker stop $neo4j_container || true
-        docker rm $neo4j_container || true
-        # This trap replaces the outer stop_monitoring trap, so chain it here
-        # to ensure the monitoring stack restarts fresh for the next test (and
-        # picks up the new service_name/labels from the regenerated configs).
-        if [[ "$enable_monitoring" == "true" ]]; then
+        local container="$1"
+        docker stop "$container" || true
+        docker rm "$container" || true
+        if [[ "${enable_monitoring:-false}" == "true" ]]; then
           stop_monitoring || true
         fi
       }
-      trap cleanup_container EXIT INT TERM
+      trap "cleanup_container '$neo4j_container'" EXIT INT TERM
       create_e2e_test_env
       cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
@@ -2834,7 +2896,7 @@ test_mage() {
         $neo4j_container \
         $mage_container \
         $memgraph_network
-      cleanup_container
+      cleanup_container "$neo4j_container"
       if [[ "$clean_env" = true ]]; then
         rm -rf $PROJECT_ROOT/tests/mage/env
       fi
@@ -2871,23 +2933,19 @@ test_mage() {
           ;;
         esac
       done
-      # Define cleanup function for this case branch
+
       cleanup_containers() {
-        docker stop $mage_container || true
-        docker rm $mage_container || true
-        docker stop $mysql_container || true
-        docker rm $mysql_container || true
-        docker stop $postgresql_container || true
-        docker rm $postgresql_container || true
-        # This trap replaces the outer stop_monitoring trap, so chain it here
-        # to ensure the monitoring stack restarts fresh for the next test (and
-        # picks up the new service_name/labels from the regenerated configs).
-        if [[ "$enable_monitoring" == "true" ]]; then
+        local container
+        for container in "$@"; do
+          docker stop "$container" || true
+          docker rm "$container" || true
+        done
+        if [[ "${enable_monitoring:-false}" == "true" ]]; then
           stop_monitoring || true
         fi
       }
       # Set trap to cleanup on exit/interrupt (scoped to this case branch)
-      trap cleanup_containers EXIT INT TERM
+      trap "cleanup_containers '$mage_container' '$mysql_container' '$postgresql_container'" EXIT INT TERM
       create_e2e_test_env
       cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
@@ -2896,7 +2954,7 @@ test_mage() {
         --mysql-container $mysql_container \
         --postgresql-container $postgresql_container
       # Normal cleanup
-      cleanup_containers
+      cleanup_containers "$mage_container" "$mysql_container" "$postgresql_container"
       if [[ "$clean_env" = true ]]; then
         rm -rf $PROJECT_ROOT/tests/mage/env
       fi
@@ -3416,7 +3474,7 @@ case $command in
       # Default values for --git-ref, --rust-version and --node-version
       git_ref_flag="--build-arg GIT_REF=master"
       rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
-      node_version_flag="--build-arg NODE_VERSION=20"
+      node_version_flag="--build-arg NODE_VERSION=24.19.0"
       rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
       cuda_version_minor="13.1.0"
       python_build_version_flag="--build-arg PY_VERSION=3.12"

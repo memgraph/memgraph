@@ -7,17 +7,18 @@
 # (for example, a Dockerfile with `CMD [""]` that passes an empty argument
 # to the memgraph entrypoint).
 #
-# Usage: smoke_test_docker_image.sh <image_tag>
+# Usage: smoke_test_docker_image.sh <image_tag> [max_ready_attempts]
 #   e.g. smoke_test_docker_image.sh memgraph/memgraph-mage:1.30.0
 
 set -euo pipefail
 
 if [[ $# -lt 1 || -z "${1:-}" ]]; then
-  echo "Usage: $0 <image_tag>" >&2
+  echo "Usage: $0 <image_tag> [max_ready_attempts]" >&2
   exit 1
 fi
 
 IMAGE="$1"
+MAX_READY_ATTEMPTS="${2:-${BOLT_MAX_RETRIES:-180}}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WAIT_SCRIPT="$SCRIPT_DIR/wait_for_memgraph_bolt.sh"
 
@@ -33,7 +34,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting container $CONTAINER_NAME from $IMAGE (no arguments)..."
+echo "Starting container $CONTAINER_NAME from $IMAGE (no arguments), allowing up to ${MAX_READY_ATTEMPTS} attempts ~1s apart for Bolt..."
 docker run -d --name "$CONTAINER_NAME" "$IMAGE" >/dev/null
 
 # Give the entrypoint a moment to fail fast (e.g. bad args) before we exec.
@@ -51,7 +52,7 @@ fi
 # mgconsole binary instead of requiring one on the runner host.
 docker cp "$WAIT_SCRIPT" "$CONTAINER_NAME:/tmp/wait_for_memgraph_bolt.sh"
 
-if ! docker exec "$CONTAINER_NAME" bash /tmp/wait_for_memgraph_bolt.sh 127.0.0.1 7687 30 1; then
+if ! docker exec "$CONTAINER_NAME" bash /tmp/wait_for_memgraph_bolt.sh 127.0.0.1 7687 "$MAX_READY_ATTEMPTS" 1; then
   echo "Smoke test FAILED for $IMAGE: container did not accept Bolt connections." >&2
   echo "--- container logs ---" >&2
   docker logs "$CONTAINER_NAME" 2>&1 || true

@@ -221,6 +221,24 @@ class QueryRuntimeException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(QueryRuntimeException)
 };
 
+/// A download that could deliver the file if the query were run again, such as one the server failed
+/// to serve or that never reached it. Reported to the client as retryable, and counted separately
+/// from other retryable errors so a run of them is visible.
+class TransientDownloadException : public RetryBasicException {
+ public:
+  using RetryBasicException::RetryBasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(TransientDownloadException)
+};
+
+/// Reports a failed download. Whether trying again could help is what decides which of the two the
+/// client sees, and that question belongs to whoever attempted the transfer.
+[[noreturn]] inline void ThrowDownloadFailed(bool const retryable, std::string message) {
+  if (retryable) {
+    throw TransientDownloadException(std::move(message));
+  }
+  throw QueryRuntimeException(std::move(message));
+}
+
 enum class AbortReason : uint8_t {
   NO_ABORT = 0,
 

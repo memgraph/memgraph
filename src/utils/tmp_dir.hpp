@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,19 +11,32 @@
 
 #pragma once
 
+#include <cerrno>
+#include <cstdlib>
 #include <filesystem>
+#include <string>
+#include <system_error>
 
 namespace memgraph::utils {
 /**
- * @brief Creates a temporary directory with a unique name under /tmp/
+ * @brief Creates a temporary directory whose name the kernel makes unique, under the directory
+ * TMPDIR names.
+ *
+ * The name is chosen and the directory created in one step, so no other process can take the name in
+ * between.
  *
  * @return std::filesystem::path
- * @throws std::filesystem::filesystem_error as defined by create_directories
+ * @throws std::filesystem::filesystem_error if the directory cannot be created
  */
 inline std::filesystem::path TempDir() {
-  const std::filesystem::path tmp_dir_path{std::filesystem::temp_directory_path() /= std::tmpnam(nullptr)};
-  std::filesystem::create_directories(tmp_dir_path);
-  return tmp_dir_path;
+  auto path = (std::filesystem::temp_directory_path() / "memgraph_XXXXXX").string();
+
+  if (::mkdtemp(path.data()) == nullptr) {
+    throw std::filesystem::filesystem_error("Couldn't create a temporary directory",
+                                            std::error_code{errno, std::generic_category()});
+  }
+
+  return path;
 }
 
 }  // namespace memgraph::utils

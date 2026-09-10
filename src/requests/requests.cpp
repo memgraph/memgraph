@@ -16,14 +16,12 @@
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <array>
-#include <chrono>
 #include <compare>
 #include <cstdio>
 #include <ctre.hpp>
 #include <exception>
 #include <filesystem>
 #include <nlohmann/json.hpp>
-#include <optional>
 #include <sstream>
 #include <utility>
 
@@ -31,7 +29,7 @@
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/likely.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::requests {
 
@@ -39,51 +37,41 @@ namespace {
 
 struct ProgressData {
   std::function<void()> abort_check_;
-  std::optional<std::chrono::steady_clock::time_point> last_tp_;
+  // Why the caller wanted to stop. Kept so it can be rethrown once the transfer has unwound, since
+  // an exception must not cross libcurl's frames.
+  std::exception_ptr abort_error_;
 };
 
 // Callback function for reporting progress during a file download
 auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t /*ultotal*/,
                         curl_off_t /*ulnow*/) -> int {
-  // No need to update the progress
-  if (dltotal == 0) return 0;
-
   constexpr auto kAbortTransferReturnCode = 1;
   constexpr auto kContinueTransferReturnCode = 0;
 
   auto *data = static_cast<ProgressData *>(clientp);
 
-  // Catch HintedAbortError and abort the transfer if got the request to terminate the transactions
+  // Ahead of anything that needs a total: a transfer whose length the server never announces still
+  // has to be stoppable, and a chunked response never reports one.
   // abort_check_ could be a nullptr.
   if (data->abort_check_) {
     try {
       data->abort_check_();
-    } catch (std::exception const &e) {
+    } catch (...) {
+      data->abort_error_ = std::current_exception();
       return kAbortTransferReturnCode;
     }
   }
 
-  static thread_local auto counter = utils::ResettableCounter(500);
+  // Only the progress figure needs a total to mean anything.
+  if (dltotal != 0) {
+    static thread_local auto counter = utils::ResettableCounter(500);
 
-  // Don't log too often but log when the file download is complete
-  if (counter() || dlnow == dltotal) {
-    auto const progress = (100.0F * static_cast<float>(dlnow)) / static_cast<float>(dltotal);
-    spdlog::trace("Downloaded {:.2f}% of the file", progress);
-  }
-
-  auto const now = std::chrono::steady_clock::now();
-
-  // If not the first call, check whether it passed more than 10s between callbacks
-  if (LIKELY(data->last_tp_.has_value())) {
-    constexpr auto download_timeout = 10;
-    // Steady clock guarantees this won't underflow
-    if (now - *(data->last_tp_) > std::chrono::seconds{download_timeout}) {
-      // Signal to the libcurl that it should abort the transfer
-      return kAbortTransferReturnCode;
+    // Don't log too often but log when the file download is complete
+    if (counter() || dlnow == dltotal) {
+      auto const progress = (100.0F * static_cast<float>(dlnow)) / static_cast<float>(dltotal);
+      spdlog::trace("Downloaded {:.2f}% of the file", progress);
     }
   }
-
-  data->last_tp_.emplace(now);
 
   return kContinueTransferReturnCode;
 }
@@ -189,29 +177,45 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   return true;
 }
 
-// File will be destroyed when it goes out of scope by calling std::fclose.
-// Clients are responsible for deleting the file if the downnload fails
-bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, uint64_t const connection_timeout,
-                           std::function<void()> abort_check) {
-  CURL *curl = nullptr;
-  CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
+std::expected<void, DownloadError> CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file,
+                                                         uint64_t const connection_timeout,
+                                                         std::function<void()> abort_check) {
+  // A short write ends the transfer, which is what a full disk should do.
+  auto const sink = [&file](char const *data, size_t const size) -> size_t {
+    return std::fwrite(data, 1, size, file.get());
+  };
 
+  return DownloadToSink(url, sink, connection_timeout, std::move(abort_check));
+}
+
+std::expected<void, DownloadError> DownloadToSink(const std::string &url, WriteSink const &write,
+                                                  uint64_t const connection_timeout, std::function<void()> abort_check,
+                                                  uint64_t const stall_window_sec) {
   auto const user_agent = fmt::format("memgraph/{}", gflags::VersionString());
 
-  curl = curl_easy_init();
+  auto *curl = curl_easy_init();
   if (!curl) {
     spdlog::error("requests: Couldn't init curl");
-    return false;
+    return std::unexpected{DownloadError{.message = "could not start a request"}};
   }
+  utils::OnScopeExit const cleanup{[curl]() { curl_easy_cleanup(curl); }};
 
   ProgressData progress_data{.abort_check_ = std::move(abort_check)};
 
+  constexpr auto write_callback = [](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
+    auto const *sink = static_cast<WriteSink const *>(userdata);
+    return (*sink)(ptr, size * nmemb);
+  };
+
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, file.get());
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +write_callback);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write);
   // Timeout for establishing a connection
-  // Includes DNS, all protocol handshakes and negotiations until there is an established connection with the remote
-  // side
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, connection_timeout);
+  // Give up on a body that stops arriving. libcurl decides this from the bytes the server actually
+  // delivers, so a sink that blocks while its reader catches up does not look like a stall.
+  curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+  curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, static_cast<long>(stall_window_sec));  // NOLINT(google-runtime-int)
   curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
   curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent.c_str());
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
@@ -220,20 +224,47 @@ bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, ui
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress_data);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, DownloadProgressCb);
-  // Fail fast on HTTP errors (don't write error pages to file)
+  // Fail fast on HTTP errors, so an error page is never handed to the sink
   curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+  // TLS below 1.2 is deprecated. Stating the floor here keeps it independent of what the TLS backend
+  // this is built against happens to permit.
+  curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
   SetCaInfo(curl);
 
-  res = curl_easy_perform(curl);
-
-  if (res != CURLE_OK) {
-    spdlog::error("Error happened while downloading file {}: {}", url, curl_easy_strerror(res));
-    return false;
+  auto const res = curl_easy_perform(curl);
+  if (res == CURLE_OK) {
+    return {};
   }
 
-  curl_easy_cleanup(curl);
+  // The caller stopped this deliberately, so report what it asked for rather than a download failure.
+  if (progress_data.abort_error_) {
+    std::rethrow_exception(progress_data.abort_error_);
+  }
 
-  return true;
+  long status = 0;  // NOLINT(google-runtime-int) - curl_easy_getinfo requires long*
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+
+  auto error = DownloadError{.http_status = static_cast<int>(status), .message = curl_easy_strerror(res)};
+  switch (res) {
+    case CURLE_HTTP_RETURNED_ERROR:
+      error.kind = ClassifyHttpStatus(static_cast<int>(status));
+      error.message = fmt::format("the server replied {}", status);
+      break;
+    case CURLE_WRITE_ERROR:
+      error.kind = DownloadFailure::LocalWrite;
+      error.message = "the download could not be written";
+      break;
+    case CURLE_OPERATION_TIMEDOUT:
+      error.kind = DownloadFailure::Stalled;
+      error.message = "the transfer stopped making progress";
+      break;
+    default:
+      error.kind = DownloadFailure::Network;
+      break;
+  }
+
+  spdlog::error("Error happened while downloading {}: {}", url, error.message);
+  return std::unexpected{std::move(error)};
 }
 
 auto DownloadToStream(std::string_view url, std::ostream &os) -> bool {

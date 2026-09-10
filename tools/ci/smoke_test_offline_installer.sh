@@ -39,8 +39,8 @@ BASE_IMAGE="${BASE_IMAGE:-ubuntu:24.04}"
 MEMGRAPH_HOST=127.0.0.1
 MEMGRAPH_PORT=7687
 MEMGRAPH_LOG=/tmp/memgraph.log
-BOLT_MAX_RETRIES=60
-BOLT_RETRY_DELAY=1
+BOLT_MAX_RETRIES="${BOLT_MAX_RETRIES:-180}"
+BOLT_RETRY_DELAY="${BOLT_RETRY_DELAY:-1}"
 
 # --------------------------------------------------------------------------
 # In-container half.

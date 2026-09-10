@@ -541,6 +541,7 @@ jobs:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload stress test logs
         if: always()

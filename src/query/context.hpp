@@ -105,13 +105,6 @@ struct StoppingContext {
     }
     return AbortReason::NO_ABORT;
   }
-
-  auto MakeMaybeAborter(std::size_t n = 20) const noexcept {
-    return [maybe_check_abort = utils::ResettableCounter{n}, ctx = *this]() -> AbortReason {
-      // Not thread safe
-      return maybe_check_abort() ? ctx.MustAbort() : AbortReason::NO_ABORT;
-    };
-  }
 };
 
 struct ExecutionContext {

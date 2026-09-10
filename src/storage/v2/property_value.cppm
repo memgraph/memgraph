@@ -17,6 +17,7 @@ module;
 #include <memory>
 #include <memory_resource>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -66,8 +67,13 @@ inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
          (a == PropertyValueType::Double && b == PropertyValueType::Int);
 }
 
-inline std::partial_ordering CompareNumericValues(const std::variant<int, double> &a,
-                                                  const std::variant<int, double> &b) {
+/// Orders two numbers, whichever numeric types the two variants hold.
+///
+/// The two variants need not hold the same types. A list that boxes its
+/// elements stores an integer wider than one that packs them, so comparing the
+/// two means reading each at the width it is stored at.
+template <typename... Lhs, typename... Rhs>
+inline std::partial_ordering CompareNumericValues(const std::variant<Lhs...> &a, const std::variant<Rhs...> &b) {
   return std::visit(
       [](const auto &val_a, const auto &val_b) -> std::partial_ordering { return val_a <=> val_b; }, a, b);
 }
@@ -906,14 +912,19 @@ using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byt
 }  // namespace pmr
 
 /// Helper function to extract numeric value from any list type at given index
+///
+/// Integers are read at their full width. A boxed list stores each element at
+/// that width, so reading one narrower would turn two elements that differ only
+/// above the narrower width into the same value, and the lists holding them
+/// would compare equal.
 template <typename Alloc, typename KeyType, typename VectorIndexIdType>
-inline std::optional<std::variant<int, double>> GetNumericValueAt(
+inline std::optional<std::variant<int64_t, double>> GetNumericValueAt(
     const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list, size_t index) {
   switch (list.type()) {
     case PropertyValueType::List: {
       auto const &list_val = list.ValueList();
       if (list_val[index].IsInt()) {
-        return static_cast<int>(list_val[index].ValueInt());
+        return list_val[index].ValueInt();
       }
       if (list_val[index].IsDouble()) {
         return list_val[index].ValueDouble();
@@ -929,8 +940,20 @@ inline std::optional<std::variant<int, double>> GetNumericValueAt(
       return list_val[index];
     }
     case PropertyValueType::NumericList: {
-      auto const &list_val = list.ValueNumericList();
-      return list_val[index];
+      // This representation packs its integers narrower than a boxed list stores
+      // them, so widen it to compare the two.
+      //
+      // Read through a pointer rather than by value: the accessor that returns
+      // the value raises when asked for the alternative the element does not
+      // hold, and this comparison is reached from one declared not to raise.
+      auto const &packed = list.ValueNumericList()[index];
+      if (auto const *as_int = std::get_if<int>(&packed)) {
+        return static_cast<int64_t>(*as_int);
+      }
+      if (auto const *as_double = std::get_if<double>(&packed)) {
+        return *as_double;
+      }
+      std::unreachable();
     }
     default:
       throw PropertyValueException("Invalid list type");
@@ -948,12 +971,12 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
     return size1 <=> size2;
   }
 
-  auto extract_type = [](const std::optional<std::variant<int, double>> &val,
+  auto extract_type = [](const std::optional<std::variant<int64_t, double>> &val,
                          const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
 
                          auto index) {
     if (val) {
-      if (std::holds_alternative<int>(*val)) {
+      if (std::holds_alternative<int64_t>(*val)) {
         return PropertyValueType::Int;
       }
       return PropertyValueType::Double;

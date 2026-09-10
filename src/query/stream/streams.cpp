@@ -188,6 +188,12 @@ Streams::Streams(std::filesystem::path directory, memory::ArenaPool *arena_pool)
 }
 
 void Streams::RegisterProcedures() {
+  // Registering goes through the C procedure API, which reports a refused allocation as an error
+  // return. This caller has no way to act on one: it registers the fixed set of procedures that
+  // makes a database's streams usable at all, and a database registers them whenever it is created
+  // or resumed, which an instance at its memory limit still has to be able to do. The bytes stay
+  // tracked and still count towards the limit; they just cannot be refused.
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
   RegisterKafkaProcedures();
   RegisterPulsarProcedures();
 }

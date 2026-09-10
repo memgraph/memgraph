@@ -29,13 +29,31 @@ constexpr int64_t MaxHopsOrNoLimit(int64_t max_hops) noexcept {
   return max_hops == -1 ? std::numeric_limits<int64_t>::max() : max_hops;
 }
 
-// One frame per hop, so an unbounded bound would exhaust the stack. Refuse rather than crash.
+// The depth-first walk recurses once per hop, so refuse rather than overflow the stack. Measured at
+// 288 bytes of frame per hop in a release build and 650 under a sanitizer, so this keeps a wide margin.
 constexpr int64_t kMaxExpandDepth = 5000;
+
+void RefuseIfTooDeep(const int64_t path_size) {
+  if (path_size > kMaxExpandDepth) {
+    throw mgp::ValueException("Path expansion exceeded the maximum depth of " + std::to_string(kMaxExpandDepth) +
+                              "; lower the upper hop bound to bound the traversal.");
+  }
+}
 
 // An end or termination filter anywhere in the step means only those nodes are returned.
 bool StepEndsNodesOnly(const Path::LabelStep &step) {
   return !step.sets.end_list.empty() || !step.sets.termination_list.empty() || step.wildcards.end_list ||
          step.wildcards.termination;
+}
+
+bool StepAdmits(const Path::RelStep &step, const bool outgoing) {
+  if (outgoing ? step.any_outgoing : step.any_incoming) {
+    return true;
+  }
+  const auto wanted = outgoing ? Path::RelDirection::kOutgoing : Path::RelDirection::kIncoming;
+  return std::ranges::any_of(step.types, [wanted](const auto &entry) {
+    return entry.second == Path::RelDirection::kAny || entry.second == wanted;
+  });
 }
 
 }  // namespace
@@ -48,8 +66,9 @@ Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relations
   config_.end_nodes_only = StepEndsNodesOnly(config_.label_steps.front());
   config_.min_hops = min_hops;
   config_.max_hops = MaxHopsOrNoLimit(max_hops);
-  // No `bfs` argument in this form, so a caller could not opt out of the per-depth re-walk.
+  // No `bfs` argument in this form; depth-first is the cheaper default.
   config_.bfs = false;
+  SizeLabelCache();
 }
 
 namespace {
@@ -336,6 +355,7 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, co
   }
 
   ParseNodeFilters(config, graph);
+  SizeLabelCache();
 }
 
 // `sequence` spells one alternating string; the two filter keys spell a label and a relationship
@@ -424,10 +444,30 @@ void Path::PathHelper::ParseNodeFilters(const mgp::Map &config, const mgp::Graph
 }
 
 // Cyclic, so the sequence repeats for as long as the walk goes on.
-const Path::LabelStep &Path::PathHelper::LabelStepAt(const int64_t depth) const {
+int64_t Path::PathHelper::LabelStepIndexAt(const int64_t depth) const {
   const int64_t position = config_.begin_sequence_at_start ? depth : depth - 1;
   // Depth 0 with the sequence starting one node out never reaches here: EvaluateLabels bypasses it.
-  return config_.label_steps[position % static_cast<int64_t>(config_.label_steps.size())];
+  return position % static_cast<int64_t>(config_.label_steps.size());
+}
+
+Path::LabelBools Path::PathHelper::CachedLabelBools(const mgp::Node &node, const int64_t step_index) const {
+  // A graph-wide rule reaches each node once, so a cache would only ever be written to.
+  if (GlobalUniqueness()) {
+    return GetLabelBools(node, config_.label_steps[static_cast<size_t>(step_index)]);
+  }
+  auto &cache = label_bools_cache_[static_cast<size_t>(step_index)];
+  const int64_t id = node.Id().AsInt();
+  if (const auto it = cache.find(id); it != cache.end()) {
+    return it->second;
+  }
+  return cache.emplace(id, GetLabelBools(node, config_.label_steps[static_cast<size_t>(step_index)])).first->second;
+}
+
+void Path::PathHelper::SizeLabelCache() {
+  if (GlobalUniqueness()) {
+    return;
+  }
+  label_bools_cache_.resize(config_.label_steps.size());
 }
 
 const Path::RelStep &Path::PathHelper::RelStepAt(const int64_t depth) const {
@@ -436,6 +476,13 @@ const Path::RelStep &Path::PathHelper::RelStepAt(const int64_t depth) const {
   }
   const int64_t position = config_.initial_rel_step.has_value() ? depth - 1 : depth;
   return config_.rel_steps[position % static_cast<int64_t>(config_.rel_steps.size())];
+}
+
+// RelationshipAdmitted's direction test, hoisted: it depends on the step alone, so it can rule out a
+// whole adjacency list.
+bool Path::PathHelper::StepAdmitsDirection(const int64_t depth, const bool outgoing) const {
+  const RelStep &step = RelStepAt(depth);
+  return outgoing ? step.admits_outgoing : step.admits_incoming;
 }
 
 bool Path::PathHelper::RelationshipAdmitted(std::string_view rel_type, const bool outgoing, const int64_t depth) const {
@@ -473,11 +520,13 @@ Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const i
     return {.include = !EndNodesOnly(), .expand = true};
   }
 
-  const LabelStep &step = LabelStepAt(depth);
-  const LabelBools label_bools = GetLabelBools(node, step);
-  // Below the lower bound a node cannot be returned, but the walk still passes through it -- including
-  // through a terminator, which ends the walk only once it could be returned.
+  const int64_t step_index = LabelStepIndexAt(depth);
+  const LabelStep &step = config_.label_steps[static_cast<size_t>(step_index)];
   const bool below_min_hops = depth < config_.min_hops;
+  if (step.constrains_nothing) {
+    return {.include = !(EndNodesOnly() || below_min_hops), .expand = true};
+  }
+  const LabelBools label_bools = CachedLabelBools(node, step_index);
 
   if (label_bools.blacklisted) {
     return {.include = false, .expand = false};
@@ -535,10 +584,6 @@ Path::Evaluation Path::PathHelper::Evaluate(const mgp::Node &node, const int64_t
 }
 
 bool Path::PathHelper::PathSizeOk(const int64_t path_size) const {
-  // Each pass emits its own depth only, so the passes partition the results.
-  if (config_.pass_depth >= 0 && path_size != config_.pass_depth) {
-    return false;
-  }
   return (path_size <= config_.max_hops) && (path_size >= config_.min_hops);
 }
 
@@ -616,6 +661,9 @@ Path::LabelStep Path::PathHelper::ParseLabelStep(const mgp::List &list_of_labels
   }
 
   step.whitelist_empty = step.sets.whitelist.empty() && !step.wildcards.whitelist;
+  step.constrains_nothing = step.whitelist_empty && step.sets.blacklist.empty() && step.sets.termination_list.empty() &&
+                            step.sets.end_list.empty() && !step.wildcards.blacklist && !step.wildcards.termination &&
+                            !step.wildcards.end_list;
   return step;
 }
 
@@ -625,6 +673,8 @@ Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationsh
   if (list_of_relationships.Size() == 0) {  // no relationships given, so every relationship is allowed
     step.any_outgoing = true;
     step.any_incoming = true;
+    step.admits_incoming = true;
+    step.admits_outgoing = true;
     return step;
   }
 
@@ -682,6 +732,8 @@ Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationsh
     AddRelationshipDirection(step, std::move(type), direction);
   }
 
+  step.admits_incoming = StepAdmits(step, false);
+  step.admits_outgoing = StepAdmits(step, true);
   return step;
 }
 
@@ -859,18 +911,40 @@ void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   }
 }
 
-int64_t Path::PathExpand::UniquenessKey(const mgp::Relationship &relationship, const bool outgoing) const {
-  if (IsNodeUniqueness(path_data_.helper_.GetUniqueness())) {
-    return (outgoing ? relationship.To() : relationship.From()).Id().AsInt();
+namespace {
+// mgp::Node and mgp::Relationship copy out of storage on construction. Iterating the C handles defers
+// that to the candidates actually taken; the handles are borrowed and valid until the next step.
+class BorrowedEdges {
+ public:
+  BorrowedEdges(mgp_vertex *vertex, bool outgoing)
+      : iterator_(outgoing ? mgp::MemHandlerCallback(mgp::vertex_iter_out_edges, vertex)
+                           : mgp::MemHandlerCallback(mgp::vertex_iter_in_edges, vertex)) {
+    if (iterator_ == nullptr) {
+      throw mg_exception::NotEnoughMemoryException();
+    }
   }
-  return relationship.Id().AsInt();
-}
+
+  BorrowedEdges(const BorrowedEdges &) = delete;
+  BorrowedEdges &operator=(const BorrowedEdges &) = delete;
+  BorrowedEdges(BorrowedEdges &&) = delete;
+  BorrowedEdges &operator=(BorrowedEdges &&) = delete;
+
+  ~BorrowedEdges() { mgp::edges_iterator_destroy(iterator_); }
+
+  mgp_edge *First() const { return mgp::edges_iterator_get(iterator_); }
+
+  mgp_edge *Next() const { return mgp::edges_iterator_next(iterator_); }
+
+ private:
+  mgp_edges_iterator *iterator_;
+};
+}  // namespace
 
 void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size,
-                                  const int64_t uniqueness_key) {
+                                  const int64_t uniqueness_key, const mgp::Node &next_node) {
   path.Expand(relationship);
   path_data_.visited_.insert(uniqueness_key);
-  DFS(path, path_size + 1);
+  DFS(path, path_size + 1, next_node);
   // A path-scoped rule releases the mark on the way back out; a global one holds it for the whole walk.
   if (!path_data_.helper_.GlobalUniqueness()) {
     path_data_.visited_.erase(uniqueness_key);
@@ -878,9 +952,12 @@ void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &rela
   path.Pop();
 }
 
-void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing,
-                                               int64_t path_size) {
-  for (const auto relationship : relationships) {
+void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp_vertex *vertex, const bool outgoing,
+                                               const int64_t path_size) {
+  const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
+
+  const BorrowedEdges edges{vertex, outgoing};
+  for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     if (path_data_.LimitReached()) {
       return;
     }
@@ -888,14 +965,18 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
     // supernode's whole adjacency list is uninterruptible.
     path_data_.MaybeAbort();
 
-    const int64_t uniqueness_key = UniquenessKey(relationship, outgoing);
+    // Only the type name is needed here; everything below this copies.
+    if (!path_data_.helper_.RelationshipAdmitted(mgp::edge_get_type(edge).name, outgoing, path_size)) {
+      continue;
+    }
+
+    auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
+    const int64_t uniqueness_key = node_keyed ? mgp::vertex_get_id(next_vertex).as_int : mgp::edge_get_id(edge).as_int;
     if (path_data_.visited_.contains(uniqueness_key)) {
       continue;
     }
 
-    if (path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, path_size)) {
-      ExpandPath(path, relationship, path_size, uniqueness_key);
-    }
+    ExpandPath(path, mgp::Relationship(edge), path_size, uniqueness_key, mgp::Node(next_vertex));
   }
 }
 
@@ -906,7 +987,7 @@ void Path::PathExpand::Emit(const mgp::Path &path) {
 }
 
 /*function used for traversal and filtering*/
-void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
+void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size, const mgp::Node &node) {
   if (path_data_.LimitReached()) {
     return;
   }
@@ -915,15 +996,7 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
   path_data_.MaybeAbort();
 
   // One frame per hop; refuse rather than overflow the stack.
-  if (path_size > kMaxExpandDepth) {
-    throw mgp::ValueException("Path expansion exceeded the maximum depth of " + std::to_string(kMaxExpandDepth) +
-                              "; lower the upper hop bound to bound the traversal.");
-  }
-
-  const mgp::Node node{path.GetNodeAt(path_size)};
-
-  // Counts whether or not the filters keep it: this tells the driver a deeper pass has somewhere to go.
-  deepest_reached_ = std::max(deepest_reached_, path_size);
+  RefuseIfTooDeep(path_size);
 
   const Evaluation evaluation = path_data_.helper_.Evaluate(node, path_size);
 
@@ -934,12 +1007,17 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
     }
   }
 
-  if (!evaluation.expand || std::cmp_greater(path_size + 1, path_data_.helper_.ExpansionCeiling())) {
+  if (!evaluation.expand || std::cmp_greater(path_size + 1, path_data_.helper_.MaxHops())) {
     return;
   }
 
-  this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
-  this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
+  // Skip an adjacency list the step admits nothing from.
+  if (path_data_.helper_.StepAdmitsDirection(path_size, false)) {
+    this->ExpandFromRelationships(path, node.GetPtr(), false, path_size);
+  }
+  if (path_data_.helper_.StepAdmitsDirection(path_size, true)) {
+    this->ExpandFromRelationships(path, node.GetPtr(), true, path_size);
+  }
 }
 
 void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
@@ -949,7 +1027,7 @@ void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
   if (mark_start) {
     path_data_.visited_.insert(node.Id().AsInt());
   }
-  DFS(path, 0);
+  DFS(path, 0, node);
   if (mark_start && !path_data_.helper_.GlobalUniqueness()) {
     path_data_.visited_.erase(node.Id().AsInt());
   }
@@ -1005,29 +1083,32 @@ mgp::Path Path::PathExpand::PathTo(const int64_t index) {
   return path;
 }
 
-void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth, mgp::Relationships relationships,
+void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth, mgp_vertex *vertex,
                                        const bool outgoing, std::queue<int64_t> &frontier) {
-  for (const auto relationship : relationships) {
+  const BorrowedEdges edges{vertex, outgoing};
+  for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     if (path_data_.LimitReached()) {
       return;
     }
     // As in the other walks: a fully filtered supernode never reaches the poll at the dequeue.
     path_data_.MaybeAbort();
 
-    auto next_node = outgoing ? relationship.To() : relationship.From();
-    if (path_data_.visited_.contains(next_node.Id().AsInt())) {
+    auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
+    const int64_t next_id = mgp::vertex_get_id(next_vertex).as_int;
+    if (path_data_.visited_.contains(next_id)) {
       continue;
     }
 
-    if (!path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, depth)) {
+    if (!path_data_.helper_.RelationshipAdmitted(mgp::edge_get_type(edge).name, outgoing, depth)) {
       continue;
     }
 
     // Marked here rather than at the dequeue, so the first relationship to reach a node is the one that
     // keeps it -- which is what makes the tree breadth-first, and holds even for a node a filter then
     // rejects: it is spent either way.
-    path_data_.visited_.insert(next_node.Id().AsInt());
-    tree_.push_back({.node = std::move(next_node), .from_parent = relationship, .parent = index, .depth = depth + 1});
+    path_data_.visited_.insert(next_id);
+    tree_.push_back(
+        {.node = mgp::Node(next_vertex), .from_parent = mgp::Relationship(edge), .parent = index, .depth = depth + 1});
     frontier.push(static_cast<int64_t>(tree_.size()) - 1);
   }
 }
@@ -1061,9 +1142,7 @@ void Path::PathExpand::RunNodeGlobalBfs() {
     frontier.pop();
     const int64_t depth = tree_[index].depth;
     // Copied out, not bound by reference: the two ExpandTreeEntry calls below append to the tree, so the
-    // first one can reallocate it out from under the second one's `node.OutRelationships()`. The
-    // relationship iterator itself holds its own copy of the vertex, so it is the second read of `node`
-    // that needs this, not the iteration.
+    // first one can reallocate it out from under the handle the second one is passed.
     const mgp::Node node{tree_[index].node};
 
     const Evaluation evaluation = path_data_.helper_.Evaluate(node, depth);
@@ -1074,46 +1153,146 @@ void Path::PathExpand::RunNodeGlobalBfs() {
       }
     }
 
-    if (!evaluation.expand || std::cmp_greater(depth + 1, path_data_.helper_.ExpansionCeiling())) {
+    if (!evaluation.expand || std::cmp_greater(depth + 1, path_data_.helper_.MaxHops())) {
       continue;
     }
 
-    ExpandTreeEntry(index, depth, node.InRelationships(), false, frontier);
-    ExpandTreeEntry(index, depth, node.OutRelationships(), true, frontier);
+    if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
+      ExpandTreeEntry(index, depth, node.GetPtr(), false, frontier);
+    }
+    if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
+      ExpandTreeEntry(index, depth, node.GetPtr(), true, frontier);
+    }
+  }
+}
+
+bool Path::PathExpand::OnBranch(const int64_t index, const int64_t key) const {
+  const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
+  for (int64_t i = index; i != kNoParent; i = branches_[i].parent) {
+    const int64_t seen = node_keyed ? branches_[i].node_id : branches_[i].relationship_id;
+    if (seen == key) {
+      return true;
+    }
+  }
+  return false;
+}
+
+mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
+  std::vector<int64_t> chain;
+  for (int64_t i = index; i != kNoParent; i = branches_[i].parent) {
+    // One call is as long as the path, so the poll at the dequeue is not enough on its own.
+    path_data_.MaybeAbort();
+    chain.push_back(i);
+  }
+  std::ranges::reverse(chain);
+
+  // Roots are seeded in start-node order before anything expands, so a root's index is its start node's.
+  mgp::Path path{path_data_.start_nodes_[static_cast<size_t>(chain.front())]};
+  for (size_t step = 1; step < chain.size(); ++step) {
+    path.Expand(*branches_[chain[step]].from_parent);
+  }
+  return path;
+}
+
+void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, const bool outgoing,
+                                    std::queue<std::pair<int64_t, mgp::Node>> &frontier) {
+  // Read before the loop: pushing a branch can reallocate the vector out from under a reference.
+  const int64_t depth = branches_[index].depth;
+  const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
+
+  const BorrowedEdges edges{vertex, outgoing};
+  for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
+
+    if (!path_data_.helper_.RelationshipAdmitted(mgp::edge_get_type(edge).name, outgoing, depth)) {
+      continue;
+    }
+
+    auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
+    const int64_t next_id = mgp::vertex_get_id(next_vertex).as_int;
+    const int64_t key = node_keyed ? next_id : mgp::edge_get_id(edge).as_int;
+    if (OnBranch(index, key)) {
+      continue;
+    }
+
+    branches_.push_back({.node_id = next_id,
+                         .relationship_id = mgp::edge_get_id(edge).as_int,
+                         .parent = index,
+                         .depth = depth + 1,
+                         .from_parent = mgp::Relationship(edge)});
+    // The loop's only node copy, and only for a branch that will be followed.
+    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, mgp::Node(next_vertex));
+  }
+}
+
+void Path::PathExpand::RunPathScopedBfs() {
+  std::queue<std::pair<int64_t, mgp::Node>> frontier;
+  for (const auto &node : path_data_.start_nodes_) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
+    branches_.push_back({.node_id = node.Id().AsInt(),
+                         .relationship_id = kNoRelationship,
+                         .parent = kNoParent,
+                         .depth = 0,
+                         .from_parent = std::nullopt});
+    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, node);
+  }
+
+  while (!frontier.empty()) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
+
+    auto entry = std::move(frontier.front());
+    frontier.pop();
+    const int64_t index = entry.first;
+    const mgp::Node &node = entry.second;
+    const int64_t depth = branches_[index].depth;
+
+    const Evaluation evaluation = path_data_.helper_.Evaluate(node, depth);
+    if (evaluation.include && path_data_.helper_.PathSizeOk(depth)) {
+      Emit(BranchPath(index));
+      if (path_data_.LimitReached()) {
+        return;
+      }
+    }
+
+    if (!evaluation.expand || std::cmp_greater(depth + 1, path_data_.helper_.MaxHops())) {
+      continue;
+    }
+
+    if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
+      ExpandBranch(index, node.GetPtr(), false, frontier);
+    }
+    if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
+      ExpandBranch(index, node.GetPtr(), true, frontier);
+    }
   }
 }
 
 // Breadth-first emits every path of one length before any longer one, which is what makes a `limit`
-// return the shortest paths. It is driven by re-walking once per depth, so the traversal, the filters
-// and the uniqueness rule stay the ones the depth-first walk uses. A queue of partial paths would
-// instead hold the whole frontier, which here is as large as the result set it is about to build --
-// except under the node-global rule, which bounds it by the graph and gets its own walk.
+// return the shortest paths. Both walks below hold a tree of what they have reached rather than a
+// frontier of whole paths; they differ in what may not repeat, and so in how big that tree gets.
 void Path::PathExpand::RunAlgorithm() {
-  if (path_data_.helper_.GlobalUniqueness() && path_data_.helper_.Bfs()) {
-    RunNodeGlobalBfs();
+  // No path length satisfies both bounds.
+  if (path_data_.helper_.MinHops() > path_data_.helper_.MaxHops()) {
     return;
   }
-
   if (!path_data_.helper_.Bfs()) {
     RunAllStarts();
     return;
   }
-
-  const int64_t min_hops = path_data_.helper_.MinHops();
-  const int64_t max_hops = path_data_.helper_.MaxHops();
-
-  for (int64_t depth = std::max(min_hops, int64_t{0}); depth <= max_hops; ++depth) {
-    deepest_reached_ = -1;
-    path_data_.helper_.SetPassDepth(depth);
-    RunAllStarts();
-    // Stop on the limit, or when nothing reached this depth -- nothing can then reach a greater one,
-    // which is what bounds the loop with no upper hop bound.
-    if (path_data_.LimitReached() || deepest_reached_ < depth) {
-      break;
-    }
+  if (path_data_.helper_.GlobalUniqueness()) {
+    RunNodeGlobalBfs();
+    return;
   }
-
-  path_data_.helper_.ClearPassDepth();
+  RunPathScopedBfs();
 }
 
 namespace {
@@ -1189,23 +1368,24 @@ void Path::PathSubgraph::Parse(const mgp::Value &value) {
   path_data_.AddStartNode(path_data_.graph_.GetNodeById(mgp::Id::FromInt(value.ValueInt())));
 }
 
-void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair,
-                                                 const mgp::Relationships relationships, bool outgoing,
-                                                 std::queue<std::pair<mgp::Node, int64_t>> &queue) {
-  for (const auto relationship : relationships) {
+void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair, mgp_vertex *vertex,
+                                                 bool outgoing, std::queue<std::pair<mgp::Node, int64_t>> &queue) {
+  const BorrowedEdges edges{vertex, outgoing};
+  for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     // As in the expand walk: a fully filtered supernode never reaches the dequeue poll above.
     path_data_.MaybeAbort();
 
-    auto next_node = outgoing ? relationship.To() : relationship.From();
+    auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
+    const int64_t next_id = mgp::vertex_get_id(next_vertex).as_int;
 
-    if (path_data_.visited_.contains(next_node.Id().AsInt())) {
+    if (path_data_.visited_.contains(next_id)) {
       continue;
     }
 
-    if (path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, pair.second)) {
+    if (path_data_.helper_.RelationshipAdmitted(mgp::edge_get_type(edge).name, outgoing, pair.second)) {
       // Enqueue only; TryInsertNode emits it on dequeue, once the checks are applied.
-      path_data_.visited_.insert(next_node.Id().AsInt());
-      queue.emplace(std::move(next_node), pair.second + 1);
+      path_data_.visited_.insert(next_id);
+      queue.emplace(mgp::Node(next_vertex), pair.second + 1);
     }
   }
 }
@@ -1249,8 +1429,12 @@ mgp::List Path::PathSubgraph::BFS() {
       continue;
     }
 
-    this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue);
-    this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue);
+    if (path_data_.helper_.StepAdmitsDirection(pair.second, false)) {
+      this->ExpandFromRelationships(pair, pair.first.GetPtr(), false, queue);
+    }
+    if (path_data_.helper_.StepAdmitsDirection(pair.second, true)) {
+      this->ExpandFromRelationships(pair, pair.first.GetPtr(), true, queue);
+    }
   }
 
   return to_be_returned_nodes_;
@@ -1332,22 +1516,26 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
     const auto to_be_returned_nodes = path_subgraph.BFS();
 
-    std::unordered_set<mgp::Node> to_be_returned_nodes_searchable;
+    // Keyed by id: the membership test is the only thing asked of it, and a node key copies a vertex
+    // out of storage to store and another to look up.
+    std::unordered_set<int64_t> to_be_returned_nodes_searchable;
 
     for (const auto &node : to_be_returned_nodes) {
-      to_be_returned_nodes_searchable.insert(node.ValueNode());
+      to_be_returned_nodes_searchable.insert(node.ValueNode().Id().AsInt());
     }
 
     // A second O(nodes * degree) pass outside the walk, so it polls too.
     uint64_t abort_poll_counter = 0;
     mgp::List to_be_returned_rels;
-    for (auto node : to_be_returned_nodes) {
+    for (const auto &node : to_be_returned_nodes) {
       // A sink never reaches the inner poll, so a result set of them would be uninterruptible.
       PollAbort(graph, abort_poll_counter);
-      for (auto rel : node.ValueNode().OutRelationships()) {
+      const mgp::Node from = node.ValueNode();
+      const BorrowedEdges edges{from.GetPtr(), true};
+      for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
         PollAbort(graph, abort_poll_counter);
-        if (to_be_returned_nodes_searchable.contains(rel.To())) {
-          to_be_returned_rels.AppendExtend(mgp::Value(rel));
+        if (to_be_returned_nodes_searchable.contains(mgp::vertex_get_id(mgp::edge_get_to(edge)).as_int)) {
+          to_be_returned_rels.AppendExtend(mgp::Value(mgp::Relationship(edge)));
         }
       }
     }

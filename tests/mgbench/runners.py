@@ -150,6 +150,10 @@ class BaseClient(ABC):
         self.benchmark_context = benchmark_context
         self._vendor = benchmark_context.vendor_name
 
+    @property
+    def vendor(self):
+        return self._vendor
+
     @abstractmethod
     def execute(self):
         pass
@@ -461,14 +465,18 @@ class PythonClient(BaseClient):
         self._password = ""
         self._configured_database_port = database_port
         self._runner = runner
+        self._routing = benchmark_context.client_bolt_routing
+        self._routing_tx_mode = benchmark_context.client_bolt_routing_tx_mode
 
     @property
     def _database_port(self):
         """
         Same reason as BoltClient: the port is only stable for vendors whose database cannot move.
+        With bolt+routing the client connects to a coordinator (which serves the routing table)
+        rather than directly to main.
         """
         if self._runner is not None:
-            return self._runner.get_database_port()
+            return self._runner.get_coordinator_port() if self._routing else self._runner.get_database_port()
         return self._configured_database_port
 
     def _get_args(self, **kwargs):
@@ -503,6 +511,8 @@ class PythonClient(BaseClient):
             username=self._username,
             password=self._password,
             port=self._database_port,
+            routing=self._routing,
+            routing_tx_mode=self._routing_tx_mode,
             validation=False,
             time_dependent_execution=time_dependent_execution,
         )
@@ -539,6 +549,8 @@ class PythonClient(BaseClient):
             username=self._username,
             password=self._password,
             port=self._database_port,
+            routing=self._routing,
+            routing_tx_mode=self._routing_tx_mode,
             validation=validation,
             time_dependent_execution=time_dependent_execution,
         )
@@ -1218,6 +1230,11 @@ class MemgraphHA(BaseRunner):
         if self._main_name is not None:
             return self._bolt_ports[self._main_name]
         return self._bolt_port
+
+    def get_coordinator_port(self):
+        # bolt+routing entry point: any coordinator can serve the routing table (a follower forwards
+        # the request to the leader), so the first one is enough regardless of who currently leads.
+        return self._bolt_ports[self._coordinators[0]]
 
 
 class Neo4j(BaseRunner):

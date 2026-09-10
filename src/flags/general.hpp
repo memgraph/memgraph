@@ -11,9 +11,7 @@
 
 #pragma once
 
-#include <filesystem>
-#include <format>
-#include <vector>
+#include <optional>
 
 #include "gflags/gflags.h"
 
@@ -142,10 +140,6 @@ DECLARE_string(pulsar_service_url);
 DECLARE_string(query_modules_directory);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_callable_mappings_path);
-
-namespace memgraph::flags {
-auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
-}  // namespace memgraph::flags
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(license_key);

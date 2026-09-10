@@ -71,7 +71,7 @@ jobs:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -187,6 +187,15 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
 
+      - name: Save ctest results
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        if: always()
+        with:
+          name: "ctest_results_Release${{ env.RUN_ID }}"
+          path: build/test-results/
+          if-no-files-found: ignore
+
       - name: Run query modules unit tests
         run: |
           ./release/package/mgbuild.sh \
@@ -246,6 +255,39 @@ jobs:
         with:
           name: "Enterprise DEB package"
           path: build/output/${{ env.OS }}/memgraph*.deb
+
+      - name: Resolve PR number for merge queue
+        if: ${{ github.event_name == 'merge_group' }}
+        id: get_pr
+        env:
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          PR_NUMBER=$(sed -n 's/.*pr-\([0-9]\+\).*/\1/p' <<<"$MERGE_GROUP_HEAD_REF")
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "::warning::Unable to resolve PR number from '$MERGE_GROUP_HEAD_REF'; skipping memgraph package upload to S3."
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "PR Number: $PR_NUMBER"
+
+      - name: Upload enterprise DEB packages to S3
+        if: ${{ github.event_name == 'merge_group' && steps.get_pr.outputs.pr_number != '' }}
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          S3_DEST_DIR: "pr-build/memgraph/pr${{ steps.get_pr.outputs.pr_number }}"
+        run: |
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt..."
+            if aws s3 sync "build/output/$OS" "s3://deps.memgraph.io/$S3_DEST_DIR/" \
+                 --exclude '*' --include 'memgraph*.deb'; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Failed to upload memgraph packages to S3 after 3 attempts" >&2
+          exit 1
 
       - name: Collect core dumps
         if: failure()
@@ -647,7 +689,7 @@ jobs:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 110
+    timeout-minutes: 120
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -812,7 +854,7 @@ jobs:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

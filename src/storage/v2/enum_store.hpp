@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <expected>
 #include <map>
 #include <ranges>
 #include <string>

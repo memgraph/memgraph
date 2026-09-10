@@ -17,10 +17,14 @@
  */
 #pragma once
 
+#include <unistd.h>
+
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -33,9 +37,6 @@
 namespace memgraph::utils {
 
 using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
-
-auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
-    -> std::pair<std::filesystem::path, FileUniquePtr>;
 
 /// Get the path of the current executable.
 ///

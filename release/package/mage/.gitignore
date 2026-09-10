@@ -6,6 +6,7 @@ openssl/
 wheels/
 heaptrack/
 ci.sources
+mirrors/
 requirements.txt
 requirements-gpu.txt
 auth-module-requirements.txt

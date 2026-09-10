@@ -16,7 +16,6 @@
 #include <openssl/x509_vfy.h>
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <latch>
 #include <thread>
 #include <variant>
@@ -2738,19 +2737,21 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentResourceExhaustion) {
   std::atomic<size_t> failure_count{0};
   std::atomic<size_t> total_allocated{0};
 
-  // Test concurrent resource exhaustion
+  // The limit caps concurrent sessions, so the latch holds every winner's session open until all
+  // ten threads have tried. The counts below are then exact rather than scheduling-dependent.
+  std::latch latch(kNumThreads);
   for (size_t i = 0; i < kNumThreads; ++i) {
     threads.emplace_back([&]() {
       auto resource = resources.GetUser("test_user");
       if (resource->IncrementSessions()) {
         success_count.fetch_add(1);
         total_allocated.fetch_add(1);
-        // Hold the resource for a bit
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        latch.arrive_and_wait();
         resource->DecrementSessions();
         total_allocated.fetch_sub(1);
       } else {
         failure_count.fetch_add(1);
+        latch.arrive_and_wait();
       }
     });
   }

@@ -9,7 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <condition_variable>
+#include <latch>
+#include <mutex>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "rpc_messages.hpp"
@@ -90,62 +96,121 @@ TEST(Rpc, Abort) {
 }
 
 TEST(Rpc, ClientPool) {
+  static constexpr int kConcurrentCalls = 4;
+  // Only stops a hang; it measures nothing.
+  static constexpr auto kRendezvousTimeout = 30s;
+
+  // The counter and the peak would work as atomics. The condition variable is here because both
+  // waits must give up after a while, and neither a wait on an atomic nor one on a latch takes a
+  // deadline; without one a broken pool would hang the test instead of failing it.
+  std::mutex rendezvous_mutex;
+  std::condition_variable rendezvous_cv;
+  bool rendezvous_armed = false;
+  // Once one handler has timed out the calls are not going to gather, and letting the rest through
+  // keeps a failing run to one timeout rather than one each.
+  bool rendezvous_gave_up = false;
+  int handlers_in_flight = 0;
+  int peak_handlers_in_flight = 0;
+
+  // Handing a request over is not the same as reaching the server, so the first handler waits for
+  // every caller to hand over and then holds the server open a little longer to see whether a second
+  // call arrives. A machine too slow to deliver one reports a client that runs calls one at a time,
+  // which is what this check expects, so it can hide a bug but cannot invent one.
+  std::latch callers_handed_over{kConcurrentCalls};
+  static constexpr auto kControlWindow = 100ms;
+  bool control_window_used = false;
+
   memgraph::communication::ServerContext server_context;
-  Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                          uint64_t const request_version,
-                          const auto &req_reader,
-                          auto *res_builder) {
+  // The worker count otherwise follows the machine, and a machine with fewer cores than this could
+  // not run the calls together however well the pool behaved.
+  Server server({"127.0.0.1", 0}, &server_context, kConcurrentCalls);
+  server.Register<Sum>([&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version,
+                           const auto &req_reader,
+                           auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
-    std::this_thread::sleep_for(100ms);
+
+    {
+      std::unique_lock lock(rendezvous_mutex);
+      ++handlers_in_flight;
+      peak_handlers_in_flight = std::max(peak_handlers_in_flight, handlers_in_flight);
+      rendezvous_cv.notify_all();
+      if (rendezvous_armed && !rendezvous_gave_up) {
+        // Waiting on the peak rather than the live count: it only rises, so it still reads as
+        // reached for handlers that wake after the first has left.
+        const bool gathered = rendezvous_cv.wait_for(lock, kRendezvousTimeout, [&] {
+          return peak_handlers_in_flight >= kConcurrentCalls || rendezvous_gave_up;
+        });
+        if (!gathered) {
+          rendezvous_gave_up = true;
+          rendezvous_cv.notify_all();
+        }
+      } else if (!rendezvous_armed && !control_window_used) {
+        control_window_used = true;
+        lock.unlock();
+        callers_handed_over.wait();
+        lock.lock();
+        rendezvous_cv.wait_for(lock, kControlWindow, [&] { return handlers_in_flight >= 2; });
+      }
+      --handlers_in_flight;
+    }
+
     SumRes const res({sum});
     memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
+  // No wait needed here: the socket is bound and accepting from construction.
   ASSERT_TRUE(server.Start());
-  std::this_thread::sleep_for(100ms);
+
+  auto peak_and_reset = [&] {
+    std::lock_guard const lock(rendezvous_mutex);
+    return std::exchange(peak_handlers_in_flight, 0);
+  };
 
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
 
-  // These calls should take more than 400ms because we're using a regular
-  // client
-  auto get_sum_client = [&client](int x, int y) {
+  auto get_sum_client = [&client, &callers_handed_over](int x, int y) {
+    callers_handed_over.count_down();
     auto sum = client.Call<SumV1>(x, y);
     EXPECT_EQ(sum.sum, x + y);
   };
 
-  memgraph::utils::Timer const t1;
-  std::vector<std::thread> threads;
-  for (int i = 0; i < 4; ++i) {
-    threads.emplace_back(get_sum_client, 2 * i, 2 * i + 1);
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(kConcurrentCalls);
+    for (int i = 0; i < kConcurrentCalls; ++i) {
+      threads.emplace_back(get_sum_client, 2 * i, 2 * i + 1);
+    }
   }
-  for (int i = 0; i < 4; ++i) {
-    threads[i].join();
-  }
-  threads.clear();
 
-  EXPECT_GE(t1.Elapsed(), 400ms);
+  // One client is one connection, so its callers queue up.
+  EXPECT_EQ(peak_and_reset(), 1) << "a single client let calls into the server at the same time";
+
+  {
+    std::lock_guard const lock(rendezvous_mutex);
+    rendezvous_armed = true;
+  }
 
   memgraph::communication::ClientContext pool_context;
   ClientPool pool(server.endpoint(), &pool_context);
 
-  // These calls shouldn't take much more that 100ms because they execute in
-  // parallel
   auto get_sum = [&pool](int x, int y) {
     auto sum = pool.Call<SumV1>(x, y);
     EXPECT_EQ(sum.sum, x + y);
   };
 
-  memgraph::utils::Timer const t2;
-  for (int i = 0; i < 4; ++i) {
-    threads.emplace_back(get_sum, 2 * i, 2 * i + 1);
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(kConcurrentCalls);
+    for (int i = 0; i < kConcurrentCalls; ++i) {
+      threads.emplace_back(get_sum, 2 * i, 2 * i + 1);
+    }
   }
-  for (int i = 0; i < 4; ++i) {
-    threads[i].join();
-  }
-  EXPECT_LE(t2.Elapsed(), 200ms);
+
+  EXPECT_EQ(peak_and_reset(), kConcurrentCalls)
+      << "pooled calls did not overlap in the server; the pool serialised them";
 
   ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();

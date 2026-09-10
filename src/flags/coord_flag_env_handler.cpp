@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <format>
 #include <functional>
 #include <meta/meta.hpp>
 #include <optional>
