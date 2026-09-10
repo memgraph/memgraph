@@ -1760,6 +1760,16 @@ class NodeAtom : public memgraph::query::PatternAtom {
     return visitor.PostVisit(*this);
   }
 
+  /// Whether this atom states anything about the node beyond naming it. One that does not constrains nothing,
+  /// so no filter is collected from it.
+  bool HasLabelsOrProperties() const {
+    if (!labels_.empty()) return true;
+    if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
+      return !properties->empty();
+    }
+    return std::get<ParameterLookup *>(properties_) != nullptr;
+  }
+
   std::vector<QueryLabelType> labels_;
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>

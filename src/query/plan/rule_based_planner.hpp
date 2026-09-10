@@ -1287,13 +1287,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last_op;
   }
 
-  /// Whether @p node states no labels and no properties, so preprocessing collects no filter from it.
-  static bool IsBareNodeAtom(const NodeAtom &node) {
-    if (!node.labels_.empty()) return false;
-    const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_);
-    return properties != nullptr && properties->empty();
-  }
-
   std::unique_ptr<LogicalOperator> GenerateOperatorsForExpansion(
       std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const Expansion &expansion,
       const SymbolTable &symbol_table, AstStorage &storage, std::unordered_set<Symbol> &bound_symbols,
@@ -1301,6 +1294,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       storage::View view) {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
     const bool is_unseen_node = bound_symbols.insert(node1_symbol).second;
+
+    // A pattern that is one node the query has already bound scans nothing, so where it also begins a query part,
+    // as a subquery expression's body does, nothing below produces the row the rest of this function builds on.
+    // With an expansion, `GenExpand` reaches the node through the edge instead.
+    if (!is_unseen_node && !expansion.edge && !last_op) {
+      last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
+    }
 
     // we can just perform scanning from an edge if it's a simple edge
     // we don't take into consideration path expansion as part of edge scanning
@@ -1335,9 +1335,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
     } else if (!named_paths.empty()) {
-      // The node is already bound, so nothing here scans it. A query part that begins at this expansion, as a
-      // subquery expression's body does, has no input yet for the path construction to read a row from.
-      if (!last_op) last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
@@ -1355,11 +1352,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                           new_symbols,
                           view);
     } else if (!is_unseen_node) {
-      if (!last_op) last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
-      // An already-bound node is the whole of this expansion, so nothing above reads its value, and a bare one
-      // brings no filter with it. The pattern still has to match, and a null node, as an OPTIONAL MATCH leaves
-      // behind, matches nothing.
-      if (IsBareNodeAtom(*expansion.node1)) {
+      // An already-bound node is the whole of this expansion, so nothing above reads its value, and one that
+      // states nothing about the node brings no filter with it either. The pattern still has to match, and a
+      // null node, as an OPTIONAL MATCH leaves behind, matches nothing.
+      if (!expansion.node1->HasLabelsOrProperties()) {
         auto *identifier = storage.Create<Identifier>(node1_symbol.name())->MapTo(node1_symbol);
         auto *is_bound = storage.Create<NotOperator>(storage.Create<IsNullOperator>(identifier));
         last_op =
