@@ -347,12 +347,12 @@ CONAN_COMMON_ARGS=(
 )
 
 # Every conan invocation runs through this, so the toolchain root is named once and
-# only where there is a bundled toolchain to point at.
+# only where there is a bundled toolchain to point at. Whether one is used at all is
+# the profile's to say, and conan carries that into the CMake preset it generates.
 CONAN_ENV=(env)
 if [[ "$BUNDLED_TOOLCHAIN" = true ]]; then
     CONAN_ENV+=("MG_TOOLCHAIN_ROOT=/opt/toolchain-v8")
 else
-    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUNDLED_TOOLCHAIN=OFF"
     # Tools taken from the platform appear as references the Linux lockfile does not
     # carry, so the lock can constrain what it knows and no more.
     CONAN_COMMON_ARGS+=("--lockfile-partial")
