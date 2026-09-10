@@ -200,16 +200,3 @@ TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNull) {
   ASSERT_EQ(results.size(), 1U);
   EXPECT_EQ(results[0][0].ValueInt(), 0);
 }
-
-TYPED_TEST(QueryExecution, NamedPathInSubqueryBodyReusesOuterName) {
-  // A pattern name is a declaration, so a body reusing an outer one names its own path: the body shares the
-  // caller's frame, and the caller's path must survive the fold.
-  this->Execute("CREATE (:A)-[:R]->(:B)-[:R]->(:C)");
-
-  auto results =
-      this->Execute("MATCH p = (:A)-[]->()-[]->() RETURN COUNT { MATCH p = (:A)-[]->(x) } AS n, size(p) AS len");
-
-  ASSERT_EQ(results.size(), 1U);
-  EXPECT_EQ(results[0][0].ValueInt(), 1);
-  EXPECT_EQ(results[0][1].ValueInt(), 2);
-}

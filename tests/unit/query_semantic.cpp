@@ -1421,6 +1421,27 @@ TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
              AS("c")))));
 }
 
+// A body's pattern name cannot reuse a name from outside it. A node atom there correlates to the outer binding
+// while a pattern name declares, so one spelling would mean two different things, and the body writes into the
+// frame its caller shares.
+TYPED_TEST(TestSymbolGenerator, SubqueryBodyRefusesAShadowingPatternName) {
+  auto body = [this] { return QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("a"), EDGE("r"), NODE("b"))))); };
+
+  // MATCH p = (x)-[e]->(y) RETURN EXISTS { MATCH p = (a)-[r]->(b) } AS h
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("x"), EDGE("e"), NODE("y"))),
+                                                  RETURN(EXISTS_SUBQUERY(body()), AS("h"))))),
+               SemanticException);
+
+  // The outer name need not be a path: MATCH (p) RETURN EXISTS { MATCH p = (a)-[r]->(b) } AS h
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), RETURN(EXISTS_SUBQUERY(body()), AS("h"))))),
+      SemanticException);
+
+  // A name of its own is what the body is expected to use.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("q", NODE("x"), EDGE("e"), NODE("y"))),
+                                                     RETURN(EXISTS_SUBQUERY(body()), AS("h"))))));
+}
+
 // The only reader of Scope::subquery_fold: drop that field and a COUNT reports itself as an EXISTS, nothing failing.
 TYPED_TEST(TestSymbolGenerator, SubqueryPatternRefusesAnUnboundedVariableByConstruct) {
   auto expect_message = [](auto *query, std::string_view message) {
