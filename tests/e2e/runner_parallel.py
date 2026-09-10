@@ -503,7 +503,6 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
         prepared, port_namespace_start, port_map = prepare_workload_for_worker(
             workload, worker_slot, args_dict["port_offset_step"]
         )
-        env["MEMGRAPH_PARALLEL_PROCESS_INDEX"] = str(worker_slot)
         # Consumed by PortRemap in memgraph.py (through sitecustomize.py) inside the test process.
         env["MEMGRAPH_PORT_WINDOW_START"] = str(port_namespace_start)
         env["MEMGRAPH_PORT_WINDOW_SIZE"] = str(args_dict["port_offset_step"])

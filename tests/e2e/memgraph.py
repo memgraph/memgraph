@@ -181,27 +181,27 @@ class PortRemap:
             yield from self._override_child_env(saved)
 
     def _override_child_env(self, saved):
-        for name in list(os.environ):
-            if not (name.startswith("MEMGRAPH_") and name.endswith("_PORT")):
-                continue
-            value = _c_getenv(name)
-            if value is None or not value.isdigit():
-                continue
-            mapped = str(self.map_port(int(value)))
-            if mapped != value:
-                os.putenv(name, mapped)
-                saved.append((name, value))
-        init_queries = _c_getenv(HA_INIT_QUERIES_ENV)
-        if init_queries and os.path.isfile(init_queries):
-            with open(init_queries) as f:
-                content = f.read()
-            remapped_path = f"{init_queries}.w{self.window_start}"
-            with open(remapped_path, "w") as f:
-                f.write(self.map_text(content))
-            atexit.register(lambda: os.path.exists(remapped_path) and os.remove(remapped_path))
-            os.putenv(HA_INIT_QUERIES_ENV, remapped_path)
-            saved.append((HA_INIT_QUERIES_ENV, init_queries))
         try:
+            for name in list(os.environ):
+                if not (name.startswith("MEMGRAPH_") and name.endswith("_PORT")):
+                    continue
+                value = _c_getenv(name)
+                if value is None or not value.isdigit():
+                    continue
+                mapped = str(self.map_port(int(value)))
+                if mapped != value:
+                    os.putenv(name, mapped)
+                    saved.append((name, value))
+            init_queries = _c_getenv(HA_INIT_QUERIES_ENV)
+            if init_queries and os.path.isfile(init_queries):
+                with open(init_queries) as f:
+                    content = f.read()
+                remapped_path = f"{init_queries}.w{self.window_start}"
+                with open(remapped_path, "w") as f:
+                    f.write(self.map_text(content))
+                atexit.register(lambda: os.path.exists(remapped_path) and os.remove(remapped_path))
+                os.putenv(HA_INIT_QUERIES_ENV, remapped_path)
+                saved.append((HA_INIT_QUERIES_ENV, init_queries))
             yield
         finally:
             for name, value in saved:
