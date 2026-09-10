@@ -691,6 +691,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue(true, ctx_->memory);
       }
       default:
+        // Testing no labels asks only whether the value is a node, so labels are not what the reader got wrong.
+        if (labels_test.labels_.empty() && labels_test.or_labels_.empty()) {
+          if (const auto *identifier = utils::Downcast<Identifier>(labels_test.expression_)) {
+            throw QueryRuntimeException(
+                "Expected a node for '{}', but got {}.", identifier->name_, expression_result.type());
+          }
+          throw QueryRuntimeException("Expected a node, but got {}.", expression_result.type());
+        }
         throw QueryRuntimeException("Only nodes have labels.");
     }
   }
