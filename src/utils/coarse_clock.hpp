@@ -23,6 +23,10 @@ namespace memgraph::utils {
 // Used for query-timeout deadlines; wrap in std::optional for "no deadline".
 using SteadyTimePoint = std::chrono::steady_clock::time_point;
 
+// The cache is refreshed on this tick, so a deadline check can fire up to one tick early or late.
+// Exposed so callers can reason about that granularity (e.g. test timing tolerances).
+inline constexpr auto kCoarseClockTick = std::chrono::milliseconds(100);
+
 // Process-global cache of steady_clock::now(), refreshed every ~100ms by one dedicated ticker thread.
 // Hot-path readers (StoppingContext::MustAbort, ~15-20k times per large read query) pay one relaxed
 // atomic load (~0.2ns) instead of steady_clock::now() (~14ns) per check.
@@ -44,7 +48,7 @@ struct alignas(kCoarseClockCacheLine) CoarseSteadyClock {
   std::atomic<std::chrono::steady_clock::rep> ticks{std::chrono::steady_clock::now().time_since_epoch().count()};
 
   CoarseSteadyClock() {
-    ticker_.SetInterval(std::chrono::milliseconds(100));
+    ticker_.SetInterval(kCoarseClockTick);
     ticker_.Run("coarse_clk", [this]() {
       ticks.store(std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);
     });
