@@ -67,7 +67,7 @@ class PrometheusRequestHandler final {
 
     prometheus::TextSerializer serializer;
     std::ostringstream oss;
-    serializer.Serialize(oss, metrics_->registry().Collect());
+    serializer.Serialize(oss, metrics_->CollectForScrape());
 
     auto body = oss.str();
     if (body.empty() || body.back() != '\n') body.push_back('\n');

@@ -92,7 +92,11 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
-        .register_metrics = false,
+        // Keep metrics on. This fixture runs a main and two replicas all named "memgraph" in one
+        // process, which is the shape that used to leave one storage holding handles into another's
+        // destroyed metrics. Registering them is what makes that a crash rather than a silent pass,
+        // so this suite is the regression test for it and needs no metric assertion of its own.
+        .register_metrics = true,
     };
     UpdatePaths(config, storage_directory);
     return config;
@@ -106,7 +110,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
-        .register_metrics = false,
+        .register_metrics = true,
     };
     UpdatePaths(config, repl_storage_directory);
     return config;
@@ -120,7 +124,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
-        .register_metrics = false,
+        .register_metrics = true,
     };
     UpdatePaths(config, repl2_storage_directory);
     return config;
@@ -1767,7 +1771,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
               .properties_on_edges = true,
               .enable_schema_info = true,
           },
-      .register_metrics = false,
+      .register_metrics = true,
   };
 
   auto repl_conf = conf;
