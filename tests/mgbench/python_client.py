@@ -164,27 +164,6 @@ def _make_client(vendor, host, port, routing, routing_tx_mode):
     return client_cls(host, port)
 
 
-def _probe_routing_read_servers(args):
-    # DIAGNOSTIC: confirm read transactions actually reach a replica and are not all served by main
-    # (which would make the routing variant identical to the direct one). Runs SHOW REPLICATION ROLE
-    # on a READ-mode session repeatedly and reports the distribution of serving roles to stderr.
-    import sys
-    from collections import Counter
-
-    roles = Counter()
-    driver = GraphDatabase.driver(f"neo4j://{args.host}:{args.port}", auth=(args.username, args.password))
-    try:
-        for _ in range(30):
-            with driver.session(default_access_mode=neo4j.READ_ACCESS) as session:
-                record = session.run("SHOW REPLICATION ROLE").single()
-                roles[str(record[0]) if record else "?"] += 1
-    except Exception as e:
-        print(f"[routing-probe] failed: {e}", file=sys.stderr)
-    finally:
-        driver.close()
-    print(f"[routing-probe] READ-session serving roles over 30 acquisitions: {dict(roles)}", file=sys.stderr)
-
-
 def execute_validation_task(
     worker_id,
     vendor,
@@ -512,9 +491,6 @@ def main():
     if not queries:
         print("Error: No queries provided. Exiting.")
         exit(1)
-
-    if args.routing and len(queries) > 1:
-        _probe_routing_read_servers(args)
 
     results, durations = execute_workload(queries, args)
     results = list(results)
