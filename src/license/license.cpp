@@ -507,8 +507,7 @@ std::optional<License> Decode(std::string_view license_key) {
     int64_t core_limit{0};
     try {
       slk::Load(&core_limit, &reader);
-    } catch (const slk::SlkReaderException & /*exception*/) {
-      core_limit = 0;
+    } catch (const slk::SlkReaderException & /*exception*/) {  // NOLINT(bugprone-empty-catch)
     }
     const auto typed = static_cast<LicenseType>(license_type);
     switch (typed) {
@@ -516,7 +515,7 @@ std::optional<License> Decode(std::string_view license_key) {
       case LicenseType::OEM_COMMUNITY:
       case LicenseType::AI_PLATFORM:
       case LicenseType::OEM:
-        return License{organization_name, valid_until, memory_limit, typed, core_limit};
+        return License{std::move(organization_name), valid_until, memory_limit, typed, core_limit};
     }
     return std::nullopt;
   } catch (const slk::SlkReaderException &e) {
