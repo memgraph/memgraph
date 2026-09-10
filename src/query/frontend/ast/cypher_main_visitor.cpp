@@ -3937,7 +3937,6 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
   auto *subquery = storage_->Create<SubqueryExpression>();
-  // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
     subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
     if (subquery->GetPattern()->identifier_) {
@@ -3964,9 +3963,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
   auto const construct = SubqueryExpression::FoldName(fold);
   auto *subquery = storage_->Create<SubqueryExpression>();
   subquery->fold_ = fold;
-  // Simplified form: a pattern and an optional WHERE, with the MATCH left out. It is desugared into that MATCH
-  // here, so the brace - not the body's content - is what makes a subquery. Everything downstream then sees one
-  // shape, and the no-new-variables rule stays where it belongs: on the parenthesised pattern expression.
+  // A bare body is built into the MATCH it omits, so every brace body reaches downstream as a query.
   if (ctx->pattern()) {
     // A bare pattern names no column, and the list fold has to collect one - so this shape can never work for it.
     if (fold == SubqueryExpression::Fold::kList) {
