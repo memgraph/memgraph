@@ -890,9 +890,9 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   auto &scope = scopes_.back();
-  auto check_node_semantic = [&node_atom, &scope, this](const bool props_or_labels) {
+  auto check_node_semantic = [&node_atom, &scope, this]() {
     const auto &node_name = node_atom.identifier_->name_;
-    if ((scope.in_create || scope.in_merge) && props_or_labels && HasSymbol(node_name)) {
+    if ((scope.in_create || scope.in_merge) && node_atom.HasLabelsOrProperties() && HasSymbol(node_name)) {
       throw SemanticException("Cannot create node '" + node_name +
                               "' with labels or properties, because it is already declared.");
     }
@@ -914,21 +914,16 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
     throw SemanticException("You can use expressions with labels only with CREATE!");
   }
 
-  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
-    bool props_or_labels = !properties->empty() || !node_atom.labels_.empty();
+  check_node_semantic();
 
-    check_node_semantic(props_or_labels);
+  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
     for (auto kv : *properties) {
       kv.second->Accept(*this);
     }
 
     return false;
   }
-  auto &properties_parameter = std::get<ParameterLookup *>(node_atom.properties_);
-  bool props_or_labels = !properties_parameter || !node_atom.labels_.empty();
-
-  check_node_semantic(props_or_labels);
-  properties_parameter->Accept(*this);
+  std::get<ParameterLookup *>(node_atom.properties_)->Accept(*this);
   return false;
 }
 
