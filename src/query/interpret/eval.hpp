@@ -554,14 +554,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       const auto &vertex = lhs_ptr->ValueVertex();
-      return MakePropertyValue(
-          vertex, dba_->NameToProperty(index.ValueString()), GetProperty(vertex, index.ValueString()));
+      // GetProperty resolves the name (and throws without an accessor) before we deref dba_ below.
+      auto value = GetProperty(vertex, index.ValueString());
+      return MakePropertyValue(vertex, dba_->NameToProperty(index.ValueString()), std::move(value));
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       const auto &edge = lhs_ptr->ValueEdge();
-      return MakePropertyValue(edge, dba_->NameToProperty(index.ValueString()), GetProperty(edge, index.ValueString()));
+      // GetProperty resolves the name (and throws without an accessor) before we deref dba_ below.
+      auto value = GetProperty(edge, index.ValueString());
+      return MakePropertyValue(edge, dba_->NameToProperty(index.ValueString()), std::move(value));
     };
 
     // lhs is Null
