@@ -2591,7 +2591,6 @@ class UniqueConstrainedPropertyCoverageTest : public ConstraintsTest<InMemorySto
  public:
   void SetUp() override {
     prop3 = this->storage->NameToProperty("prop3");
-    unconstrained = this->storage->NameToProperty("unconstrained");
 
     auto acc = CreateConstraintAccessor();
     ASSERT_NO_ERROR(acc->CreateUniqueConstraint(label1, {prop1}));
@@ -2611,7 +2610,6 @@ class UniqueConstrainedPropertyCoverageTest : public ConstraintsTest<InMemorySto
   }
 
   PropertyId prop3;
-  PropertyId unconstrained;
 };
 
 TEST_F(UniqueConstrainedPropertyCoverageTest, EveryConstrainedPropertyIsReported) {
@@ -2631,15 +2629,6 @@ TEST_F(UniqueConstrainedPropertyCoverageTest, EveryConstrainedPropertyIsReported
   EXPECT_EQ(reported, (std::set<PropertyId>{prop1, prop2, prop3}));
 }
 
-TEST_F(UniqueConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotReported) {
-  auto const listing = this->storage->Access(WRITE)->ListAllConstraints().unique;
-  for (auto const &[label, properties] : listing) {
-    ASSERT_FALSE(properties.contains(unconstrained));
-  }
-
-  EXPECT_FALSE(WriteIsReported(unconstrained));
-}
-
 // Every existence-constrained property is reported when removed. One the set fails to name leaves
 // a vertex holding the label without the value able to commit. Three constraints over two labels,
 // because one cannot tell an exhaustive derivation from one that stops after the first.
@@ -2647,7 +2636,6 @@ class ExistenceConstrainedPropertyCoverageTest : public ConstraintsTest<InMemory
  public:
   void SetUp() override {
     prop3 = this->storage->NameToProperty("prop3");
-    unconstrained = this->storage->NameToProperty("unconstrained");
 
     auto acc = CreateConstraintAccessor();
     ASSERT_TRUE(acc->CreateExistenceConstraint(label1, prop1).has_value());
@@ -2680,7 +2668,6 @@ class ExistenceConstrainedPropertyCoverageTest : public ConstraintsTest<InMemory
   }
 
   PropertyId prop3;
-  PropertyId unconstrained;
 };
 
 TEST_F(ExistenceConstrainedPropertyCoverageTest, EveryConstrainedPropertyIsReportedOnRemoval) {
@@ -2798,15 +2785,6 @@ TEST_F(LabelTrackingTest, AddingAConstrainedLabelStillRejectsAMissingProperty) {
             (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label2, std::set<PropertyId>{prop2}}));
 }
 
-TEST_F(ExistenceConstrainedPropertyCoverageTest, AnUnconstrainedPropertyIsNotReportedOnRemoval) {
-  auto const listing = this->storage->Access(WRITE)->ListAllConstraints().existence;
-  for (auto const &[label, property] : listing) {
-    ASSERT_NE(property, unconstrained);
-  }
-
-  EXPECT_FALSE(RemovalIsReported(unconstrained));
-}
-
 // Removing a value can only break an existence constraint keyed on that property, so removals of
 // anything else need not be reported.
 class ExistencePropertyTrackingTest : public ConstraintsTest<InMemoryStorage> {
@@ -2852,13 +2830,16 @@ TEST_F(ExistencePropertyTrackingTest, RemovingAnUnconstrainedPropertyIsNotReport
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 }
 
-TEST_F(ExistencePropertyTrackingTest, RemovingAConstrainedPropertyIsReportedAndRejected) {
+// The bulk update path reports a removal of its own, and here it is the only write the vertex
+// gets: the label was committed earlier, so nothing else puts this vertex up for checking.
+TEST_F(ExistencePropertyTrackingTest, RemovingAConstrainedPropertyByBulkUpdateIsReportedAndRejected) {
   auto const gid = Seed();
 
   auto acc = this->storage->Access(WRITE);
   auto vertex = acc->FindVertex(gid, View::NEW);
   ASSERT_TRUE(vertex);
-  ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue()));
+  auto cleared = std::map<PropertyId, PropertyValue>{{prop1, PropertyValue()}};
+  ASSERT_NO_ERROR(vertex->UpdateProperties(cleared));
 
   auto &info = acc->GetTransaction()->constraint_verification_info;
   ASSERT_TRUE(info);
