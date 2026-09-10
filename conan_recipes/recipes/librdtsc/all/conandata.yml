@@ -7,3 +7,6 @@ patches:
     - patch_file: "patches/librdtsc.patch"
       patch_description: "Build as static library, remove install prefix override, add missing include"
       patch_type: "portability"
+    - patch_file: "patches/0002-fallback-clock-monotonic-raw.patch"
+      patch_description: "Fall back to CLOCK_MONOTONIC where CLOCK_MONOTONIC_RAW is absent, as on FreeBSD."
+      patch_type: "portability"

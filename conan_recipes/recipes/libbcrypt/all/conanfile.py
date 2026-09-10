@@ -1,7 +1,7 @@
 import os
 
 from conan import ConanFile
-from conan.tools.files import copy, get, rename, replace_in_file, trim_conandata
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, rename, replace_in_file, trim_conandata
 from conan.tools.gnu import AutotoolsToolchain
 from conan.tools.layout import basic_layout
 
@@ -34,8 +34,12 @@ class LibbcryptConan(ConanFile):
         # Stabilise recipe revision across conan export and local-recipes-index
         trim_conandata(self)
 
+    def export_sources(self):
+        export_conandata_patches(self)
+
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
+        apply_conandata_patches(self)
 
     def generate(self):
         tc = AutotoolsToolchain(self)
@@ -50,8 +54,12 @@ class LibbcryptConan(ConanFile):
         # (including sanitizer flags) don't reach the compilation. This is acceptable:
         # libbcrypt is a static library, and when linked into an ASAN binary the ASAN
         # runtime handles interception at the process level.
+        #
+        # The Makefile is GNU-only, so honour the configured make the way conan's own
+        # helpers do; on platforms whose `make` is not GNU make the profile names it.
+        make = self.conf.get("tools.gnu:make_program", default="make")
         cc = self.conf.get("tools.build:compiler_executables", default={}).get("c", "cc")
-        self.run(f"make -C {self.source_folder} CC={cc}")
+        self.run(f"{make} -C {self.source_folder} CC={cc}")
 
     def package(self):
         copy(self, "COPYING", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))

@@ -2095,6 +2095,11 @@ class BoostConan(ConanFile):
                 self.cpp_info.components["_libboost"].system_libs.append("rt")
                 if self.options.multithreading:
                     self.cpp_info.components["_libboost"].system_libs.append("pthread")
+            elif self.settings.os == "FreeBSD":
+                # Threading lives in libthr, reached through libpthread, and a consumer of
+                # Boost.Thread will not link without it. Upstream covers only Linux here.
+                if self.options.multithreading:
+                    self.cpp_info.components["_libboost"].system_libs.append("pthread")
             elif self.settings.os == "Emscripten":
                 if self.options.multithreading:
                     arch = str(self.settings.arch)

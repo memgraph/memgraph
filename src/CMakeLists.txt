@@ -51,12 +51,9 @@ target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
 # Note: When using CPack, mgconsole is built via CPack install script instead
 add_dependencies(memgraph mgconsole)
 
-# Link memgraph with custom libstdc++
-message(STATUS "Linking memgraph with custom libstdc++")
 target_link_libraries(memgraph PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads::Threads
         mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-parameters mg-glue mg-flags mg::system mg::replication_handler
-        libstdc++_custom)
-target_link_options(memgraph PRIVATE -nostdlib++)
+        mg::toolchain)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the
@@ -142,8 +139,10 @@ add_custom_command(TARGET memgraph POST_BUILD
 install(TARGETS memgraph
     RUNTIME DESTINATION lib/memgraph)
 
-# Install custom libstdc++
-get_property(CUSTOM_LIBSTDCXX_PATH GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH)
+# A C++ runtime the binary was linked against has to travel with it. Nothing to install
+# when the host supplied the runtime, because the host will supply it at run time too.
+if (MG_TOOLCHAIN_RUNTIME_LIBRARY)
+set(CUSTOM_LIBSTDCXX_PATH "${MG_TOOLCHAIN_RUNTIME_LIBRARY}")
 message(STATUS "Installing custom libstdc++.so.6: ${CUSTOM_LIBSTDCXX_PATH}")
 
 # Get the directory of the custom libstdc++
@@ -206,6 +205,7 @@ install(FILES
                 GROUP_READ GROUP_EXECUTE
                 WORLD_READ WORLD_EXECUTE
 )
+endif ()
 
 install(TARGETS mg-module-support
     LIBRARY DESTINATION lib/memgraph)
