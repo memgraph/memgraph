@@ -167,3 +167,49 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
                 .size(),
             3);
 }
+
+TYPED_TEST(QueryExecution, NamedPathOverBoundNodeInSubqueryBody) {
+  // A subquery expression's body starts from no input operator, so a body whose whole pattern is one
+  // already-bound node has nothing to build the named path on top of.
+  this->Execute("CREATE (:Node)");
+
+  auto results = this->Execute("MATCH (n) RETURN COUNT { MATCH p = (n) } AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+}
+
+TYPED_TEST(QueryExecution, BoundNodeInSubqueryBodyIsNull) {
+  // A pattern never matches a null node, so a body that is one already-bound node has to read the bound
+  // value rather than fold to a constant.
+  this->Execute("CREATE (:Person {name: 'lonely'})");
+
+  auto results = this->Execute(
+      "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(f) "
+      "RETURN EXISTS { MATCH (f) } AS e, COUNT { MATCH (f) } AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_FALSE(results[0][0].ValueBool());
+  EXPECT_EQ(results[0][1].ValueInt(), 0);
+}
+
+TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNull) {
+  // The same holds outside a subquery: re-stating a bound node as a whole pattern is a match, not a no-op.
+  auto results = this->Execute("WITH null AS f MATCH (f) RETURN count(*) AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 0);
+}
+
+TYPED_TEST(QueryExecution, NamedPathInSubqueryBodyReusesOuterName) {
+  // A pattern name is a declaration, so a body reusing an outer one names its own path: the body shares the
+  // caller's frame, and the caller's path must survive the fold.
+  this->Execute("CREATE (:A)-[:R]->(:B)-[:R]->(:C)");
+
+  auto results =
+      this->Execute("MATCH p = (:A)-[]->()-[]->() RETURN COUNT { MATCH p = (:A)-[]->(x) } AS n, size(p) AS len");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+  EXPECT_EQ(results[0][1].ValueInt(), 2);
+}
