@@ -9495,7 +9495,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                              Config const &config, EnumStore *enum_store,
                                              SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
                                              memgraph::storage::DescriptionStore *description_store,
-                                             ProgressCallback const &on_progress, uint64_t version) {
+                                             ProgressCallback const &on_progress) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -9916,19 +9916,13 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         }
 
         VectorLabelFilter label_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
-        if (version >= kVectorIndexMultiLabel) {
-          auto mode_raw = snapshot.ReadUint();
-          if (!mode_raw) throw RecoveryFailure("Couldn't read vector index label mode!");
-          auto label_count = snapshot.ReadUint();
-          if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
-          label_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
-          label_filter.ids.reserve(*label_count);
-          for (uint64_t k = 0; k < *label_count; ++k) {
-            auto label = snapshot.ReadUint();
-            if (!label) throw RecoveryFailure("Couldn't read vector index label!");
-            label_filter.ids.push_back(snapshot_id_map.GetLabel(*label));
-          }
-        } else {
+        auto mode_raw = snapshot.ReadUint();
+        if (!mode_raw) throw RecoveryFailure("Couldn't read vector index label mode!");
+        auto label_count = snapshot.ReadUint();
+        if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
+        label_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+        label_filter.ids.reserve(*label_count);
+        for (uint64_t k = 0; k < *label_count; ++k) {
           auto label = snapshot.ReadUint();
           if (!label) throw RecoveryFailure("Couldn't read vector index label!");
           label_filter.ids.push_back(snapshot_id_map.GetLabel(*label));
@@ -9998,19 +9992,13 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         }
 
         VectorEdgeTypeFilter edge_type_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
-        if (version >= kVectorIndexMultiLabel) {
-          auto mode_raw = snapshot.ReadUint();
-          if (!mode_raw) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
-          auto edge_type_count = snapshot.ReadUint();
-          if (!edge_type_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
-          edge_type_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
-          edge_type_filter.ids.reserve(*edge_type_count);
-          for (uint64_t k = 0; k < *edge_type_count; ++k) {
-            auto edge_type = snapshot.ReadUint();
-            if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
-            edge_type_filter.ids.push_back(snapshot_id_map.GetEdgeType(*edge_type));
-          }
-        } else {
+        auto mode_raw = snapshot.ReadUint();
+        if (!mode_raw) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
+        auto edge_type_count = snapshot.ReadUint();
+        if (!edge_type_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
+        edge_type_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+        edge_type_filter.ids.reserve(*edge_type_count);
+        for (uint64_t k = 0; k < *edge_type_count; ++k) {
           auto edge_type = snapshot.ReadUint();
           if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
           edge_type_filter.ids.push_back(snapshot_id_map.GetEdgeType(*edge_type));
@@ -10331,7 +10319,7 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
                                         memgraph::storage::ttl::TTL *ttl,
                                         memgraph::storage::DescriptionStore *description_store,
-                                        ProgressCallback const &on_progress, uint64_t version) {
+                                        ProgressCallback const &on_progress) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -10735,19 +10723,13 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
         }
 
         VectorLabelFilter label_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
-        if (version >= kVectorIndexMultiLabel) {
-          auto mode_raw = snapshot.ReadUint();
-          if (!mode_raw) throw RecoveryFailure("Couldn't read vector index label mode!");
-          auto label_count = snapshot.ReadUint();
-          if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
-          label_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
-          label_filter.ids.reserve(*label_count);
-          for (uint64_t k = 0; k < *label_count; ++k) {
-            auto label = snapshot.ReadUint();
-            if (!label) throw RecoveryFailure("Couldn't read vector index label!");
-            label_filter.ids.push_back(snapshot_id_map.GetLabel(*label));
-          }
-        } else {
+        auto mode_raw = snapshot.ReadUint();
+        if (!mode_raw) throw RecoveryFailure("Couldn't read vector index label mode!");
+        auto label_count = snapshot.ReadUint();
+        if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
+        label_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+        label_filter.ids.reserve(*label_count);
+        for (uint64_t k = 0; k < *label_count; ++k) {
           auto label = snapshot.ReadUint();
           if (!label) throw RecoveryFailure("Couldn't read vector index label!");
           label_filter.ids.push_back(snapshot_id_map.GetLabel(*label));
@@ -10817,19 +10799,13 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
         }
 
         VectorEdgeTypeFilter edge_type_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
-        if (version >= kVectorIndexMultiLabel) {
-          auto mode_raw = snapshot.ReadUint();
-          if (!mode_raw) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
-          auto edge_type_count = snapshot.ReadUint();
-          if (!edge_type_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
-          edge_type_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
-          edge_type_filter.ids.reserve(*edge_type_count);
-          for (uint64_t k = 0; k < *edge_type_count; ++k) {
-            auto edge_type = snapshot.ReadUint();
-            if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
-            edge_type_filter.ids.push_back(snapshot_id_map.GetEdgeType(*edge_type));
-          }
-        } else {
+        auto mode_raw = snapshot.ReadUint();
+        if (!mode_raw) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
+        auto edge_type_count = snapshot.ReadUint();
+        if (!edge_type_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
+        edge_type_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+        edge_type_filter.ids.reserve(*edge_type_count);
+        for (uint64_t k = 0; k < *edge_type_count; ++k) {
           auto edge_type = snapshot.ReadUint();
           if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
           edge_type_filter.ids.push_back(snapshot_id_map.GetEdgeType(*edge_type));
@@ -11938,7 +11914,7 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
                                         memgraph::storage::ttl::TTL *ttl,
                                         memgraph::storage::DescriptionStore *description_store,
-                                        ProgressCallback const &on_progress, uint64_t version) {
+                                        ProgressCallback const &on_progress) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -12342,19 +12318,13 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
         }
 
         VectorLabelFilter label_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
-        if (version >= kVectorIndexMultiLabel) {
-          auto mode_raw = snapshot.ReadUint();
-          if (!mode_raw) throw RecoveryFailure("Couldn't read vector index label mode!");
-          auto label_count = snapshot.ReadUint();
-          if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
-          label_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
-          label_filter.ids.reserve(*label_count);
-          for (uint64_t k = 0; k < *label_count; ++k) {
-            auto label = snapshot.ReadUint();
-            if (!label) throw RecoveryFailure("Couldn't read vector index label!");
-            label_filter.ids.push_back(snapshot_id_map.GetLabel(*label));
-          }
-        } else {
+        auto mode_raw = snapshot.ReadUint();
+        if (!mode_raw) throw RecoveryFailure("Couldn't read vector index label mode!");
+        auto label_count = snapshot.ReadUint();
+        if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
+        label_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+        label_filter.ids.reserve(*label_count);
+        for (uint64_t k = 0; k < *label_count; ++k) {
           auto label = snapshot.ReadUint();
           if (!label) throw RecoveryFailure("Couldn't read vector index label!");
           label_filter.ids.push_back(snapshot_id_map.GetLabel(*label));
@@ -12424,19 +12394,13 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
         }
 
         VectorEdgeTypeFilter edge_type_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
-        if (version >= kVectorIndexMultiLabel) {
-          auto mode_raw = snapshot.ReadUint();
-          if (!mode_raw) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
-          auto edge_type_count = snapshot.ReadUint();
-          if (!edge_type_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
-          edge_type_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
-          edge_type_filter.ids.reserve(*edge_type_count);
-          for (uint64_t k = 0; k < *edge_type_count; ++k) {
-            auto edge_type = snapshot.ReadUint();
-            if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
-            edge_type_filter.ids.push_back(snapshot_id_map.GetEdgeType(*edge_type));
-          }
-        } else {
+        auto mode_raw = snapshot.ReadUint();
+        if (!mode_raw) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
+        auto edge_type_count = snapshot.ReadUint();
+        if (!edge_type_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
+        edge_type_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+        edge_type_filter.ids.reserve(*edge_type_count);
+        for (uint64_t k = 0; k < *edge_type_count; ++k) {
           auto edge_type = snapshot.ReadUint();
           if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
           edge_type_filter.ids.push_back(snapshot_id_map.GetEdgeType(*edge_type));
@@ -13015,8 +12979,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    schema_info,
                                    ttl,
                                    description_store,
-                                   on_progress,
-                                   *version);
+                                   on_progress);
     }
     case 36U: {
       return LoadSnapshotVersion36(snapshot,
@@ -13032,8 +12995,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    schema_info,
                                    ttl,
                                    description_store,
-                                   on_progress,
-                                   *version);
+                                   on_progress);
     }
     case 37U: {
       return LoadCurrentVersionSnapshot(snapshot,
@@ -13049,8 +13011,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                         schema_info,
                                         ttl,
                                         description_store,
-                                        on_progress,
-                                        *version);
+                                        on_progress);
     }
     default: {
       // `IsVersionSupported` checks that the version is within the supported
