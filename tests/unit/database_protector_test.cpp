@@ -294,11 +294,14 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerCompletesBeforeShutdown) {
   auto label = storage->NameToLabel("TestLabel");
   CreateVerticesWithLabel(storage.get(), label, 5);
 
+  // Both waits are fatal: the count below reads the label index, which aborts when the
+  // index was never created.
+
   // Wait for async indexer to start activity
-  EXPECT_TRUE(notifier.WaitForAsyncActivity()) << "Async indexer should have started within 2 seconds";
+  ASSERT_TRUE(notifier.WaitForAsyncActivity()) << "Async indexer should have started within 2 seconds";
 
   // Wait for async indexer to complete its work using proper index readiness checking
-  EXPECT_TRUE(WaitForIndexReady(storage.get(), label))
+  ASSERT_TRUE(WaitForIndexReady(storage.get(), label))
       << "Async indexer should have completed index creation within 3 seconds";
 
   // Verify the index works correctly by querying indexed vertices using helper
