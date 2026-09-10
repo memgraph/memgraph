@@ -473,24 +473,22 @@ add_unit_test(utils_aws
     LINK_TARGETS mg-utils mg-aws
 )
 
-# Every iteration starts a thread per barrier participant, so ctest's default cost of one slot per
-# test lets it be scheduled alongside a full machine's worth of other tests. Declaring the slots it
-# needs keeps that from happening; where the machine has fewer, ctest runs this test on its own.
-# PROCESSORS mirrors kN in utils_barrier.cpp and has to be changed with it.
-add_unit_test(utils_barrier
-    SOURCES utils_barrier.cpp
-    LINK_TARGETS mg-utils
-    TEST_PROPERTIES TIMEOUT 120 PROCESSORS 12
-)
-
 add_unit_test(utils_hot_mask
     SOURCES utils_hot_mask.cpp
     LINK_TARGETS mg-utils
 )
 
+# The startup tests build a pool per iteration, so ctest's default cost of one slot per test lets
+# them be scheduled alongside a full machine's worth of other tests. Declaring the slots they need
+# keeps that from happening; where the machine has fewer, ctest runs this test on its own.
+# PROCESSORS mirrors the widest startup pool, kMixed + kHighPriority in
+# StartupPublishesMixedWorkers, and has to be changed with it. TIMEOUT caps a run that wedges
+# rather than fails: a pool whose workers never arrive at the latch leaves every thread waiting on
+# it, the constructor included.
 add_unit_test(utils_priority_thread_pool
     SOURCES utils_priority_thread_pool.cpp
     LINK_TARGETS mg-utils
+    TEST_PROPERTIES TIMEOUT 120 PROCESSORS 12
 )
 
 add_unit_test(utils_epoch_tracker
