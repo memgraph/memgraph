@@ -781,7 +781,30 @@ std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
 // gives the same names. Recovery reads the snapshot's mapper section into this and then translates every id it reads.
 class SnapshotIdMap {
  public:
-  void Emplace(uint64_t snapshot_id, uint64_t id) { map_.emplace(snapshot_id, id); }
+  // Reads the snapshot's mapper section, which names every label, property and edge type the snapshot stores
+  // alongside the id it gave that name.
+  static SnapshotIdMap Read(Decoder &snapshot, uint64_t offset_mapper, NameIdMapper &name_id_mapper) {
+    spdlog::info("Recovering mapper metadata.");
+    if (!snapshot.SetPosition(offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
+
+    auto size = snapshot.ReadUint();
+    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
+
+    SnapshotIdMap id_map;
+    for (uint64_t i = 0; i < *size; ++i) {
+      auto id = snapshot.ReadUint();
+      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
+      auto name = snapshot.ReadString();
+      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
+      auto my_id = name_id_mapper.NameToId(*name);
+      id_map.Emplace(*id, my_id);
+      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
+    }
+    return id_map;
+  }
 
   LabelId GetLabel(uint64_t snapshot_id) const {
     return LabelId::FromUint(Get(snapshot_id, "Couldn't find label id in snapshot_id_map!"));
@@ -801,6 +824,8 @@ class SnapshotIdMap {
   uint64_t At(uint64_t snapshot_id) const { return Get(snapshot_id, "Couldn't find id in snapshot_id_map!"); }
 
  private:
+  void Emplace(uint64_t snapshot_id, uint64_t id) { map_.emplace(snapshot_id, id); }
+
   uint64_t Get(uint64_t snapshot_id, const char *not_found) const {
     auto it = map_.find(snapshot_id);
     if (it == map_.end()) throw RecoveryFailure(not_found);
@@ -1363,27 +1388,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
   const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
   // Reset current edge count.
   edge_count->store(0, std::memory_order_release);
 
@@ -1848,27 +1853,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
   const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Couldn't read section mapper marker!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Couldn't read snapshot size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
   // Reset current edge count.
   edge_count->store(0, std::memory_order_release);
 
@@ -2127,27 +2112,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
   const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
   // Reset current edge count.
   edge_count->store(0, std::memory_order_release);
 
@@ -2468,27 +2433,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
   const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
   // Reset current edge count.
   edge_count->store(0, std::memory_order_release);
 
@@ -2858,27 +2803,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -3303,27 +3228,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   const auto snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -3798,27 +3703,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -4350,27 +4235,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -4948,27 +4813,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -5540,27 +5385,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -6133,27 +5958,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -6781,27 +6586,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -7438,27 +7223,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -8158,27 +7923,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -8919,27 +8664,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -9787,27 +9512,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -10643,27 +10348,7 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -11481,27 +11166,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
@@ -12290,27 +11955,7 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
   bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
-  SnapshotIdMap snapshot_id_map;
-  {
-    spdlog::info("Recovering mapper metadata.");
-    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
-
-    auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
-
-    for (uint64_t i = 0; i < *size; ++i) {
-      auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
-      auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
-      auto my_id = name_id_mapper->NameToId(*name);
-      snapshot_id_map.Emplace(*id, my_id);
-      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
-    }
-  }
+  const auto snapshot_id_map = SnapshotIdMap::Read(snapshot, info.offset_mapper, *name_id_mapper);
 
   // Recover enums.
   // TODO: when we have enum deletion/edits we will need to handle remapping
