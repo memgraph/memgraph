@@ -16,8 +16,8 @@
 #include <unordered_set>
 
 #include "flags/general.hpp"
-#include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/tracked_vector_allocator.hpp"
@@ -62,12 +62,12 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
   auto mg_edge_index =
       mg_vector_edge_index_t::make(metric, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
   if (!mg_edge_index) {
-    throw query::VectorSearchException(fmt::format(
+    throw VectorSearchException(fmt::format(
         "Failed to create vector edge index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
   }
 
   if (!mg_edge_index.index.try_reserve(limits)) {
-    throw query::VectorSearchException(
+    throw VectorSearchException(
         fmt::format("Failed to create vector edge index {}. Failed to reserve memory for the index", spec.index_name));
   }
 
@@ -85,7 +85,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
                                      std::optional<std::size_t> thread_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException(fmt::format("Vector edge index {} does not exist.", index_id));
+    throw VectorSearchException(fmt::format("Vector edge index {} does not exist.", index_id));
   }
   auto &item_ptr = it->second;
   auto &spec = item_ptr->spec;
@@ -144,8 +144,7 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
     auto &recovery_entries = recovery_info.index_entries;
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) {
-      throw query::VectorSearchException(
-          "Given vector edge index already exists. Corrupted or invalid index recovery files.");
+      throw VectorSearchException("Given vector edge index already exists. Corrupted or invalid index recovery files.");
     }
     auto &item_ptr = index_->at(*index_id);
     auto &mg_index = item_ptr->mg_index;
@@ -331,7 +330,7 @@ void VectorEdgeIndex::EraseEndpointsIfUnreferenced(Edge *edge) {
 void VectorEdgeIndex::RemoveEdgeFromIndex(Edge *edge, uint64_t index_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException(
+    throw VectorSearchException(
         fmt::format("Error in removing edge from index: index id {} does not exist.", index_id));
   }
   auto &item_ptr = it->second;
@@ -384,7 +383,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
     return std::nullopt;
   });
   if (!maybe_id.has_value()) {
-    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
+    throw VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto &item_ptr = index_->at(*maybe_id);
   auto &mg_index = item_ptr->mg_index;
@@ -502,11 +501,11 @@ utils::small_vector<float> VectorEdgeIndex::GetVectorPropertyFromEdgeIndex(Edge 
                                                                            NameIdMapper *name_id_mapper) const {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
-    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
+    throw VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto it = index_->find(*maybe_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
+    throw VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto &item_ptr = it->second;
   auto guard = utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);

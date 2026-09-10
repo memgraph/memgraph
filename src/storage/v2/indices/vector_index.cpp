@@ -12,7 +12,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 
 #include <range/v3/all.hpp>
-#include "query/exceptions.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
@@ -77,12 +77,12 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   auto mg_vector_index =
       mg_vector_index_t::make(metric, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
   if (!mg_vector_index) {
-    throw query::VectorSearchException(fmt::format(
+    throw VectorSearchException(fmt::format(
         "Failed to create vector index {}, error message: {}", spec.index_name, mg_vector_index.error.what()));
   }
 
   if (!mg_vector_index.index.try_reserve(limits)) {
-    throw query::VectorSearchException(
+    throw VectorSearchException(
         fmt::format("Failed to create vector index {}. Failed to reserve memory for the index", spec.index_name));
   }
 
@@ -103,8 +103,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
     auto &recovery_entries = recovery_info.index_entries;
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) {
-      throw query::VectorSearchException(
-          "Given vector index already exists. Corrupted or invalid index recovery files.");
+      throw VectorSearchException("Given vector index already exists. Corrupted or invalid index recovery files.");
     }
     auto &item_ptr = index_->at(*index_id);
     auto &mg_index = item_ptr->mg_index;
@@ -143,7 +142,7 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
                                    std::optional<std::size_t> thread_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_id));
+    throw VectorSearchException(fmt::format("Vector index {} does not exist.", index_id));
   }
   auto &item_ptr = it->second;
   auto &spec = item_ptr->spec;
@@ -315,7 +314,7 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
 void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, uint64_t index_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException(
+    throw VectorSearchException(
         fmt::format("Error in removing vertex from index: index id {} does not exist.", index_id));
   }
   auto &item_ptr = it->second;
@@ -326,11 +325,11 @@ utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *verte
                                                                    NameIdMapper *name_id_mapper) const {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
-    throw query::VectorSearchException("Vector index {} does not exist.", index_name);
+    throw VectorSearchException("Vector index {} does not exist.", index_name);
   }
   auto it = index_->find(*maybe_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException("Vector index {} does not exist.", index_name);
+    throw VectorSearchException("Vector index {} does not exist.", index_name);
   }
   auto &item_ptr = it->second;
   auto guard = utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
@@ -432,11 +431,11 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
                                                               NameIdMapper *name_id_mapper) const {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+    throw VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto it = index_->find(*maybe_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+    throw VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &item_ptr = it->second;
 
@@ -624,7 +623,7 @@ utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
 
   const auto &ids = value.ValueVectorIndexIds();
   if (ids.empty()) {
-    throw query::VectorSearchException("Vector index ID list is empty.");
+    throw VectorSearchException("Vector index ID list is empty.");
   }
 
   const auto &index_name = name_id_mapper->IdToName(ids[0]);
@@ -636,7 +635,7 @@ utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
       break;
     }
   }
-  throw query::VectorSearchException(fmt::format("Vector index {} not found in recovery info.", index_name));
+  throw VectorSearchException(fmt::format("Vector index {} not found in recovery info.", index_name));
 }
 
 void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
@@ -723,7 +722,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
           vertex->properties.SetProperty(recovery_info->spec.property,
                                          PropertyValue(std::vector<double>(it->second.begin(), it->second.end())));
         } else {
-          throw query::VectorSearchException(
+          throw VectorSearchException(
               fmt::format("Vector index {} not found in recovery info.", recovery_info->spec.index_name));
         }
       } else {

@@ -40,6 +40,7 @@
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_edge_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
@@ -4866,7 +4867,7 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
       text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, config);
     } catch (const AuthorizationException &e) {
       error_msg = e.what();
-    } catch (memgraph::query::QueryException &e) {
+    } catch (memgraph::storage::InvalidOperationException &e) {
       error_msg = e.what();
     }
     WrapTextSearch(graph, memory, result, text_search_results, searched, error_msg);
@@ -4885,7 +4886,7 @@ mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *inde
       search_results = graph->getImpl()->TextIndexAggregate(index_name, search_query, aggregation_query);
     } catch (const AuthorizationException &e) {
       error_msg = e.what();
-    } catch (memgraph::query::QueryException &e) {
+    } catch (memgraph::storage::InvalidOperationException &e) {
       error_msg = e.what();
     }
     WrapTextIndexAggregation(memory, result, search_results, error_msg);
@@ -4905,7 +4906,7 @@ mgp_error mgp_graph_aggregate_over_text_edge_index(mgp_graph *graph, const char 
       search_results = graph->getImpl()->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
     } catch (const AuthorizationException &e) {
       error_msg = e.what();
-    } catch (memgraph::query::QueryException &e) {
+    } catch (memgraph::storage::InvalidOperationException &e) {
       error_msg = e.what();
     }
     WrapTextIndexAggregation(memory, result, search_results, error_msg);
@@ -4943,7 +4944,7 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
       text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
     } catch (const AuthorizationException &e) {
       error_msg = e.what();
-    } catch (memgraph::query::QueryException &e) {
+    } catch (memgraph::storage::InvalidOperationException &e) {
       error_msg = e.what();
     }
     WrapTextEdgeSearchResults(graph, memory, result, text_edge_search_results, searched, error_msg);
@@ -4992,7 +4993,7 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
 #endif
     } catch (const AuthorizationException &e) {
       error_msg = e.what();
-    } catch (memgraph::query::QueryException &e) {
+    } catch (memgraph::storage::InvalidOperationException &e) {
       error_msg = e.what();
     }
     WrapVectorSearchResults(graph, memory, result, found_vertices, error_msg);
@@ -5041,7 +5042,7 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
 #endif
     } catch (const AuthorizationException &e) {
       error_msg = e.what();
-    } catch (memgraph::query::QueryException &e) {
+    } catch (memgraph::storage::InvalidOperationException &e) {
       error_msg = e.what();
     }
     WrapVectorSearchOnEdgesResults(graph, memory, result, found_edges, error_msg);
@@ -5056,7 +5057,7 @@ mgp_error mgp_graph_show_index_info(mgp_graph *graph, mgp_memory *memory, mgp_ma
     try {
       index_info = graph->getImpl()->ListAllVectorIndices();
       edge_index_info = graph->getImpl()->ListAllVectorEdgeIndices();
-    } catch (memgraph::query::QueryException &e) {
+    } catch (memgraph::storage::InvalidOperationException &e) {
       error_msg = e.what();
     }
     WrapVectorIndexInfoResult(memory, result, index_info, edge_index_info, error_msg, graph->getImpl());
