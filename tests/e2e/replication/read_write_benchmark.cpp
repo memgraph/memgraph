@@ -25,6 +25,46 @@
 DEFINE_string(output_file, "memgraph__e2e__replication__read_write_benchmark.json",
               "Output file where the results should be in JSON format.");
 
+namespace {
+
+void WaitForNodeIdIndex(const memgraph::io::network::Endpoint &database_endpoint, bool expected) {
+  constexpr auto kTimeout = std::chrono::seconds{10};
+  constexpr auto kRetryInterval = std::chrono::milliseconds{100};
+  const auto deadline = std::chrono::steady_clock::now() + kTimeout;
+
+  while (std::chrono::steady_clock::now() < deadline) {
+    auto client = mg::e2e::replication::Connect(database_endpoint);
+    client->Execute("SHOW INDEX INFO;");
+    auto data = client->FetchAll();
+    if (!data) {
+      LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
+    }
+
+    const bool index_exists = !data->empty();
+    if (index_exists == expected) {
+      if (expected) {
+        const auto label_name = (*data)[0][1].ValueString();
+        const auto properties = (*data)[0][2].ValueList();
+        if (properties.empty()) {
+          LOG_FATAL("{} has an index without properties.", database_endpoint.SocketAddress());
+        }
+        const auto property_name = properties[0].ValueString();
+        if (label_name != "Node" || property_name != "id") {
+          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint.SocketAddress());
+        }
+      }
+      return;
+    }
+
+    std::this_thread::sleep_for(kRetryInterval);
+  }
+
+  LOG_FATAL(
+      "Timed out waiting for index to {} on {}.", expected ? "appear" : "disappear", database_endpoint.SocketAddress());
+}
+
+}  // namespace
+
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Read-write Benchmark");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -44,20 +84,8 @@ int main(int argc, char **argv) {
     client->Execute("CREATE INDEX ON :Node(id);");
     client->DiscardAll();
 
-    // Sleep a bit so the index get replicated.
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
     for (const auto &database_endpoint : database_endpoints) {
-      auto client = mg::e2e::replication::Connect(database_endpoint);
-      client->Execute("SHOW INDEX INFO;");
-      if (auto data = client->FetchAll()) {
-        auto label_name = (*data)[0][1].ValueString();
-        auto property_name = (*data)[0][2].ValueList()[0].ValueString();
-        if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint.SocketAddress());
-        }
-      } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
-      }
+      WaitForNodeIdIndex(database_endpoint, true);
     }
     spdlog::info("All indexes are in-place.");
 
@@ -178,18 +206,8 @@ int main(int argc, char **argv) {
     auto client = mg::e2e::replication::Connect(database_endpoints[0]);
     client->Execute("DROP INDEX ON :Node(id);");
     client->DiscardAll();
-    // Sleep a bit so the drop index get replicated.
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
     for (const auto &database_endpoint : database_endpoints) {
-      auto client = mg::e2e::replication::Connect(database_endpoint);
-      client->Execute("SHOW INDEX INFO;");
-      if (const auto data = client->FetchAll()) {
-        if (!(*data).empty()) {
-          LOG_FATAL("{} still have some indexes.", database_endpoint.SocketAddress());
-        }
-      } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
-      }
+      WaitForNodeIdIndex(database_endpoint, false);
     }
     spdlog::info("All indexes were deleted.");
   }

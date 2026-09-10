@@ -1146,7 +1146,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   }
 
   auto res = commit_args.apply_if_main(
-      [&](DatabaseProtector const &protector) -> std::expected<void, StorageManipulationError> {
+      [&](DatabaseProtector const & /*protector*/) -> std::expected<void, StorageManipulationError> {
         // From this point on, only main executes this
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
@@ -1176,8 +1176,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           mem_storage->FinalizeWalFile();
         }
         // Send to all replicas they can finalize a transaction
-        replicating_txn.FinalizeTransaction(
-            repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
+        replicating_txn.FinalizeTransaction(repl_prepare_phase_ok, mem_storage->uuid(), durability_commit_timestamp);
 
         auto failures = replicating_txn.CollectAllFailures();
         // update replicas' cached commit info only if the txn was actually committed
