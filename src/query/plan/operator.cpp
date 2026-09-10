@@ -5135,6 +5135,9 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
         LOG_FATAL("Node filters not using LabelsTest are not supported for query inspection!");
       }
       const auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
+        return "()";
+      }
       return fmt::format("({})", static_cast<Identifier *>(filter_expression->expression_)->name_);
     }
     case Type::Point: {
