@@ -16,12 +16,24 @@ with unique constraints on Node(id) and Value(id), then runs batches of
 Batches never share a vertex, so the concurrent runs measure commit-path
 serialization rather than write-write conflicts.
 
-Run against a fresh, empty instance, one binary at a time:
+Run against a fresh, empty instance, one binary at a time. Both flags below
+change how many writes reach the verification set, so the numbers are only
+comparable between launches that use the same ones, and an instance that
+already holds data is not comparable to one that does not:
 
+    memgraph --data-directory="$(mktemp -d)" --bolt-port=7687
+             --storage-delta-on-identical-property-update=false
     ./unique_constraint_property_update_bench.py --port 7687 --pid $(pgrep -x memgraph)
 
 The --pid argument is optional and only used to report the CPU time the
-server process consumed during the timed trials (read from /proc).
+server process consumed during the timed trials (read from /proc). The write
+ahead log shares the critical section being measured, so whether it is on
+also moves the result.
+
+The timed writes set and clear properties on vertices carrying a unique
+constraint. They add no label, and the schema declares no existence
+constraint, so what a label addition costs and what an existence constraint
+costs are not measured here.
 """
 
 import argparse
@@ -94,8 +106,10 @@ def load(args, ids):
 def make_batches(ids, rng):
     chosen = rng.sample(ids, BATCHES * BATCH_SIZE)
     return [
-        [[vertex_id, round(rng.random() * 100, 3), "x", "2026-01-01T00:00:00+00:00", None]
-         for vertex_id in chosen[start : start + BATCH_SIZE]]
+        [
+            [vertex_id, round(rng.random() * 100, 3), "x", "2026-01-01T00:00:00+00:00", None]
+            for vertex_id in chosen[start : start + BATCH_SIZE]
+        ]
         for start in range(0, len(chosen), BATCH_SIZE)
     ]
 
