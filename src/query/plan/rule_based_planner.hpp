@@ -326,7 +326,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // caller has bound. An expansion asks its input which symbols it modifies to decide what the rest of the
       // pattern may correlate to, and a filter over the caller's variables alone would otherwise be all it found
       // there - leaving a filter that names one of those variables and one of the pattern's own belonging to
-      // neither.
+      // neither. Seeding here is also what lets a body's plan be dereferenced unguarded: no clause sequence can
+      // take the operator away again, so a part of a body never plans to nothing.
       if (context.in_subquery_body) {
         input_op =
             std::make_unique<Once>(std::vector<Symbol>(initial_bound_symbols.begin(), initial_bound_symbols.end()));
@@ -635,13 +636,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
         }
         input_op = std::make_unique<EmptyResult>(std::move(input_op));
-      }
-
-      // A body that plans to nothing still matches one (empty) row. Defence only: no clause sequence has been found
-      // that plans to nothing, here or in a nested `CALL {}` body, but `HandleSubquery` dereferences that plan
-      // unguarded. Per query part, because each UNION branch is its own and the combinator dereferences both.
-      if (context.in_subquery_body && !input_op) {
-        input_op = std::make_unique<Once>();
       }
 
       if (query_part.query_combinator) {
@@ -1730,9 +1724,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last_op;
   }
 
-  /// The EXISTS branch, without either fold's tail. The pattern form is rooted at an `Once(bound_symbols)` so the
-  /// branch correlates through the shared frame; the subquery form correlates by planning recursively against those
-  /// same bound symbols, and gets a bare `Once` from `Plan` for any query part that plans to nothing.
+  /// The EXISTS branch, without either fold's tail. Both forms are rooted at an `Once` naming the caller's bound
+  /// symbols, so the branch correlates through the shared frame: the pattern form builds one here, and the subquery
+  /// form gets one from `Plan`, which seeds each query part of a body with it.
   std::unique_ptr<LogicalOperator> MakeSubqueryBranch(const SubqueryMatching &matching, const SymbolTable &symbol_table,
                                                       AstStorage &storage,
                                                       const std::unordered_set<Symbol> &bound_symbols,
@@ -1741,9 +1735,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
       // the branch has to correlate against.
       auto branch_bound_symbols = bound_symbols;
-      // in_subquery_body drives three behaviours of the recursive plan: the EmptyResult wrapper is suppressed, a
-      // null-planning query part gets a Once, and GenWith keeps outer-scope vertex/edge symbols across a body WITH.
-      // It also selects the read-only invariants CheckSubqueryBodyInvariants enforces.
+      // in_subquery_body drives three behaviours of the recursive plan: each query part is seeded with an Once
+      // naming these symbols, the EmptyResult wrapper is suppressed, and GenWith keeps outer-scope vertex/edge
+      // symbols across a body WITH. It also selects the read-only invariants CheckSubqueryBodyInvariants enforces.
       auto const restore = utils::OnScopeExit{[this,
                                                old_subquery_body = context_->in_subquery_body,
                                                old_after_write = subquery_branch_after_write_,
@@ -1756,7 +1750,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       subquery_branch_after_write_ = write_occurred;
       context_->bound_symbols = std::move(branch_bound_symbols);
 
-      // Plan substitutes a Once for a query part that plans to nothing, so this never comes back null.
+      // Every query part of a body is seeded with an Once, so this never comes back null.
       return Plan(*matching.subquery);
     }
 
