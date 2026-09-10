@@ -189,7 +189,7 @@ TEST(PriorityThreadPool, StartupAdmitsEveryWorker) {
   constexpr uint16_t kHighPriority = 4;
   constexpr size_t kPools = 200;
 
-  // The constructor holds every thread at a barrier until all of them have published their worker,
+  // The constructor holds every thread on a latch until all of them have published their worker,
   // so a task scheduled straight afterwards must find a complete pool. Repeated because a torn
   // startup is a race, not a deterministic failure.
   for (size_t pool_num = 0; pool_num < kPools; ++pool_num) {
@@ -210,6 +210,26 @@ TEST(PriorityThreadPool, StartupAdmitsEveryWorker) {
     }
     ASSERT_EQ(ran, kMixed + kHighPriority) << "pool " << pool_num << " did not run every task";
   }
+}
+
+TEST(PriorityThreadPool, StartupRunsInitCallbackOnEveryThread) {
+  using namespace memgraph;
+  constexpr uint16_t kMixed = 4;
+  constexpr uint16_t kHighPriority = 2;
+
+  std::atomic<size_t> initialised{0};
+  std::atomic<size_t> ran{0};
+  {
+    utils::PriorityThreadPool pool{kMixed, kHighPriority, [&initialised]() { ++initialised; }};
+    pool.ScheduledAddTask([&ran](auto) { ++ran; }, utils::Priority::LOW);
+
+    auto const deadline = std::chrono::steady_clock::now() + 30s;
+    while (initialised != kMixed + kHighPriority && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(1ms);
+    }
+  }
+  EXPECT_EQ(initialised, kMixed + kHighPriority);
+  EXPECT_EQ(ran, 1);
 }
 
 TEST(TaskCollection, BasicAddAndSize) {
