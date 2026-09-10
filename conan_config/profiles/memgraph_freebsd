@@ -4,6 +4,11 @@ include(memgraph_freebsd_base)
 compiler.cppstd=gnu23
 
 [options]
+# There is no toolchain build for FreeBSD, so memgraph links the base system's C++
+# runtime and ships nothing beside the binary. Saying it here means every entry point
+# that reads this profile agrees, whether it is build.sh, `conan build` or a preset.
+&:bundled_toolchain=False
+
 # rocksdb's io_uring support is a Linux kernel interface; the option is what gates
 # pulling liburing into the graph.
 rocksdb/*:with_liburing=False

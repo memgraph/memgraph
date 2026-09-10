@@ -26,6 +26,10 @@ class Memgraph(ConanFile):
         # CMake with MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON. Used by
         # `./build.sh --mage only`.
         "mage_only": [True, False],
+        # Build against the toolchain produced by environment/toolchain and ship its
+        # C++ runtime. Hosts that build with their own compiler turn this off, and the
+        # profile that describes such a host is where it belongs.
+        "bundled_toolchain": [True, False],
     }
 
     exports_sources = (
@@ -45,6 +49,7 @@ class Memgraph(ConanFile):
 
     default_options = {
         "mage_only": False,
+        "bundled_toolchain": True,
         "aws-sdk-cpp/*:config": True,
         "aws-sdk-cpp/*:s3": True,
         "aws-sdk-cpp/*:monitoring": False,
@@ -219,6 +224,8 @@ class Memgraph(ConanFile):
         if self.options.mage_only:
             tc.cache_variables["MG_BUILD_MEMGRAPH"] = "OFF"
             tc.cache_variables["MG_BUILD_MAGE"] = "ON"
+
+        tc.cache_variables["MG_BUNDLED_TOOLCHAIN"] = "ON" if self.options.bundled_toolchain else "OFF"
 
         tc.generate()
 
