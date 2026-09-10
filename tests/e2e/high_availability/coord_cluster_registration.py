@@ -303,8 +303,8 @@ def test_data_instance_cannot_start_wal_disabled(test_name):
 
     cmd = [
         MEMGRAPH_BINARY,
-        "--bolt-port=7687",
-        "--management-port=10000",
+        f"--bolt-port={interactive_mg_runner.effective_port(7687)}",
+        f"--management-port={interactive_mg_runner.effective_port(10000)}",
         "--storage-wal-enabled=false",
         f"{get_data_path(file, test_name)}/instance_1",
     ]

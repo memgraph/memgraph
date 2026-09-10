@@ -223,7 +223,7 @@ def _probe_cert_serial(
     the cert output entirely. `echo |` closes stdin cleanly after the handshake."""
     cmd = (
         "echo | timeout 5 openssl s_client "
-        f"-connect {host}:{port} -cert {client_cert} -key {client_key} -CAfile {ca_file} "
+        f"-connect {host}:{interactive_mg_runner.effective_port(port)} -cert {client_cert} -key {client_key} -CAfile {ca_file} "
         "2>/dev/null | openssl x509 -serial -noout 2>/dev/null"
     )
     for _ in range(retries):

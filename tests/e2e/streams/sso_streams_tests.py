@@ -22,9 +22,9 @@ from neo4j import Auth, GraphDatabase
 # Setup interactive_mg_runner paths
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
-    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..", "..")
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
 )
-interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "memgraph", "build"))
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 # SSO configuration

@@ -2341,7 +2341,7 @@ def test_main_reselected_to_become_main(test_name):
         [
             f"{os.path.dirname(script_path)}/memgraph__e2e__high_availability_rpc_comm",
             "127.0.0.1",
-            "10013",
+            str(interactive_mg_runner.effective_port(10013)),
             "c260a0a9-1aed-415d-aa1e-73f9e64faa33",
         ],
         capture_output=True,
