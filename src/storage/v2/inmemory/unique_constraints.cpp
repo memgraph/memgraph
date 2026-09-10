@@ -407,6 +407,29 @@ void InMemoryUniqueConstraints::ActiveConstraints::AbortEntries(
 
 bool InMemoryUniqueConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
+InMemoryUniqueConstraints::ActiveConstraints::ActiveConstraints(ContainerPtr snapshot)
+    : container_{std::move(snapshot)} {
+  auto gathered_properties = std::vector<PropertyId>{};
+  auto gathered_labels = std::vector<LabelId>{};
+  gathered_labels.reserve(container_->size());
+  for (const auto &[label, properties_constraints] : *container_) {
+    gathered_labels.push_back(label);
+    for (const auto &[properties, constraint] : properties_constraints) {
+      gathered_properties.insert(gathered_properties.end(), properties.begin(), properties.end());
+    }
+  }
+  constrained_properties_ = SortedUniqueIds(std::move(gathered_properties));
+  constrained_labels_ = SortedUniqueIds(std::move(gathered_labels));
+}
+
+auto InMemoryUniqueConstraints::ActiveConstraints::ConstrainedProperties() const -> InterestingProperties {
+  return InterestingProperties::Only(constrained_properties_);
+}
+
+auto InMemoryUniqueConstraints::ActiveConstraints::ConstrainedLabels() const -> InterestingLabels {
+  return InterestingLabels::Only(constrained_labels_);
+}
+
 auto InMemoryUniqueConstraints::GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> {
   return std::make_shared<ActiveConstraints>(container_.ReadCopy());
 }

@@ -42,6 +42,12 @@ class DiskUniqueConstraints : public UniqueConstraints {
     void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
 
+    // On-disk storage validates while flushing vertices rather than through the commit-time
+    // verification set, so it never gathers the ids it is keyed on and cannot narrow by them.
+    auto ConstrainedProperties() const -> InterestingProperties override { return InterestingProperties::Everything(); }
+
+    auto ConstrainedLabels() const -> InterestingLabels override { return InterestingLabels::Everything(); }
+
     void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                              uint64_t transaction_start_timestamp) override;
 

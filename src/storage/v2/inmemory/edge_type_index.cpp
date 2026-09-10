@@ -11,6 +11,7 @@
 
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include <range/v3/all.hpp>
+#include "storage/v2/interesting_ids.hpp"
 
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
@@ -420,8 +421,9 @@ InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::Chu
 }
 
 EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
-  std::call_once(indexed_built_,
-                 [this] { indexed_ = index_container_->indices_ | std::views::keys | ranges::to_vector; });
+  std::call_once(indexed_built_, [this] {
+    indexed_ = SortedUniqueIds(index_container_->indices_ | std::views::keys | ranges::to_vector);
+  });
   return AbortProcessor{indexed_};
 }
 

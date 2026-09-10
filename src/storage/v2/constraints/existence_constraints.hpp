@@ -25,6 +25,7 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
+#include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -80,14 +81,22 @@ class ExistenceConstraints {
   using ContainerPtr = std::shared_ptr<Container const>;
 
   struct ActiveConstraints {
-    explicit ActiveConstraints(ContainerPtr container = std::make_shared<Container>())
-        : container_{std::move(container)} {}
+    explicit ActiveConstraints(ContainerPtr container = std::make_shared<Container>());
 
     auto ListConstraints(uint64_t start_timestamp) const -> std::vector<std::pair<LabelId, PropertyId>>;
     bool empty() const;
 
+    /// The properties and the labels any active existence constraint is keyed on, as two
+    /// independent unions rather than per-constraint pairs. Asked once per transaction, so a write
+    /// does not reach these.
+    auto ConstrainedProperties() const -> InterestingProperties;
+    auto ConstrainedLabels() const -> InterestingLabels;
+
    private:
     ContainerPtr container_;
+    // Sorted, and borrowed by every transaction started against this snapshot.
+    std::vector<PropertyId> constrained_properties_;
+    std::vector<LabelId> constrained_labels_;
   };
 
   /// Creates an ActiveConstraints snapshot for transaction use.

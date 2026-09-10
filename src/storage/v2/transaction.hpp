@@ -147,9 +147,22 @@ struct Transaction {
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
-        constraint_verification_info{(active_constraints && !active_constraints->empty())
-                                         ? std::optional<ConstraintVerificationInfo>{std::in_place}
-                                         : std::nullopt},
+        active_constraints_{std::move(active_constraints)},
+        // The parameter has been moved from by now, so these ids come from the member.
+        constraint_verification_info{
+            (active_constraints_ && !active_constraints_->empty())
+                ? std::optional<
+                      ConstraintVerificationInfo>{std::in_place,
+                                                  ConstraintRelevance{
+                                                      .unique_properties =
+                                                          active_constraints_->unique_->ConstrainedProperties(),
+                                                      .unique_labels =
+                                                          active_constraints_->unique_->ConstrainedLabels(),
+                                                      .existence_properties =
+                                                          active_constraints_->existence_->ConstrainedProperties(),
+                                                      .existence_labels =
+                                                          active_constraints_->existence_->ConstrainedLabels()}}
+                : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                       ? std::optional<utils::SkipListDb<Vertex>>{std::in_place}
                       : std::nullopt},
@@ -162,7 +175,6 @@ struct Transaction {
         last_durable_ts_{last_durable_ts},
         last_durable_num_committed_txns_{last_durable_num_committed_txns},
         active_indices_{std::move(active_indices)},
-        active_constraints_{std::move(active_constraints)},
         async_index_helper_(std::move(async_index_helper)) {}
 
   Transaction(Transaction &&other) noexcept = default;
@@ -250,6 +262,13 @@ struct Transaction {
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};
 
+  /// Concurrent safe constraints that existed at the beginning of the transaction
+  /// Used for constraint validation during commit.
+  ///
+  /// Declared ahead of `constraint_verification_info`, which borrows the constrained id sets from
+  /// this snapshot: the borrower is then initialised second and destroyed first.
+  ActiveConstraintsPtr active_constraints_;
+
   // A cache which is consistent to the current transaction_id + command_id.
   // Used to speedup getting info about a vertex when there is a long delta
   // chain involved in rebuilding that info.
@@ -301,9 +320,6 @@ struct Transaction {
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans
   ActiveIndicesPtr active_indices_;
-  /// Concurrent safe constraints that existed at the beginning of the transaction
-  /// Used for constraint validation during commit
-  ActiveConstraintsPtr active_constraints_;
   CommitCallbacks commit_callbacks_;
   /// Rollback hooks for eager DDL owner-side mutations. Runs on Abort(),
   /// cleared on successful commit (see commit_callbacks_.RunAll site).

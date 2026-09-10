@@ -230,7 +230,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   transaction_->active_constraints_->unique_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
-  if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
+  if (transaction_->constraint_verification_info)
+    transaction_->constraint_verification_info->AddedLabel(label, vertex_);
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
@@ -479,9 +480,9 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   if (transaction_->constraint_verification_info) {
     if (!new_value.IsNull()) {
-      transaction_->constraint_verification_info->AddedProperty(vertex_);
+      transaction_->constraint_verification_info->AddedProperty(property, vertex_);
     } else {
-      transaction_->constraint_verification_info->RemovedProperty(vertex_);
+      transaction_->constraint_verification_info->RemovedProperty(property, vertex_);
     }
   }
   storage_->indices_.UpdateOnSetProperty(property, old_value, new_value, vertex_, *transaction_);
@@ -526,9 +527,9 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
           transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
           if (transaction->constraint_verification_info) {
             if (!new_value.IsNull()) {
-              transaction->constraint_verification_info->AddedProperty(vertex);
+              transaction->constraint_verification_info->AddedProperty(property, vertex);
             } else {
-              transaction->constraint_verification_info->RemovedProperty(vertex);
+              transaction->constraint_verification_info->RemovedProperty(property, vertex);
             }
           }
           if (schema_acc) {
@@ -603,9 +604,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
-          transaction->constraint_verification_info->AddedProperty(vertex);
+          transaction->constraint_verification_info->AddedProperty(id, vertex);
         } else {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
+          transaction->constraint_verification_info->RemovedProperty(id, vertex);
         }
       }
       if (schema_acc) {
@@ -654,6 +655,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
           storage->indices_.UpdateOnSetProperty(property, old_value, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+          if (transaction->constraint_verification_info) {
+            transaction->constraint_verification_info->RemovedProperty(property, vertex);
+          }
           if (schema_acc) {
             std::visit(utils::Overloaded{
                            [&](SchemaInfo::VertexModifyingAccessor &acc) {
@@ -662,9 +666,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
                            [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                        *schema_acc);
           }
-        }
-        if (transaction->constraint_verification_info) {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
         }
         vertex->properties.ClearProperties();
       });

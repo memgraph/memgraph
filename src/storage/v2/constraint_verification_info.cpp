@@ -16,15 +16,28 @@
 namespace memgraph::storage {
 
 ConstraintVerificationInfo::ConstraintVerificationInfo() = default;
+
+ConstraintVerificationInfo::ConstraintVerificationInfo(ConstraintRelevance relevance) : relevance_{relevance} {}
+
 ConstraintVerificationInfo::~ConstraintVerificationInfo() = default;
 ConstraintVerificationInfo::ConstraintVerificationInfo(ConstraintVerificationInfo &&) noexcept = default;
 ConstraintVerificationInfo &ConstraintVerificationInfo::operator=(ConstraintVerificationInfo &&) noexcept = default;
 
-void ConstraintVerificationInfo::AddedLabel(Vertex const *vertex) { added_labels_.insert(vertex); }
+void ConstraintVerificationInfo::AddedLabel(LabelId label, Vertex const *vertex) {
+  // One set feeds both checks, so a label either kind is keyed on is reported to both.
+  if (!relevance_.unique_labels.IsInteresting(label) && !relevance_.existence_labels.IsInteresting(label)) return;
+  added_labels_.insert(vertex);
+}
 
-void ConstraintVerificationInfo::AddedProperty(Vertex const *vertex) { added_properties_.insert(vertex); }
+void ConstraintVerificationInfo::AddedProperty(PropertyId property, Vertex const *vertex) {
+  if (!relevance_.unique_properties.IsInteresting(property)) return;
+  added_properties_.insert(vertex);
+}
 
-void ConstraintVerificationInfo::RemovedProperty(Vertex const *vertex) { removed_properties_.insert(vertex); }
+void ConstraintVerificationInfo::RemovedProperty(PropertyId property, Vertex const *vertex) {
+  if (!relevance_.existence_properties.IsInteresting(property)) return;
+  removed_properties_.insert(vertex);
+}
 
 auto ConstraintVerificationInfo::GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *> {
   std::unordered_set<Vertex const *> updated_vertices;
