@@ -22,13 +22,11 @@ tools.build:compiler_executables={"c": "/usr/bin/cc", "cpp": "/usr/bin/c++"}
 jemalloc/*:tools.gnu:make_program=gmake
 libbcrypt/*:tools.gnu:make_program=gmake
 
-# Provided by ports rather than built here. These must be exact versions: conan accepts a
-# pattern such as `cmake/*` and then silently matches nothing.
+# Provided by the host rather than built here. Each entry must name an exact version so
+# conan can match it against the version a recipe pins.
 [platform_tool_requires]
-# Ports carries cmake 3.31.x, which satisfies the dependencies whose range excludes 4.x.
-# Memgraph's own pinned cmake 4.3.3 is not listed because it is not in ports: conan
-# builds that one from source.
 cmake/3.31.12
+cmake/4.3.3
 ninja/1.13.2
 flex/2.6.4
 antlr4/4.13.1
