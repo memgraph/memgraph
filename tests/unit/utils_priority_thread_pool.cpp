@@ -182,16 +182,22 @@ TEST(PriorityThreadPool, MultipleLow) {
   pool.AwaitShutdown();
 }
 
-// TaskCollection Tests
-TEST(PriorityThreadPool, StartupAdmitsEveryWorker) {
+TEST(PriorityThreadPool, StartupPublishesMixedWorkers) {
   using namespace memgraph;
   constexpr uint16_t kMixed = 8;
   constexpr uint16_t kHighPriority = 4;
   constexpr size_t kPools = 200;
 
-  // The constructor holds every thread on a latch until all of them have published their worker,
-  // so a task scheduled straight afterwards must find a complete pool. Repeated because a torn
-  // startup is a race, not a deterministic failure.
+  // The constructor holds every thread on a latch until all of them have published their worker, so
+  // a task scheduled straight afterwards must find a complete pool. Repeated because a torn startup
+  // is a race, not a deterministic failure. Only the mixed slots are covered: every task, whatever
+  // its priority, is pushed to a mixed worker, and nothing but the monitor reads the high priority
+  // slots.
+  //
+  // One deadline for the whole loop rather than one per pool: a torn pool never runs its tasks, so
+  // waiting longer per pool only delays the report. The bound is many times what the loop needs
+  // even on an oversubscribed machine.
+  auto const deadline = std::chrono::steady_clock::now() + 60s;
   for (size_t pool_num = 0; pool_num < kPools; ++pool_num) {
     std::atomic<size_t> ran{0};
     {
@@ -203,7 +209,8 @@ TEST(PriorityThreadPool, StartupAdmitsEveryWorker) {
         pool.ScheduledAddTask([&ran](auto) { ++ran; }, utils::Priority::HIGH);
       }
 
-      auto const deadline = std::chrono::steady_clock::now() + 30s;
+      // The pool drops queued work as it shuts down, so every task has to be seen to run before the
+      // scope ends, not after.
       while (ran != kMixed + kHighPriority && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(1ms);
       }
@@ -223,8 +230,10 @@ TEST(PriorityThreadPool, StartupRunsInitCallbackOnEveryThread) {
     utils::PriorityThreadPool pool{kMixed, kHighPriority, [&initialised]() { ++initialised; }};
     pool.ScheduledAddTask([&ran](auto) { ++ran; }, utils::Priority::LOW);
 
-    auto const deadline = std::chrono::steady_clock::now() + 30s;
-    while (initialised != kMixed + kHighPriority && std::chrono::steady_clock::now() < deadline) {
+    // The pool drops queued work as it shuts down, so the task has to be seen to run before the
+    // scope ends, not after.
+    auto const deadline = std::chrono::steady_clock::now() + 60s;
+    while ((initialised != kMixed + kHighPriority || ran != 1) && std::chrono::steady_clock::now() < deadline) {
       std::this_thread::sleep_for(1ms);
     }
   }
@@ -232,6 +241,7 @@ TEST(PriorityThreadPool, StartupRunsInitCallbackOnEveryThread) {
   EXPECT_EQ(ran, 1);
 }
 
+// TaskCollection Tests
 TEST(TaskCollection, BasicAddAndSize) {
   using namespace memgraph;
   memgraph::utils::TaskCollection collection;

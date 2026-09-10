@@ -473,9 +473,16 @@ add_unit_test(utils_hot_mask
     LINK_TARGETS mg-utils
 )
 
+# The startup tests build a pool per iteration, so ctest's default cost of one slot per test lets
+# them be scheduled alongside a full machine's worth of other tests. Declaring the slots they need
+# keeps that from happening; where the machine has fewer, ctest runs this test on its own.
+# PROCESSORS mirrors kMixed + kHighPriority in StartupPublishesMixedWorkers and has to be changed
+# with it. TIMEOUT caps a run that wedges rather than fails: a pool whose workers never publish
+# their slots leaves every thread waiting on the latch, the constructor included.
 add_unit_test(utils_priority_thread_pool
     SOURCES utils_priority_thread_pool.cpp
     LINK_TARGETS mg-utils
+    TEST_PROPERTIES TIMEOUT 120 PROCESSORS 12
 )
 
 add_unit_test(utils_epoch_tracker
