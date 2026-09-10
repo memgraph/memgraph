@@ -85,18 +85,19 @@ class Neo4jClient(PythonClient):
         self._routing_tx_mode = routing_tx_mode
         if routing:
             self._driver = GraphDatabase.driver(f"neo4j://{host}:{port}", auth=(user, password))
-            if routing_tx_mode == "managed":
-                self._read_session = self._driver.session(default_access_mode=neo4j.READ_ACCESS)
-                self._write_session = self._driver.session(default_access_mode=neo4j.WRITE_ACCESS)
+            # Two long-lived access-mode sessions serve both tx modes: the driver releases a session's
+            # connection when each result is consumed and re-acquires (re-routes) on the next query,
+            # so a reused session still load-balances across the routing table's servers.
+            self._read_session = self._driver.session(default_access_mode=neo4j.READ_ACCESS)
+            self._write_session = self._driver.session(default_access_mode=neo4j.WRITE_ACCESS)
         else:
             self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
             self._session = self._driver.session()
 
     def close(self):
         if self._routing:
-            if self._routing_tx_mode == "managed":
-                self._read_session.close()
-                self._write_session.close()
+            self._read_session.close()
+            self._write_session.close()
         else:
             self._session.close()
         self._driver.close()
@@ -119,11 +120,11 @@ class Neo4jClient(PythonClient):
                 else:
                     self._read_session.execute_read(lambda tx: tx.run(query, parameters=params or {}).consume())
             else:
-                # Implicit (auto-commit) transaction with a manually set session access mode. A fresh
-                # session per query so each one re-routes by access mode rather than pinning.
-                mode = neo4j.WRITE_ACCESS if write else neo4j.READ_ACCESS
-                with self._driver.session(default_access_mode=mode) as session:
-                    session.run(query, parameters=params or {}).consume()
+                # Implicit (auto-commit) run() on the persistent access-mode session. Consuming the
+                # result releases the connection, so the next run re-routes across READ servers — no
+                # per-query BEGIN/COMMIT and no session churn.
+                session = self._write_session if write else self._read_session
+                session.run(query, parameters=params or {}).consume()
             end = time.time()
             return (end - start) * 1000
 
