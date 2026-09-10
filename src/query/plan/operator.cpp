@@ -5129,16 +5129,16 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       return "Pattern";
     }
     case Type::Node: {
-      // Only the planner writes this, over the identifier of a node the query has already bound, so the
-      // pattern that asked the question is the whole of what there is to say.
-      if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
-        LOG_FATAL("Node filters not using LabelsTest are not supported for query inspection!");
+      // The planner writes this over the identifier of a node the query has already bound, so that name is the
+      // whole of what there is to say. Any other shape is one this rendering cannot name, and a plan named
+      // incompletely still tells the reader more than a query that refuses to explain itself.
+      if (single_filter.expression->GetTypeInfo() == LabelsTest::kType) {
+        const auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+        if (filter_expression->expression_->GetTypeInfo() == Identifier::kType) {
+          return fmt::format("({})", static_cast<Identifier *>(filter_expression->expression_)->name_);
+        }
       }
-      const auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
-      if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-        return "()";
-      }
-      return fmt::format("({})", static_cast<Identifier *>(filter_expression->expression_)->name_);
+      return "()";
     }
     case Type::Point: {
       return fmt::format(
