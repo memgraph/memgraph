@@ -61,8 +61,7 @@ TEST(InterestingIds, AnEmptyNarrowSetIsNotEverything) {
   EXPECT_TRUE(InterestingProperties::Everything().IsInteresting(Prop(0)));
 }
 
-// The default has to be the safe one: a value nobody filled in must report every write
-// rather than suppress every write.
+// The default has to be the safe one: a value nobody filled in reports every write.
 TEST(InterestingIds, TheDefaultNarrowsNothing) {
   auto const interesting = InterestingProperties{};
 
@@ -79,8 +78,7 @@ TEST(InterestingIds, ASingleMemberSetAnswersOnBothSides) {
   EXPECT_FALSE(interesting.IsInteresting(Prop(5)));
 }
 
-// The same set over a different id type, because the label channel narrows by label and would
-// otherwise need a second copy of this class.
+// The same set over a different id type, because the label channel narrows by label.
 TEST(InterestingIds, ANarrowLabelSetAnswersByMembership) {
   auto const labels = std::vector{Label(1), Label(4)};
   auto const interesting = InterestingIds<LabelId>::Only(labels);
