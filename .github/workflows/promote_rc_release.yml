@@ -64,45 +64,54 @@ jobs:
       fail-fast: false
       matrix:
         # The packages are distro-agnostic: one deb and one rpm per arch,
-        # stored under <arch>-{deb,rpm}[-malloc]/; docker tarballs live under
-        # docker-<arch>[-malloc][-relwithdebinfo]/.
+        # stored under <arch>-{deb,rpm}[-malloc|-no-python]/; docker tarballs
+        # live under docker-<arch>[-malloc][-relwithdebinfo] | -fips/.
         target: [deb, rpm, docker]
         arch: [amd, arm]
         malloc: [false]
         build_type: [Release]
+        fips: [false]
         include:
           - target: docker
             arch: amd
             malloc: false
             build_type: RelWithDebInfo
+            fips: false
           - target: docker
             arch: arm
             malloc: false
             build_type: RelWithDebInfo
+            fips: false
           - target: docker
             arch: amd
             malloc: true
             build_type: RelWithDebInfo
+            fips: false
           - target: docker
             arch: arm
             malloc: true
             build_type: RelWithDebInfo
+            fips: false
           - target: deb
             arch: amd
             malloc: true
             build_type: Release
+            fips: false
           - target: deb
             arch: arm
             malloc: true
             build_type: Release
+            fips: false
           - target: rpm
             arch: amd
             malloc: true
             build_type: Release
+            fips: false
           - target: rpm
             arch: arm
             malloc: true
             build_type: Release
+            fips: false
           # FIPS packages. The deb/rpm are named for what makes them different
           # as packages (no embedded Python); only the image is -fips.
           - target: deb
