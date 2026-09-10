@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <string_view>
+#include <variant>
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
@@ -93,6 +95,24 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
   EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "db1"), 1024.0);
   EXPECT_EQ(FindSample(families, "memgraph_db_memory_tracked_bytes", "db1"), 4096.0);
   EXPECT_EQ(FindSample(families, "memgraph_db_peak_memory_tracked_bytes", "db1"), 8192.0);
+}
+
+TEST(PrometheusMetrics, GetGlobalMetricsInfoReportsCorrectMemoryUsage) {
+  memgraph::metrics::PrometheusMetrics pm;
+
+  auto const global = pm.GetGlobalMetricsInfo();
+  auto const value = [&global](std::string_view name) -> std::optional<int64_t> {
+    auto const it = std::ranges::find(global, name, &memgraph::metrics::MetricInfo::name);
+    if (it == global.end()) return std::nullopt;
+    return std::get<int64_t>(it->value);
+  };
+
+  auto const memory_res = value("MemoryRes");
+  auto const peak_memory_res = value("PeakMemoryRes");
+  ASSERT_TRUE(memory_res.has_value());
+  ASSERT_TRUE(peak_memory_res.has_value());
+  EXPECT_GT(*memory_res, 0);
+  EXPECT_GE(*peak_memory_res, *memory_res);
 }
 
 TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {

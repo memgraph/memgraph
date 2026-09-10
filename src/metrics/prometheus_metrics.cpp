@@ -2065,8 +2065,13 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   std::vector<MetricInfo> out;
 
   // Memory (global only)
-  out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.memory_res_bytes->Value())});
-  out.push_back({"PeakMemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.peak_memory_res_bytes->Value())});
+  auto const memory_res = utils::GetMemoryRES();
+  out.push_back(
+      {.name = "MemoryRes", .type = "Memory", .metric_type = "Gauge", .value = static_cast<int64_t>(memory_res)});
+  out.push_back({.name = "PeakMemoryRes",
+                 .type = "Memory",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(UpdateAndGetPeakMemoryRes(memory_res))});
 
   // Hot/cold databases (global only)
   out.push_back({"DatabaseSuspends", "HotCold", "Counter", static_cast<int64_t>(global.database_suspends->Value())});
