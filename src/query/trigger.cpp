@@ -265,7 +265,12 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.stopping_context = {
       .transaction_status = transaction_status,
       .is_shutting_down = is_shutting_down,
-      .timer = (max_execution_time_sec > 0.0) ? std::make_shared<utils::AsyncTimer>(max_execution_time_sec) : nullptr,
+      // Deadline anchored on the cached clock (see CreateTimeoutDeadline): no real now() here.
+      .deadline = (max_execution_time_sec > 0.0)
+                      ? std::make_optional(utils::CoarseSteadyNow() +
+                                           std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                               std::chrono::duration<double>{max_execution_time_sec}))
+                      : std::nullopt,
   };
   ctx.is_profile_query = false;
   ctx.evaluation_context.memory = execution_memory;

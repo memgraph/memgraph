@@ -12,7 +12,9 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <type_traits>
 
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -20,7 +22,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "storage/v2/commit_args.hpp"
-#include "utils/async_timer.hpp"
+#include "utils/coarse_clock.hpp"
 #include "utils/counter.hpp"
 #include "utils/priority_thread_pool.hpp"
 
@@ -86,7 +88,7 @@ struct StoppingContext {
   // Even though this is called `StoppingContext`. TransactionStatus is used for more
   std::atomic<TransactionStatus> *transaction_status{nullptr};
   std::atomic<bool> *is_shutting_down{nullptr};
-  std::shared_ptr<utils::AsyncTimer> timer{};
+  std::optional<utils::SteadyTimePoint> deadline{};
   std::shared_ptr<std::atomic<uint8_t>> exception_occurred{nullptr};  // Used only for parallel execution
 
   auto MustAbort() const noexcept -> AbortReason {
@@ -97,7 +99,7 @@ struct StoppingContext {
     if (is_shutting_down && is_shutting_down->load(std::memory_order_acquire)) [[unlikely]] {
       return AbortReason::SHUTDOWN;
     }
-    if (timer && timer->IsExpired()) [[unlikely]] {
+    if (deadline && utils::CoarseSteadyNow() >= *deadline) [[unlikely]] {
       return AbortReason::TIMEOUT;
     }
     if (exception_occurred && exception_occurred->load(std::memory_order_acquire)) [[unlikely]] {

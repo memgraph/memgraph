@@ -40,8 +40,16 @@ def tx_too_long(tx):
 def assert_timeout(set_timeout, measure_timeout):
     print(measure_timeout)
     print(set_timeout)
+    # The query-timeout deadline is checked against a steady_clock cache refreshed on a
+    # tick (kCoarseClockTick in src/utils/coarse_clock.hpp), and the deadline is anchored on
+    # that same cache, so an abort can land up to one tick BEFORE the deadline. Every other
+    # source of noise (connect, parse, network, teardown) only adds time, so the slack is
+    # needed on the lower bound only. Two ticks of headroom keeps the worst case off the
+    # assert boundary while still catching an instant/never abort.
+    COARSE_CLOCK_TICK_S = 0.1  # mirrors kCoarseClockTick (100ms); cannot import a C++ symbol here
+    lower_slack = 2 * COARSE_CLOCK_TICK_S
     assert (
-        measure_timeout >= set_timeout and measure_timeout < set_timeout * 2
+        set_timeout - lower_slack <= measure_timeout < set_timeout * 2
     ), "Wrong timeout; expected {}s and measured {}s".format(set_timeout, measure_timeout)
 
 
