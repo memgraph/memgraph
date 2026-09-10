@@ -5411,6 +5411,32 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInReturnProjection) {
       query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ExistsSubqueryBodyIsBoundNode) {
+  // MATCH (n) RETURN EXISTS { MATCH (n) } AS h
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(EXISTS_SUBQUERY(exists_subquery), AS("h"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  // The bare node brings no filter of its own, so the branch is what checks that `n` is bound to a node at all.
+  Checkers branch{ExpectOnce{}, ExpectFilter{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CountSubqueryBodyIsNamedPathOverBoundNode) {
+  // MATCH (n) RETURN COUNT { MATCH p = (n) } AS c
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("n")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COUNT_SUBQUERY(count_subquery), AS("c"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  // The path is built over the bound `n`, so the branch needs a Once for it to read a row from.
+  Checkers branch{ExpectOnce{}, ExpectConstructNamedPath{}, ExpectFilter{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectCountRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+}
+
 // COUNT reaches the same branch and splice points as EXISTS, so the fold - not the operator - is the discriminator.
 
 TYPED_TEST(TestPlanner, CountSubqueryInReturnProjection) {
