@@ -26,12 +26,26 @@ os=FreeBSD
 [conf]
 tools.build:compiler_executables={"c": "/usr/bin/cc", "cpp": "/usr/bin/c++"}
 
-# Both have GNU-only makefiles and FreeBSD's `make` is not GNU make, so name gmake for
-# them. This must stay scoped to the packages that need it: CMakeToolchain also feeds
+# FreeBSD's `make` is not GNU make, and every package below drives its build through a
+# makefile that needs GNU extensions, so each is told to use gmake. A package belongs on
+# this list when its recipe builds with Autotools or runs make directly; adding one to
+# the graph without adding it here fails in the middle of its build.
+#
+# This must stay scoped to those packages: CMakeToolchain also feeds
 # tools.gnu:make_program into CMAKE_MAKE_PROGRAM, so setting it globally makes CMake run
 # gmake as if it were ninja and every CMake-based dependency fails at configure time.
+autoconf/*:tools.gnu:make_program=gmake
+automake/*:tools.gnu:make_program=gmake
+bison/*:tools.gnu:make_program=gmake
+boost/*:tools.gnu:make_program=gmake
+cyrus-sasl/*:tools.gnu:make_program=gmake
 jemalloc/*:tools.gnu:make_program=gmake
 libbcrypt/*:tools.gnu:make_program=gmake
+libcurl/*:tools.gnu:make_program=gmake
+libtool/*:tools.gnu:make_program=gmake
+libuuid/*:tools.gnu:make_program=gmake
+m4/*:tools.gnu:make_program=gmake
+openssl/*:tools.gnu:make_program=gmake
 
 # Taken from the host rather than built here. Conan matches each entry against what a
 # recipe asks for, so it has to name the version the host really has, which is what the
