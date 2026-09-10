@@ -5159,9 +5159,10 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       const auto *identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
       return fmt::format("[{} :{}]", identifier_expression->name_, or_edge_types);
     }
-    default:
-      LOG_FATAL("Unexpected FilterInfo::Type");
   }
+  // No default label above, so a filter kind added without a case here is a compile error. Reaching this line
+  // needs a value outside the enumeration, which no code can produce.
+  LOG_FATAL("Unexpected FilterInfo::Type");
 }
 
 std::string Filter::ToString(const DbAccessor * /*dba*/) const {
