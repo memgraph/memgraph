@@ -1,5 +1,8 @@
 set(test_prefix memgraph__unit__)
 
+# COST is a test's sanitized Debug runtime in seconds on a CI runner. ctest starts the costliest
+# tests first, so a parallel run does not end with the longest ones running alone.
+
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)
 find_package(antlr4-runtime REQUIRED)
@@ -42,6 +45,7 @@ target_link_libraries(kafka-mock mg-utils RdKafka::rdkafka++ Threads::Threads GT
 add_unit_test(integrations_kafka_consumer
     SOURCES integrations_kafka_consumer.cpp kafka_mock.cpp
     LINK_TARGETS kafka-mock mg-integrations-kafka
+    TEST_PROPERTIES COST 80
 )
 
 add_unit_test(mgp_kafka_c_api
@@ -94,6 +98,7 @@ add_unit_test(event_map
 add_unit_test(interpreter
     SOURCES interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+    TEST_PROPERTIES COST 150
 )
 
 add_unit_test(query_plan_pruning_bfs
@@ -124,6 +129,7 @@ add_unit_test(query_dump
 add_unit_test(query_expression_evaluator
     SOURCES query_expression_evaluator.cpp
     LINK_TARGETS mg-query disk_test_utils
+    TEST_PROPERTIES COST 140
 )
 
 add_unit_test(query_frame_change
@@ -179,6 +185,7 @@ add_unit_test(query_plan_edge_cases
 add_unit_test(query_plan_match_filter_return
     SOURCES query_plan_match_filter_return.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
+    TEST_PROPERTIES COST 145
 )
 
 add_unit_test(query_plan_operator_to_string
@@ -277,6 +284,7 @@ add_unit_test(transaction_queue
 add_unit_test(transaction_queue_multiple
     SOURCES transaction_queue_multiple.cpp
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+    TEST_PROPERTIES COST 50
 )
 
 add_unit_test(query_plan_printer_race
@@ -355,6 +363,7 @@ add_unit_test(query_required_privileges
 add_unit_test(query_semantic
     SOURCES query_semantic.cpp
     LINK_TARGETS mg-query disk_test_utils
+    TEST_PROPERTIES COST 95
 )
 
 add_unit_test(query_variable_start_planner
@@ -569,6 +578,7 @@ add_unit_test(utils_rwlock
 add_unit_test(utils_scheduler
     SOURCES utils_scheduler.cpp
     LINK_TARGETS mg-utils mg-flags mg-settings
+    TEST_PROPERTIES COST 60
 )
 
 add_unit_test(utils_signals
@@ -634,6 +644,7 @@ add_unit_test(utils_file_locker
 add_unit_test(utils_thread_pool
     SOURCES utils_thread_pool.cpp
     LINK_TARGETS mg-utils fmt::fmt
+    TEST_PROPERTIES COST 65
 )
 
 add_unit_test(csv_csv_parsing
@@ -740,6 +751,7 @@ add_unit_test(utils_observer
 add_unit_test(commit_log_v2
     SOURCES commit_log_v2.cpp
     LINK_TARGETS gflags mg-utils mg::storage
+    TEST_PROPERTIES COST 75
 )
 
 add_unit_test(property_value_v2
@@ -780,6 +792,7 @@ add_unit_test(storage_v2_enum_store
 add_unit_test(storage_v2_constraints
     SOURCES storage_v2_constraints.cpp
     LINK_TARGETS mg::storage mg-dbms disk_test_utils ddl_abort_helpers
+    TEST_PROPERTIES COST 50
 )
 
 if(ENABLE_JEMALLOC)
@@ -801,7 +814,7 @@ add_unit_test(storage_v2_decoder_encoder
 add_unit_test(storage_v2_durability_inmemory
     SOURCES storage_v2_durability_inmemory.cpp
     LINK_TARGETS mg::storage mg-dbms storage_test_utils
-    TEST_PROPERTIES TIMEOUT 1800
+    TEST_PROPERTIES TIMEOUT 1800 COST 800
 )
 
 add_unit_test(storage_v2_create_snapshot
@@ -867,6 +880,7 @@ add_unit_test(storage_v2_index_arming
 add_unit_test(storage_v2_non_sequential_isolation
     SOURCES storage_v2_non_sequential_isolation.cpp
     LINK_TARGETS mg::storage
+    TEST_PROPERTIES COST 400
 )
 
 add_unit_test(storage_v2_delta_correctness
@@ -877,6 +891,7 @@ add_unit_test(storage_v2_delta_correctness
 add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
     LINK_TARGETS mg::storage mg-utils disk_test_utils ddl_abort_helpers
+    TEST_PROPERTIES COST 55
 )
 
 add_unit_test(storage_v2_index_drop_visibility
@@ -887,6 +902,7 @@ add_unit_test(storage_v2_index_drop_visibility
 add_unit_test(storage_v2_async_indexer
     SOURCES storage_v2_async_indexer.cpp
     LINK_TARGETS mg::storage mg-utils
+    TEST_PROPERTIES COST 180
 )
 
 add_unit_test(storage_v2_index_entry_lifetime
@@ -953,6 +969,7 @@ add_unit_test(storage_v2_storage_mode
 add_unit_test(storage_v2_schema_info
     SOURCES storage_v2_schema_info.cpp
     LINK_TARGETS mg::storage storage_test_utils
+    TEST_PROPERTIES COST 70
 )
 
 add_unit_test(storage_v2_config
@@ -1056,6 +1073,7 @@ if (MG_ENTERPRISE)
     add_unit_test(auth
         SOURCES auth.cpp
         LINK_TARGETS mg-auth mg-license Boost::filesystem
+        TEST_PROPERTIES COST 70
     )
 
     file(GLOB _auth_kvstore_files "${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore/*")
@@ -1085,6 +1103,7 @@ add_unit_test(slk_core
 add_unit_test(slk_streams
     SOURCES slk_streams.cpp
     LINK_TARGETS mg-slk gflags fmt::fmt
+    TEST_PROPERTIES COST 70
 )
 
 # Test utilities

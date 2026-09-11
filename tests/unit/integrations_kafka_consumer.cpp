@@ -46,6 +46,12 @@ inline constexpr int64_t kDefaultBatchSize{1000};
 
 inline constexpr double kTimingTolerance = 1.2;  // tolerance for all timings to prevent flakes
 
+// How far past its timeout Check or StartWithLimit may be seen to return. The deadline is checked
+// between batches, so the overshoot is one batch interval plus however long a loaded machine leaves
+// the process unscheduled, which no multiple of the timeout covers. Kept well under
+// kDefaultCheckTimeout so a call that ignored the timeout it was given still fails.
+inline constexpr auto kTimeoutOvershoot = std::chrono::seconds{10};
+
 // How long a test will wait for messages it has already sent. Generous, because it exists to turn a
 // consumer that never delivers into a failure with the counts in hand rather than a hung job; a
 // working consumer reaches the condition long before this and stops waiting.
@@ -482,7 +488,7 @@ TEST_F(ConsumerTest, CheckMethodTimeout) {
 
   const auto elapsed = (end - start);
   EXPECT_LE(timeout, elapsed);
-  EXPECT_LE(elapsed, timeout * kTimingTolerance);
+  EXPECT_LE(elapsed, timeout + kTimeoutOvershoot);
 }
 
 TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
@@ -622,5 +628,5 @@ TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
   const auto elapsed = (end - start);
 
   EXPECT_LE(timeout, elapsed);
-  EXPECT_LE(elapsed, timeout * kTimingTolerance);
+  EXPECT_LE(elapsed, timeout + kTimeoutOvershoot);
 }
