@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 #include <range/v3/all.hpp>
 #include "metrics/prometheus_metrics.hpp"
+#include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 
 #include <algorithm>
@@ -176,14 +177,6 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), bound_type};
   };
 
-  auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
-    if (value == std::nullopt) {
-      return std::nullopt;
-    } else {
-      return bound_from(value->value()->Accept(evaluator), value->type());
-    }
-  };
-
   switch (type_) {
     case Type::EQUAL:
     case Type::IN: {
@@ -194,7 +187,11 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       // exists. The Null is read before the value is converted, because a value holding one need
       // not be storable at all: converting `[null, <a node>]` raises where the filter this scan
       // stands in for raises nothing.
-      if (relations::equality::HoldsANull(typed_value)) {
+      //
+      // A value no property can hold is settled the same way and for the same reason: nothing
+      // stored equals a graph element, so the filter keeps no row and never asks for the value as a
+      // property. Converting it first would make the query raise only once an index existed.
+      if (relations::equality::HoldsANull(typed_value) || !typed_value.IsPropertyValue()) {
         return storage::PropertyValueRange::Empty();
       }
       auto bounded_property_value = bound_from(typed_value, lower_->type());
@@ -231,16 +228,44 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     }
 
     case Type::RANGE: {
-      auto lower_bound = to_bounded_property_value(lower_);
-      auto upper_bound = to_bounded_property_value(upper_);
+      // Each bound is read once. Its expression may have side effects or answer differently each
+      // time it is asked, so the value the range is built from has to be the same one its type was
+      // judged on.
+      auto const evaluated = [&](auto const &bound) -> std::optional<TypedValue> {
+        if (bound == std::nullopt) return std::nullopt;
+        return bound->value()->Accept(evaluator);
+      };
+      auto const lower_value = evaluated(lower_);
+      auto const upper_value = evaluated(upper_);
 
-      // When scanning a range, the bounds must be the same type
-      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      // A bound comparability cannot place leaves every ordered comparison answering the same way
+      // for every row, so the filter this scan stands in for keeps none of them. The stored order
+      // places such a value all the same, by where its type sits or by where a NaN is put, and a
+      // band drawn around it would hand back rows no filter would pass.
+      auto const placed_by_comparability = [](auto const &value) {
+        return !value || relations::comparability::Places(*value);
+      };
+      if (!placed_by_comparability(lower_value) || !placed_by_comparability(upper_value)) {
+        return storage::PropertyValueRange::Empty();
+      }
+
+      auto const to_bound = [&](std::optional<TypedValue> const &value,
+                                auto const &bound) -> std::optional<utils::Bound<storage::PropertyValue>> {
+        if (!value) return std::nullopt;
+        return bound_from(*value, bound->type());
+      };
+      auto lower_bound = to_bound(lower_value, lower_);
+      auto upper_bound = to_bound(upper_value, upper_);
+
+      // A range whose two bounds no comparison places against each other holds no value: a row
+      // would have to be both above a date and below a duration, and one of those answers Null
+      // whatever the row holds.
+      if (lower_bound && upper_bound && !storage::AreComparable(lower_bound->value(), upper_bound->value())) {
         return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
-      // bound will be limitted to the same type as the other bound
+      // bound will be limitted to the stretch of the order the other bound is compared over
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
@@ -361,13 +386,15 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       auto lower_bound = std::move(std::get<obpv>(maybe_lower_bound));
       auto upper_bound = std::move(std::get<obpv>(maybe_upper_bound));
 
-      // When scanning a range, the bounds must be the same type
-      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      // A range whose two bounds no comparison places against each other holds no value: a row
+      // would have to be both above a date and below a duration, and one of those answers Null
+      // whatever the row holds.
+      if (lower_bound && upper_bound && !storage::AreComparable(lower_bound->value(), upper_bound->value())) {
         return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
-      // bound will be limitted to the same type as the other bound
+      // bound will be limitted to the stretch of the order the other bound is compared over
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
@@ -1366,34 +1393,14 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
                                                                       ExpressionEvaluator &evaluator) {
   if (!bound) return std::nullopt;
   const auto &value = bound->value()->Accept(evaluator);
-  try {
-    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
-    switch (property_value.type()) {
-      case storage::PropertyValue::Type::Bool:
-      case storage::PropertyValue::Type::List:
-      case storage::PropertyValue::Type::NumericList:
-      case storage::PropertyValue::Type::IntList:
-      case storage::PropertyValue::Type::DoubleList:
-      case storage::PropertyValue::Type::Map:
-      case storage::PropertyValue::Type::Enum:
-      case storage::PropertyValueType::Point2d:
-      case storage::PropertyValueType::Point3d:
-      case storage::PropertyValueType::VectorIndexId:
-        // Prevent indexed lookup with something that would fail if we did
-        // the original filter with `operator<`. Note, for some reason,
-        // Cypher does not support comparing boolean values.
-        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
-      case storage::PropertyValue::Type::Null:
-      case storage::PropertyValue::Type::Int:
-      case storage::PropertyValue::Type::Double:
-      case storage::PropertyValue::Type::String:
-      case storage::PropertyValue::Type::TemporalData:
-      case storage::PropertyValue::Type::ZonedTemporalData:
-        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
-    }
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  // A bound comparability cannot place makes the comparison answer the same way for every row, so
+  // the filter this scan stands in for keeps none. A Null bound already says that here, and a bound
+  // the relation cannot place says it the same way rather than raising, which would make the query
+  // fail only once an index existed. Every type it does place is one a property can hold.
+  if (!relations::comparability::Places(value)) {
+    return utils::Bound<storage::PropertyValue>(storage::PropertyValue(), bound->type());
   }
+  return utils::Bound<storage::PropertyValue>(value.ToPropertyValue(evaluator.GetNameIdMapper()), bound->type());
 }
 
 // Helper function to evaluate an expression and convert it to a property value.
@@ -1406,11 +1413,11 @@ std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expressi
   // filter keeps none of them and this scan has to find none. A Null within a
   // list or a map counts: the lookup below compares by a relation that holds a
   // Null equal to a Null, and would report a match the filter does not.
-  if (relations::equality::HoldsANull(value)) {
+  //
+  // A value no property can hold settles the same way: nothing stored equals a graph element, so
+  // the filter keeps no row and never asks for the value as a property.
+  if (relations::equality::HoldsANull(value) || !value.IsPropertyValue()) {
     return std::nullopt;
-  }
-  if (!value.IsPropertyValue()) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }
   return value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
 }
@@ -10969,6 +10976,11 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    // Bounds that came back unset mean the comparison holds for no row, which is not the same as a
+    // scan with no bounds. Asking for no chunks is how that is said here.
+    if (!maybe_lower && !maybe_upper) {
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
+    }
     return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
@@ -11106,6 +11118,11 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    // Bounds that came back unset mean the comparison holds for no row, which is not the same as a
+    // scan with no bounds. Asking for no chunks is how that is said here.
+    if (!maybe_lower && !maybe_upper) {
+      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
+    }
     return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(

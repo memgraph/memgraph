@@ -616,54 +616,9 @@ class TypedValue {
    */
   friend TypedValue operator!=(const TypedValue &a, const TypedValue &b) { return !(a == b); }
 
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  friend TypedValue operator<(const TypedValue &a, const TypedValue &b);
-
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  // TODO: why not `!(b < a)` or C++20 auto generated
-  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
-
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return !(a <= b); }
-
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
+  // The four ordered comparisons are the presentation surface over
+  // comparability and live with that relation, so a caller asking one includes
+  // the relation it reads.
 
   // arithmetic operators
 

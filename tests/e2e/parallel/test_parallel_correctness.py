@@ -313,6 +313,13 @@ class TestParallelIndices:
         """Test edge property index for all values."""
         verify_parallel_matches_serial(indexed_db, "MATCH ()-[e:KNOWS]->() WHERE e.since IS NOT NULL RETURN e")
 
+    def test_edge_property_index_range_matching_nothing(self, indexed_db):
+        """A bound the ordered comparisons place no pair of holds for no row, which is not the same
+        as a scan with no bounds at all. Both readings leave the chunked scan with unset bounds."""
+        verify_parallel_matches_serial(indexed_db, "MATCH ()-[e:KNOWS]->() WHERE e.since < null RETURN e")
+        verify_parallel_matches_serial(indexed_db, "MATCH ()-[e:KNOWS]->() WHERE e.since > null RETURN e")
+        verify_parallel_matches_serial(indexed_db, "MATCH (x:Person), ()-[e:KNOWS]->() WHERE e.since < x RETURN e")
+
     def test_global_vertex_property_index_specific(self, indexed_db):
         """Test global vertex property index with specific value."""
         verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age = 30 RETURN n")

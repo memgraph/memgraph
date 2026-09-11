@@ -119,6 +119,44 @@ def test_equality_against_an_unstorable_value_holding_a_null_raises_on_no_plan(m
     assert count(sought_on_an_edge) == 0
 
 
+def test_a_scan_does_not_raise_over_a_sought_value_no_filter_needs_stored(memgraph):
+    """A graph element is not equal to any stored property and orders against
+    none, so a filter answers without ever needing it as a property value. A
+    scan standing in for that filter must answer too: converting the value first
+    makes the query fail only once an index exists."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("CREATE (:V {p: 1}), (:V {p: 'abc'}), (:Anchor);")
+    memgraph.execute("CREATE (a:From), (b:To);")
+    memgraph.execute("MATCH (a:From), (b:To) CREATE (a)-[:T {p: 1}]->(b);")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    sought = "MATCH (x:Anchor), (n:V) WHERE n.p = x RETURN count(n) AS c;"
+    # The element that is not storable settles for nothing; the one beside it
+    # still matches, so this membership test keeps a row rather than failing.
+    membership = "MATCH (x:Anchor), (n:V) WHERE n.p IN [1, x] RETURN count(n) AS c;"
+
+    # An edge scan reads the same value through its own conversion, for an
+    # equality and for a range.
+    edge_sought = "MATCH (x:Anchor), ()-[r:T]->() WHERE r.p = x RETURN count(r) AS c;"
+    edge_ranged = "MATCH (x:Anchor), ()-[r:T]->() WHERE r.p < x RETURN count(r) AS c;"
+
+    assert count(sought) == 0
+    assert count(membership) == 1
+    assert count(edge_sought) == 0
+    assert count(edge_ranged) == 0
+
+    memgraph.execute("CREATE INDEX ON :V(p);")
+    memgraph.execute("CREATE EDGE INDEX ON :T(p);")
+
+    assert count(sought) == 0
+    assert count(membership) == 1
+    assert count(edge_sought) == 0
+    assert count(edge_ranged) == 0
+
+
 def test_negated_membership_keeps_no_row_whose_sought_value_is_null(memgraph):
     """Membership of a null in a list holding anything is undecided, and a filter
     keeps no row it cannot decide. Negating it keeps none either, since `NOT` of
@@ -147,6 +185,105 @@ def test_negated_membership_keeps_no_row_whose_sought_value_is_null(memgraph):
     # The row holding a null reaches the operator first here, so it fills the set
     # rather than reading one already filled.
     assert count("MATCH (n:R) WITH n ORDER BY n.v DESC WHERE NOT (n.v IN [1]) RETURN count(n) AS c;") == 4
+
+
+def test_a_range_bound_is_read_once_however_the_scan_is_planned(memgraph):
+    """A bound is an expression, and asking it twice both repeats whatever it
+    does and risks building the range from a different value than the one whose
+    type was judged. `counter` answers a new value each call, so a bound reading
+    it settles the range on its first answer and the row count says which."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("UNWIND range(1, 5) AS i CREATE (:C {p: i});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    # The counter starts at 0, so a bound of its first answer keeps all five
+    # rows. A second call would bound at 1 and keep four.
+    ranged = "MATCH (n:C) WHERE n.p > counter('bound', 0) RETURN count(n) AS c;"
+
+    assert count(ranged) == 5
+
+    memgraph.execute("CREATE INDEX ON :C(p);")
+
+    assert count(ranged) == 5
+
+
+def test_a_temporal_range_answers_for_its_own_kind_however_the_scan_is_planned(memgraph):
+    """A date, a local time, a local date time and a duration are four types no
+    comparison places against each other, so a range over one keeps no row of
+    another. They share one stored type, so an index whose band is that type
+    would hand back the other three."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute(
+        """CREATE (:T {t: DATE('2020-01-01')}),
+                  (:T {t: DATE('2024-06-01')}),
+                  (:T {t: LOCALTIME('12:00:00')}),
+                  (:T {t: LOCALDATETIME('2024-06-01T12:00:00')}),
+                  (:T {t: DURATION('P5D')}),
+                  (:T {t: DURATION('P400D')});"""
+    )
+
+    def answers(query):
+        return sorted(str(row["t"]) for row in memgraph.execute_and_fetch(query))
+
+    one_sided = "MATCH (n:T) WHERE n.t > DATE('2020-01-01') RETURN n.t AS t;"
+    other_way = "MATCH (n:T) WHERE n.t < DURATION('P100D') RETURN n.t AS t;"
+    two_sided = "MATCH (n:T) WHERE n.t >= DATE('2020-01-01') AND n.t <= DATE('2024-06-01') RETURN n.t AS t;"
+    mixed_kinds = "MATCH (n:T) WHERE n.t > DATE('2020-01-01') AND n.t < DURATION('P100D') RETURN n.t AS t;"
+
+    without_index = [answers(q) for q in (one_sided, other_way, two_sided, mixed_kinds)]
+
+    memgraph.execute("CREATE INDEX ON :T(t);")
+
+    assert [answers(q) for q in (one_sided, other_way, two_sided, mixed_kinds)] == without_index
+
+    # Non-vacuous: the unindexed answers are the ones the comparison gives, so a scan
+    # matching them is answering rather than both returning everything.
+    assert without_index[0] == ["2024-06-01"]
+    assert len(without_index[1]) == 1
+    assert without_index[3] == []
+
+
+def test_a_nan_bound_keeps_no_row_however_the_scan_is_planned(memgraph):
+    """A NaN has no order against any number, itself included, so all four
+    ordered comparisons answer false and a filter keeps no row. The stored order
+    still puts a NaN somewhere, so a band drawn around one would hand back
+    whatever sits on its side of that position."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("UNWIND range(1, 100) AS i CREATE (:N {v: toFloat(i)});")
+    # Rows holding a NaN, which no ordinary bound may return either.
+    memgraph.execute("UNWIND range(1, 3) AS i CREATE (:N {v: sqrt(-1)});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    bounded_by_nan = [
+        "MATCH (n:N) WHERE n.v < sqrt(-1) RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v <= sqrt(-1) RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v > sqrt(-1) RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v >= sqrt(-1) RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v > 0.0 AND n.v < sqrt(-1) RETURN count(n) AS c;",
+    ]
+    # An ordinary bound must not return the stored NaN rows either.
+    bounded_by_a_number = [
+        "MATCH (n:N) WHERE n.v < 50.0 RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v > 50.0 RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v > 10.0 AND n.v < 20.0 RETURN count(n) AS c;",
+    ]
+
+    without_index = [count(q) for q in bounded_by_nan + bounded_by_a_number]
+
+    memgraph.execute("CREATE INDEX ON :N(v);")
+
+    assert [count(q) for q in bounded_by_nan + bounded_by_a_number] == without_index
+
+    # Non-vacuous: a NaN bound keeps nothing, and an ordinary one keeps only the
+    # rows it should rather than everything or nothing.
+    assert without_index[: len(bounded_by_nan)] == [0] * len(bounded_by_nan)
+    assert without_index[len(bounded_by_nan) :] == [49, 50, 9]
 
 
 if __name__ == "__main__":

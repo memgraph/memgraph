@@ -11,127 +11,219 @@
 
 /// @file
 /// Comparability: one of the four relations openCypher defines over values, the
-/// one `<`, `<=`, `>` and `>=` read.
+/// one `< <= > >=` each read.
 ///
-/// It is partial. Two values it cannot place answer Null, and a type it does
-/// not admit at all raises. This is where it parts from orderability, which
-/// must place every pair because a sort is undefined without that.
+/// It is partial. `unordered` means two values have no order between them, which
+/// is what a NaN is, and all four comparisons answer false for such a pair.
+/// Nothing at all is returned when the two are incomparable, and all four then
+/// answer Null. No pair raises: incomparability is an answer the relation gives
+/// rather than a question it refuses.
+///
+/// A list is among the values it does not place. Placing one means ordering it
+/// by its elements, and an index scan standing in for a filter over a list
+/// column orders by what the store holds, which is not that order. Until the
+/// two agree, the same query would answer differently once an index existed.
 #pragma once
 
+#include <cmath>
+#include <compare>
+#include <optional>
+
+#include "query/relations/payload_order.hpp"
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::relations::comparability {
 
-/// Whether this relation admits a type at all.
-///
-/// The cases are listed rather than defaulted so that a type added to the value
-/// has to be placed here deliberately.
+/**
+ * Whether comparability places values of a type at all.
+ *
+ * This is the same set ComparePayload answers for. Neither switch names a
+ * default, so a type added to the enumeration fails to compile in both rather
+ * than silently gaining an answer in one.
+ */
 constexpr bool Admits(TypedValue::Type type) {
   switch (type) {
-    case TypedValue::Type::Null:
-    case TypedValue::Type::Int:
-    case TypedValue::Type::Double:
-    case TypedValue::Type::String:
-    case TypedValue::Type::Date:
-    case TypedValue::Type::LocalTime:
-    case TypedValue::Type::LocalDateTime:
-    case TypedValue::Type::ZonedDateTime:
-    case TypedValue::Type::Duration:
+    using enum TypedValue::Type;
+    case Bool:
+    case Int:
+    case Double:
+    case String:
+    case Date:
+    case LocalTime:
+    case LocalDateTime:
+    case ZonedDateTime:
+    case Duration:
       return true;
 
-    case TypedValue::Type::Bool:
-    case TypedValue::Type::List:
-    case TypedValue::Type::Map:
-    case TypedValue::Type::Vertex:
-    case TypedValue::Type::Edge:
-    case TypedValue::Type::VirtualEdge:
-    case TypedValue::Type::VirtualNode:
-    case TypedValue::Type::Path:
-    case TypedValue::Type::Graph:
-    case TypedValue::Type::VirtualGraph:
-    case TypedValue::Type::Function:
-    case TypedValue::Type::Enum:
-    case TypedValue::Type::Point2d:
-    case TypedValue::Type::Point3d:
+    case Null:
+    case Enum:
+    case Point2d:
+    case Point3d:
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case VirtualEdge:
+    case VirtualNode:
+    case Path:
+    case Graph:
+    case VirtualGraph:
+    case Function:
       return false;
   }
 }
 
-constexpr bool IsTemporal(TypedValue::Type type) {
-  switch (type) {
-    case TypedValue::Type::Date:
-    case TypedValue::Type::LocalTime:
-    case TypedValue::Type::LocalDateTime:
-    case TypedValue::Type::ZonedDateTime:
-    case TypedValue::Type::Duration:
-      return true;
-    default:
-      return false;
+/**
+ * Whether comparability places a value against the values of its own type.
+ *
+ * Admitting a type is not enough to say this, because one admitted type holds a
+ * value with no order: a NaN is unordered against every number and against
+ * itself, so all four comparisons answer false for a pair holding one and a
+ * filter keeps no row. Ask this of a value a scan is about to be fenced by,
+ * since a band drawn around a value the relation cannot place holds whatever
+ * the stored order happens to put there.
+ */
+inline bool Places(const TypedValue &value) {
+  if (!Admits(value.type())) return false;
+  return value.type() != TypedValue::Type::Double || !std::isnan(value.UnsafeValueDouble());
+}
+
+/**
+ * Orders two values of one type by what they hold, for the types
+ * comparability admits.
+ *
+ * Nothing is returned for a type it does not admit, which is every type
+ * carrying no order of its own plus enums and the two point types, which
+ * orderability places and this relation does not.
+ *
+ * The two values must be of the same type.
+ *
+ * Inlined on demand rather than at the compiler's discretion. Its caller has
+ * already switched on the type, so folding this in leaves one dispatch where
+ * there would otherwise be two and a call between them. Left to its own
+ * judgement the compiler declines, reading the arm count as bulk, and a filter
+ * asks this once per row.
+ */
+[[gnu::always_inline]] inline std::optional<std::partial_ordering> ComparePayload(const TypedValue &a,
+                                                                                  const TypedValue &b) {
+  switch (a.type()) {
+    using enum TypedValue::Type;
+    case Bool:
+      return ComparePayloadOf<Bool>(a, b);
+    case Int:
+      return ComparePayloadOf<Int>(a, b);
+    case Double:
+      return ComparePayloadOf<Double>(a, b);
+    case String:
+      return ComparePayloadOf<String>(a, b);
+    case Date:
+      return ComparePayloadOf<Date>(a, b);
+    case LocalTime:
+      return ComparePayloadOf<LocalTime>(a, b);
+    case LocalDateTime:
+      return ComparePayloadOf<LocalDateTime>(a, b);
+    case ZonedDateTime:
+      return ComparePayloadOf<ZonedDateTime>(a, b);
+    case Duration:
+      return ComparePayloadOf<Duration>(a, b);
+
+    case Null:
+    case Enum:
+    case Point2d:
+    case Point3d:
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case VirtualEdge:
+    case VirtualNode:
+    case Path:
+    case Graph:
+    case VirtualGraph:
+    case Function:
+      return std::nullopt;
   }
 }
 
-// TODO: make it faster
-/// Whether `a` orders before `b`, or Null where that cannot be decided.
-///
-/// The answer carries the memory resource `a` was allocated from, since the two
-/// values need not share one.
-///
-/// @throw TypedValueException for a pair of types this relation does not admit.
-inline TypedValue Less(const TypedValue &a, const TypedValue &b) {
-  if (!Admits(a.type()) || !Admits(b.type())) {
-    if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type())) return {};
-    throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+/**
+ * Where one value falls relative to another under comparability, the relation
+ * the four ordered comparisons below are each one reading of.
+ *
+ * The ordering is partial. `unordered` means the two have no order between
+ * them, which is what a NaN is, and all four comparisons are false for such a
+ * pair. Nothing at all is returned when the two are incomparable, and all four
+ * are then Null: a Null operand, a pair of unlike types, and a pair of one type
+ * that carries no order of its own are each incomparable.
+ *
+ * Every pair is answered for. Raising for some pairs and answering Null for
+ * others would make what a filter does depend on which types a column happened
+ * to hold, and would leave a scan fenced to one type passing over a row the
+ * filter it stands in for could not reach at all.
+ */
+inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const TypedValue &b) {
+  // Two values of one admitted type are the common case and the whole answer.
+  if (a.type() == b.type()) {
+    if (auto const order = ComparePayload(a, b)) return order;
+
+    // A Null orders against nothing, itself included, and a type carrying no
+    // order of its own places no pair of its values either. Both are
+    // incomparable, and this relation says so by having no answer to give.
+    //
+    // Two equal values of such a type are the one place this parts from the
+    // rule that equality and comparability agree: `=` holds them equal while
+    // all four ordered comparisons answer Null. The reference implementation
+    // answers the same way, and closing the gap would mean an index scan
+    // reading `<=` over a point column had to ask the comparison of every
+    // candidate it fenced.
+    return std::nullopt;
   }
 
-  if (a.IsNull() || b.IsNull()) {
-    return TypedValue(a.get_allocator());
-  }
+  // Numbers are the only unlike pair the relation places. Every other pair of
+  // unlike types is incomparable, as is any pair involving a Null.
+  if (!AreMixedNumbers(a.type(), b.type())) return std::nullopt;
+  return ComparePayloadOfMixedNumbers(a, b);
+}
 
-  if (a.IsString() || b.IsString()) {
-    if (a.type() != b.type()) {
-      return {};
-    } else {
-      return TypedValue(a.UnsafeValueString() < b.UnsafeValueString(), a.get_allocator());
-    }
-  }
-
-  // A filter compares numbers and strings far more often than temporals, and
-  // saying so keeps the temporal cases off the path the common ones take.
-  if (IsTemporal(a.type()) || IsTemporal(b.type())) [[unlikely]] {
-    if (a.type() != b.type()) {
-      return {};
-    }
-
-    switch (a.type()) {
-      case TypedValue::Type::Date:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.UnsafeValueDate() < b.UnsafeValueDate(), a.get_allocator());
-      case TypedValue::Type::LocalTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.UnsafeValueLocalTime() < b.UnsafeValueLocalTime(), a.get_allocator());
-      case TypedValue::Type::LocalDateTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.UnsafeValueLocalDateTime() < b.UnsafeValueLocalDateTime(), a.get_allocator());
-      case TypedValue::Type::ZonedDateTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.UnsafeValueZonedDateTime() < b.UnsafeValueZonedDateTime(), a.get_allocator());
-      case TypedValue::Type::Duration:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.UnsafeValueDuration() < b.UnsafeValueDuration(), a.get_allocator());
-      default:
-        LOG_FATAL("Invalid temporal type");
-    }
-  }
-
-  // at this point we only have int and double
-  if (a.IsDouble()) {
-    if (b.IsInt()) return TypedValue(a.UnsafeValueDouble() < b.UnsafeValueInt(), a.get_allocator());
-    return TypedValue(a.UnsafeValueDouble() < b.UnsafeValueDouble(), a.get_allocator());
-  }
-  if (b.IsDouble()) {
-    return TypedValue(a.UnsafeValueInt() < b.UnsafeValueDouble(), a.get_allocator());
-  }
-  return TypedValue(a.UnsafeValueInt() < b.UnsafeValueInt(), a.get_allocator());
+/** Reads a comparison the way one operator asks it, carrying `a`'s memory resource. */
+template <typename Reading>
+inline TypedValue FromComparison(const TypedValue &a, std::optional<std::partial_ordering> order, Reading reading) {
+  if (!order) return TypedValue(a.get_allocator());
+  return TypedValue(reading(*order), a.get_allocator());
 }
 
 }  // namespace memgraph::query::relations::comparability
+
+namespace memgraph::query {
+
+// The presentation surface over comparability. Defined here rather than in the
+// class so that the relation these four read is inlined with them: a filter asks
+// one of these once per row.
+//
+// Each answers true, false or Null, carrying the memory resource its left
+// operand was allocated from. Null is the answer wherever the relation has none
+// to give, which is a Null operand, a pair of unlike types, and a pair of one
+// type that carries no order of its own. A NaN has no order against anything,
+// itself included, so all four answer false for a pair holding one. None of
+// them raises.
+
+inline TypedValue operator<(const TypedValue &a, const TypedValue &b) {
+  return relations::comparability::FromComparison(
+      a, relations::comparability::Compare(a, b), [](auto order) { return std::is_lt(order); });
+}
+
+inline TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
+  return relations::comparability::FromComparison(
+      a, relations::comparability::Compare(a, b), [](auto order) { return std::is_lteq(order); });
+}
+
+inline TypedValue operator>(const TypedValue &a, const TypedValue &b) {
+  return relations::comparability::FromComparison(
+      a, relations::comparability::Compare(a, b), [](auto order) { return std::is_gt(order); });
+}
+
+inline TypedValue operator>=(const TypedValue &a, const TypedValue &b) {
+  return relations::comparability::FromComparison(
+      a, relations::comparability::Compare(a, b), [](auto order) { return std::is_gteq(order); });
+}
+
+}  // namespace memgraph::query
