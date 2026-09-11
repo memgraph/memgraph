@@ -890,7 +890,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.list_collection_branch_);
+    // The branch runs on the row the input produced, so it can use an index on what the input bound.
+    RewriteBranch(&op.list_collection_branch_, InheritedFor(op));
     return false;
   }
 
