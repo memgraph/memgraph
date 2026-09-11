@@ -5129,9 +5129,8 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       return "Pattern";
     }
     case Type::Node: {
-      // The planner writes this over the identifier of a node the query has already bound, so that name is the
-      // whole of what there is to say. Any other shape is one this rendering cannot name, and a plan named
-      // incompletely still tells the reader more than a query that refuses to explain itself.
+      // Written over the identifier of an already-bound node, so that name is the whole of what there is to
+      // say. Any other shape has no name to print, and an unnamed filter beats refusing to show a plan.
       if (single_filter.expression->GetTypeInfo() == LabelsTest::kType) {
         const auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
         if (filter_expression->expression_->GetTypeInfo() == Identifier::kType) {

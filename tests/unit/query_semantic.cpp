@@ -1421,9 +1421,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
              AS("c")))));
 }
 
-// A body's pattern name cannot reuse a name from outside it. A node atom there correlates to the outer binding
-// while a pattern name declares, so one spelling would mean two different things, and the body writes into the
-// frame its caller shares.
+// A body's pattern name cannot reuse a name from outside it, whether or not that name holds a path.
 TYPED_TEST(TestSymbolGenerator, SubqueryBodyRefusesAShadowingPatternName) {
   auto body = [this] { return QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("a"), EDGE("r"), NODE("b"))))); };
 
@@ -1437,7 +1435,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryBodyRefusesAShadowingPatternName) {
       MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), RETURN(EXISTS_SUBQUERY(body()), AS("h"))))),
       SemanticException);
 
-  // A name of its own is what the body is expected to use.
+  // The body's name is not one the caller used.
   EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("q", NODE("x"), EDGE("e"), NODE("y"))),
                                                      RETURN(EXISTS_SUBQUERY(body()), AS("h"))))));
 }

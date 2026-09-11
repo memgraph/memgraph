@@ -399,9 +399,7 @@ TYPED_TEST(OperatorToStringTest, Filter) {
   EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
 }
 
-// A LabelsTest over no labels asks only whether the value is a node. Collecting one keeps it apart from a
-// label test on the same symbol: only the label test can be answered by an index, and folding the two would
-// leave the node test demanding labels the pattern never wrote.
+// A node test and a label test on the same symbol stay two filters, and print as two.
 TYPED_TEST(OperatorToStringTest, FilterNodeTestStaysApartFromLabels) {
   auto node = this->GetSymbol("person");
   auto *node_test = LABELS_TEST(IDENT("person")->MapTo(node), std::vector<LabelIx>{});

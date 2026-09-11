@@ -1174,8 +1174,8 @@ class LabelsTest : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  /// Whether this names no label, and so asks only whether the value is a node: a null yields null, a vertex
-  /// yields true, and any other type raises. A pattern that states nothing about a node it names tests this.
+  /// Whether this asks only that the value is a node. Such a test yields null for a null, true for a vertex,
+  /// and raises for any other type.
   bool IsNodeTest() const { return labels_.empty() && or_labels_.empty(); }
 
   Expression *expression_{nullptr};
@@ -1764,8 +1764,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     return visitor.PostVisit(*this);
   }
 
-  /// Whether this atom states anything about the node beyond naming it. One that does not constrains nothing,
-  /// so no filter is collected from it.
+  /// Whether this atom states anything about the node beyond naming it.
   bool HasLabelsOrProperties() const {
     if (!labels_.empty()) return true;
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {

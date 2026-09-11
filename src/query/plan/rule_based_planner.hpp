@@ -159,9 +159,9 @@ inline Symbol CollectedColumn(const LogicalOperator &branch, const SymbolTable &
   return columns.front();
 }
 
-/// Reports an invariant of the planner's own workings that a query reached. Planning runs for `EXPLAIN` as well,
-/// so the input is text a user chose, and failing one of these has to cost that query rather than the process.
-/// Reserve an assert for state whose corruption makes continuing unsafe.
+/// Reports an invariant of the planner's own bookkeeping that a query reached. Planning runs for `EXPLAIN`, so
+/// the input is text a user chose and failing one has to cost that query rather than the process. Reserve an
+/// assert for state whose corruption makes continuing unsafe.
 [[noreturn]] inline void ThrowPlannerBug(std::string_view what) {
   throw QueryException(
       "{} Please contact Memgraph support or submit a GitHub issue, as this scenario should not "
@@ -333,11 +333,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       context.bound_symbols = initial_bound_symbols;
       std::unique_ptr<LogicalOperator> input_op;
       // A subquery expression's body works on the row its caller is on, so the part starts by naming what the
-      // caller has bound. An expansion asks its input which symbols it modifies to decide what the rest of the
-      // pattern may correlate to, and a filter over the caller's variables alone would otherwise be all it found
-      // there - leaving a filter that names one of those variables and one of the pattern's own belonging to
-      // neither. Seeding here is also what lets a body's plan be dereferenced unguarded: no clause sequence can
-      // take the operator away again, so a part of a body never plans to nothing.
+      // caller has bound. An expansion decides what the rest of the pattern may correlate to from the symbols
+      // its input reports, and without these a filter naming a caller's variable and a pattern's own belongs
+      // to no expansion group. Seeding here also means no part of a body can plan to nothing, which is what
+      // lets its plan be dereferenced unguarded.
       if (context.in_subquery_body) {
         input_op =
             std::make_unique<Once>(std::vector<Symbol>(initial_bound_symbols.begin(), initial_bound_symbols.end()));
@@ -1357,12 +1356,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                           new_symbols,
                           view);
     } else if (!is_unseen_node) {
-      // An already-bound node is the whole of this expansion, so nothing above reads its value, and one that
-      // states nothing about the node brings no filter with it either. The pattern still has to match, and a
-      // null node, as an OPTIONAL MATCH leaves behind, matches nothing.
+      // An already-bound node is the whole of this expansion, and one stating nothing about the node brings no
+      // filter of its own. The pattern still has to match, and a null, as an OPTIONAL MATCH leaves behind,
+      // matches nothing.
       if (!expansion.node1->HasLabelsOrProperties()) {
         auto *identifier = storage.Create<Identifier>(node1_symbol.name())->MapTo(node1_symbol);
-        // A pattern says its variable holds a node, which a labels test naming no label is what asks.
         auto *is_node = storage.Create<LabelsTest>(identifier, std::vector<LabelIx>{});
         Filters node_filter;
         node_filter.SetFilters({FilterInfo{FilterInfo::Type::Node, is_node, {node1_symbol}}});
@@ -1743,9 +1741,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
       // the branch has to correlate against.
       auto branch_bound_symbols = bound_symbols;
-      // in_subquery_body drives three behaviours of the recursive plan: each query part is seeded with an Once
-      // naming these symbols, the EmptyResult wrapper is suppressed, and GenWith keeps outer-scope vertex/edge
-      // symbols across a body WITH. It also selects the read-only invariants CheckSubqueryBodyInvariants enforces.
+      // in_subquery_body selects the rules a body plans under: it is seeded with these symbols, it keeps
+      // emitting rows for the fold to read, it carries outer-scope symbols across a WITH, and it may not write.
       auto const restore = utils::OnScopeExit{[this,
                                                old_subquery_body = context_->in_subquery_body,
                                                old_after_write = subquery_branch_after_write_,

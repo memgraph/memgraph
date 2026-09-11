@@ -169,8 +169,7 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
 }
 
 TYPED_TEST(QueryExecution, NamedPathOverBoundNodeInSubqueryBody) {
-  // A subquery expression's body starts from no input operator, so a body whose whole pattern is one
-  // already-bound node has nothing to build the named path on top of.
+  // A named path over nothing but one already-bound node is built on the value the caller bound.
   this->Execute("CREATE (:Node)");
 
   auto results = this->Execute("MATCH (n) RETURN COUNT { MATCH p = (n) } AS c");
@@ -213,7 +212,7 @@ TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNotANode) {
                              "WITH coalesce(f, 1) AS g MATCH (g) RETURN count(*) AS c"),
                memgraph::query::QueryRuntimeException);
 
-  // A node still matches, so the guard reads the value rather than the pattern.
+  // A node passes, so what the guard rejects is the type and not the reuse of a variable.
   auto results = this->Execute("MATCH (p:Person) WITH p AS g MATCH (g) RETURN count(*) AS c");
   ASSERT_EQ(results.size(), 1U);
   EXPECT_EQ(results[0][0].ValueInt(), 2);

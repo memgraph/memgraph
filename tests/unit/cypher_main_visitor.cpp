@@ -8155,9 +8155,8 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
 TEST_P(CypherMainVisitorTest, SubqueryBarePatternTakesTheShapesAMatchTakes) {
   auto &ast_generator = *GetParam();
 
-  // The brace form desugars to a MATCH, so it accepts everything a MATCH's pattern list accepts. Each of these was
-  // refused while the body was stored as a bare Pattern; the parenthesised `exists(...)` still refuses them all,
-  // which ExistsThrow pins above.
+  // The brace form desugars to a MATCH, so it accepts everything a MATCH's pattern list accepts. The
+  // parenthesised `exists(...)` accepts none of them.
   auto const body_of = [&ast_generator](std::string const &query) -> SingleQuery * {
     auto *cypher = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
     EXPECT_THAT(cypher, NotNull());

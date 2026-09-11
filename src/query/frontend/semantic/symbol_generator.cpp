@@ -507,9 +507,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }
   } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
-    // If we are in the pattern, and outside of a node or an edge, the identifier is the pattern name. A pattern
-    // name declares, where a node atom in the same body correlates to the name outside it, so reusing one name
-    // for both would give it two meanings in one expression.
+    // Outside a node or an edge, the identifier is the pattern name. A pattern name declares, where a node atom
+    // in the same body correlates to the name outside it, so one name would mean two things in one expression.
     if (scope.in_subquery_body && name_in_scope) {
       throw SemanticException("Cannot name a pattern '{}' in {}, because that variable is already declared outside it.",
                               ident.name_,
