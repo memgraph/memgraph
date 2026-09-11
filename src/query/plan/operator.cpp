@@ -10623,7 +10623,7 @@ ScanParallelByEdgeTypeProperty::ScanParallelByEdgeTypeProperty(const std::shared
     : ScanParallel(input, view, num_threads, state_symbol),
       edge_type_(edge_type),
       property_(property),
-      expression_range_(std::move(expression_range)) {}
+      expression_range_(expression_range) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeTypeProperty)
 
@@ -10680,9 +10680,7 @@ std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorag
 ScanParallelByEdgeProperty::ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input,
                                                        storage::View view, size_t num_threads, Symbol state_symbol,
                                                        storage::PropertyId property, ExpressionRange expression_range)
-    : ScanParallel(input, view, num_threads, state_symbol),
-      property_(property),
-      expression_range_(std::move(expression_range)) {}
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property), expression_range_(expression_range) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeProperty)
 
