@@ -535,8 +535,8 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
     EXPECT_EQ(eval_with_the_list_cached(op).ValueBool(), false);
   }
   {
-    // A list holding a Null is never cached, so this answers the same way
-    // whether the key is tracked or not.
+    // An element holding a Null below its top level costs the set its exactness, so the list is
+    // read element by element however the key is tracked.
     auto *op = in(list_of({null_literal()}), list_of({list_of({null_literal()})}));
     EXPECT_TRUE(this->Eval(op).IsNull());
     EXPECT_TRUE(eval_with_the_list_cached(op).IsNull());
@@ -553,6 +553,40 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
                                list_of({list_of({this->storage.template Create<PrimitiveLiteral>(1)}),
                                         list_of({this->storage.template Create<PrimitiveLiteral>(2)})})));
     EXPECT_EQ(value.ValueBool(), false);
+  }
+
+  // Every row after the first reads a set that is already populated, which is a different path
+  // through the operator than the row that fills it. These take both.
+  auto const eval_twice_through_one_collector = [this](InListOperator *op) {
+    FrameChangeCollector collector;
+    collector.AddInListKey(memgraph::utils::GetFrameChangeId(*op));
+    ExpressionEvaluator caching{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+    auto const filling_the_set = op->Accept(caching);
+    auto const reading_it = op->Accept(caching);
+    EXPECT_EQ(filling_the_set.type(), reading_it.type());
+    return reading_it;
+  };
+  auto const literal = [this](int value) { return this->storage.template Create<PrimitiveLiteral>(value); };
+
+  {
+    // A top-level Null element keeps the set exact: the explicit lookup for a Null answers it, so
+    // the sought value the list does hold is still found by one lookup.
+    auto *op = in(literal(1), list_of({literal(1), null_literal()}));
+    EXPECT_EQ(this->Eval(op).ValueBool(), true);
+    EXPECT_EQ(eval_twice_through_one_collector(op).ValueBool(), true);
+  }
+  {
+    // And one the list does not hold is left undecided by that Null rather than answered absent.
+    auto *op = in(literal(3), list_of({literal(1), null_literal()}));
+    EXPECT_TRUE(this->Eval(op).IsNull());
+    EXPECT_TRUE(eval_twice_through_one_collector(op).IsNull());
+  }
+  {
+    // With no Null anywhere the set decides both answers on its own.
+    auto *present = in(literal(2), list_of({literal(1), literal(2)}));
+    EXPECT_EQ(eval_twice_through_one_collector(present).ValueBool(), true);
+    auto *absent = in(literal(3), list_of({literal(1), literal(2)}));
+    EXPECT_EQ(eval_twice_through_one_collector(absent).ValueBool(), false);
   }
 }
 
