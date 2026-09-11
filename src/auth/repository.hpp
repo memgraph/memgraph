@@ -64,25 +64,74 @@ class Repository {
         target_);
   }
 
-  size_t Size(std::string const &prefix = "") const {
-    return std::visit([&prefix](auto *target) { return target->Size(prefix); }, target_);
+  /// The key schema. Callers name an entity; only the repository knows how that becomes a key.
+  static std::string UserKey(std::string_view username) { return Key(kUserPrefix, username); }
+
+  static std::string RoleKey(std::string_view rolename) { return Key(kRolePrefix, rolename); }
+
+  static std::string RoleLinkKey(std::string_view username) { return Key(kRoleLinkPrefix, username); }
+
+  static std::string MtLinkKey(std::string_view username) { return Key(kMtLinkPrefix, username); }
+
+  static std::string ProfileKey(std::string_view profile_name) { return Key(kProfilePrefix, profile_name); }
+
+  /// Entity scans. Fn receives (name, value): the name has the prefix already stripped, so no caller needs to
+  /// know the key format to take one apart.
+  template <typename Fn>
+  void ForEachUser(Fn &&fn) const {
+    ForEachEntity(kUserPrefix, std::forward<Fn>(fn));
   }
 
-  /// Fn receives std::pair<std::string, std::string> const &.
   template <typename Fn>
-  void ForEach(std::string const &prefix, Fn &&fn) const {
-    AnyOf(prefix, [&fn](auto const &entry) {
-      fn(entry);
+  void ForEachRole(Fn &&fn) const {
+    ForEachEntity(kRolePrefix, std::forward<Fn>(fn));
+  }
+
+  template <typename Fn>
+  void ForEachRoleLink(Fn &&fn) const {
+    ForEachEntity(kRoleLinkPrefix, std::forward<Fn>(fn));
+  }
+
+  template <typename Fn>
+  void ForEachMtLink(Fn &&fn) const {
+    ForEachEntity(kMtLinkPrefix, std::forward<Fn>(fn));
+  }
+
+  template <typename Fn>
+  void ForEachProfile(Fn &&fn) const {
+    ForEachEntity(kProfilePrefix, std::forward<Fn>(fn));
+  }
+
+  bool HasAnyUser() const { return HasAny(kUserPrefix); }
+
+  bool HasAnyRole() const { return HasAny(kRolePrefix); }
+
+ private:
+  static constexpr std::string_view kUserPrefix = "user:";
+  static constexpr std::string_view kRolePrefix = "role:";
+  static constexpr std::string_view kRoleLinkPrefix = "link:";
+  static constexpr std::string_view kMtLinkPrefix = "mtlink:";
+  static constexpr std::string_view kProfilePrefix = "user_profile:";
+
+  static std::string Key(std::string_view prefix, std::string_view name) { return std::string{prefix}.append(name); }
+
+  /// Fn receives (name, value), with `prefix` stripped from the key. The name is owned: callers store it, move
+  /// from it, and pass it to interfaces taking `std::string const &`.
+  template <typename Fn>
+  void ForEachEntity(std::string_view prefix, Fn &&fn) const {
+    AnyOf(prefix, [&fn, prefix](auto const &entry) {
+      fn(entry.first.substr(prefix.size()), entry.second);
       return false;
     });
   }
 
   /// Returns true on the first match; short-circuits.
   template <typename Pred>
-  bool AnyOf(std::string const &prefix, Pred &&pred) const {
+  bool AnyOf(std::string_view prefix, Pred &&pred) const {
+    auto const prefix_str = std::string{prefix};
     return std::visit(
-        [&prefix, &pred](auto *target) {
-          for (auto it = target->begin(prefix); it != target->end(prefix); ++it) {
+        [&prefix_str, &pred](auto *target) {
+          for (auto it = target->begin(prefix_str); it != target->end(prefix_str); ++it) {
             if (pred(*it)) return true;
           }
           return false;
@@ -90,11 +139,10 @@ class Repository {
         target_);
   }
 
-  bool HasAny(std::string const &prefix) const {
+  bool HasAny(std::string_view prefix) const {
     return AnyOf(prefix, [](auto const &) { return true; });
   }
 
- private:
   /// The overlay's mutating operations return void where KVStore returns bool; they cannot fail, since a write only
   /// buffers into the write-set and the base is untouched until Flush.
   template <typename Fn>

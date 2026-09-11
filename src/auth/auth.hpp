@@ -560,22 +560,6 @@ class Auth final {
 
   bool StorageDeleteMultiple(std::vector<std::string> const &keys) { return storage_.DeleteMultiple(keys); }
 
-  size_t StorageSize(std::string const &prefix = "") const { return storage_.Size(prefix); }
-
-  // Fn receives std::pair<std::string, std::string> const &
-  template <typename Fn>
-  void StorageForEach(std::string const &prefix, Fn &&fn) const {
-    storage_.ForEach(prefix, std::forward<Fn>(fn));
-  }
-
-  // Returns true on first match; short-circuits.
-  template <typename Pred>
-  bool StorageAnyOf(std::string const &prefix, Pred &&pred) const {
-    return storage_.AnyOf(prefix, std::forward<Pred>(pred));
-  }
-
-  bool StorageHasAny(std::string const &prefix) const { return storage_.HasAny(prefix); }
-
   /**
    * Returns whether the prerequisites for authentication aided by external module are met:
    * a) valid enterprise license
