@@ -152,6 +152,10 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                            db_arena_.get(),
                                            &db_embedding_memory_tracker_);
   }
+
+  // Recovery adopts the uuid of the snapshot or WAL it recovered from, which need not be the one the
+  // registration was made under.
+  metrics_.Rebind(storage_->uuid());
 }
 
 DatabaseInfo Database::GetInfo() const {
