@@ -10249,6 +10249,12 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
+#ifdef MG_ENTERPRISE
+  // Native Bolt BEGIN bypasses Prepare(), so re-acquire db_acc_ here too if the reaper released it
+  // while this pooled session was parked -- otherwise the BEGIN handler throws on a null db_acc_ for a
+  // healthy tenant. Falls back to a db-less session on drop/suspend/recycle, exactly like Prepare().
+  if (flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) EnsureDbAccessForQuery();
+#endif
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
   prepared_query.query_handler(nullptr, {});
 }

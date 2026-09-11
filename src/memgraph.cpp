@@ -366,12 +366,6 @@ int main(int argc, char **argv) {
 
 #ifdef MG_PYTHON_SUPPORT
   std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
-#ifdef MG_ENTERPRISE
-  // Enterprise-only: every use of this scheduler (arm/run/stop) is under MG_ENTERPRISE, so the
-  // declaration must be too -- otherwise a community build has an untouched optional that
-  // clang-tidy's misc-const-correctness (rightly) flags as const-able.
-  std::optional<memgraph::utils::Scheduler> idle_reaper_scheduler{std::nullopt};
-#endif
   wchar_t *program_name{nullptr};
   PyThreadState *python_thread_state{nullptr};
 
@@ -426,6 +420,13 @@ int main(int argc, char **argv) {
     python_gc_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
     python_gc_scheduler->Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
   }
+#endif
+
+#ifdef MG_ENTERPRISE
+  // Enterprise-only idle-session reaper scheduler. Declared here at function scope -- NOT inside the
+  // MG_PYTHON_SUPPORT block -- so it exists in an enterprise build compiled without Python. Every use
+  // (arm/run/stop, below) is under #ifdef MG_ENTERPRISE.
+  std::optional<memgraph::utils::Scheduler> idle_reaper_scheduler{std::nullopt};
 #endif
 
   // Initialize the communication library.

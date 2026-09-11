@@ -130,6 +130,10 @@ class Session {
 
       switch (state_) {
         case State::Init:
+          // idle-session reaper: arm the reaper-exclusion gate across the HELLO/LOGON handshake too (no-op
+          // when the flag is off). Without this, a slow authentication leaves db_acc_ writable by the
+          // handshake while the reaper could release it. Cleared below when the session parks to Idle/Close.
+          impl.SetMessageInFlight();
           state_ = StateInitRun(impl);
           break;
         case State::Idle:

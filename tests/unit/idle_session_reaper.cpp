@@ -228,6 +228,42 @@ TEST_F(IdleSessionReaperTest, DoesNotReapMidExplicitTransaction) {
   }
 }
 
+// R10: after a reap, the native Bolt BeginTransaction() path re-acquires the accessor and opens an
+// explicit transaction successfully. Prior to the B3 fix, BeginTransaction() bypassed
+// EnsureDbAccessForQuery() and threw because db_acc_ was null for a healthy (HOT) tenant.
+TEST_F(IdleSessionReaperTest, ReapedSessionReacquiresOnBoltBegin) {
+  const std::string db_name = "reap_r10";
+  CreateAndPopulate(db_name, 4);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+  interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
+
+  // Release the accessor, leaving the session db-less while the tenant stays HOT.
+  ASSERT_TRUE(interpreter.interpreter.TryReapIdleDbAccessor(kHugeNs, 0));
+  ASSERT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value());
+
+  // Native Bolt BEGIN (the B3 fix path): must not throw even with a null db_acc_.
+  // IDLE_SESSION_REAPER is enabled by SetUp(), so BeginTransaction() calls EnsureDbAccessForQuery().
+  ASSERT_NO_THROW(interpreter.interpreter.BeginTransaction(memgraph::query::QueryExtras{}));
+
+  // EnsureDbAccessForQuery() inside BeginTransaction() must have re-acquired the accessor.
+  EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "BeginTransaction must re-acquire the db_acc_ for the named HOT tenant";
+
+  // Inside the open explicit transaction, a read must see the data written before the reap.
+  {
+    auto [stream, qid] = interpreter.Prepare("MATCH (n) RETURN count(n) AS c");
+    interpreter.Pull(&stream);
+    const auto &results = stream.GetResults();
+    ASSERT_EQ(results.size(), 1U);
+    EXPECT_EQ(results[0][0].ValueInt(), 4) << "re-acquired tenant must expose the original 4 nodes";
+  }
+
+  // Commit to leave the interpreter in a clean IDLE state.
+  ASSERT_NO_THROW(interpreter.interpreter.CommitTransaction());
+}
+
 // R6: the default database is never reaped (it is never suspendable anyway).
 TEST_F(IdleSessionReaperTest, DoesNotReapDefaultDatabase) {
   auto interpreter = min_mg->NewInterpreter();  // stays on the default DB
