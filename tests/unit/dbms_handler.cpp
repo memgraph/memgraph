@@ -1163,20 +1163,24 @@ TEST(DBMS_Handler, DroppedTenantWithNoHoldersLeavesNoDetachedRow) {
   memgraph::dbms::DatabaseAccess acc = std::move(new_t2.value());
   const auto tenant_uuid = acc->uuid();
 
-  // Release before dropping so the destruction happens inline, not deferred.
+  // Release before dropping so nothing pins the tenant; the deferred worker reclaims it on its next tick.
   acc.reset();
 
   auto del = dbms.Delete("detached_mem_t2");
   ASSERT_TRUE(del.has_value()) << (int)del.error();
 
-  const auto all_detached = dbms.AllDetached();
-  EXPECT_TRUE(std::ranges::none_of(all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) {
-    return d.uuid == tenant_uuid;
-  })) << "the inline fast path must never leave a detached row behind";
+  // Every FORCE drop now defers destruction to the background worker (no inline destroy under lock_):
+  // the tenant is briefly DETACHED, then reclaimed. Once reclaimed it leaves no registry row.
+  const bool reclaimed = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(
+        all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
+  });
+  EXPECT_TRUE(reclaimed) << "the deferred worker must reclaim a no-holders drop, leaving no detached row";
 
   const auto statuses = dbms.AllWithHotColdStatus();
   EXPECT_TRUE(std::ranges::none_of(statuses, [](auto const &kv) { return kv.first == "detached_mem_t2"; }))
-      << "a fast-path-dropped tenant must not appear under any status";
+      << "a fully reclaimed tenant must not appear under any status";
 }
 
 // Pins the uuid-keyed registry against name reuse: DROP x (held) -> CREATE x -> DROP x (held) again
