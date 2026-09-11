@@ -269,10 +269,7 @@ class DbmsHandler {
                   *name_view,
                   std::string(db->uuid()),
                   std::string(config.uuid));
-    // Defer drop. `db` (this function's own live DatabaseAccess) stays held across this call, so the
-    // gatekeeper's count_ is >= 1 throughout every one of Delete_'s three phases -- its Phase 3
-    // DeferDelete -> try_delete() (which needs count_ == 1, only its own accessor) deterministically
-    // takes the defer branch, exactly the outcome this call site relied on before the phases existed.
+    // Defer drop: db (caller's live accessor) keeps count_ > 1, so Phase 3 DeferDelete->try_delete() always defers.
     (void)Delete_(db->name(), wr);
     // Second attempt
     return New_(config);
@@ -555,9 +552,8 @@ class DbmsHandler {
     auto dg = std::lock_guard{detached_lock_};
     for (auto const &[_, d] : detached_) {
       if (std::ranges::none_of(out, [&](auto const &kv) { return kv.first == d.name; })) {
-        // A detached row's gatekeeper may still be IN db_handler_, but prepare_for_deletion() already
-        // marked it, so the HOT loop above never listed it (db_handler_.All() skips a marked-for-
-        // deletion entry) -- this dedup still resolves to exactly one row.
+        // Between Phase 1 (prepare_for_deletion) and Phase 3 (DeferDelete/erase), the gatekeeper is
+        // still in db_handler_ — but All() skips marked-for-deletion entries, so the HOT loop missed it.
         out.emplace_back(d.name, "DETACHED");
       }
     }
@@ -569,19 +565,9 @@ class DbmsHandler {
   enum class DetachReason : uint8_t { DROP };
 
   /**
-   * @brief Metadata for a tenant whose destruction is deferred.
-   *
-   * Not every row is unaddressable by name: a detached row's gatekeeper may still be IN db_handler_
-   * during the drain window — only once db_handler_ has actually erased it (see
-   * Handler<T>::DeferDelete) does its Database — and its bytes in
-   * utils::graph_memory_tracker — stay alive purely via this row until the drain thread's last
-   * accessor releases it.
-   *
-   * memory_at_detach is an AS-OF-DETACH snapshot, not a live figure: a live read would need a raw
-   * Database* that the drain thread destroys with no lock held, the UAF class this registry avoids.
-   * holders_at_detach is diagnostic only — the count observed just before the drop attempt, not
-   * necessarily the count that forced the defer, since an Accessor can be minted/released between that
-   * read and DeferDelete's own try_delete() check.
+   * @brief Deferred-destruction metadata; gatekeeper may still be in db_handler_ until Phase 3 erases it.
+   * memory_at_detach is AS-OF-DETACH only — a live read would race the drain thread's lock-free destroy.
+   * holders_at_detach is diagnostic: count just before the drop attempt, racy — not the count that forced deferral.
    */
   struct DetachedTenant {
     std::string name;  //!< name at detach; may be re-taken by a new tenant while this one drains
@@ -608,18 +594,9 @@ class DbmsHandler {
   };
 
   /**
-   * @brief Sigma tenant memory, split into the addressable (HOT) and detached halves.
-   *
-   * db_handler_ alone under-reports: a force-dropped tenant leaves every by-name surface immediately
-   * (Handler<T>::DeferDelete's unconditional items_.erase), while its bytes stay parented into
-   * utils::graph_memory_tracker until the last accessor is released. The HOT half deliberately walks
-   * db_handler_ the same access()-gated way ForEach does (a COLD shell's access() is nullopt and
-   * contributes 0 — a COLD tenant has no in-memory storage, so that is correct, not an omission).
-   *
-   * A detached tenant still IN db_handler_ during its drain window is likewise not double-counted: its
-   * gatekeeper's plain access() is refused while draining_ is set (Gatekeeper::access()'s hard
-   * refusal), so the HOT half contributes 0 for it and its bytes come solely from its detached_ row —
-   * exactly one count.
+   * @brief HOT + detached halves: db_handler_ alone under-reports — dropped bytes outlive items_.erase until last
+   * accessor. COLD shells contribute 0 to the HOT half (access() refuses non-HOT). Draining tenants also contribute 0
+   * to HOT (access() hard-refuses draining_) and appear once in detached_ — no double-count.
    */
   TenantMemorySums TenantMemorySum() {  // NOT const: the HOT half mints (and drops) accessors
     auto rd = std::shared_lock{lock_};
@@ -1034,16 +1011,8 @@ class DbmsHandler {
    */
   DbmsHandler::NewResultT New_(storage::Config storage_config, system::Transaction *txn = nullptr);
 
-  // TODO: new overload of Delete_ with DatabaseAccess
-  //
-  // Three-phase drop, split around a deliberate off-lock window for the two unbounded thread joins
-  // it runs (StopAllBackgroundTasks / streams()->DropAll()):
-  //   Phase 1 (under `lock`)     — validate, own the name, begin_drain(), publish a DRAINING row.
-  //   Phase 2 (`lock` released) — run the joins; nothing reachable here may take lock_.
-  //   Phase 3 (under `lock`)    — re-validate, promote DRAINING -> DETACHED, hand off via DeferDelete.
-  // CONTRACT: `lock` is held EXCLUSIVE on entry and on every return path, including every error
-  // return. Delete_ unlocks/relocks it internally for Phase 2; the caller's lock object is left in
-  // the SAME (locked) state either way, as if this were one uninterrupted critical section.
+  // Three-phase drop: Phase 2 releases lock for two unbounded joins (StopAllBackgroundTasks / streams()->DropAll()).
+  // CONTRACT: `lock` is held EXCLUSIVE on entry and every return path; Delete_ unlocks/relocks for Phase 2.
   DeleteResult Delete_(std::string_view db_name, std::unique_lock<LockT> &lock);
 
   // Drop a COLD (suspended) tenant: erases suspended_ entry, durable cold marker, on-disk data dir,
@@ -1223,12 +1192,8 @@ class DbmsHandler {
     if (it == db_handler_.end()) {
       throw UnknownDatabaseException("Tried to retrieve an unknown database with UUID \"{}\".", std::string{uuid});
     }
-    // PRE-EXISTING hazard, not introduced here: FindHotByUuid_'s own access() call (above, to test the
-    // uuid match) is a SEPARATE mint from this one, and Get(uuid) only takes lock_ SHARED -- a
-    // concurrent Suspend_ can run try_begin_suspend() (also under only a shared lock_, see
-    // dbms_handler.cpp) and flip HOT -> SUSPENDING in the gap between the two, so this second access()
-    // can legitimately return nullopt. Guard it like the sibling Get_(name) overload instead of
-    // dereferencing an empty optional.
+    // FindHotByUuid_'s access() is a separate mint: a concurrent Suspend_ (also under shared lock_)
+    // can flip HOT -> SUSPENDING between the two, so this second access() can legitimately be nullopt.
     auto db = it->second.access();
     if (!db) {
       throw UnknownDatabaseException("Tried to retrieve an unknown database with UUID \"{}\".", std::string{uuid});

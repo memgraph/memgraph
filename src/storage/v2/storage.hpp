@@ -515,10 +515,7 @@ class Storage {
   std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory_;
 
   /// Creates a database protector for async operations
-  /// @return DatabaseProtector instance for committing async transactions, or nullptr if this
-  ///         database is no longer available for async work (dropped, or draining toward drop).
-  /// @note A nullptr return is expected, not an error: callers (storage::ttl::TTL,
-  ///       storage::async_indexer) must check for it and stop rather than commit.
+  /// @return nullptr when the database is dropped or draining; callers must check and stop.
   auto make_database_protector() const -> std::unique_ptr<DatabaseProtector> { return database_protector_factory_(); }
 
   /// Gets the database protector factory for copying to new storage instances

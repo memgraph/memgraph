@@ -184,14 +184,8 @@ class Handler {
    */
   bool TryDelete(std::string_view name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
-      // Deliberately the plain, drain-gated access() -- NOT utils::drain_bypass. This does not
-      // participate in the drain protocol at all: its only caller (DbmsHandler::TryDelete) already
-      // fails earlier at its own GetConfig lookup for a tenant under drop. More importantly, a
-      // bypassed mint here could win Accessor::try_delete() behind an in-flight FORCE drop's back --
-      // during that drop's off-lock phase its own accessor is released, so count_ can be exactly 1,
-      // letting this path destroy value_ and erase the entry out from under the drop, which would
-      // then falsely promote its registry row and roll back a drain on a gatekeeper that no longer
-      // exists.
+      // Deliberately plain, drain-gated access() -- NOT drain_bypass: a bypassed mint could race a
+      // FORCE drop's off-lock phase (count_==1), destroying value_ from under the drop.
       auto db_acc = itr->second.access();
       if (db_acc && db_acc->try_delete()) {
         db_acc->reset();
@@ -215,12 +209,8 @@ class Handler {
     auto itr = items_.find(name);
     if (itr == items_.end()) return;
 
-    // utils::drain_bypass is mandatory here, not a convenience: DeferDelete is the drop path itself,
-    // so it owns whatever drain it (or its caller) already declared on this gatekeeper -- and
-    // items_.erase(itr) below is unconditional, reached whether the accessor mints or not. A
-    // drain-gated access() failing here would `return` before that erase, stranding the tenant in
-    // items_ forever: unreachable by name (its own access() refuses), never destroyed, its name
-    // permanently unusable.
+    // drain_bypass mandatory: DeferDelete owns the drain, so plain access() returns nullopt here,
+    // triggering early return before items_.erase(itr) and stranding the tenant in items_ forever.
     auto db_acc = itr->second.access(utils::drain_bypass);
     if (!db_acc) return;
 
@@ -323,21 +313,9 @@ class Handler {
     metrics::ScopedGauge pending;                      //!< holds the pending-destructions gauge up while queued
     utils::Gatekeeper<T> gk;                           //!< the tenant awaiting its last accessor's release
 
-    // Non-blocking trylock, called OFF defer_lock_ (so the value teardown never runs under the list
-    // mutex). Mints an accessor and try_delete()s it with a zero timeout: succeeds only if this is the
-    // sole live accessor RIGHT NOW (all external holders
-    // released), in which case the managed value is destroyed here and true is returned so the tick
-    // splices this node out. Otherwise the accessor is released and false leaves the node for the next
-    // tick -- a tenant nobody releases is retried forever but never blocks the others (round-robin).
-    // Mints with utils::drain_bypass, exactly like DeferDelete's own access() above: a dropped tenant
-    // has been begin_drain()'d, and plain access() refuses a draining tenant. Bypassing is mandatory,
-    // not a convenience -- plain access() would return nullopt for every pending (hence draining)
-    // tenant, so `if (!acc) return true` would splice a still-live tenant out and RunCallback()'s
-    // blocking ~Gatekeeper would wait, under this single worker, for that tenant's last accessor. One
-    // pinned tenant would then head-of-line-block every other tenant's deferred destruction -- the
-    // exact starvation this round-robin worker exists to prevent. The nullopt branch is now only a
-    // dead-state backstop: value_ already gone (state no longer HOT), which try_delete() reports as
-    // done.
+    // Called OFF defer_lock_ (value teardown must not run under the list mutex).
+    // drain_bypass mandatory: plain access() refuses every pending (draining) tenant, so `if (!acc) return true`
+    // splices live tenants and head-of-line-blocks the worker on ~Gatekeeper.
     bool TryReserve() {
       auto acc = gk.access(utils::drain_bypass);
       if (!acc) return true;

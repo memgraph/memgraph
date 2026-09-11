@@ -508,8 +508,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
     return *cold_res;
   }
 
-  // Same DRAINING race TryDelete guards above (see its comment) -- just as reachable here on the
-  // FORCE path (DROP DATABASE ... FORCE).
+  // DRAINING before GetConfig: drain-gated GetConfig returns nullopt for a draining tenant — return retriable USING.
   if (auto *gk = db_handler_.GetGatekeeper(db_name); gk && gk->is_draining()) {
     return std::unexpected{DeleteError::USING};
   }
@@ -554,8 +553,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   }
   auto it = FindHotByUuid_(uuid);
   if (it == db_handler_.end()) return std::unexpected{DeleteError::NON_EXISTENT};
-  // `it->first` is a view into a db_handler_ map key (Delete_'s Phase 1 copies it before releasing
-  // `wr` -- see its comment). Do not read `it` again after this call.
+  // `it->first` is a view into a db_handler_ map key copied by Delete_ before releasing `wr`.
+  // Do not use `it` after this call — map nodes may have shifted.
   return Delete_(it->first, wr);
 }
 
@@ -587,10 +586,8 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   // this same exclusive lock_. Safety here is otherwise external (all DDL is serialized by the system
   // transaction) — this makes it local and robust to any future finer-grained DDL locking.
   //
-  // DRAINING needs its OWN check: it is HOT-exclusive by construction (begin_drain() requires HOT and
-  // never moves state_), so `state() != HOT` above cannot see it. Not a nicety — Delete_'s Phase 3
-  // resolves the tenant by NAME, and Handler<T>::Rename does items_.erase + items_.emplace, which
-  // invalidates the map node a rename-past-drain would otherwise let happen out from under it.
+  // DRAINING also: begin_drain() keeps state_ HOT so `state() != HOT` above misses it — but Rename's
+  // erase+emplace would invalidate the map node a concurrent Delete_ Phase 3 still holds by name.
   if (auto *gk = db_handler_.GetGatekeeper(old_name);
       gk && (gk->state() != utils::GatekeeperState::HOT || gk->is_draining())) {
     return std::unexpected{RenameError::USING};
@@ -840,124 +837,76 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::unique_lock<LockT> &lock) {
-  // PHASE 1 — under `lock`: in-memory bookkeeping only, no blocking call, no thread join, no disk
-  // I/O below this point until Phase 3.
+  // Phase 1 (under lock): in-memory bookkeeping only — no blocking calls, thread joins, or disk I/O until Phase 2.
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
     return std::unexpected{DeleteError::DEFAULT_DB};
   }
 
-  // Own the name NOW, ahead of every lookup below: Delete(uuid) passes `it->first`, a view into a
-  // db_handler_ map key; once `lock` is released below for Phase 2, that view can dangle if another
-  // thread structurally mutates db_handler_ (heap-UAF). DeleteCold_ documents the identical hazard
-  // right before its own erase().
+  // Own the name before Phase 2's lock_.unlock(): Delete(uuid) passes `it->first`, a string_view into a
+  // db_handler_ map key; releasing the lock lets another thread mutate the map (heap-UAF).
   const std::string name{db_name};
 
   auto *gk = db_handler_.GetGatekeeper(name);
   if (!gk) return std::unexpected{DeleteError::NON_EXISTENT};
 
-  // Non-HOT (mid-SUSPEND/RESUME) is retriable USING, never NON_EXISTENT — mirrors the Rename guard
-  // and DeleteCold_'s COLD-only check; identity/state must be resolved before anything drain-gated
-  // (see the accessor-read comment below). Diagnostic only: begin_drain() below re-checks the same
-  // HOT condition atomically with draining_, collapsing "not HOT" and "already draining" into one
-  // bare `false`.
+  // Non-HOT (mid-SUSPEND/RESUME) → retriable USING, not NON_EXISTENT: identity/state must be confirmed
+  // before entering the drain sequence (begin_drain() re-checks HOT atomically with draining_).
   if (gk->state() != utils::GatekeeperState::HOT) return std::unexpected{DeleteError::USING};
 
   // Single-flight: false means a concurrent DROP already owns this drain (the state() check above
   // cannot see draining_, so this is the only place that particular race is caught).
   if (!gk->begin_drain()) return std::unexpected{DeleteError::USING};
 
-  // RAII rollback guard, armed the instant begin_drain() succeeds. Undoes exactly what begin_drain()
-  // did (plus retiring a published DETACHED-registry row) on EVERY exit between here and the single
-  // Disable() at the end of Phase 3 -- an early `return`, or a throw from Phase 2's off-lock teardown
-  // or Phase 3's DetachFromDatabase/DeferDelete. Without it, any of those left draining_ stuck true:
-  // the tenant's *name* wedges forever (fresh CREATE sees EXISTS, retried DROP sees begin_drain()'s
-  // own USING) even though nothing was actually deleted, and -- once RecordDetached_ below has
-  // published a row -- the registry entry is stuck at DRAINING with nothing left to point at a
-  // possibly-already-unlinked-from-durability, possibly-already-teardown on-disk directory.
-  //
-  // `detached_row_uuid` (not `tenant_uuid` directly) because the guard can fire before tenant_uuid is
-  // even read (nothing between here and RecordDetached_ below throws today, but the guard's job is to
-  // hold even if that changes) and before any row has been published. Empty means "nothing to
-  // retire yet" -- ForgetDetached_ on a row that was never recorded would be a harmless no-op erase_if
-  // anyway, but this avoids depending on that and avoids needing a placeholder UUID (utils::UUID's
-  // default constructor calls uuid_generate(), not a cheap sentinel).
+  // Rollback guard: undoes begin_drain() + ForgetDetached_ on any early exit (throw or return before
+  // Disable()). Without it, draining_ stays set: the name is wedged and the DETACHED row is orphaned.
   std::optional<utils::UUID> detached_row_uuid;
   auto rollback_drain = utils::OnScopeExit{[&] {
-    // Phase 2 below runs with `lock` unlocked. If the throw came from there, `lock` is not held here,
-    // yet db_handler_'s items_ carries no mutex of its own (unlike defer_lock_ for deferred_) -- every
-    // access relies on the caller already holding `lock`. Re-locking during unwind is a blocking call
-    // on `lock` (a reader-preferring pthread rwlock), same cost any other writer pays to get in;
-    // touching db_handler_ without it would be a data race instead, which is strictly worse on an
-    // already-exceptional path.
+    // lock_ may be unlocked here (Phase 2 threw); db_handler_ has no internal mutex — re-acquire before
+    // touching it. Blocking is acceptable; a data race is not.
     if (!lock.owns_lock()) lock.lock();
-    // Fresh by-name lookup, never the Phase 1 `gk` pointer above: the off-lock Phase 2 window could
-    // have let a concurrent structural change invalidate it. is_draining() guards abort_drain()'s own
-    // DMG_ASSERT -- load-bearing, not defensive fluff: on a throwing unwind the gatekeeper may already
-    // be gone or no longer draining, so this guard must not blindly re-call abort_drain() into a
-    // non-draining state while it retires the registry row.
+    // Fresh lookup — Phase 1's gk may be stale after the off-lock window. is_draining() guards
+    // abort_drain()'s DMG_ASSERT: the gatekeeper may be gone or no longer draining on unwind.
     if (auto *g = db_handler_.GetGatekeeper(name); g && g->is_draining()) g->abort_drain();
     if (detached_row_uuid) ForgetDetached_(*detached_row_uuid);
   }};
 
-  // drain_bypass is required, not a convenience: begin_drain() just flipped draining_ true one line
-  // above, so the plain (non-bypass) access() would now refuse on THIS gatekeeper too. begin_drain()
-  // proved HOT, and `lock` is held exclusive so no concurrent Suspend_/Resume_/second-drop can have
-  // moved state_ since (try_begin_suspend() itself refuses once draining_ is set) — access() cannot
-  // legitimately fail here.
+  // drain_bypass is required: begin_drain() just set draining_, so plain access() now refuses this
+  // gatekeeper too. lock_ is held exclusive, so HOT state is stable; the assert below covers failure.
   auto acc = gk->access(utils::drain_bypass);
   MG_ASSERT(acc, "begin_drain() just confirmed HOT under lock_ held exclusive; access(drain_bypass) cannot fail");
   acc->prepare_for_deletion();
 
   auto *database = acc->get();
-  // Read from the accessor we already hold, not through StorageDir_/GetConfig: those go through the
-  // drain-gated plain access() (DatabaseHandler::GetConfig), which begin_drain() just above made
-  // refuse on THIS gatekeeper too -- calling StorageDir_(name) here would itself now (mis)report
-  // NON_EXISTENT. `acc` is drain_bypass-minted and live, so this field read cannot race a concurrent
-  // teardown.
+  // Read via acc, not StorageDir_/GetConfig: begin_drain() made drain-gated access() refuse this
+  // gatekeeper too — GetConfig would return nullopt here. acc is drain_bypass-minted and live.
   const auto storage_path = database->config().durability.storage_directory;
   const auto tenant_uuid = database->uuid();
   const auto memory_at_detach = database->DbMemoryUsage();
-  // Excludes the drop's own drain_bypass accessor, which is live at this point (Phase 1 must hold it
-  // across the off-lock teardown). count_ >= 1 here for that reason, so the subtraction cannot wrap.
-  // Keeps parity with the pre-B4a reading, which happened after the accessor's scope closed, and keeps
-  // the field meaning what DetachedTenant documents: holders OTHER than the dropper.
-  //
-  // Clamped, not just subtracted: holder_count() is its own doc's "INHERENTLY RACY ... Diagnostics
-  // only" -- our confidence that count_ >= 1 rests on `acc` being live, not on the read itself being
-  // stable. This clamp defends a user-visible diagnostic (DETACHED registry / SHOW output) against a
-  // FUTURE edit silently breaking that invariant (e.g. moving this read below acc.reset()) wrapping to
-  // UINT64_MAX instead of reporting a wrong-but-plausible number. It is not evidence the count can
-  // legitimately be zero today -- it always is >= 1 here, by the reasoning above.
+  // -1 to exclude the dropper's own acc (live here, so count_ >= 1). Clamped: holder_count() is
+  // inherently racy/diagnostic — clamp prevents UINT64_MAX if a future edit moves this below acc.reset().
   const auto holders = std::max<uint64_t>(gk->holder_count(), 1) - 1;
 
-  // Publish BEFORE releasing `lock`: visibility must not blink. A reader arriving between
-  // begin_drain() and this line would otherwise see neither a HOT status nor a DETACHED row
-  // for a tenant that has, in fact, already been accepted for deletion.
+  // Publish before lock_.unlock(): a reader between begin_drain() and here would see neither HOT nor a
+  // DETACHED row for a tenant already accepted for deletion.
   RecordDetached_(DetachedTenant{.name = name,
                                  .uuid = tenant_uuid,
                                  .detached_at = std::chrono::system_clock::now(),
                                  .reason = DetachReason::DROP,
                                  .holders_at_detach = holders,
                                  .memory_at_detach = memory_at_detach});
-  // A row now exists to retire -- arm `rollback_drain`'s ForgetDetached_ half. Placed only after
-  // RecordDetached_ returns (not alongside it): if RecordDetached_ itself throws (push_back growing
-  // detached_'s backing storage is the only fallible step, and even that keeps the vector unchanged
-  // on failure), no row was actually published, so there is nothing for the guard to retire.
+  // Set after RecordDetached_ returns: if RecordDetached_ throws, no row was published and the
+  // guard must not retire a non-existent row.
   detached_row_uuid = tenant_uuid;
 
-  // PHASE 2 — `lock` released. The unbounded part: two thread joins that used to run under lock_.
-  // Nothing reachable from here may take `lock` (a non-recursive pthread rwlock) — StopAllBackgroundTasks
-  // and streams()->DropAll() provably don't: they ran under lock_ HELD EXCLUSIVE a moment ago (the code
-  // this replaces), so a self-deadlock there would have already been a live bug, not a latent one.
-  // `gk`/`acc` are the only handles we still trust past this point; `name`/`storage_path` are owned copies.
+  // Phase 2 (lock_ released): StopAllBackgroundTasks and DropAll use their own internal locks, not lock_.
+  // `gk`/`acc` are the only trusted handles past this point; `name`/`storage_path` are owned copies.
   lock.unlock();
   database->StopAllBackgroundTasks();
   database->streams()->DropAll();
   acc.reset();  // release the drop's own accessor so Phase 3's DeferDelete -> try_delete() can win
   lock.lock();
 
-  // Re-validate the drain marker survived the off-lock window before proceeding.
   auto *gk3 = db_handler_.GetGatekeeper(name);
   MG_ASSERT(gk3 && gk3->is_draining(),
             "drain marker must survive the off-lock window: draining_ has a single clearer (this "
@@ -965,18 +914,9 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
 
   DetachProfileAndRetireDurabilityKey_(name);
 
-  // If constructing the deferred closure or DeferDelete itself throws before the Gatekeeper is
-  // actually handed off, undo the drain, or the tenant's *name* is wedged forever: a fresh CREATE
-  // would see EXISTS (still in db_handler_) and a retried DROP would see USING (begin_drain()'s own
-  // draining_ check) — even though DeferDelete never actually ran. This is the same undo commit
-  // 62e2c9711 added: the double-count it was originally guarding against no longer exists (a draining
-  // tenant's plain access() is refused, so TenantMemorySum's HOT half already excludes it — see
-  // TenantMemorySum's comment), but the retryability half of that fix still matters. Phase 2's teardown
-  // (StopAllBackgroundTasks/streams()->DropAll()) is NOT undone here, exactly as it wasn't before.
-  // No local try/catch: `rollback_drain` already does exactly this (fresh-lookup abort_drain guarded
-  // by is_draining(), then ForgetDetached_) on unwind, so a second copy here would just be a duplicate
-  // that runs after it, wastefully, on every throwing path -- not incorrect (both halves are
-  // idempotent/self-guarding), but redundant code with no behavior of its own to justify existing.
+  // rollback_drain covers DeferDelete failure: if DeferDelete throws, the name would be wedged forever
+  // (CREATE sees EXISTS, DROP sees USING). Phase 2's teardown is intentionally NOT reversed on failure.
+  // No local try/catch: rollback_drain already fires on unwind — a duplicate would be redundant.
   db_handler_.DeferDelete(name, [this, tenant_uuid, storage_path, name]() {
     ForgetDetached_(tenant_uuid);
     std::error_code ec;
@@ -986,11 +926,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
     }
   });
 
-  // Point of no return: DeferDelete has taken ownership of the eventual teardown/ForgetDetached_/
-  // remove_all. Disarm BEFORE returning success -- nothing below can throw, but if it ever did,
-  // rollback_drain firing on a tenant DeferDelete already owns would abort_drain() out from under a
-  // handoff that has already happened, and (once the drain thread's ForgetDetached_ races this one)
-  // double-retire a row whose uuid slot could theoretically already have been reused.
+  // DeferDelete owns teardown from here — disable rollback_drain before returning. If it fired, it would
+  // abort_drain() an already-handed-off tenant and double-retire the DETACHED row.
   rollback_drain.Disable();
   return {};  // Success
 }
