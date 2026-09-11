@@ -11003,6 +11003,11 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    // Bounds that came back unset mean the comparison holds for no row, which is not the same as a
+    // scan with no bounds. Asking for no chunks is how that is said here.
+    if (!maybe_lower && !maybe_upper) {
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
+    }
     return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
@@ -11140,6 +11145,11 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    // Bounds that came back unset mean the comparison holds for no row, which is not the same as a
+    // scan with no bounds. Asking for no chunks is how that is said here.
+    if (!maybe_lower && !maybe_upper) {
+      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
+    }
     return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
