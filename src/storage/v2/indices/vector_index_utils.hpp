@@ -202,6 +202,10 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
   }
 }
 
+/// The scalar kind a vector index gets when its definition does not name one, which is also what recovering a
+/// snapshot written before the scalar kind was durable has to assume.
+inline constexpr std::string_view kDefaultScalarKind = "f32";
+
 /// @brief Converts a scalar name to its corresponding scalar kind.
 /// @param name The name of the scalar.
 /// @return The corresponding scalar kind.
