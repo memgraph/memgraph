@@ -366,7 +366,9 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3);  // All used databases remain on disk, but unusable
+  // On-disk dirs are NOT removed synchronously: DROP defers destruction to the background worker, so
+  // the count right here is non-deterministic (dropped dirs linger until the worker reclaims them, and
+  // an unheld one may be gone already). The eventual, deterministic state is asserted by the wait loop below.
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(:Node{on:db4}) RETURN count(*)"),
                memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(:Node{on:db2}) RETURN count(*)"),
@@ -425,7 +427,9 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3);  // All used databases remain on disk, and usable
+  // On-disk dirs are NOT removed synchronously: DROP defers destruction to the background worker, so
+  // the count right here is non-deterministic. db4 stays usable inside interpreter1's still-open explicit
+  // transaction (asserted next); the eventual, deterministic state is checked by the wait loop below.
   ASSERT_EQ(RunQuery(interpreter1, "MATCH(:Node{on:\"db4\"}) RETURN count(*)")[0][0].ValueInt(), 4);
   ASSERT_EQ(RunQuery(interpreter2, "MATCH(:Node{on:\"db2\"}) RETURN count(*)")[0][0].ValueInt(), 2);
   RunQuery(interpreter1, "MATCH(n:Node{on:\"db4\"}) DELETE n");
