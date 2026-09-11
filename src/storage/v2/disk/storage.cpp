@@ -209,31 +209,33 @@ bool VertexHasEqualPropertyValue(const Vertex &vertex, PropertyId property_id, P
   return GetVertexProperty(vertex, property_id, transaction, view) == property_value;
 }
 
-// True when the pair is the marker for an entire type: that type's own lower bound together with an
-// exclusive upper bound of the following type (see LowerBoundForType/UpperBoundForType). Its two
-// bounds have different types on purpose, and the pair already confines the range to one type.
+// True when the pair is the marker for a whole stretch of the order: that stretch's own lower bound
+// together with an exclusive upper bound of the following one (see
+// LowerBoundComparableWith/UpperBoundComparableWith). Its two bounds have different types on
+// purpose, and the pair already confines the range to the one stretch.
 bool BoundsSpanWholeType(const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                          const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
   if (!lower_bound || !upper_bound || !lower_bound->IsInclusive() || !upper_bound->IsExclusive()) return false;
-  auto const type_lower = LowerBoundForType(lower_bound->value().type());
-  auto const type_upper = UpperBoundForType(lower_bound->value().type());
-  return type_lower && type_upper && lower_bound->value() == type_lower->value() &&
-         upper_bound->value() == type_upper->value();
+  auto const stretch_lower = LowerBoundComparableWith(lower_bound->value());
+  auto const stretch_upper = UpperBoundComparableWith(lower_bound->value());
+  return stretch_lower && stretch_upper && lower_bound->value() == stretch_lower->value() &&
+         upper_bound->value() == stretch_upper->value();
 }
 
 bool IsPropertyValueWithinInterval(const PropertyValue &value,
                                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                    const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
-  // Requiring each bound to share the value's type is how a one-sided range is kept inside its own
-  // type here, but it rejects every value of a whole-type range, whose bounds are two types by
-  // construction. Comparing against the bounds is enough there: the pair *is* the type segment.
+  // Requiring each bound to be one the value can be compared against is how a one-sided range is
+  // kept inside its own stretch of the order here, but it rejects every value of a whole-stretch
+  // range, whose bounds are two types by construction. Comparing against the bounds is enough
+  // there: the pair *is* the stretch.
   bool const spans_whole_type = BoundsSpanWholeType(lower_bound, upper_bound);
 
-  if (lower_bound && ((!spans_whole_type && !AreComparableTypes(value.type(), lower_bound->value().type())) ||
+  if (lower_bound && ((!spans_whole_type && !AreComparable(value, lower_bound->value())) ||
                       value < lower_bound->value() || (lower_bound->IsExclusive() && value == lower_bound->value()))) {
     return false;
   }
-  if (upper_bound && ((!spans_whole_type && !AreComparableTypes(value.type(), upper_bound->value().type())) ||
+  if (upper_bound && ((!spans_whole_type && !AreComparable(value, upper_bound->value())) ||
                       value > upper_bound->value() || (upper_bound->IsExclusive() && value == upper_bound->value()))) {
     return false;
   }

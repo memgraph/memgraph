@@ -11,6 +11,8 @@
 
 #include "property_value_utils.hpp"
 
+#include <limits>
+
 namespace memgraph::storage {
 
 auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
@@ -81,6 +83,34 @@ auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
       return utils::MakeBoundExclusive(kSmallestPoint3d);
     case PropertyValue::Type::VectorIndexId:
       return utils::MakeBoundInclusive(kSmallestVectorIndexId);
+  }
+}
+
+namespace {
+
+auto SmallestOfKind(TemporalType kind) -> PropertyValue {
+  return PropertyValue(TemporalData{kind, std::numeric_limits<int64_t>::min()});
+}
+
+}  // namespace
+
+auto LowerBoundComparableWith(PropertyValue const &value) -> std::optional<utils::Bound<PropertyValue>> {
+  if (value.type() != PropertyValueType::TemporalData) return LowerBoundForType(value.type());
+  return utils::MakeBoundInclusive(SmallestOfKind(value.ValueTemporalData().type));
+}
+
+auto UpperBoundComparableWith(PropertyValue const &value) -> std::optional<utils::Bound<PropertyValue>> {
+  if (value.type() != PropertyValueType::TemporalData) return UpperBoundForType(value.type());
+  switch (value.ValueTemporalData().type) {
+    case TemporalType::Date:
+      return utils::MakeBoundExclusive(SmallestOfKind(TemporalType::LocalTime));
+    case TemporalType::LocalTime:
+      return utils::MakeBoundExclusive(SmallestOfKind(TemporalType::LocalDateTime));
+    case TemporalType::LocalDateTime:
+      return utils::MakeBoundExclusive(SmallestOfKind(TemporalType::Duration));
+    case TemporalType::Duration:
+      // The last of the four, so the stretch ends where the stored type does.
+      return UpperBoundForType(PropertyValueType::TemporalData);
   }
 }
 
