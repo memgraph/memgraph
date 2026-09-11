@@ -227,11 +227,17 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+  core_fail_fast:
+    name: "Fail fast (Core tests)"
+    needs: core
+    if: ${{ failure() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Debug / Core tests"
 
   integration:
     if: ${{ inputs.run_integration == 'true' }}
@@ -344,8 +350,14 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+  integration_fail_fast:
+    name: "Fail fast (Integration test)"
+    needs: integration
+    if: ${{ failure() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Debug / Integration test"

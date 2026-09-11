@@ -1,11 +1,5 @@
 name: 'Cancel run on merge_group failure'
-description: 'Emits an error annotation naming the failing job, then cancels the current workflow run via the GitHub API to fail fast. The annotation makes the real culprit identifiable in the run summary even though cancellation marks every job as cancelled. The caller must gate this with `if: failure() && github.event_name == ''merge_group''` because composite actions cannot read the calling job''s runtime status.'
-
-inputs:
-  job-name:
-    description: 'Name used to identify the failing job in the annotation. Defaults to `github.job`, the job id, which is ambiguous when several reusable workflows in the same run share an id (e.g. the `core` job of every `diff_*` workflow) — pass a qualified name such as "Release / Core tests" in that case.'
-    required: false
-    default: ''
+description: 'Cancels the current workflow run via the GitHub API to fail fast, and emits an error annotation pointing at the job that failed. Must be used from a separate job that lists the failing job in `needs` and is gated with `if: failure() && github.event_name == ''merge_group''`. Running it as a step of the failing job cancels that job while it is still in progress, which replaces its conclusion with `cancelled` and leaves the run with no job concluding `failure`. Name the calling job after the job it guards: GitHub files an annotation under the name of the job that emitted it, and that heading is what identifies the culprit.'
 
 runs:
   using: 'composite'
@@ -16,16 +10,14 @@ runs:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
         RUN_ID: ${{ github.run_id }}
-        JOB: ${{ inputs.job-name != '' && inputs.job-name || github.job }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -euo pipefail
-        # Cancelling the run marks every still-running job as "cancelled", which
-        # hides which job actually failed. Emit an error annotation from this
-        # (the failing) job first: it is attributed to this job and shows up in
-        # the run summary, pointing reviewers at the real culprit.
-        echo "::error title=Merge queue fail-fast triggered by job '${JOB}'::Job '${JOB}' failed and is cancelling run ${RUN_ID} to fail fast. Other jobs reported as 'cancelled' were stopped as a side effect — '${JOB}' is the job that actually failed. ${RUN_URL}"
-        echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after merge_group failure in job '${JOB}'"
+        # Every job still running when the cancel lands reports "cancelled", so
+        # the annotation tells a reader which conclusion distinguishes the one
+        # job that failed from the ones stopped on its behalf.
+        echo "::error title=Merge queue fail-fast::Cancelling run ${RUN_ID} to fail fast. The job concluding 'failure' is the one that failed; jobs reported as 'cancelled' were stopped as a side effect. ${RUN_URL}"
+        echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after a merge_group failure"
         curl -fsSL -X POST \
           --proto '=https' --proto-redir '=https' \
           -H "Accept: application/vnd.github+json" \

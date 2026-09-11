@@ -64,36 +64,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build enterprise binary
         run: |
@@ -193,36 +171,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build enterprise binary
         run: |
