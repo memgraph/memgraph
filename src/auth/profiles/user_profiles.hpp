@@ -16,7 +16,7 @@
 #include <unordered_set>
 #include <variant>
 
-#include "auth/auth_storage.hpp"
+#include "auth/repository.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::auth {
@@ -49,7 +49,7 @@ class UserProfiles {
         : name(std::move(name)), limits(std::move(limits)), usernames(std::move(usernames)) {}
   };
 
-  explicit UserProfiles(AuthStorage &durability);
+  explicit UserProfiles(Repository &durability);
 
   bool Create(std::string_view name, limits_t defined_limits, const std::unordered_set<std::string> &usernames = {});
   std::optional<Profile> Update(std::string_view name, const limits_t &updated_limits);
@@ -93,7 +93,7 @@ class UserProfiles {
   };
 
   mutable utils::RWSpinLock mtx_;
-  AuthStorage *durability_;                                            // Reuse auth's durability
+  Repository *durability_;                                             // Reuse auth's durability
   std::unordered_set<Profile, profile_hash, profile_equal> profiles_;  // Local storage
 };
 
