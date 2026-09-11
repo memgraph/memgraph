@@ -63,7 +63,7 @@ SUPPORTED_ARCHS=(
 SUPPORTED_TESTS=(
     clang-tidy cppcheck-and-clang-format code-analysis
     code-coverage drivers drivers-high-availability durability e2e e2e-parallel gql-behave
-    integration leftover-CTest macro-benchmark
+    integration integration-parallel leftover-CTest macro-benchmark
     mgbench stress-plain stress-ssl
     query_modules_e2e query_modules_unit
     unit unit-coverage upload-to-bench-graph
@@ -1905,6 +1905,14 @@ test_memgraph() {
     ;;
     integration)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && tests/integration/run.sh"
+    ;;
+    integration-parallel)
+      # Runs each suite on its own port block; --threads caps the job count (default: container nproc).
+      local integration_jobs=""
+      if [[ "$threads" != "$DEFAULT_THREADS" ]]; then
+        integration_jobs="$threads"
+      fi
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && tests/integration/run-parallel.sh $integration_jobs"
     ;;
     cppcheck-and-clang-format)
       local test_output_path="$MGBUILD_ROOT_DIR/tools/github/cppcheck_and_clang_format.txt"

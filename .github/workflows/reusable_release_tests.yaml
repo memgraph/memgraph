@@ -520,7 +520,7 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph integration
+          test-memgraph integration-parallel
 
       - name: Collect core dumps
         if: failure()
