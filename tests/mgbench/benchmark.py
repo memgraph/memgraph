@@ -337,6 +337,24 @@ def parse_args():
         help="Client language implementation (cpp or python)",
     )
 
+    benchmark_parser.add_argument(
+        "--client-bolt-routing",
+        action="store_true",
+        help="Connect the (python) client with bolt+routing (neo4j://) to a coordinator and route "
+        "reads/writes by access mode, instead of a direct bolt connection to main. Requires an HA "
+        "cluster and --client-language python.",
+    )
+
+    benchmark_parser.add_argument(
+        "--client-bolt-routing-tx-mode",
+        type=str,
+        default="managed",
+        choices=["managed", "implicit"],
+        help="bolt+routing transaction style: 'managed' (execute_read/execute_write transaction "
+        "functions) or 'implicit' (auto-commit run() with a manually set session access mode). Only "
+        "used with --client-bolt-routing.",
+    )
+
     return benchmark_parser.parse_args()
 
 
@@ -348,7 +366,14 @@ def resolve_high_availability_args(args):
     """
     args.run_ha_leg = False
     if not (args.run_ha or args.ha_only):
+        if args.client_bolt_routing:
+            raise ValueError("--client-bolt-routing needs an HA cluster; pass --ha-only or --run-ha.")
         return
+
+    if args.client_bolt_routing and args.client_language != BenchmarkClientLanguage.PYTHON:
+        raise ValueError(
+            "--client-bolt-routing is only implemented by the python client; pass --client-language python."
+        )
 
     # A cluster is started from binaries on this machine, so it cannot be measured through a type that
     # runs the database in a container or expects one to be running already.
@@ -648,7 +673,9 @@ def warmup(condition: str, client, queries: list = None):
     if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         warmup_to_hot_queries = get_warmup_to_hot_queries(client)
-        if len(queries) > 0:
+        # queries is None on the realistic/mixed paths (no explicit benchmark query list); only an
+        # explicitly empty list means "nothing to benchmark, skip warm-up".
+        if queries is None or len(queries) > 0:
             client.execute(
                 queries=warmup_to_hot_queries,
                 num_workers=1,
@@ -1303,6 +1330,8 @@ if __name__ == "__main__":
             else None
         ),
         client_language=args.client_language,
+        client_bolt_routing=args.client_bolt_routing,
+        client_bolt_routing_tx_mode=args.client_bolt_routing_tx_mode,
         databases=args.databases,
         client_bolt_address=args.client_bolt_address,
         num_workers_for_import=args.num_workers_for_import,

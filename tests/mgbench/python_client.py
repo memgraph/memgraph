@@ -1,13 +1,34 @@
 import argparse
 import json
+import re
 import time
 from abc import ABC, abstractmethod
 from multiprocessing import Array, Lock, Manager, Process, Value
 
-import psycopg2
-import psycopg2.extras
-from falkordb import FalkorDB
+import neo4j
 from neo4j import GraphDatabase
+
+# psycopg2 (PostgreSQL) and falkordb are optional vendor drivers, imported lazily in their client
+# classes so this module loads with only the neo4j driver present, which is all the mgbench venv
+# installs. A memgraph run must not fail because an unrelated vendor's driver is absent.
+
+# A query is routed as a write (to main) when it contains a write clause, and as a read otherwise.
+# Whole-word match so substrings like OFFSET or a "set"-containing property name are not mistaken
+# for the SET clause. Sufficient for the mgbench workloads; a read misrouted to a replica would be
+# rejected, so keep this in sync with the clauses the workloads actually emit.
+_WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP|CALL)\b", re.IGNORECASE)
+
+# DDL / schema commands that Memgraph refuses inside an explicit (multicommand) transaction and so
+# must run as an implicit auto-commit query even in managed routing (e.g. dataset-import index setup).
+_DDL_CLAUSE = re.compile(r"\b(INDEX|CONSTRAINT|TRIGGER)\b", re.IGNORECASE)
+
+
+def _is_write_query(query):
+    return bool(_WRITE_CLAUSE.search(query))
+
+
+def _is_ddl_query(query):
+    return bool(_DDL_CLAUSE.search(query))
 
 
 class PythonClient(ABC):
@@ -35,6 +56,8 @@ class FalkorDBClient(PythonClient):
 
     def __init__(self, host, port):
         super().__init__()
+        from falkordb import FalkorDB
+
         self._db = FalkorDB(host=host, port=port)
         self._graph = self._db.select_graph(FalkorDBClient.GRAPH_NAME)
 
@@ -47,15 +70,50 @@ class FalkorDBClient(PythonClient):
 
 
 class Neo4jClient(PythonClient):
-    def __init__(self, host, port, user="", password=""):
-        self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
-        self._session = self._driver.session()
+    # bolt+routing transaction styles (routing_tx_mode):
+    #   "managed"  - execute_read/execute_write transaction functions (BEGIN/run/COMMIT), routed by
+    #                access mode and retried on transient errors.
+    #   "implicit" - auto-commit session.run() with the session's access mode (single RUN+PULL).
+    # A FRESH session is opened per query in both modes. A reused session keeps reusing its warm
+    # connection under load and stops load-balancing, pinning reads to whichever server it first hit
+    # (main, when reads-on-main is enabled); a fresh session re-routes each query so reads actually
+    # distribute across the routing table's READ servers. This matches the canonical driver usage in
+    # tests/e2e/high_availability/implicit_routing.py.
+    ROUTING_TX_MODES = ("managed", "implicit")
+
+    def __init__(self, host, port, user="", password="", routing=False, routing_tx_mode="managed"):
+        self._routing = routing
+        self._routing_tx_mode = routing_tx_mode
+        if routing:
+            self._driver = GraphDatabase.driver(f"neo4j://{host}:{port}", auth=(user, password))
+        else:
+            self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
+            self._session = self._driver.session()
 
     def close(self):
-        self._session.close()
+        if not self._routing:
+            self._session.close()
         self._driver.close()
 
     def execute_query(self, query, params=None):
+        if self._routing:
+            write = _is_write_query(query)
+            mode = neo4j.WRITE_ACCESS if write else neo4j.READ_ACCESS
+            start = time.time()
+            # Fresh session per query so each one re-routes by access mode (readers load-balanced
+            # across the routing table's READ servers, writes to main).
+            with self._driver.session(default_access_mode=mode) as session:
+                if self._routing_tx_mode == "implicit" or (write and _is_ddl_query(query)):
+                    # Implicit auto-commit run(). DDL (CREATE/DROP INDEX/CONSTRAINT/TRIGGER) must be
+                    # auto-commit even in managed mode (it cannot run in an explicit transaction).
+                    session.run(query, parameters=params or {}).consume()
+                elif write:
+                    session.execute_write(lambda tx: tx.run(query, parameters=params or {}).consume())
+                else:
+                    session.execute_read(lambda tx: tx.run(query, parameters=params or {}).consume())
+            end = time.time()
+            return (end - start) * 1000
+
         start = time.time()
         result = self._session.run(query, parameters=params or {})
         _ = result.consume()
@@ -65,6 +123,9 @@ class Neo4jClient(PythonClient):
 
 class PostgreSQLClient(PythonClient):
     def __init__(self, host, port, user="postgres", password="postgres", database="postgres"):
+        import psycopg2
+        import psycopg2.extras
+
         self._conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
         self._conn.autocommit = True
         self._cursor = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
@@ -95,15 +156,35 @@ def get_python_client(vendor):
     raise Exception(f"Unknown vendor {vendor} when running benchmarks with a Python client!")
 
 
+def _make_client(vendor, host, port, routing, routing_tx_mode):
+    # Only the neo4j/bolt client speaks bolt+routing; other vendors ignore the flags.
+    client_cls = get_python_client(vendor)
+    if client_cls is Neo4jClient:
+        return client_cls(host, port, routing=routing, routing_tx_mode=routing_tx_mode)
+    return client_cls(host, port)
+
+
 def execute_validation_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
+    routing,
+    routing_tx_mode,
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
     # For this reason, in this function we will not use the following argumetns:
     # - Time limit: Validation queries are performed which are independent from timed execution
     # - Position and lock: There is no synchronization needed as validation query is the sole query needed
     #   to be executed.
-    client = get_python_client(vendor)(host, port)
+    client = _make_client(vendor, host, port, routing, routing_tx_mode)
 
     if len(queries) != 1:
         raise Exception("Validation query should be performed with only one query!")
@@ -126,12 +207,24 @@ def execute_validation_task(
 
 
 def execute_queries_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
+    routing,
+    routing_tx_mode,
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
     # For this reason, in this function we will not use the following argumetns:
     # - Time limit: This task is independent from timed execution as every query will be executed only once
-    client = get_python_client(vendor)(host, port)
+    client = _make_client(vendor, host, port, routing, routing_tx_mode)
 
     size = len(queries)
 
@@ -170,9 +263,21 @@ def execute_queries_task(
 
 
 def execute_time_dependent_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
+    routing,
+    routing_tx_mode,
 ):
-    client = get_python_client(vendor)(host, port)
+    client = _make_client(vendor, host, port, routing, routing_tx_mode)
 
     size = len(queries)
 
@@ -244,6 +349,8 @@ def execute_workload(queries, args):
                 durations,
                 args.max_retries,
                 time_limit,
+                args.routing,
+                args.routing_tx_mode,
             ),
         )
         process.start()
@@ -299,6 +406,24 @@ def main():
     parser.add_argument("--password", default="", help="Password for the database")
     parser.add_argument("--num-workers", type=int, default=1, help="Number of worker threads")
     parser.add_argument("--max-retries", type=int, default=50, help="Maximum number of retries for each query")
+    parser.add_argument(
+        "--routing",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="Connect with bolt+routing (neo4j://) to a coordinator and route reads/writes by access "
+        "mode, instead of a direct bolt:// connection to a single instance.",
+    )
+    parser.add_argument(
+        "--routing-tx-mode",
+        type=str,
+        default="managed",
+        choices=Neo4jClient.ROUTING_TX_MODES,
+        help="bolt+routing transaction style: 'managed' (execute_read/execute_write transaction "
+        "functions) or 'implicit' (auto-commit session.run() with a manually set session access "
+        "mode). Only used with --routing.",
+    )
     parser.add_argument("--input", default="", help="Input file containing queries in JSON format")
     parser.add_argument("--output", default="", help="Output file to write results in JSON format")
     parser.add_argument(
