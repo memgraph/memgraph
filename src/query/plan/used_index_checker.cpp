@@ -50,32 +50,12 @@ bool UsedIndexChecker::PreVisit(ScanAllByEdgeProperty &op) {
   return true;
 }
 
-bool UsedIndexChecker::PreVisit(ScanAllByEdgePropertyValue &op) {
-  required_indices_.edge_property_.emplace_back(op.property_);
-  return true;
-}
-
-bool UsedIndexChecker::PreVisit(ScanAllByEdgePropertyRange &op) {
-  required_indices_.edge_property_.emplace_back(op.property_);
-  return true;
-}
-
 bool UsedIndexChecker::PreVisit(ScanAllByVertexProperty &op) {
   required_indices_.vertex_property_.emplace_back(op.property_);
   return true;
 }
 
 bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypeProperty &op) {
-  required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
-  return true;
-}
-
-bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypePropertyValue &op) {
-  required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
-  return true;
-}
-
-bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypePropertyRange &op) {
   required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
   return true;
 }

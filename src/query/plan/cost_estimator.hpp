@@ -172,73 +172,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByEdgeTypeProperty &op) override {
-    auto edge_type = op.GetEdgeType();
-    const auto factor = db_accessor_->EdgesCount(edge_type, op.property_);
-    cardinality_ *= factor;
+    cardinality_ *= EstimateEdgeTypePropertyCardinality(op.GetEdgeType(), op.property_, op.expression_range_);
     IncrementCost(CostParam::kScanAllByEdgeTypeProperty);
     return true;
   }
 
-  bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
-    auto edge_type = op.GetEdgeType();
-    auto intermediate_property_value = ConstPropertyValue(op.expression_);
-    double factor = 1.0;
-    if (intermediate_property_value) {
-      // get the exact influence based on ScanAllByEdge(label, property, value)
-      factor =
-          db_accessor_->EdgesCount(edge_type,
-                                   op.property_,
-                                   storage::ToPropertyValue(*intermediate_property_value,
-                                                            db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
-    } else {
-      // estimate the influence as ScanAllByEdge(label, property) * filtering
-      factor = db_accessor_->EdgesCount(edge_type, op.property_) * CardParam::kFilter;
-    }
-    cardinality_ *= factor;
-
-    // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::kScanAllByEdgeTypePropertyValue);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
-    auto edge_type = op.GetEdgeType();
-    cardinality_ *= EstimateEdgePropertyRangeCardinality(edge_type, op.property_, op.lower_bound_, op.upper_bound_);
-    IncrementCost(CostParam::kScanAllByEdgeTypePropertyRange);
-    return true;
-  }
-
   bool PostVisit(ScanAllByEdgeProperty &op) override {
-    const auto factor = db_accessor_->EdgesCount(op.property_);
-    cardinality_ *= factor;
-
+    cardinality_ *= EstimateEdgePropertyCardinality(op.property_, op.expression_range_);
     IncrementCost(CostParam::kScanAllByEdgeProperty);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByEdgePropertyValue &op) override {
-    auto intermediate_property_value = ConstPropertyValue(op.expression_);
-    double factor = 1.0;
-    if (intermediate_property_value) {
-      // get the exact influence based on ScanAllByEdge(label, property, value)
-      factor =
-          db_accessor_->EdgesCount(op.property_,
-                                   storage::ToPropertyValue(*intermediate_property_value,
-                                                            db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
-    } else {
-      // estimate the influence as ScanAllByEdge(label, property) * filtering
-      factor = db_accessor_->EdgesCount(op.property_) * CardParam::kFilter;
-    }
-    cardinality_ *= factor;
-
-    // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::kScanAllByEdgePropertyValue);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByEdgePropertyRange &op) override {
-    cardinality_ *= EstimateEdgePropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
-    IncrementCost(CostParam::kScanAllByEdgePropertyRange);
     return true;
   }
 
@@ -331,38 +272,15 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanParallelByEdgeTypeProperty &op) override {
-    const auto factor = db_accessor_->EdgesCount(op.edge_type_, op.property_);
-    cardinality_ *= factor;
+    cardinality_ *= EstimateEdgeTypePropertyCardinality(op.edge_type_, op.property_, op.expression_range_);
     IncrementCost(CostParam::kScanAllByEdgeTypeProperty);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
 
-  bool PostVisit(ScanParallelByEdgeTypePropertyRange &op) override {
-    cardinality_ *= EstimateEdgePropertyRangeCardinality(op.edge_type_, op.property_, op.lower_bound_, op.upper_bound_);
-    IncrementCost(CostParam::kScanAllByEdgeTypePropertyRange);
-    num_threads_ = 1;  // End of parallel section
-    return true;
-  }
-
   bool PostVisit(ScanParallelByEdgeProperty &op) override {
-    const auto factor = db_accessor_->EdgesCount(op.property_);
-    cardinality_ *= factor;
+    cardinality_ *= EstimateEdgePropertyCardinality(op.property_, op.expression_range_);
     IncrementCost(CostParam::kScanAllByEdgeProperty);
-    num_threads_ = 1;  // End of parallel section
-    return true;
-  }
-
-  bool PostVisit(ScanParallelByEdgePropertyValue &op) override {
-    cardinality_ *= EstimateEdgePropertyValueCardinality(op.property_, op.expression_);
-    IncrementCost(CostParam::kScanAllByEdgePropertyValue);
-    num_threads_ = 1;  // End of parallel section
-    return true;
-  }
-
-  bool PostVisit(ScanParallelByEdgePropertyRange &op) override {
-    cardinality_ *= EstimateEdgePropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
-    IncrementCost(CostParam::kScanAllByEdgePropertyRange);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
@@ -378,13 +296,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // ScanParallelByEdge is not yet implemented (throws NotYetImplemented)
     // For cost estimation, we'll use a placeholder cost
     IncrementCost(CostParam::kScanAllByEdgeType);
-    num_threads_ = 1;  // End of parallel section
-    return true;
-  }
-
-  bool PostVisit(ScanParallelByEdgeTypePropertyValue &op) override {
-    cardinality_ *= EstimateEdgePropertyValueCardinality(op.edge_type_, op.property_, op.expression_);
-    IncrementCost(CostParam::kScanAllByEdgeTypePropertyValue);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
@@ -797,6 +708,107 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       }
       case Type::RANGE:
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
+    }
+    std::unreachable();
+  }
+
+  double EstimateEdgeTypePropertyCardinality(storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                             ExpressionRange const &range) {
+    using Type = ExpressionRange::Type;
+    switch (range.type_) {
+      case Type::IS_NOT_NULL:
+        return db_accessor_->EdgesCount(edge_type, property);
+      case Type::EQUAL: {
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->EdgesCount(
+              edge_type,
+              property,
+              storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->EdgesCount(edge_type, property) * CardParam::kFilter;
+      }
+      case Type::IN:
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->EdgesCount(
+              edge_type,
+              property,
+              storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->EdgesCount(edge_type, property) * CardParam::kFilter;
+      case Type::STARTS_WITH: {
+        // The prefix upper bound only materialises once the range is resolved, so estimating from
+        // the raw bounds would count every value >= the prefix instead of just the prefix span.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          // An empty range carries no bounds, which counted as unbounded would estimate the whole
+          // property rather than the nothing it matches.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) return 0.0;
+          return db_accessor_->EdgesCount(edge_type, property, resolved->lower_, resolved->upper_);
+        }
+        return EstimateEdgePropertyRangeCardinality(edge_type, property, range.lower_, range.upper_);
+      }
+      case Type::REGEX_MATCH:
+      case Type::CONTAINS:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the band the property's string values
+        // occupy, which the resolved range describes and which is the same for every term -- as it
+        // has to be, since the plan outlives the term that was current when it was costed.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        auto const resolved = range.ResolveAtPlantime(parameters, mapper);
+        if (!resolved) return db_accessor_->EdgesCount(edge_type, property);
+        return db_accessor_->EdgesCount(edge_type, property, resolved->lower_, resolved->upper_);
+      }
+      case Type::RANGE:
+        return EstimateEdgePropertyRangeCardinality(edge_type, property, range.lower_, range.upper_);
+    }
+    std::unreachable();
+  }
+
+  double EstimateEdgePropertyCardinality(storage::PropertyId property, ExpressionRange const &range) {
+    using Type = ExpressionRange::Type;
+    switch (range.type_) {
+      case Type::IS_NOT_NULL:
+        return db_accessor_->EdgesCount(property);
+      case Type::EQUAL: {
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->EdgesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->EdgesCount(property) * CardParam::kFilter;
+      }
+      case Type::IN:
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->EdgesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->EdgesCount(property) * CardParam::kFilter;
+      case Type::STARTS_WITH: {
+        // The prefix upper bound only materialises once the range is resolved, so estimating from
+        // the raw bounds would count every value >= the prefix instead of just the prefix span.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          // An empty range carries no bounds, which counted as unbounded would estimate the whole
+          // property rather than the nothing it matches.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) return 0.0;
+          return db_accessor_->EdgesCount(property, resolved->lower_, resolved->upper_);
+        }
+        return EstimateEdgePropertyRangeCardinality(property, range.lower_, range.upper_);
+      }
+      case Type::REGEX_MATCH:
+      case Type::CONTAINS:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the band the property's string values
+        // occupy, which the resolved range describes and which is the same for every term -- as it
+        // has to be, since the plan outlives the term that was current when it was costed.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        auto const resolved = range.ResolveAtPlantime(parameters, mapper);
+        if (!resolved) return db_accessor_->EdgesCount(property);
+        return db_accessor_->EdgesCount(property, resolved->lower_, resolved->upper_);
+      }
+      case Type::RANGE:
+        return EstimateEdgePropertyRangeCardinality(property, range.lower_, range.upper_);
     }
     std::unreachable();
   }
