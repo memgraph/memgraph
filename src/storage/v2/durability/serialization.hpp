@@ -54,6 +54,13 @@ class BaseEncoder {
 template <typename FileType>
 class Encoder final : public BaseEncoder {
  public:
+  Encoder() = default;
+  // Pending writes belong to this encoder; copying and moving are unsupported.
+  Encoder(Encoder const &) = delete;
+  Encoder &operator=(Encoder const &) = delete;
+  Encoder(Encoder &&) = delete;
+  Encoder &operator=(Encoder &&) = delete;
+
   bool Initialize(const std::filesystem::path &path);
   bool Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
 

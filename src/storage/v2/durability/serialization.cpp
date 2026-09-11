@@ -367,6 +367,8 @@ template <typename FileType>
 void Encoder<FileType>::TryFlushing()
   requires std::same_as<FileType, utils::OutputFile>
 {
+  // The drain is an ordinary file write and waits on the flush lock like every fragment did
+  // before staging; only the flush of the file layer's buffer below is best effort.
   DrainStage();
   file_.TryFlushing();
 }
