@@ -2068,6 +2068,11 @@ test_memgraph() {
       # managed (execute_read/execute_write transaction functions) vs implicit (auto-commit run()
       # with a manually set session access mode); measured separately to compare the two styles.
       local ROUTING_TX_MODE='managed'
+      # pinned: CPU-pin each cluster instance to its own cores (via ha_pin_wrapper.sh + ha_pin_map.sh)
+      # and the client to the leftover cores, for a stable, contention-free HA read/write measurement.
+      local PINNED=0
+      # write-pct: percentage of writes in the realistic mix (rest are reads). 0 = 100% read.
+      local WRITE_PCT=20
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2099,15 +2104,29 @@ test_memgraph() {
             NUM_WORKERS="$2"
             shift 2
           ;;
+          --pinned)
+            PINNED=1
+            shift 1
+          ;;
+          --write-pct)
+            WRITE_PCT="$2"
+            shift 2
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench-ha"
-            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --routing-tx-mode, --num-workers"
+            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --routing-tx-mode, --num-workers, --pinned, --write-pct"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
+      # The pinned CI harness always runs the 2-replica, reads-on-main-OFF cluster (with 4 bolt workers
+      # per instance) regardless of client mode, so routed reads go only to replicas. Switch to it here
+      # so the routing block below does not fall through to the reads-on-main routing description.
+      if [[ "$PINNED" == "1" && "$CLUSTER_DESCRIPTION" == "ha_cluster.yaml" ]]; then
+        CLUSTER_DESCRIPTION='ha_cluster_2_replicas.yaml'
+      fi
       # bolt+routing goes through a python client speaking neo4j:// to a coordinator; the default
       # cluster description switches to the one that enables reads on main so routed reads reach it.
       local ROUTING_ARGS=''
@@ -2122,16 +2141,21 @@ test_memgraph() {
         fi
       fi
       if [[ "$MODE" == "realistic" ]]; then
-        # Read-heavy realistic mix (20% write, 80% read, 0% update, 0% analytical) over the pokec arango
-        # group, at high concurrency so many clients contend for the commit path while writes replicate.
-        # This is the workload the funnel improves and that isolated per-query benchmarks cannot show.
-        # 50k queries (not 5k) so the measured window is ~80s of steady state rather than ~8s: relative
-        # timing noise scales ~1/sqrt(window), and the aggregate throughput is the only signal here.
-        # --warm-up hot excludes cold-cache/first-touch cost from the sample. The mix is seeded on the
-        # "50000_20_80_0_0" distribution string, so every run executes the identical query stream — an
-        # A/B (baseline vs funnel) differs only in timing, not in composition.
+        # Realistic mix over the pokec arango group at high concurrency: many clients contend for the
+        # commit path while writes replicate SYNC. WRITE_PCT% write / the rest read (0 => 100% read).
+        # 50k queries so the window is ~80s of steady state (noise ~1/sqrt(window)); --warm-up hot drops
+        # cold-cache cost; the mix is seeded on the "50000_<w>_<r>_0_0" string so every run executes the
+        # identical query stream (an A/B differs only in timing, not composition).
+        local MIX="$WRITE_PCT $((100 - WRITE_PCT)) 0 0"
         local WORKERS="${NUM_WORKERS:-18}"
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 20 80 0 0 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
+        if [[ "$PINNED" == "1" ]]; then
+          # Each instance is pinned by ha_pin_wrapper.sh (passed as --vendor-binary); ha_pin_map.sh
+          # computes MG_PIN_MAP + CLIENT_CPUS from the container's effective cpuset; the client is
+          # taskset-pinned to the leftover cores.
+          docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && export MG_REAL_BINARY=$MGBUILD_ROOT_DIR/build/memgraph && eval \"\$(./ha_pin_map.sh)\" && export MG_PIN_MAP && taskset -c \"\$CLIENT_CPUS\" ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 $MIX --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION --vendor-binary $MGBUILD_ROOT_DIR/tests/mgbench/ha_pin_wrapper.sh -- pokec/$DATASET_SIZE/arango/*"
+        else
+          docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 $MIX --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
+        fi
       else
         local WORKERS="${NUM_WORKERS:-6}"
         docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark $WORKERS --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"

@@ -18,9 +18,17 @@ from neo4j import GraphDatabase
 # rejected, so keep this in sync with the clauses the workloads actually emit.
 _WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP|CALL)\b", re.IGNORECASE)
 
+# DDL / schema commands that Memgraph refuses inside an explicit (multicommand) transaction and so
+# must run as an implicit auto-commit query even in managed routing (e.g. dataset-import index setup).
+_DDL_CLAUSE = re.compile(r"\b(INDEX|CONSTRAINT|TRIGGER)\b", re.IGNORECASE)
+
 
 def _is_write_query(query):
     return bool(_WRITE_CLAUSE.search(query))
+
+
+def _is_ddl_query(query):
+    return bool(_DDL_CLAUSE.search(query))
 
 
 class PythonClient(ABC):
@@ -63,13 +71,14 @@ class FalkorDBClient(PythonClient):
 
 class Neo4jClient(PythonClient):
     # bolt+routing transaction styles (routing_tx_mode):
-    #   "managed"  - session.execute_read/execute_write (transaction functions). Each query is a
-    #                BEGIN/run/COMMIT managed transaction, routed by access mode and retried on
-    #                transient errors.
-    #   "implicit" - a fresh access-mode session per query with auto-commit session.run() (implicit
-    #                transactions). Lighter per query (single RUN+PULL, no explicit BEGIN/COMMIT).
-    # A fresh session per query is used in implicit mode because a reused session pins to the server
-    # it first connected to and never re-routes, so reads would never reach a replica.
+    #   "managed"  - execute_read/execute_write transaction functions (BEGIN/run/COMMIT), routed by
+    #                access mode and retried on transient errors.
+    #   "implicit" - auto-commit session.run() with the session's access mode (single RUN+PULL).
+    # A FRESH session is opened per query in both modes. A reused session keeps reusing its warm
+    # connection under load and stops load-balancing, pinning reads to whichever server it first hit
+    # (main, when reads-on-main is enabled); a fresh session re-routes each query so reads actually
+    # distribute across the routing table's READ servers. This matches the canonical driver usage in
+    # tests/e2e/high_availability/implicit_routing.py.
     ROUTING_TX_MODES = ("managed", "implicit")
 
     def __init__(self, host, port, user="", password="", routing=False, routing_tx_mode="managed"):
@@ -77,40 +86,31 @@ class Neo4jClient(PythonClient):
         self._routing_tx_mode = routing_tx_mode
         if routing:
             self._driver = GraphDatabase.driver(f"neo4j://{host}:{port}", auth=(user, password))
-            if routing_tx_mode == "managed":
-                self._read_session = self._driver.session(default_access_mode=neo4j.READ_ACCESS)
-                self._write_session = self._driver.session(default_access_mode=neo4j.WRITE_ACCESS)
         else:
             self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
             self._session = self._driver.session()
 
     def close(self):
-        if self._routing:
-            if self._routing_tx_mode == "managed":
-                self._read_session.close()
-                self._write_session.close()
-        else:
+        if not self._routing:
             self._session.close()
         self._driver.close()
 
     def execute_query(self, query, params=None):
         if self._routing:
             write = _is_write_query(query)
+            mode = neo4j.WRITE_ACCESS if write else neo4j.READ_ACCESS
             start = time.time()
-            if self._routing_tx_mode == "managed":
-                # Managed transaction functions: route each query by access mode (readers
-                # load-balanced across the routing table's READ servers, writes to main) and release
-                # the connection on commit, so routing distributes the load per query.
-                if write:
-                    self._write_session.execute_write(lambda tx: tx.run(query, parameters=params or {}).consume())
-                else:
-                    self._read_session.execute_read(lambda tx: tx.run(query, parameters=params or {}).consume())
-            else:
-                # Implicit (auto-commit) transaction with a manually set session access mode. A fresh
-                # session per query so each one re-routes by access mode rather than pinning.
-                mode = neo4j.WRITE_ACCESS if write else neo4j.READ_ACCESS
-                with self._driver.session(default_access_mode=mode) as session:
+            # Fresh session per query so each one re-routes by access mode (readers load-balanced
+            # across the routing table's READ servers, writes to main).
+            with self._driver.session(default_access_mode=mode) as session:
+                if self._routing_tx_mode == "implicit" or (write and _is_ddl_query(query)):
+                    # Implicit auto-commit run(). DDL (CREATE/DROP INDEX/CONSTRAINT/TRIGGER) must be
+                    # auto-commit even in managed mode (it cannot run in an explicit transaction).
                     session.run(query, parameters=params or {}).consume()
+                elif write:
+                    session.execute_write(lambda tx: tx.run(query, parameters=params or {}).consume())
+                else:
+                    session.execute_read(lambda tx: tx.run(query, parameters=params or {}).consume())
             end = time.time()
             return (end - start) * 1000
 
