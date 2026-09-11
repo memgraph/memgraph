@@ -16,6 +16,7 @@
 #include "spdlog/spdlog.h"
 
 #include "dbms/database_info.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
@@ -63,7 +64,38 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::~Database() = default;
+Database::~Database() {
+  // Every teardown path (drop, suspend, drop-recreate, process exit) destroys via this destructor, and
+  // the cached 2PC accessor is storage-level, not gatekeeper-counted -- this is the one choke point
+  // that reaches it. Safe: the body runs before storage_ is destroyed.
+  //
+  // Must not call any utils::Gatekeeper method here -- finish_suspend() holds GKInternals::mutex_
+  // across ~Database (gatekeeper.hpp:394), so re-entry would self-deadlock.
+  try {
+    // GatekeeperGuard clears arena TLS around Database destruction; re-establish it so Abort()'s
+    // delta walk allocates against this tenant's arena, not stale TLS.
+    const memory::DbArenaScope db_arena_scope{this};
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(uuid());
+  } catch (const std::exception &e) {
+    // spdlog can throw; swallow it so it can't escape this implicitly-noexcept destructor (mirrors ~Gatekeeper).
+    try {
+      spdlog::error(
+          "Database::~Database: failed to abort cached 2PC for tenant {}: {} -- prepared transaction stays pinned in "
+          "the commit log.",
+          std::string{uuid()},
+          e.what());
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
+  } catch (...) {
+    try {
+      spdlog::error(
+          "Database::~Database: failed to abort cached 2PC for tenant {} (unknown exception) -- prepared transaction "
+          "stays pinned in the commit log.",
+          std::string{uuid()});
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
+  }
+}
 
 std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
                                                     std::optional<storage::IsolationLevel> override_isolation_level,
