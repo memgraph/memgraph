@@ -361,6 +361,7 @@ jobs:
           ./tools/ci/docker_cleanup.sh
 
       - name: Trigger Regression Detection Job
+        if: ${{ github.event_name == 'schedule' }}
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
