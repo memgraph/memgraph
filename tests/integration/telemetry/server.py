@@ -99,12 +99,29 @@ class Server(HTTPServer):
         self._BaseServer__shutdown_request = True
 
 
+def event_rank(event):
+    """
+    Where an event belongs in one run's sequence: a startup, then the periodic events in
+    the order they were numbered, then a shutdown.
+    """
+    if event == "startup":
+        return (0, 0)
+    if event == "shutdown":
+        return (2, 0)
+    return (1, event)
+
+
 def item_sort_key(obj):
     if type(obj) != dict:
-        return -1
-    if "timestamp" not in obj:
-        return -1
-    return obj["timestamp"]
+        return (-1, (0, 0))
+    if "timestamp" not in obj or "event" not in obj:
+        return (-1, (0, 0))
+    # The timestamp has whole-second resolution and the events are sent a second apart, so
+    # two of them share one often enough: the last periodic event and the shutdown that
+    # follows it within the same second. Ordering those by arrival puts them whichever way
+    # the server happened to handle the two requests, which is not the order the events
+    # were produced in.
+    return (obj["timestamp"], event_rank(obj["event"]))
 
 
 def verify_storage(storage, args):
