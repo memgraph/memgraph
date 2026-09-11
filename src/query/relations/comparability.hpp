@@ -25,6 +25,7 @@
 /// two agree, the same query would answer differently once an index existed.
 #pragma once
 
+#include <cmath>
 #include <compare>
 #include <optional>
 
@@ -40,7 +41,7 @@ namespace memgraph::query::relations::comparability {
  * default, so a type added to the enumeration fails to compile in both rather
  * than silently gaining an answer in one.
  */
-inline bool Admits(TypedValue::Type type) {
+constexpr bool Admits(TypedValue::Type type) {
   switch (type) {
     using enum TypedValue::Type;
     case Bool:
@@ -70,6 +71,21 @@ inline bool Admits(TypedValue::Type type) {
     case Function:
       return false;
   }
+}
+
+/**
+ * Whether comparability places a value against the values of its own type.
+ *
+ * Admitting a type is not enough to say this, because one admitted type holds a
+ * value with no order: a NaN is unordered against every number and against
+ * itself, so all four comparisons answer false for a pair holding one and a
+ * filter keeps no row. Ask this of a value a scan is about to be fenced by,
+ * since a band drawn around a value the relation cannot place holds whatever
+ * the stored order happens to put there.
+ */
+inline bool Places(const TypedValue &value) {
+  if (!Admits(value.type())) return false;
+  return value.type() != TypedValue::Type::Double || !std::isnan(value.UnsafeValueDouble());
 }
 
 /**
