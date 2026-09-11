@@ -1125,9 +1125,12 @@ add_unit_test(rpc_file_framing
 )
 
 # Test replication-rpc-progress
+# One test asserts that a request type with no configured timeout waits for its response
+# indefinitely, so a response that never comes hangs the run. TIMEOUT is what bounds it.
 add_unit_test(replication_rpc_progress
     SOURCES replication_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 # Test snapshot-rpc-progress
