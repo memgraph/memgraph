@@ -207,3 +207,56 @@ TEST(LRUCacheTest, InvalidateTest) {
   cache.invalidate(42);
   EXPECT_EQ(cache.size(), 2);
 }
+
+TEST(LRUCacheTest, PeekReturnsPresentAndAbsent) {
+  memgraph::utils::LRUCache<int, int> cache(2);
+  cache.put(1, 100);
+  cache.put(2, 200);
+
+  auto const &const_cache = cache;
+
+  std::optional<int> value = const_cache.peek(1);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 100);
+
+  value = const_cache.peek(2);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 200);
+
+  // Absent key
+  value = const_cache.peek(42);
+  EXPECT_FALSE(value.has_value());
+}
+
+TEST(LRUCacheTest, PeekDoesNotBumpRecencyUnlikeGet) {
+  // peek() must NOT bump recency: repeatedly peeking key 1 still lets it be
+  // the LRU victim, whereas get() would have kept it alive.
+  memgraph::utils::LRUCache<int, int> peek_cache(2);
+  peek_cache.put(1, 100);
+  peek_cache.put(2, 200);
+
+  auto const &const_peek_cache = peek_cache;
+  for (int i = 0; i < 5; ++i) {
+    auto const value = const_peek_cache.peek(1);
+    EXPECT_TRUE(value.has_value());
+  }
+
+  // 1 was put first and never bumped, so it is evicted when 3 is inserted.
+  peek_cache.put(3, 300);
+  EXPECT_FALSE(const_peek_cache.peek(1).has_value());
+  EXPECT_TRUE(const_peek_cache.peek(2).has_value());
+  EXPECT_TRUE(const_peek_cache.peek(3).has_value());
+
+  // Control: get() on key 1 bumps recency, so 2 is evicted instead.
+  memgraph::utils::LRUCache<int, int> get_cache(2);
+  get_cache.put(1, 100);
+  get_cache.put(2, 200);
+  for (int i = 0; i < 5; ++i) {
+    auto const value = get_cache.get(1);
+    EXPECT_TRUE(value.has_value());
+  }
+  get_cache.put(3, 300);
+  EXPECT_TRUE(get_cache.get(1).has_value());
+  EXPECT_FALSE(get_cache.get(2).has_value());
+  EXPECT_TRUE(get_cache.get(3).has_value());
+}

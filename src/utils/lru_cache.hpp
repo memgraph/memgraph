@@ -20,7 +20,6 @@
 namespace memgraph::utils {
 
 /// A simple LRU cache implementation.
-/// It is not thread-safe.
 ///
 /// The list owns each entry (key and value, both const) and carries the LRU
 /// order. The index is a set of list iterators, hashed and compared by the key
@@ -30,6 +29,10 @@ namespace memgraph::utils {
 ///
 /// An entry is immutable once inserted: a put for a key already present keeps
 /// the stored value and only refreshes its recency.
+///
+/// Thread-safety: put()/get()/invalidate()/reset() mutate state and need
+/// exclusive access. peek() mutates nothing, so concurrent peek()s are safe
+/// (e.g. readers under a shared lock) provided no mutator runs concurrently.
 template <class TKey, class TVal, class TAlloc = std::allocator<std::pair<const TKey, TVal>>>
 class LRUCache {
   using Entry = std::pair<const TKey, const TVal>;
@@ -55,6 +58,19 @@ class LRUCache {
       return std::nullopt;
     }
     item_list.splice(item_list.begin(), item_list, *it);
+    return (*it)->second;
+  }
+
+  /// Non-mutating lookup: returns a copy of the value without bumping LRU
+  /// recency, so it is safe for concurrent readers (unlike get()). Tradeoff:
+  /// entries only ever read via peek() age as if unaccessed, so eviction is
+  /// approximate-LRU. Correctness is unaffected: a miss just costs a re-plan,
+  /// and the returned copy stays valid regardless of later cache changes.
+  std::optional<TVal> peek(const TKey &key) const {
+    auto const it = index.find(key);
+    if (it == index.end()) {
+      return std::nullopt;
+    }
     return (*it)->second;
   }
 
