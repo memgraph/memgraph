@@ -160,6 +160,18 @@ visibility (`SHOW DATABASES`, stats, metrics); the policy belongs to the operato
 external control plane. Keeping every state change explicit also keeps the feature small
 enough to reason about and free of an entire class of eviction races.
 
+*Releasing an idle accessor is not eviction.* The experimental idle-session reaper
+(`--experimental-enabled=idle-session-reaper`, off by default) is **not** the automatic
+evictor this decision rejects. It never changes a database's hot/cold state and never
+removes it from memory: it only releases the **database accessor** held by a
+*connected-but-idle* session, once that session has been idle past
+`--session-idle-accessor-release-sec`, so a tenant pinned only by idle (e.g. pooled)
+connections drops to zero holders. State still changes only when an operator explicitly
+runs `SUSPEND` / `RESUME` / `DROP`; the reaper merely stops an idle connection from
+blocking that operator action, and the connection stays open so its next query
+transparently re-acquires the database. This is the mechanism, not a policy — the engine
+still never picks a tenant to evict on its own. See D6.
+
 ### D2 — Suspending fully destroys the in-memory representation.
 
 On suspend, *all* of the database's in-memory state and background activity is torn
@@ -242,6 +254,18 @@ and destructive thing to do silently. The safe, predictable contract is: suspend
 only when the database is genuinely idle, and otherwise tells the operator why it
 couldn't. The operator (or their control plane) drains the database and retries. This also
 sidesteps an entire category of mid-transaction teardown hazards.
+
+*Idle connections vs. active use.* "In use" means a session holding a **live database
+accessor** or an in-flight transaction — not merely an open socket. With the experimental
+idle-session reaper enabled (see D1), a session idle past
+`--session-idle-accessor-release-sec` releases its accessor while its connection stays
+open (the next query re-acquires the database by name). Such a session no longer counts as
+"in use", so an operator's `SUSPEND` / `DROP` on that otherwise-idle tenant can succeed.
+This preserves D6's guarantees — an **active** session or in-flight transaction still makes
+`SUSPEND` fail fast, and no query is ever killed or torn down — while letting an idle
+pooled connection stop pinning an otherwise-idle tenant. The reaper is off by default
+(`--session-idle-accessor-release-sec=0`), so the strict "any connected session blocks
+suspend" behavior is unchanged unless an operator opts in.
 
 ### D7 — On failover/promotion, cold databases stay cold.
 
