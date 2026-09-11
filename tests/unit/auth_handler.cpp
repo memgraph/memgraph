@@ -23,6 +23,7 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "auth/repository.hpp"
 #include "dbms/constants.hpp"
 #include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth_global.hpp"
@@ -696,7 +697,8 @@ TEST_F(AuthQueryHandlerFixture, CreateProfile) {
     // Stop auth and check if profiles are saved in the durable storage
     auth.reset();
     memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
-    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    memgraph::auth::Repository check_durable_repository{check_durable_kvstore};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_repository};
     for (const auto &profile : check_durable_profiles.GetAll()) {
       if (profile.name == "profile") {
         ASSERT_EQ(profile.limits.size(), 0);
@@ -802,7 +804,8 @@ TEST_F(AuthQueryHandlerFixture, CreateProfileWithPredefinedUsernames) {
     // Stop auth and check if profiles with usernames are saved in the durable storage
     auth.reset();
     memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
-    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    memgraph::auth::Repository check_durable_repository{check_durable_kvstore};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_repository};
 
     bool found_profile_with_users = false;
     bool found_profile_moving_users = false;
@@ -857,7 +860,8 @@ TEST_F(AuthQueryHandlerFixture, UpdateProfile) {
     // Stop auth and check if profiles are saved in the durable storage
     auth.reset();
     memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
-    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    memgraph::auth::Repository check_durable_repository{check_durable_kvstore};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_repository};
     for (const auto &profile : check_durable_profiles.GetAll()) {
       if (profile.name == "profile") {
         ASSERT_EQ(profile.limits.size(), 1);
@@ -893,7 +897,8 @@ TEST_F(AuthQueryHandlerFixture, DropProfile) {
     // Stop auth and check if profiles are saved in the durable storage
     auth.reset();
     memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
-    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    memgraph::auth::Repository check_durable_repository{check_durable_kvstore};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_repository};
     for (const auto &profile : check_durable_profiles.GetAll()) {
       if (profile.name == "profile") {
         ASSERT_EQ(profile.limits.size(), 0);
