@@ -1813,9 +1813,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
     ASSERT_EQ(it, iterable.end());
   }
 
-  auto verify = [&](const std::optional<memgraph::utils::Bound<PropertyValue>> &from,
-                    const std::optional<memgraph::utils::Bound<PropertyValue>> &to,
-                    const std::vector<PropertyValue> &expected) {
+  auto verify = [&, call = 0](const std::optional<memgraph::utils::Bound<PropertyValue>> &from,
+                              const std::optional<memgraph::utils::Bound<PropertyValue>> &to,
+                              const std::vector<PropertyValue> &expected) mutable {
+    SCOPED_TRACE("verify call " + std::to_string(++call));
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto iterable = acc->Vertices(
         this->label1, std::array{PropertyPath{this->prop_val}}, std::array{pvr::Range(from, to)}, View::OLD);
@@ -1904,19 +1905,24 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
          {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
           PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
 
+  // A date, a local time, a local date time and a duration share one stored type but are four
+  // types no comparison places against each other, so a range over one holds none of the others
+  // and a range whose two bounds are two of them holds nothing at all.
   verify(memgraph::utils::MakeBoundExclusive(PropertyValue(temporals[0])),
          memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData{TemporalType::Date, 200})),
-         // LocalDateTime has a "higher" type number so it is not part of the range
          {PropertyValue(temporals[1])});
   verify(memgraph::utils::MakeBoundExclusive(PropertyValue(temporals[0])),
          memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[2])),
-         {PropertyValue(temporals[1]), PropertyValue(temporals[2])});
+         {});
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[0])),
          memgraph::utils::MakeBoundExclusive(PropertyValue(temporals[2])),
-         {PropertyValue(temporals[0]), PropertyValue(temporals[1])});
+         {});
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[0])),
          memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[2])),
-         {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
+         {});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData{TemporalType::LocalDateTime, 100})),
+         {PropertyValue(temporals[2])});
 
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[0])),
          memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[2])),
@@ -1971,12 +1977,18 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
              PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(7.5)}})),
          {PropertyValue(PropertyValue::map_t()),
           PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}})});
+  // A bound of one temporal kind fences the open side to that kind rather than to every kind
+  // stored alongside it.
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData(TemporalType::Date, 10))),
          std::nullopt,
-         {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
+         {PropertyValue(temporals[0]), PropertyValue(temporals[1])});
+  verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::Duration, 0))), {});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData(TemporalType::LocalDateTime, 0))),
+         std::nullopt,
+         {PropertyValue(temporals[2])});
   verify(std::nullopt,
-         memgraph::utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::Duration, 0))),
-         {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
+         memgraph::utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::LocalDateTime, 100))),
+         {PropertyValue(temporals[2])});
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[0])),
          std::nullopt,
          {PropertyValue(zoned_temporals[0]), PropertyValue(zoned_temporals[1]), PropertyValue(zoned_temporals[2])});
@@ -1992,7 +2004,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   // should yield no items.
   for (size_t i = 0; i < values.size(); ++i) {
     for (size_t j = i; j < values.size(); ++j) {
-      if (AreComparableTypes(values[i].type(), values[j].type())) {
+      if (memgraph::storage::AreComparable(values[i], values[j])) {
         verify(memgraph::utils::MakeBoundInclusive(values[i]),
                memgraph::utils::MakeBoundInclusive(values[j]),
                {values.begin() + i, values.begin() + j + 1});

@@ -365,19 +365,19 @@ inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction 
   return insertion_timestamp <= original_start_timestamp;
 }
 
-// A range covering a whole type is expressed as the type's own lower bound together with an
-// exclusive upper bound of the *following* type (see LowerBoundForType/UpperBoundForType), so that
-// one shape legitimately has bounds of differing types. Both ends must match for it to be that
-// marker rather than a user-written range that merely reaches the same boundary value; every other
-// type mismatch describes an empty range.
+// A range covering a whole stretch of the order is expressed as that stretch's own lower bound
+// together with an exclusive upper bound of the *following* stretch (see
+// LowerBoundComparableWith/UpperBoundComparableWith), so that one shape legitimately has bounds of
+// differing types. Both ends must match for it to be that marker rather than a user-written range
+// that merely reaches the same boundary value; every other type mismatch describes an empty range.
 inline bool AreComparableBounds(utils::Bound<PropertyValue> const &lower_bound,
                                 utils::Bound<PropertyValue> const &upper_bound) {
-  if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) return true;
+  if (AreComparable(lower_bound.value(), upper_bound.value())) return true;
   if (upper_bound.IsInclusive() || !lower_bound.IsInclusive()) return false;
-  auto const lower_bound_for_type = LowerBoundForType(lower_bound.value().type());
-  auto const upper_bound_for_type = UpperBoundForType(lower_bound.value().type());
-  return lower_bound_for_type && upper_bound_for_type && lower_bound.value() == lower_bound_for_type->value() &&
-         upper_bound.value() == upper_bound_for_type->value();
+  auto const stretch_lower = LowerBoundComparableWith(lower_bound.value());
+  auto const stretch_upper = UpperBoundComparableWith(lower_bound.value());
+  return stretch_lower && stretch_upper && lower_bound.value() == stretch_lower->value() &&
+         upper_bound.value() == stretch_upper->value();
 }
 
 // `allow_whole_type_span` admits the bound pair that marks an entire type (see AreComparableBounds).
@@ -403,19 +403,18 @@ inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bou
 
   // Check whether the bounds are of comparable types if both are supplied.
   if (lower_bound && upper_bound) {
-    auto const comparable = allow_whole_type_span
-                                ? AreComparableBounds(*lower_bound, *upper_bound)
-                                : AreComparableTypes(lower_bound->value().type(), upper_bound->value().type());
+    auto const comparable = allow_whole_type_span ? AreComparableBounds(*lower_bound, *upper_bound)
+                                                  : AreComparable(lower_bound->value(), upper_bound->value());
     if (!comparable || lower_bound->value() > upper_bound->value()) {
       return false;
     }
   }
   // Set missing bounds.
   if (lower_bound && !upper_bound) {
-    upper_bound = UpperBoundForType(lower_bound->value().type());
+    upper_bound = UpperBoundComparableWith(lower_bound->value());
   }
   if (upper_bound && !lower_bound) {
-    lower_bound = LowerBoundForType(upper_bound->value().type());
+    lower_bound = LowerBoundComparableWith(upper_bound->value());
   }
   return true;
 }
@@ -457,14 +456,14 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
     // Set missing bounds.
     if (lower_bound && !upper_bound) {
       // Here we need to supply an upper bound. The upper bound is set to an
-      // exclusive lower bound of the following type.
-      upper_bound = UpperBoundForType(lower_bound->value().type());
+      // exclusive lower bound of the following stretch of the order.
+      upper_bound = UpperBoundComparableWith(lower_bound->value());
     }
 
     if (upper_bound && !lower_bound) {
       // Here we need to supply a lower bound. The lower bound is set to an
-      // inclusive lower bound of the current type.
-      lower_bound = LowerBoundForType(upper_bound->value().type());
+      // inclusive lower bound of the current stretch of the order.
+      lower_bound = LowerBoundComparableWith(upper_bound->value());
     }
   }
 

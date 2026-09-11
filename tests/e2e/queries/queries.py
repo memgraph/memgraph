@@ -210,5 +210,41 @@ def test_a_range_bound_is_read_once_however_the_scan_is_planned(memgraph):
     assert count(ranged) == 5
 
 
+def test_a_temporal_range_answers_for_its_own_kind_however_the_scan_is_planned(memgraph):
+    """A date, a local time, a local date time and a duration are four types no
+    comparison places against each other, so a range over one keeps no row of
+    another. They share one stored type, so an index whose band is that type
+    would hand back the other three."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute(
+        """CREATE (:T {t: DATE('2020-01-01')}),
+                  (:T {t: DATE('2024-06-01')}),
+                  (:T {t: LOCALTIME('12:00:00')}),
+                  (:T {t: LOCALDATETIME('2024-06-01T12:00:00')}),
+                  (:T {t: DURATION('P5D')}),
+                  (:T {t: DURATION('P400D')});"""
+    )
+
+    def answers(query):
+        return sorted(str(row["t"]) for row in memgraph.execute_and_fetch(query))
+
+    one_sided = "MATCH (n:T) WHERE n.t > DATE('2020-01-01') RETURN n.t AS t;"
+    other_way = "MATCH (n:T) WHERE n.t < DURATION('P100D') RETURN n.t AS t;"
+    two_sided = "MATCH (n:T) WHERE n.t >= DATE('2020-01-01') AND n.t <= DATE('2024-06-01') RETURN n.t AS t;"
+    mixed_kinds = "MATCH (n:T) WHERE n.t > DATE('2020-01-01') AND n.t < DURATION('P100D') RETURN n.t AS t;"
+
+    without_index = [answers(q) for q in (one_sided, other_way, two_sided, mixed_kinds)]
+
+    memgraph.execute("CREATE INDEX ON :T(t);")
+
+    assert [answers(q) for q in (one_sided, other_way, two_sided, mixed_kinds)] == without_index
+
+    # Non-vacuous: the unindexed answers are the ones the comparison gives, so a scan
+    # matching them is answering rather than both returning everything.
+    assert without_index[0] == ["2024-06-01"]
+    assert len(without_index[1]) == 1
+    assert without_index[3] == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

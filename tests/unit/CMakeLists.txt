@@ -752,6 +752,11 @@ add_unit_test(property_value_v2
     LINK_TARGETS mg::storage mg-utils
 )
 
+add_unit_test(storage_v2_comparable_bounds
+    SOURCES storage_v2_comparable_bounds.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
 add_unit_test(storage_v2
     SOURCES storage_v2.cpp
     LINK_TARGETS mg::storage storage_test_utils disk_test_utils

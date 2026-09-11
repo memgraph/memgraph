@@ -256,13 +256,15 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       auto lower_bound = to_bound(lower_value, lower_);
       auto upper_bound = to_bound(upper_value, upper_);
 
-      // When scanning a range, the bounds must be the same type
-      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      // A range whose two bounds no comparison places against each other holds no value: a row
+      // would have to be both above a date and below a duration, and one of those answers Null
+      // whatever the row holds.
+      if (lower_bound && upper_bound && !storage::AreComparable(lower_bound->value(), upper_bound->value())) {
         return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
-      // bound will be limitted to the same type as the other bound
+      // bound will be limitted to the stretch of the order the other bound is compared over
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
@@ -383,13 +385,15 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       auto lower_bound = std::move(std::get<obpv>(maybe_lower_bound));
       auto upper_bound = std::move(std::get<obpv>(maybe_upper_bound));
 
-      // When scanning a range, the bounds must be the same type
-      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      // A range whose two bounds no comparison places against each other holds no value: a row
+      // would have to be both above a date and below a duration, and one of those answers Null
+      // whatever the row holds.
+      if (lower_bound && upper_bound && !storage::AreComparable(lower_bound->value(), upper_bound->value())) {
         return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
-      // bound will be limitted to the same type as the other bound
+      // bound will be limitted to the stretch of the order the other bound is compared over
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
