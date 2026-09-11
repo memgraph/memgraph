@@ -13,7 +13,7 @@ on:
         default: 10
       benchmarks:
         type: string
-        description: "workflow_dispatch only: comma-separated step ids to run (e.g. mgbench-ha-realistic-sync), or all. Ignored by the nightly schedule, which always runs everything."
+        description: "workflow_dispatch only: comma-separated step ids to run (e.g. mgbench-ha-2rep-mix-routing-implicit), or all. Ignored by the nightly schedule, which always runs everything."
         default: 'all'
   schedule:
     - cron: "0 0 * * *"
@@ -39,9 +39,12 @@ jobs:
       DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_async.json'
       DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_sync_async.json'
       DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
-      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync.json'
-      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync_routing.json'
-      DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_realistic_sync_routing_implicit.json'
+      DEFAULT_MGBENCH_HA_2REP_READ_DIRECT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_read_direct.json'
+      DEFAULT_MGBENCH_HA_2REP_READ_ROUTING_EXPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_read_routing_explicit.json'
+      DEFAULT_MGBENCH_HA_2REP_READ_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_read_routing_implicit.json'
+      DEFAULT_MGBENCH_HA_2REP_MIX_DIRECT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_mix_direct.json'
+      DEFAULT_MGBENCH_HA_2REP_MIX_ROUTING_EXPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_mix_routing_explicit.json'
+      DEFAULT_MGBENCH_HA_2REP_MIX_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_mix_routing_implicit.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -132,63 +135,102 @@ jobs:
             $BRANCH_NAME \
             mgbench
 
-      # Concurrent read+write mix on the SYNC cluster (ha_cluster.yaml). Unlike the isolated legs above,
-      # this drives many clients through the commit path while writes wait on the SYNC replica ACK, so it
-      # measures the aggregate-throughput win from parking pool workers instead of blocking them.
-      - name: Run and upload mgbench-ha-realistic-sync
-        id: mgbench-ha-realistic-sync
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync,') }}
+      # Finalized HA read/write throughput matrix on a CPU-pinned 2-replica (reads-on-main OFF) cluster,
+      # 4 bolt-workers per instance. Two workloads (100% read; 20/80 write-read) each on three client
+      # modes: direct-to-main, bolt+routing with explicit (managed) transactions, and bolt+routing with
+      # implicit (auto-commit) transactions. Routing reads are dispatched only to the two replicas. The
+      # write mix exposes the aggregate-throughput win from freeing pool workers blocked behind SYNC ACK.
+      - name: Run and upload mgbench-ha-2rep-read-direct
+        id: mgbench-ha-2rep-read-direct
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-read-direct,') }}
         continue-on-error: true
         env:
-          # 3 repeats (each re-runs and re-uploads as its own point) so the series shows a median and a
-          # spread rather than one measurement; the aggregate mix throughput is noisier than an isolated
-          # per-query number, so a single point is not enough to compare baseline against the funnel.
-          # Overridable per-dispatch via the loop_count input.
           LOOP_COUNT: ${{ inputs.loop_count || 3 }}
         run: |
           ./tools/ci/loop-benchmark.sh \
-            "mgbench-ha --realistic" \
-            mgbench-ha-realistic-sync \
-            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_EXPORT_RESULTS_FILE }} \
+            "mgbench-ha --realistic --pinned --write-pct 0" \
+            mgbench-ha-2rep-read-direct \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_READ_DIRECT_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \
             mgbench
 
-      - name: Run and upload mgbench-ha-realistic-sync-routing
-        id: mgbench-ha-realistic-sync-routing
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync-routing,') }}
+      - name: Run and upload mgbench-ha-2rep-read-routing-explicit
+        id: mgbench-ha-2rep-read-routing-explicit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-read-routing-explicit,') }}
         continue-on-error: true
         env:
-          # Same realistic mix as the direct-to-main step above, but reached through a bolt+routing
-          # python client against a coordinator, so reads/writes are dispatched by the routing table
-          # (reads-on-main enabled) as a real HA client connects. Managed transactions
-          # (execute_read/execute_write). Same repeat rationale.
           LOOP_COUNT: ${{ inputs.loop_count || 3 }}
         run: |
           ./tools/ci/loop-benchmark.sh \
-            "mgbench-ha --realistic --routing" \
-            mgbench-ha-realistic-sync-routing \
-            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_EXPORT_RESULTS_FILE }} \
+            "mgbench-ha --realistic --pinned --write-pct 0 --routing --routing-tx-mode managed" \
+            mgbench-ha-2rep-read-routing-explicit \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_READ_ROUTING_EXPLICIT_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \
             mgbench
 
-      - name: Run and upload mgbench-ha-realistic-sync-routing-implicit
-        id: mgbench-ha-realistic-sync-routing-implicit
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-realistic-sync-routing-implicit,') }}
+      - name: Run and upload mgbench-ha-2rep-read-routing-implicit
+        id: mgbench-ha-2rep-read-routing-implicit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-read-routing-implicit,') }}
         continue-on-error: true
         env:
-          # Same routed realistic mix as the step above, but with implicit (auto-commit) transactions
-          # and a manually set session access mode instead of managed transaction functions, to
-          # compare the two transaction styles under routing.
           LOOP_COUNT: ${{ inputs.loop_count || 3 }}
         run: |
           ./tools/ci/loop-benchmark.sh \
-            "mgbench-ha --realistic --routing --routing-tx-mode implicit" \
-            mgbench-ha-realistic-sync-routing-implicit \
-            ${{ env.DEFAULT_MGBENCH_HA_REALISTIC_SYNC_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE }} \
+            "mgbench-ha --realistic --pinned --write-pct 0 --routing --routing-tx-mode implicit" \
+            mgbench-ha-2rep-read-routing-implicit \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_READ_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2rep-mix-direct
+        id: mgbench-ha-2rep-mix-direct
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-mix-direct,') }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --pinned --write-pct 20" \
+            mgbench-ha-2rep-mix-direct \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_MIX_DIRECT_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2rep-mix-routing-explicit
+        id: mgbench-ha-2rep-mix-routing-explicit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-mix-routing-explicit,') }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --pinned --write-pct 20 --routing --routing-tx-mode managed" \
+            mgbench-ha-2rep-mix-routing-explicit \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_MIX_ROUTING_EXPLICIT_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2rep-mix-routing-implicit
+        id: mgbench-ha-2rep-mix-routing-implicit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-mix-routing-implicit,') }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --pinned --write-pct 20 --routing --routing-tx-mode implicit" \
+            mgbench-ha-2rep-mix-routing-implicit \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_MIX_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \
