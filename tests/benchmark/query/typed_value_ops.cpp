@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "query/common.hpp"
+#include "query/relations/comparability.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 
