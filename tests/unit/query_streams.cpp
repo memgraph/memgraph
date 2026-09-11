@@ -41,6 +41,11 @@ using StreamInfo = memgraph::query::stream::KafkaStream::StreamInfo;
 using StreamStatus = memgraph::query::stream::StreamStatus<memgraph::query::stream::KafkaStream>;
 
 namespace {
+// How far past its timeout Check may be seen to return. The consumer notices the deadline between
+// batches, so the overshoot is a batch interval plus however long a loaded machine leaves the process
+// unscheduled. Well under kDefaultCheckTimeout, so a Check that ignored its timeout still fails.
+inline constexpr auto kTimeoutOvershoot = std::chrono::seconds{10};
+
 const static std::string kTopicName{"TrialTopic"};
 
 struct FakeUser : memgraph::query::QueryUserOrRole {
@@ -391,7 +396,7 @@ TYPED_TEST(StreamsTestFixture, CheckWithTimeout) {
 
   const auto elapsed = (end - start);
   EXPECT_LE(timeout, elapsed);
-  EXPECT_LE(elapsed, timeout * 1.2);
+  EXPECT_LE(elapsed, timeout + kTimeoutOvershoot);
 }
 
 TYPED_TEST(StreamsTestFixture, CheckInvalidConfig) {
