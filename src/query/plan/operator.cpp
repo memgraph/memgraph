@@ -238,11 +238,12 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       auto const lower_value = evaluated(lower_);
       auto const upper_value = evaluated(upper_);
 
-      // A bound of a type comparability places no pair of makes every ordered comparison Null, so
-      // the filter this scan stands in for keeps no row. The index orders such values all the same,
-      // by where their type sits, and would otherwise hand back rows no filter would pass.
+      // A bound comparability cannot place leaves every ordered comparison answering the same way
+      // for every row, so the filter this scan stands in for keeps none of them. The stored order
+      // places such a value all the same, by where its type sits or by where a NaN is put, and a
+      // band drawn around it would hand back rows no filter would pass.
       auto const placed_by_comparability = [](auto const &value) {
-        return !value || relations::comparability::Admits(value->type());
+        return !value || relations::comparability::Places(*value);
       };
       if (!placed_by_comparability(lower_value) || !placed_by_comparability(upper_value)) {
         return storage::PropertyValueRange::Empty();
@@ -1392,11 +1393,11 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
                                                                       ExpressionEvaluator &evaluator) {
   if (!bound) return std::nullopt;
   const auto &value = bound->value()->Accept(evaluator);
-  // A bound comparability places no pair of makes the comparison Null for every row, so the filter
-  // this scan stands in for keeps none. A Null bound already says that here, and a bound of any
-  // other type the relation cannot place says it the same way rather than raising, which would make
-  // the query fail only once an index existed. Every type it does place is one a property can hold.
-  if (!relations::comparability::Admits(value.type())) {
+  // A bound comparability cannot place makes the comparison answer the same way for every row, so
+  // the filter this scan stands in for keeps none. A Null bound already says that here, and a bound
+  // the relation cannot place says it the same way rather than raising, which would make the query
+  // fail only once an index existed. Every type it does place is one a property can hold.
+  if (!relations::comparability::Places(value)) {
     return utils::Bound<storage::PropertyValue>(storage::PropertyValue(), bound->type());
   }
   return utils::Bound<storage::PropertyValue>(value.ToPropertyValue(evaluator.GetNameIdMapper()), bound->type());

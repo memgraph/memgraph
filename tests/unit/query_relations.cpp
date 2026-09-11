@@ -187,6 +187,40 @@ TEST(Comparability, PlacesOneIntegerAgainstOneDouble) {
   EXPECT_TRUE(std::is_eq(*comparability::Compare(TypedValue(int64_t{2}), TypedValue(2.0))));
 }
 
+TEST(Comparability, PlacesEveryValueOfATypeItAdmitsExceptANaN) {
+  // A scan is fenced by a bound value rather than by a type, so the value-level question is the
+  // one it has to ask. The two answers agree everywhere except on the one value of an admitted
+  // type that has no order.
+  for (auto const type : kEveryType) {
+    auto const pair = PairOf(type);
+    if (!pair) continue;
+    EXPECT_EQ(comparability::Places(pair->lesser), comparability::Admits(type))
+        << "type " << static_cast<unsigned>(type);
+  }
+
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_TRUE(comparability::Admits(nan.type()));
+  EXPECT_FALSE(comparability::Places(nan));
+}
+
+TEST(Comparability, PlacesNoValueOfATypeItRefuses) {
+  EXPECT_FALSE(comparability::Places(TypedValue()));
+  EXPECT_FALSE(comparability::Places(ListOf({Int(1)})));
+  EXPECT_FALSE(comparability::Places(MapOf({{"a", Int(1)}})));
+}
+
+TEST(Comparability, AnswersFalseForEveryComparisonAgainstANaN) {
+  // Which is why a bound holding one keeps no row: a filter reading any of the four drops every
+  // row, so a scan standing in for it has to hand back nothing rather than a band.
+  auto const nan = TypedValue(std::nan(""));
+  auto const number = TypedValue(1.0);
+  EXPECT_FALSE((nan < number).ValueBool());
+  EXPECT_FALSE((number < nan).ValueBool());
+  EXPECT_FALSE((nan <= nan).ValueBool());
+  EXPECT_FALSE((number > nan).ValueBool());
+  EXPECT_FALSE((number >= nan).ValueBool());
+}
+
 TEST(Comparability, LeavesAPairHoldingANaNUnordered) {
   auto const nan = TypedValue(std::nan(""));
   auto const order = comparability::Compare(nan, TypedValue(1.0));
