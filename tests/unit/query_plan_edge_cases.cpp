@@ -167,3 +167,70 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
                 .size(),
             3);
 }
+
+TYPED_TEST(QueryExecution, NamedPathOverBoundNodeInSubqueryBody) {
+  // A named path over nothing but one already-bound node is built on the value the caller bound.
+  this->Execute("CREATE (:Node)");
+
+  auto results = this->Execute("MATCH (n) RETURN COUNT { MATCH p = (n) } AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+}
+
+TYPED_TEST(QueryExecution, BoundNodeInSubqueryBodyIsNull) {
+  // A pattern never matches a null node, so a body that is one already-bound node has to read the bound
+  // value rather than fold to a constant.
+  this->Execute("CREATE (:Person {name: 'lonely'})");
+
+  auto results = this->Execute(
+      "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(f) "
+      "RETURN EXISTS { MATCH (f) } AS e, COUNT { MATCH (f) } AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_FALSE(results[0][0].ValueBool());
+  EXPECT_EQ(results[0][1].ValueInt(), 0);
+}
+
+TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNull) {
+  // The same holds outside a subquery: re-stating a bound node as a whole pattern is a match, not a no-op.
+  auto results = this->Execute("WITH null AS f MATCH (f) RETURN count(*) AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 0);
+}
+
+TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNotANode) {
+  // A null cannot match a pattern, but a value of any other type cannot even be asked: the pattern says the
+  // variable holds a node, so anything else is a type error rather than a row that quietly matches.
+  this->Execute("CREATE (:Person)-[:KNOWS]->(:Person)");
+
+  EXPECT_THROW(this->Execute("WITH 1 AS f MATCH (f) RETURN count(*) AS c"), memgraph::query::QueryRuntimeException);
+
+  // The type is not always known before the query runs: here only the rows without a friend hold the integer.
+  EXPECT_THROW(this->Execute("MATCH (p:Person) OPTIONAL MATCH (p)-[:KNOWS]->(f) "
+                             "WITH coalesce(f, 1) AS g MATCH (g) RETURN count(*) AS c"),
+               memgraph::query::QueryRuntimeException);
+
+  // A node passes, so what the guard rejects is the type and not the reuse of a variable.
+  auto results = this->Execute("MATCH (p:Person) WITH p AS g MATCH (g) RETURN count(*) AS c");
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 2);
+}
+
+TYPED_TEST(QueryExecution, SubqueryBodyCorrelatesAcrossSeparatePatterns) {
+  // Two patterns in a body reach each other's variables through what the body's first operator says it modifies.
+  // The caller's variables have to be among them, or a filter naming one of them together with a variable of the
+  // other pattern belongs to neither, and planning gives up.
+  this->Execute("CREATE (:Person {name: 'a', age: 5}), (:Person {name: 'b', age: 1})");
+  this->Execute("CREATE (:X {name: 'a'})-[:R]->(:Y {name: 'a'})");
+
+  auto results = this->Execute(
+      "MATCH (a:Person) "
+      "RETURN COUNT { MATCH (a), (x)-[:R]->(y) WHERE y.name = a.name AND a.age > 3 } AS c "
+      "ORDER BY c DESC");
+
+  ASSERT_EQ(results.size(), 2U);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+  EXPECT_EQ(results[1][0].ValueInt(), 0);
+}

@@ -5128,6 +5128,17 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
     case Type::Pattern: {
       return "Pattern";
     }
+    case Type::Node: {
+      // Written over the identifier of an already-bound node, so that name is the whole of what there is to
+      // say. Any other shape has no name to print, and an unnamed filter beats refusing to show a plan.
+      if (single_filter.expression->GetTypeInfo() == LabelsTest::kType) {
+        const auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+        if (filter_expression->expression_->GetTypeInfo() == Identifier::kType) {
+          return fmt::format("({})", static_cast<Identifier *>(filter_expression->expression_)->name_);
+        }
+      }
+      return "()";
+    }
     case Type::Point: {
       return fmt::format(
           "{{{}.{}}}", single_filter.point_filter->symbol_.name(), single_filter.point_filter->property_.name);
@@ -5147,9 +5158,10 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       const auto *identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
       return fmt::format("[{} :{}]", identifier_expression->name_, or_edge_types);
     }
-    default:
-      LOG_FATAL("Unexpected FilterInfo::Type");
   }
+  // No default label above, so a filter kind added without a case here is a compile error. Reaching this line
+  // needs a value outside the enumeration, which no code can produce.
+  LOG_FATAL("Unexpected FilterInfo::Type");
 }
 
 std::string Filter::ToString(const DbAccessor * /*dba*/) const {

@@ -1297,6 +1297,21 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
                                  }),
                  memgraph::query::SemanticException);
   }
+  {
+    // A parameter states properties just as a literal map does, so giving either to a node the query has
+    // already declared is the same error. Creation skips a node whose variable is bound, so accepting it would
+    // drop the properties the query asked for.
+    ASSERT_THROW(this->Interpret("MATCH (n) CREATE (n {name: 'name1'})-[:TO]->() RETURN n"),
+                 memgraph::query::SemanticException);
+
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    ASSERT_THROW(this->Interpret("MATCH (n) CREATE (n $prop)-[:TO]->() RETURN n",
+                                 {
+                                     {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
+                                 }),
+                 memgraph::query::SemanticException);
+  }
 }
 
 TYPED_TEST(InterpreterTest, WhitespaceBetweenDollarAndParameterName) {

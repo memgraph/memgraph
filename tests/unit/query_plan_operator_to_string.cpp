@@ -399,6 +399,24 @@ TYPED_TEST(OperatorToStringTest, Filter) {
   EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
 }
 
+// A node test and a label test on the same symbol stay two filters, and print as two.
+TYPED_TEST(OperatorToStringTest, FilterNodeTestStaysApartFromLabels) {
+  auto node = this->GetSymbol("person");
+  auto *node_test = LABELS_TEST(IDENT("person")->MapTo(node), std::vector<LabelIx>{});
+  auto *label_test =
+      LABELS_TEST(IDENT("person")->MapTo(node), std::vector<LabelIx>{this->storage.GetLabelIx("Customer")});
+
+  Filters filters;
+  filters.CollectFilterExpression(node_test, this->symbol_table);
+  filters.CollectFilterExpression(label_test, this->symbol_table);
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, node_test, filters);
+
+  std::string expected_string{"Filter (person :Customer), (person)"};
+  EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
+}
+
 TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels1) {
   auto node = this->GetSymbol("person");
   auto node_ident = IDENT("person");

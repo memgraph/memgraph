@@ -1174,6 +1174,10 @@ class LabelsTest : public Expression {
     return visitor.PostVisit(*this);
   }
 
+  /// Whether this asks only that the value is a node. Such a test yields null for a null, true for a vertex,
+  /// and raises for any other type.
+  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty(); }
+
   Expression *expression_{nullptr};
   std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
   std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
@@ -1758,6 +1762,15 @@ class NodeAtom : public memgraph::query::PatternAtom {
       }
     }
     return visitor.PostVisit(*this);
+  }
+
+  /// Whether this atom states anything about the node beyond naming it.
+  bool HasLabelsOrProperties() const {
+    if (!labels_.empty()) return true;
+    if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
+      return !properties->empty();
+    }
+    return std::get<ParameterLookup *>(properties_) != nullptr;
   }
 
   std::vector<QueryLabelType> labels_;
