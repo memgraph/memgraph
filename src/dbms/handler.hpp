@@ -210,41 +210,42 @@ class Handler {
     auto db_acc = itr->second.access();
     if (!db_acc) return;
 
-    if (db_acc->try_delete()) {
-      // Delete the database now
-      db_acc->reset();
-      post_delete_func();
-    } else {
-      // Defer deletion
-      db_acc->reset();
-      // `name` may alias itr->first (Delete(uuid) passes the map key); own it for the warn() below,
-      // which now runs after items_.erase() frees that node. Copy before the pd move so a throw here
-      // strands nothing.
-      const std::string name_copy{name};
-      // Invariant: node-alloc bad_alloc must not strand a husk (hence erase-before-push_back)
-      // nor block ~Gatekeeper under defer_lock_ (hence pd-before-guard).
-      PendingDestruction pd{.post_delete_func = std::forward<Func>(post_delete_func),
-                            .pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
-                            .gk = std::move(itr->second)};
-      items_.erase(itr);
-      {
-        auto guard = std::lock_guard{defer_lock_};
-        pending_.push_back(std::move(pd));
-        try {
-          metrics::Metrics().global.deferred_tenant_destructions->Increment();
-          spdlog::warn(
-              "Destruction of dropped database \"{}\" is deferred because it is still in use; its memory "
-              "stays accounted for until the last accessor is released ({} tenant destruction(s) pending).",
-              name_copy,
-              pending_.size());
-          defer_scheduler_.Wake();
-        } catch (...) {  // NOLINT(bugprone-empty-catch)
-        }
-      }
-      return;
-    }
-    // In any case remove from handled map
+    // Always defer destruction to the worker. Delete_ no longer stops the tenant's background tasks
+    // under lock_, so ~Database -- which joins them -- must run off-lock; even a sole-held tenant is
+    // reclaimed on the worker's next tick (TryReserve stops the tasks, then destroys). This keeps
+    // lock_ off every bounded thread join, and keeps the tenant's DETACHED row visible for the whole
+    // drain instead of forgetting it inline.
+    db_acc->reset();
+    // `name` may alias itr->first (Delete(uuid) passes the map key); own it for the log() below,
+    // which runs after items_.erase() frees that node. Copy before the pd move so a throw here
+    // strands nothing.
+    const std::string name_copy{name};
+    // Invariant: node-alloc bad_alloc must not strand a husk (hence erase-before-push_back)
+    // nor block ~Gatekeeper under defer_lock_ (hence pd-before-guard).
+    PendingDestruction pd{.post_delete_func = std::forward<Func>(post_delete_func),
+                          .pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
+                          .gk = std::move(itr->second)};
     items_.erase(itr);
+    std::size_t pending_count = 0;
+    {
+      auto guard = std::lock_guard{defer_lock_};
+      pending_.push_back(std::move(pd));
+      pending_count = pending_.size();
+    }
+    // Wake() OUTSIDE defer_lock_ and OUTSIDE the try/catch. Outside the lock: formatting/flushing the
+    // log must not stall the drain worker (which contends on defer_lock_). Outside the try: a throw
+    // from Increment()/trace() must not skip Wake() -- that would leave this just-pushed node unreclaimed
+    // until the next DeferDelete, parking the worker in the meantime.
+    try {
+      metrics::Metrics().global.deferred_tenant_destructions->Increment();
+      spdlog::trace(
+          "Destruction of dropped database \"{}\" deferred to the background worker; its memory stays "
+          "accounted for until it is reclaimed ({} tenant destruction(s) pending).",
+          name_copy,
+          pending_count);
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
+    defer_scheduler_.Wake();
   }
 
   /**
@@ -303,6 +304,10 @@ class Handler {
   // A tenant dropped while an accessor is still held: its Gatekeeper is moved out of items_ into one of
   // these nodes and destroyed later, on the reschedule worker, once the last accessor is released.
   struct PendingDestruction {
+    // Set once, on the worker, after this tenant's background tasks have been stopped (see TryReserve).
+    // Guards the one-time StopAllBackgroundTasks/DropAll so it is not re-run on every poll tick. Leading
+    // + defaulted so DeferDelete's designated-initializer (which omits it) still constructs the node.
+    bool stopped_ = false;
     // `gk` is declared LAST: a throw during earlier members never half-moves the source Gatekeeper
     // (see DeferDelete). Reverse-order destruction tears gk first: no-op if completed, blocking if live.
     std::move_only_function<void()> post_delete_func;  //!< runs once, OFF defer_lock_, after teardown
@@ -311,9 +316,32 @@ class Handler {
 
     // Called OFF defer_lock_ (value teardown must not run under the list mutex). Zero-timeout try_delete:
     // succeeds only if sole holder (value destroyed → true). Nullopt from access() is a dead-state backstop.
+    //
+    // Stop-then-drain: on the first tick that reaches a live value, stop the tenant's background tasks
+    // (bounded thread joins) so they release their own accessors, THEN try_delete on this same `acc`.
+    // Reusing the one accessor is deliberate: minting a second for the stop would leave count_ >= 2 and
+    // wedge try_delete forever. The joins run here, on the worker, off lock_ -- one slow drop delays
+    // other pending drops (bounded head-of-line), never the instance.
     bool TryReserve() {
       auto acc = gk.access();
       if (!acc) return true;
+      if (!stopped_) {
+        // Runs on the defer worker, whose scheduler does NOT guard its callback (Scheduler::ThreadRun
+        // calls f() unguarded), so an escaping throw here would std::terminate the process. On the old
+        // path these joins ran on the query thread where a throw was a recoverable query error; keep
+        // that. Set stopped_ first so a persistent failure cannot spin re-stopping every tick; the stop
+        // is best-effort and ~Database (via try_delete below) is the teardown backstop.
+        stopped_ = true;
+        try {
+          auto *database = acc->get();
+          database->StopAllBackgroundTasks();
+          database->streams()->DropAll();
+        } catch (...) {  // NOLINT(bugprone-empty-catch)
+          spdlog::error(
+              "Deferred teardown of a dropped database could not stop its background tasks "
+              "cleanly; destruction will still proceed.");
+        }
+      }
       if (!acc->try_delete(kDeferTryTimeout)) {
         acc->reset();
         return false;

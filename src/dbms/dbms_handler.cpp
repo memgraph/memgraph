@@ -845,8 +845,10 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     //       can occur while we are dropping the database
     db->prepare_for_deletion();
     auto &database = *db->get();
-    database.StopAllBackgroundTasks();
-    database.streams()->DropAll();
+    // Teardown (StopAllBackgroundTasks + streams()->DropAll()) is deferred to the defer worker
+    // (Handler::PendingDestruction::TryReserve), NOT run here: those are bounded thread joins, and
+    // running them under lock_ would freeze every tenant on the instance for their duration. The
+    // worker stops the background tasks off-lock, before reclaiming the tenant.
     // Last point this Database is reachable from Delete_: the accessor above is the only thing
     // keeping it alive, and it goes out of scope at the end of this block.
     tenant_uuid = database.uuid();
@@ -860,8 +862,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   uint64_t holders = 0;
   if (auto *gk = db_handler_.GetGatekeeper(db_name)) holders = gk->holder_count();
 
-  // Publish before DeferDelete: the inline path calls ForgetDetached_ synchronously inside DeferDelete, so publishing
-  // after would orphan the row permanently.
+  // Publish before DeferDelete: DeferDelete hands the tenant to the worker, whose post_delete_func runs
+  // ForgetDetached_ once destruction completes; publishing after the handoff could race that and orphan the row.
   RecordDetached_(DetachedTenant{.name = std::string{db_name},
                                  .uuid = tenant_uuid,
                                  .detached_at = std::chrono::system_clock::now(),
