@@ -3647,7 +3647,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   EXPECT_TRUE(eq(value, TypedValue(42)));
 }
 
-TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueOverASoughtValueThatIsNotAPropertyValue) {
+  // Nothing stored equals a graph element, so the filter this scan stands in for
+  // keeps no row and never needs the value as a property. The scan keeps none as
+  // well, rather than raising over a conversion it did not have to make.
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
@@ -3677,7 +3680,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   auto scan_index =
       MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, ident_m, scan_all.op_);
   auto context = MakeContext(this->storage, symbol_table, &dba);
-  EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+  EXPECT_EQ(PullAll(*scan_index.op_, &context), 0);
 }
 
 TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeOverABoundThatIsNotAPropertyValue) {
