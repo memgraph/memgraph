@@ -195,7 +195,11 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       // exists. The Null is read before the value is converted, because a value holding one need
       // not be storable at all: converting `[null, <a node>]` raises where the filter this scan
       // stands in for raises nothing.
-      if (relations::equality::HoldsANull(typed_value)) {
+      //
+      // A value no property can hold is settled the same way and for the same reason: nothing
+      // stored equals a graph element, so the filter keeps no row and never asks for the value as a
+      // property. Converting it first would make the query raise only once an index existed.
+      if (relations::equality::HoldsANull(typed_value) || !typed_value.IsPropertyValue()) {
         return storage::PropertyValueRange::Empty();
       }
       auto bounded_property_value = bound_from(typed_value, lower_->type());
@@ -1378,34 +1382,14 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
                                                                       ExpressionEvaluator &evaluator) {
   if (!bound) return std::nullopt;
   const auto &value = bound->value()->Accept(evaluator);
-  try {
-    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
-    switch (property_value.type()) {
-      case storage::PropertyValue::Type::Bool:
-      case storage::PropertyValue::Type::List:
-      case storage::PropertyValue::Type::NumericList:
-      case storage::PropertyValue::Type::IntList:
-      case storage::PropertyValue::Type::DoubleList:
-      case storage::PropertyValue::Type::Map:
-      case storage::PropertyValue::Type::Enum:
-      case storage::PropertyValueType::Point2d:
-      case storage::PropertyValueType::Point3d:
-      case storage::PropertyValueType::VectorIndexId:
-        // Prevent indexed lookup with something that would fail if we did
-        // the original filter with `operator<`. Note, for some reason,
-        // Cypher does not support comparing boolean values.
-        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
-      case storage::PropertyValue::Type::Null:
-      case storage::PropertyValue::Type::Int:
-      case storage::PropertyValue::Type::Double:
-      case storage::PropertyValue::Type::String:
-      case storage::PropertyValue::Type::TemporalData:
-      case storage::PropertyValue::Type::ZonedTemporalData:
-        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
-    }
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  // A bound comparability places no pair of makes the comparison Null for every row, so the filter
+  // this scan stands in for keeps none. A Null bound already says that here, and a bound of any
+  // other type the relation cannot place says it the same way rather than raising, which would make
+  // the query fail only once an index existed. Every type it does place is one a property can hold.
+  if (!relations::comparability::Admits(value.type())) {
+    return utils::Bound<storage::PropertyValue>(storage::PropertyValue(), bound->type());
   }
+  return utils::Bound<storage::PropertyValue>(value.ToPropertyValue(evaluator.GetNameIdMapper()), bound->type());
 }
 
 // Helper function to evaluate an expression and convert it to a property value.
@@ -1418,11 +1402,11 @@ std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expressi
   // filter keeps none of them and this scan has to find none. A Null within a
   // list or a map counts: the lookup below compares by a relation that holds a
   // Null equal to a Null, and would report a match the filter does not.
-  if (relations::equality::HoldsANull(value)) {
+  //
+  // A value no property can hold settles the same way: nothing stored equals a graph element, so
+  // the filter keeps no row and never asks for the value as a property.
+  if (relations::equality::HoldsANull(value) || !value.IsPropertyValue()) {
     return std::nullopt;
-  }
-  if (!value.IsPropertyValue()) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }
   return value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
 }
