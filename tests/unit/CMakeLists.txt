@@ -561,9 +561,13 @@ add_unit_test(utils_pointer_pack
     LINK_TARGETS mg-utils
 )
 
+# A writer that is never granted the exclusive lock blocks in the acquisition with nothing
+# asserting on it, so a broken lock wedges rather than fails. TIMEOUT stops that from running to
+# the job's own cancellation with nothing naming this test.
 add_unit_test(utils_rwlock
     SOURCES utils_rwlock.cpp
     LINK_TARGETS mg-utils
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 add_unit_test(utils_scheduler
