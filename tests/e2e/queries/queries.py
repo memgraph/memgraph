@@ -246,5 +246,48 @@ def test_a_temporal_range_answers_for_its_own_kind_however_the_scan_is_planned(m
     assert without_index[3] == []
 
 
+def test_a_nan_bound_keeps_no_row_however_the_scan_is_planned(memgraph):
+    """A NaN has no order against any number, itself included, so all four
+    ordered comparisons answer false and a filter keeps no row. The stored order
+    still puts a NaN somewhere, so a band drawn around one would hand back
+    whatever sits on its side of that position.
+
+    The column holds no NaN of its own here. Whether an index can keep one and
+    find it again is a question about the stored order rather than about the
+    bound, and it is asked where that order is settled."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("UNWIND range(1, 100) AS i CREATE (:N {v: toFloat(i)});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    bounded_by_nan = [
+        "MATCH (n:N) WHERE n.v < sqrt(-1) RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v <= sqrt(-1) RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v > sqrt(-1) RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v >= sqrt(-1) RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v > 0.0 AND n.v < sqrt(-1) RETURN count(n) AS c;",
+    ]
+    # Ordinary bounds over the same column, so that agreement is shown to mean
+    # something other than both sides answering nothing.
+    bounded_by_a_number = [
+        "MATCH (n:N) WHERE n.v < 50.0 RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v > 50.0 RETURN count(n) AS c;",
+        "MATCH (n:N) WHERE n.v > 10.0 AND n.v < 20.0 RETURN count(n) AS c;",
+    ]
+
+    without_index = [count(q) for q in bounded_by_nan + bounded_by_a_number]
+
+    memgraph.execute("CREATE INDEX ON :N(v);")
+
+    assert [count(q) for q in bounded_by_nan + bounded_by_a_number] == without_index
+
+    # Non-vacuous: a NaN bound keeps nothing, and an ordinary one keeps only the
+    # rows it should rather than everything or nothing.
+    assert without_index[: len(bounded_by_nan)] == [0] * len(bounded_by_nan)
+    assert without_index[len(bounded_by_nan) :] == [49, 50, 9]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
