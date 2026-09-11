@@ -40,8 +40,16 @@ jobs:
         make -j$(nproc)
         ctest --output-on-failure -j$(nproc)
 
+  MGCXXTest_fail_fast:
+    name: "Fail fast (Test MGCXX)"
+    needs: MGCXXTest
+    if: ${{ failure() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Set up repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
     - name: Cancel run on merge_group failure
-      if: ${{ failure() && github.event_name == 'merge_group' }}
       uses: ./.github/actions/cancel-on-failure-in-merge-queue
       with:
         job-name: "MGCXX / Test MGCXX"
