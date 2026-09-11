@@ -764,15 +764,15 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
 #endif
 }
 
-void Auth::ValidatePassword(const std::optional<std::string> &password) const {
-  if (password && IsUserDefinedHashFormat(*password)) return;
+void Auth::Config::ValidatePassword(std::optional<std::string> const &password) const {
   if (!password) {
-    if (!config_.password_permit_null) {
+    if (!password_permit_null) {
       throw AuthException("Null passwords aren't permitted!");
     }
     return;
   }
-  if (config_.custom_password_regex) {
+
+  if (custom_password_regex) {
     if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
         !license_check_result.has_value()) {
       throw AuthException(
@@ -782,12 +782,31 @@ void Auth::ValidatePassword(const std::optional<std::string> &password) const {
           license::LicenseCheckErrorToString(license_check_result.error(), "password regex"));
     }
   }
-  if (!std::regex_match(*password, config_.password_regex)) {
+  if (!std::regex_match(*password, password_regex)) {
     throw AuthException(
         "The user password doesn't conform to the required strength! Regex: "
         "\"{}\"",
-        config_.password_regex_str);
+        password_regex_str);
   }
+}
+
+bool Auth::Config::NameMatches(std::string const &user_or_role) const {
+  if (custom_name_regex) {
+    if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
+        !license_check_result.has_value()) {
+      throw AuthException(
+          "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
+          "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
+          glue::kDefaultUserRoleRegex,
+          license::LicenseCheckErrorToString(license_check_result.error(), "user/role regex"));
+    }
+  }
+  return std::regex_match(user_or_role, name_regex);
+}
+
+void Auth::ValidatePassword(const std::optional<std::string> &password) const {
+  if (password && IsUserDefinedHashFormat(*password)) return;
+  config_.ValidatePassword(password);
 }
 
 std::optional<HashedPassword> Auth::ComputePasswordHash(const std::optional<std::string> &password) {
@@ -1453,19 +1472,7 @@ void Auth::SetMainDatabase(std::string_view db, Role &role, system::Transaction 
 }
 #endif
 
-bool Auth::NameRegexMatch(const std::string &user_or_role) const {
-  if (config_.custom_name_regex) {
-    if (const auto license_check_result = memgraph::license::global_license_checker.IsEnterpriseValid();
-        !license_check_result.has_value()) {
-      throw memgraph::auth::AuthException(
-          "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
-          "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
-          glue::kDefaultUserRoleRegex,
-          memgraph::license::LicenseCheckErrorToString(license_check_result.error(), "user/role regex"));
-    }
-  }
-  return std::regex_match(user_or_role, config_.name_regex);
-}
+bool Auth::NameRegexMatch(const std::string &user_or_role) const { return config_.NameMatches(user_or_role); }
 
 bool Auth::HasUser(std::string_view name) const {
   auto username = utils::ToLowerCase(name);
