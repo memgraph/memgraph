@@ -66,9 +66,7 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
   }
 
   // Populate local storage
-  durability_->ForEach(kUserProfilesPrefix.data(), [this](auto const &entry) {
-    const auto &[key, value] = entry;
-    const auto name = key.substr(kUserProfilesPrefix.size());
+  durability_->ForEachProfile([this](auto const &name, auto const &value) {
     try {
       auto profile = nlohmann::json::parse(value).template get<memgraph::auth::UserProfiles::Profile>();
       profile.name = name;
@@ -97,7 +95,7 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
         existing_profile.usernames.erase(username);
         // Update the other profile in durability
         const nlohmann::json json = existing_profile;
-        durability_->Put(kUserProfilesPrefix.data() + existing_profile.name, json.dump());
+        durability_->Put(Repository::ProfileKey(existing_profile.name), json.dump());
       }
     }
   }
@@ -107,7 +105,7 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
   if (!succ) {
     return false;
   }
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, json.dump())) {
+  if (!durability_->Put(Repository::ProfileKey(name), json.dump())) {
     // Remove new profile
     profiles_.erase(it);
     return false;
@@ -128,7 +126,7 @@ std::optional<UserProfiles::Profile> UserProfiles::Update(std::string_view name,
   }
   // Update durability
   const nlohmann::json json = *profile_it;
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, json.dump())) {
+  if (!durability_->Put(Repository::ProfileKey(name), json.dump())) {
     // Revert to old profile
     profile_it->limits = std::move(old_limits);
     return std::nullopt;
@@ -144,7 +142,7 @@ bool UserProfiles::Drop(std::string_view name) {
   }
   auto old_profile = *profile_it;  // copy
   profiles_.erase(profile_it);
-  if (!durability_->Delete(kUserProfilesPrefix.data() + std::string{name})) {
+  if (!durability_->Delete(Repository::ProfileKey(name))) {
     // Revert to old profile
     profiles_.emplace(std::move(old_profile));
     return false;
@@ -185,7 +183,7 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
       profile.usernames.erase(std::string{username});
       // Update the other profile in durability
       const nlohmann::json json = profile;
-      durability_->Put(kUserProfilesPrefix.data() + profile.name, json.dump());
+      durability_->Put(Repository::ProfileKey(profile.name), json.dump());
     }
   }
 
@@ -194,7 +192,7 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
 
   // Update durability
   const nlohmann::json json = *profile_it;
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{profile_name}, json.dump())) {
+  if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
     // Revert changes
     profile_it->usernames.erase(std::string{username});
     return std::nullopt;
@@ -219,7 +217,7 @@ bool UserProfiles::RemoveUsername(std::string_view profile_name, std::string_vie
 
   // Update durability
   const nlohmann::json json = *profile_it;
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{profile_name}, json.dump())) {
+  if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
     // Revert changes
     profile_it->usernames.insert(std::string{username});
     return false;
