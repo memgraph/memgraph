@@ -22,6 +22,7 @@
 # acceptable.
 #
 # Cpuset detection order: HA_PIN_CPUSET_OVERRIDE (for self-tests only) →
+# taskset -cp $$ (process affinity — always reflects --cpuset-cpus) →
 # /sys/fs/cgroup/cpuset.cpus.effective (cgroup v2) →
 # /sys/fs/cgroup/cpuset/cpuset.cpus  (cgroup v1) →
 # 0-$(nproc-1) fallback.
@@ -38,6 +39,16 @@ _cpuset_spec() {
     if [[ -n "${HA_PIN_CPUSET_OVERRIDE:-}" ]]; then
         printf '%s' "$HA_PIN_CPUSET_OVERRIDE"
         return
+    fi
+    # Primary: process's actual affinity — always reflects --cpuset-cpus and
+    # is the authoritative ceiling for any subsequent taskset -c call.
+    if command -v taskset &>/dev/null; then
+        local _ts_list
+        _ts_list=$(taskset -cp $$ 2>/dev/null | sed -n 's/.*: *//p')
+        if [[ "$_ts_list" =~ ^[0-9]+([,-][0-9]+)*$ ]]; then
+            printf '%s' "$_ts_list"
+            return
+        fi
     fi
     local v2=/sys/fs/cgroup/cpuset.cpus.effective
     local v1=/sys/fs/cgroup/cpuset/cpuset.cpus
