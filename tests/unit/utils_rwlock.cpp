@@ -57,16 +57,12 @@ TEST(RWLock, ExclusiveLockAdmitsOneWriterAtATime) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
   constexpr int num_writers{3};
 
-  // Atomic even though the lock is what orders these: a lock that admitted two writers together
-  // releases them within microseconds of each other, and plain increments would then be free to
-  // lose one another and record a peak of one. The counters have to survive the failure they exist
-  // to report. They still measure the lock and nothing else, since acquiring it is the only thing
-  // keeping a second writer out.
+  // A lock that admitted two writers would release them microseconds apart, and plain increments
+  // racing there could lose one another and record a peak of one.
   std::atomic<int> writers_inside{0};
   std::atomic<int> peak_writers_inside{0};
 
-  // Every writer exists before any of them asks for the lock, so the ones that lose have to queue
-  // rather than each finding a free lock in turn.
+  // All three ask at once, so the two that lose have to queue rather than each finding a free lock.
   auto all_started = std::latch{num_writers};
 
   {
@@ -81,18 +77,15 @@ TEST(RWLock, ExclusiveLockAdmitsOneWriterAtATime) {
         for (auto peak = peak_writers_inside.load();
              peak < inside && !peak_writers_inside.compare_exchange_weak(peak, inside);) {
         }
-        // Held long enough that an overlap has time to be seen in the peak. A writer that released
-        // straight away could be admitted and gone before the next one asked, and a lock granting
-        // both at once would read the same as one that sequenced them.
+        // Held long enough for two writers admitted together to overlap. Released at once, a lock
+        // granting both would read the same as one that sequenced them.
         std::this_thread::sleep_for(50ms);
         writers_inside.fetch_sub(1);
       });
     }
   }
 
-  // One rather than at most one: a peak of zero would mean no writer ever reached the critical
-  // section. A writer that never gets the lock cannot be asserted on at all, since it blocks in
-  // the acquisition and the join above waits on it; the target's ctest timeout bounds that.
+  // One rather than at most one: a peak of zero would mean no writer reached the critical section.
   EXPECT_EQ(peak_writers_inside, 1) << "two writers held the exclusive lock at the same time";
 }
 
