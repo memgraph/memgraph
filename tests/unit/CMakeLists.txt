@@ -414,6 +414,12 @@ add_unit_test(kvstore
     LINK_TARGETS mg-kvstore mg-utils
 )
 
+# Test mg-parameters
+add_unit_test(parameters
+    SOURCES parameters.cpp
+    LINK_TARGETS mg-parameters
+)
+
 if (MG_ENTERPRISE)
 add_unit_test(tenant_profiles
     SOURCES tenant_profiles.cpp ${CMAKE_SOURCE_DIR}/src/dbms/tenant_profiles.cpp

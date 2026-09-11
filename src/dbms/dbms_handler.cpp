@@ -487,6 +487,10 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
   }
 
+  if (on_uuid_retired_) on_uuid_retired_(uuid);
+
+  if (on_uuid_retired_) on_uuid_retired_(uuid);
+
   // Success
   // Save delta
   if (transaction) {
@@ -816,6 +820,7 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   if (ec) {
     spdlog::error(R"(Failed to clean disk while dropping suspended database "{}" at {})", name_copy, data_dir.string());
   }
+  if (on_uuid_retired_) on_uuid_retired_(uuid);
   UpdateColdGauge_();
   return uuid;
 }
@@ -829,6 +834,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   const auto storage_path = StorageDir_(db_name);
   if (!storage_path) return std::unexpected{DeleteError::NON_EXISTENT};
 
+  utils::UUID retired_uuid;
   {
     auto db = db_handler_.Get(db_name);
     if (!db) {
@@ -845,11 +851,14 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     //       can occur while we are dropping the database
     db->prepare_for_deletion();
     auto &database = *db->get();
+    retired_uuid = database.uuid();
     database.StopAllBackgroundTasks();
     database.streams()->DropAll();
   }
 
   DetachProfileAndRetireDurabilityKey_(db_name);
+
+  if (on_uuid_retired_) on_uuid_retired_(retired_uuid);
 
   // Check if db exists
   // Low level handlers

@@ -9,6 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <map>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <fmt/format.h>
 
 #include "parameters/parameters.hpp"
@@ -17,6 +23,7 @@
 #include "replication/include/replication/state.hpp"
 #include "system/include/system/action.hpp"
 #include "system/include/system/transaction.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::parameters {
 
@@ -139,12 +146,20 @@ bool Parameters::DeleteAllParameters(system::Transaction *txn) {
   return true;
 }
 
+bool Parameters::DeleteScope(std::string_view scope) { return storage_.DeletePrefix(fmt::format("{}/", scope)); }
+
 bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
   std::map<std::string, std::string> items;
   for (const auto &p : params) {
     items[MakeKey(p.name, p.scope_context)] = p.value;
   }
-  return storage_.PutMultiple(items);
+  // Recovery replaces local state: a parameter the instance held before joining must not survive,
+  // or a $placeholder here resolves to a value that exists nowhere on main.
+  std::vector<std::string> stale;
+  for (auto it = storage_.begin(); it != storage_.end(); ++it) {
+    if (!items.contains(it->first)) stale.push_back(it->first);
+  }
+  return storage_.PutAndDeleteMultiple(items, stale);
 }
 
 std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {
