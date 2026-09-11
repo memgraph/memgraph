@@ -12,8 +12,8 @@
 #include "gtest/gtest.h"
 
 #include "utils/rw_lock.hpp"
-#include "utils/timer.hpp"
 
+#include <algorithm>
 #include <latch>
 #include <semaphore>
 #include <shared_mutex>
@@ -53,46 +53,44 @@ TEST(RWLock, SupportsMultipleConcurrentReaders) {
   may_release.release(num_workers);
 }
 
-TEST(RWLock, SingleWriter) {
+TEST(RWLock, ExclusiveLockAdmitsOneWriterAtATime) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
-  auto count_down_start = std::latch{3};
-  auto count_down_finish = std::latch{4};
+  constexpr int num_writers{3};
 
-  memgraph::utils::Timer timer;
-  std::chrono::duration<double> start;
-  std::chrono::duration<double> total_time;
+  // Deliberately not atomic: the lock is the barrier under test. Every access below is made
+  // holding the exclusive lock, so a lock that admitted two writers together would be a data race
+  // here rather than a passing test.
+  int writers_inside = 0;
+  int peak_writers_inside = 0;
+  int admissions = 0;
 
-  auto j1 = [&] {
-    // Start only when all threads exist
-    count_down_start.arrive_and_wait();
-
-    {
-      // In smallest scope possible
-      auto lock = std::unique_lock{rwlock};
-      std::this_thread::sleep_for(100ms);
-    }
-
-    // Signal that the thread's work has finished
-    count_down_finish.count_down();
-  };
-  auto j2 = [&] {
-    start = timer.Elapsed();  // time from here to avoid the timing cost of setting up threads
-    j1();
-  };
+  // Every writer exists before any of them asks for the lock, so the ones that lose have to queue
+  // rather than each finding a free lock in turn.
+  auto all_started = std::latch{num_writers};
 
   {
-    auto threads = std::vector<std::jthread>{};
-    threads.emplace_back(j1);
-    threads.emplace_back(j1);
-    std::this_thread::sleep_for(1ms);  // Give time for other threads to have started
-    threads.emplace_back(j2);
-    // avoid timing cost to tear down threads
-    count_down_finish.arrive_and_wait();
-    total_time = timer.Elapsed() - start;
+    auto writers = std::vector<std::jthread>{};
+    writers.reserve(num_writers);
+
+    for (int i = 0; i < num_writers; ++i) {
+      writers.emplace_back([&] {
+        all_started.arrive_and_wait();
+        auto lock = std::unique_lock{rwlock};
+        ++admissions;
+        ++writers_inside;
+        peak_writers_inside = std::max(peak_writers_inside, writers_inside);
+        // Held long enough that an overlap has time to be seen in the peak. A writer that released
+        // straight away could be admitted and gone before the next one asked, and a lock granting
+        // both at once would read the same as one that sequenced them.
+        std::this_thread::sleep_for(50ms);
+        --writers_inside;
+      });
+    }
   }
 
-  EXPECT_LE(total_time, 350ms);
-  EXPECT_GE(total_time, 290ms);
+  EXPECT_EQ(peak_writers_inside, 1) << "two writers held the exclusive lock at the same time";
+  EXPECT_EQ(admissions, num_writers) << "a writer never got the exclusive lock";
+  EXPECT_EQ(writers_inside, 0);
 }
 
 TEST(RWLock, ReadPriority) {
