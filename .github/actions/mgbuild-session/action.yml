@@ -1,0 +1,73 @@
+name: 'Open an mgbuild session'
+description: 'Prepares a self-hosted runner to build with mgbuild: clears leftover Docker state, logs in to Docker Hub, spins up the mgbuild container for the given toolchain and platform, and checks that the container can produce core dumps. The caller closes the session with its own `mgbuild.sh stop --remove` step, so the build and test steps it wraps stay in the calling workflow. Requires the repository to be checked out first, since this action and the Docker Hub login it performs are both local.'
+
+inputs:
+  username:
+    description: 'Docker Hub username.'
+    required: true
+  password:
+    description: 'Docker Hub password or token.'
+    required: true
+  os:
+    description: 'Target OS for the mgbuild container, such as `ubuntu-24.04`.'
+    required: true
+  arch:
+    description: 'Target architecture, `amd` or `arm`.'
+    required: true
+  toolchain:
+    description: 'Toolchain version the container is built for, such as `v8`.'
+    required: true
+  no-ccache:
+    description: 'Set to `true` to spin the container up with ccache disabled.'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Clean up Docker
+      if: always()
+      continue-on-error: true
+      shell: bash
+      run: |
+        ./tools/ci/docker_cleanup.sh
+
+    - name: Log in to Docker Hub
+      uses: ./.github/actions/docker-login
+      with:
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+
+    - name: Spin up mgbuild container
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        OS: ${{ inputs.os }}
+        ARCH: ${{ inputs.arch }}
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        NO_CCACHE: ${{ inputs.no-ccache }}
+      run: |
+        CCACHE_FLAG=""
+        if [ "$NO_CCACHE" = "true" ]; then
+          CCACHE_FLAG="--no-ccache"
+        fi
+        USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+        ./release/package/mgbuild.sh \
+        --toolchain $TOOLCHAIN \
+        --os $OS \
+        --arch $ARCH \
+        $CCACHE_FLAG \
+        run --custom-mirror $USE_CUSTOM_MIRROR
+
+    - name: Check core dump support
+      shell: bash
+      env:
+        OS: ${{ inputs.os }}
+        ARCH: ${{ inputs.arch }}
+        TOOLCHAIN: ${{ inputs.toolchain }}
+      run: |
+        ./release/package/mgbuild.sh \
+        --toolchain $TOOLCHAIN \
+        --os $OS \
+        --arch $ARCH \
+        check-core-dumps
