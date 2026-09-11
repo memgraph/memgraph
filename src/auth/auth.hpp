@@ -308,8 +308,6 @@ class Auth final {
    */
   std::optional<Role> GetRole(const std::string &rolename) const;
 
-  void LinkRole(Role &role) const;
-
   std::optional<UserOrRole> GetUserOrRole(const std::optional<std::string> &username,
                                           const std::vector<std::string> &rolenames) const {
     auto expect = [](bool condition, std::string &&msg) {
