@@ -16,11 +16,11 @@
 #include <utility>
 #include <vector>
 
-#include "auth/auth_storage.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "auth/repository.hpp"
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
@@ -538,7 +538,7 @@ class Auth final {
   // layer's business, and a transaction must never outlive the lock it was installed under.
   friend class AuthLayer;
 
-  AuthStorage &storage() { return storage_; }
+  Repository &storage() { return storage_; }
 
   kvstore::KVStore &durability() { return durability_; }
 
@@ -613,7 +613,7 @@ class Auth final {
 
   // Everything below reaches storage through this handle, never `durability_` directly, so an auth transaction can
   // point it at an overlay instead. Auth itself has no idea which it holds.
-  AuthStorage storage_{durability_};
+  Repository storage_{durability_};
 #ifdef MG_ENTERPRISE
   UserProfiles user_profiles_{storage_};
   utils::ResourceMonitoring *user_resources_;
