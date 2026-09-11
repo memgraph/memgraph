@@ -124,44 +124,44 @@ TEST_F(RepositoryTest, PutAndDeleteMultiple) {
   ExpectSameState();
 }
 
-TEST_F(RepositoryTest, Size) {
+TEST_F(RepositoryTest, EntityScanYieldsNamesWithoutPrefix) {
   ForBothArms([](Repository &storage) {
-    EXPECT_TRUE(storage.PutMultiple({{"user:alice", "a"}, {"user:bob", "b"}, {"role:admin", "r"}}));
-    EXPECT_EQ(storage.Size("user:"), 2);
-    EXPECT_EQ(storage.Size("role:"), 1);
-  });
-  ExpectSameState();
-}
-
-TEST_F(RepositoryTest, ForEachVisitsPrefix) {
-  ForBothArms([](Repository &storage) {
-    EXPECT_TRUE(storage.PutMultiple({{"user:alice", "a"}, {"user:bob", "b"}, {"role:admin", "r"}}));
+    EXPECT_TRUE(storage.PutMultiple(
+        {{Repository::UserKey("alice"), "a"}, {Repository::UserKey("bob"), "b"}, {Repository::RoleKey("admin"), "r"}}));
     std::map<std::string, std::string> seen;
-    storage.ForEach("user:", [&seen](auto const &entry) { seen.emplace(entry); });
-    EXPECT_EQ(seen, (std::map<std::string, std::string>{{"user:alice", "a"}, {"user:bob", "b"}}));
+    storage.ForEachUser([&seen](auto const &name, auto const &value) { seen.emplace(name, value); });
+    EXPECT_EQ(seen, (std::map<std::string, std::string>{{"alice", "a"}, {"bob", "b"}}));
   });
   ExpectSameState();
 }
 
-TEST_F(RepositoryTest, AnyOfShortCircuits) {
+TEST_F(RepositoryTest, EntityScansDoNotSeeEachOther) {
   ForBothArms([](Repository &storage) {
-    EXPECT_TRUE(storage.PutMultiple({{"user:alice", "a"}, {"user:bob", "b"}}));
-    int visited = 0;
-    EXPECT_TRUE(storage.AnyOf("user:", [&visited](auto const &) {
-      ++visited;
-      return true;
-    }));
-    EXPECT_EQ(visited, 1);
-    EXPECT_FALSE(storage.AnyOf("user:", [](auto const &) { return false; }));
+    EXPECT_TRUE(storage.PutMultiple({{Repository::UserKey("alice"), "a"},
+                                     {Repository::RoleLinkKey("alice"), "l"},
+                                     {Repository::MtLinkKey("alice"), "m"},
+                                     {Repository::ProfileKey("alice"), "p"}}));
+    auto count = [&](auto scan) {
+      int n = 0;
+      scan([&n](auto const &, auto const &) { ++n; });
+      return n;
+    };
+    EXPECT_EQ(count([&](auto &&fn) { storage.ForEachUser(fn); }), 1);
+    EXPECT_EQ(count([&](auto &&fn) { storage.ForEachRoleLink(fn); }), 1);
+    EXPECT_EQ(count([&](auto &&fn) { storage.ForEachMtLink(fn); }), 1);
+    EXPECT_EQ(count([&](auto &&fn) { storage.ForEachProfile(fn); }), 1);
+    EXPECT_EQ(count([&](auto &&fn) { storage.ForEachRole(fn); }), 0);
   });
   ExpectSameState();
 }
 
-TEST_F(RepositoryTest, HasAny) {
+TEST_F(RepositoryTest, HasAnyEntity) {
   ForBothArms([](Repository &storage) {
-    EXPECT_FALSE(storage.HasAny("user:"));
-    EXPECT_TRUE(storage.Put("user:alice", "a"));
-    EXPECT_TRUE(storage.HasAny("user:"));
+    EXPECT_FALSE(storage.HasAnyUser());
+    EXPECT_FALSE(storage.HasAnyRole());
+    EXPECT_TRUE(storage.Put(Repository::UserKey("alice"), "a"));
+    EXPECT_TRUE(storage.HasAnyUser());
+    EXPECT_FALSE(storage.HasAnyRole());
   });
   ExpectSameState();
 }
