@@ -30,6 +30,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
