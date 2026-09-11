@@ -1878,7 +1878,7 @@ test_memgraph() {
     unit-coverage)
       local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=halt_on_error=1"
       local status=0
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j2 --output-junit test-results/unit-coverage.xml' || status=$?
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$(nproc) --output-junit test-results/unit-coverage.xml' || status=$?
       collect_ctest_results "$status"
     ;;
     leftover-CTest)
