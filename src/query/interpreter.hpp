@@ -324,6 +324,28 @@ struct CurrentDB {
     }
   }
 
+  // Unconditionally release db_acc_ (drops the gatekeeper count) under the lock, so a concurrent
+  // foreign_db_view() never tears against the null-ing. Called by the idle-session reaper from its
+  // background sweep thread. The identity cache (current_db_name_/current_db_uuid_) is deliberately
+  // KEPT so the session's next query re-acquires the same tenant by name. Same swap-out-under-lock /
+  // destruct-outside-lock discipline as ReleaseDbIfMarked (Accessor dtor can block on GKInternals::mutex_).
+  void ReleaseDbAccessor() {
+    std::optional<memgraph::dbms::DatabaseAccess> old_db;
+    {
+      std::lock_guard lock{db_acc_mutex_};
+      old_db.swap(db_acc_);
+    }
+  }
+
+  // Re-attach a freshly-acquired accessor under the lock so a concurrent foreign_db_view() sees a
+  // consistent (fully-constructed) optional, not a torn write. Precondition: db_acc_ is currently empty
+  // (the reaper released it); callers guarantee this, so there is no outgoing Accessor to destruct.
+  // in_explicit_db_ and the identity cache are unchanged (same tenant is being re-attached).
+  void ReacquireDbAccessor(memgraph::dbms::DatabaseAccess db) {
+    std::lock_guard lock{db_acc_mutex_};
+    db_acc_ = std::move(db);
+  }
+
   // Owning-thread-only. Reads db_acc_ with no synchronization, safe only because a session's queries are
   // serialized -- Bolt's worker pool never runs two for one session at once, so the owning thread's read
   // never overlaps that session's own SetCurrentDB writer. The verifier's ACTIVE->VERIFYING CAS does NOT

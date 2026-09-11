@@ -11470,7 +11470,7 @@ void Interpreter::EnsureDbAccessForQuery() {
       current_db_.ResetDB();
       return;
     }
-    current_db_.db_acc_ = std::move(reacquired);
+    current_db_.ReacquireDbAccessor(std::move(reacquired));
   } catch (const dbms::UnknownDatabaseException &) {
     // Dropped / suspended / draining out from under the session. Same db-less fallback rather than wedge.
     spdlog::trace("Session database '{}' no longer available; falling back to a db-less session.",
@@ -11512,7 +11512,7 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
     if (db->name() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
       // Release the accessor (drops the gatekeeper count). current_db_name_ is kept so the next query
       // transparently re-acquires via EnsureDbAccessForQuery.
-      current_db_.db_acc_.reset();
+      current_db_.ReleaseDbAccessor();
       reaped = true;
     }
   }
