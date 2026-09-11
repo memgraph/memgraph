@@ -177,14 +177,6 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), bound_type};
   };
 
-  auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
-    if (value == std::nullopt) {
-      return std::nullopt;
-    } else {
-      return bound_from(value->value()->Accept(evaluator), value->type());
-    }
-  };
-
   switch (type_) {
     case Type::EQUAL:
     case Type::IN: {
@@ -236,19 +228,33 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     }
 
     case Type::RANGE: {
+      // Each bound is read once. Its expression may have side effects or answer differently each
+      // time it is asked, so the value the range is built from has to be the same one its type was
+      // judged on.
+      auto const evaluated = [&](auto const &bound) -> std::optional<TypedValue> {
+        if (bound == std::nullopt) return std::nullopt;
+        return bound->value()->Accept(evaluator);
+      };
+      auto const lower_value = evaluated(lower_);
+      auto const upper_value = evaluated(upper_);
+
       // A bound of a type comparability places no pair of makes every ordered comparison Null, so
       // the filter this scan stands in for keeps no row. The index orders such values all the same,
       // by where their type sits, and would otherwise hand back rows no filter would pass.
-      auto const placed_by_comparability = [&](auto const &bound) {
-        if (bound == std::nullopt) return true;
-        return relations::comparability::Admits(bound->value()->Accept(evaluator).type());
+      auto const placed_by_comparability = [](auto const &value) {
+        return !value || relations::comparability::Admits(value->type());
       };
-      if (!placed_by_comparability(lower_) || !placed_by_comparability(upper_)) {
+      if (!placed_by_comparability(lower_value) || !placed_by_comparability(upper_value)) {
         return storage::PropertyValueRange::Empty();
       }
 
-      auto lower_bound = to_bounded_property_value(lower_);
-      auto upper_bound = to_bounded_property_value(upper_);
+      auto const to_bound = [&](std::optional<TypedValue> const &value,
+                                auto const &bound) -> std::optional<utils::Bound<storage::PropertyValue>> {
+        if (!value) return std::nullopt;
+        return bound_from(*value, bound->type());
+      };
+      auto lower_bound = to_bound(lower_value, lower_);
+      auto upper_bound = to_bound(upper_value, upper_);
 
       // When scanning a range, the bounds must be the same type
       if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {

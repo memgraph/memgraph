@@ -187,5 +187,28 @@ def test_negated_membership_keeps_no_row_whose_sought_value_is_null(memgraph):
     assert count("MATCH (n:R) WITH n ORDER BY n.v DESC WHERE NOT (n.v IN [1]) RETURN count(n) AS c;") == 4
 
 
+def test_a_range_bound_is_read_once_however_the_scan_is_planned(memgraph):
+    """A bound is an expression, and asking it twice both repeats whatever it
+    does and risks building the range from a different value than the one whose
+    type was judged. `counter` answers a new value each call, so a bound reading
+    it settles the range on its first answer and the row count says which."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("UNWIND range(1, 5) AS i CREATE (:C {p: i});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    # The counter starts at 0, so a bound of its first answer keeps all five
+    # rows. A second call would bound at 1 and keep four.
+    ranged = "MATCH (n:C) WHERE n.p > counter('bound', 0) RETURN count(n) AS c;"
+
+    assert count(ranged) == 5
+
+    memgraph.execute("CREATE INDEX ON :C(p);")
+
+    assert count(ranged) == 5
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
