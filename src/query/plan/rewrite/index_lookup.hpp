@@ -902,7 +902,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.list_collection_branch_);
+    // The branch runs on the frame the input has already written, so it may seek on what the input bound -
+    // same as Apply. A branch whose input is the bare Once of a deferred fold inherits nothing, which is
+    // what that shape needs: there the row comes from below the enclosing Filter, not from this input.
+    RewriteBranch(&op.list_collection_branch_, InheritedFor(op));
     return false;
   }
 
