@@ -89,5 +89,35 @@ def test_an_edge_property_equality_answers_the_same_way_with_and_without_an_inde
     assert count(sought_holding_none) == 1
 
 
+def test_equality_against_an_unstorable_value_holding_a_null_raises_on_no_plan(memgraph):
+    """A value holding a null answers every equality null, so nothing matches it
+    and no plan needs to convert it to a property. One holding a graph entity
+    beside the null cannot be converted at all, and a scan must not be the reason
+    the query raises when the filter it stands in for does not."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("CREATE (:V {p: [1, 2]}), (:Anchor);")
+    memgraph.execute("CREATE (a:From), (b:To);")
+    memgraph.execute("MATCH (a:From), (b:To) CREATE (a)-[:T {p: [1, 2]}]->(b);")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    sought_holding_a_node = "MATCH (x:Anchor), (n:V) WHERE n.p = [null, x] RETURN count(n) AS c;"
+    sought_on_an_edge = "MATCH (x:Anchor), ()-[r:T]->() WHERE r.p = [null, x] RETURN count(r) AS c;"
+
+    # Without an index the filter reads the equality directly and keeps nothing.
+    assert count(sought_holding_a_node) == 0
+    assert count(sought_on_an_edge) == 0
+
+    memgraph.execute("CREATE INDEX ON :V(p);")
+    memgraph.execute("CREATE EDGE INDEX ON :T(p);")
+
+    # With one, the scan answers the same way rather than raising over a value it
+    # would never have had to store.
+    assert count(sought_holding_a_node) == 0
+    assert count(sought_on_an_edge) == 0
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

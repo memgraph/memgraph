@@ -169,28 +169,35 @@ auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
 auto ExpressionRange::IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
 auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
+  auto const bound_from = [&](TypedValue const &typed_value, auto bound_type) {
+    if (!typed_value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
+    }
+    return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), bound_type};
+  };
+
   auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
     if (value == std::nullopt) {
       return std::nullopt;
     } else {
-      auto const typed_value = value->value()->Accept(evaluator);
-      if (!typed_value.IsPropertyValue()) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
-      }
-      return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), value->type()};
+      return bound_from(value->value()->Accept(evaluator), value->type());
     }
   };
 
   switch (type_) {
     case Type::EQUAL:
     case Type::IN: {
-      auto bounded_property_value = to_bounded_property_value(lower_);
-      // Equality against a value holding a Null answers Null for every row, so
-      // a filter keeps none of them. The scan has to agree, or the same query
-      // answers differently once an index exists.
-      if (bounded_property_value && relations::equality::HoldsANull(bounded_property_value->value())) {
+      if (!lower_) return storage::PropertyValueRange::Bounded(std::nullopt, std::nullopt);
+      auto const typed_value = lower_->value()->Accept(evaluator);
+      // Equality against a value holding a Null answers Null for every row, so a filter keeps
+      // none of them. The scan has to agree, or the same query answers differently once an index
+      // exists. The Null is read before the value is converted, because a value holding one need
+      // not be storable at all: converting `[null, <a node>]` raises where the filter this scan
+      // stands in for raises nothing.
+      if (relations::equality::HoldsANull(typed_value)) {
         return storage::PropertyValueRange::Empty();
       }
+      auto bounded_property_value = bound_from(typed_value, lower_->type());
       return storage::PropertyValueRange::Bounded(bounded_property_value, bounded_property_value);
     }
 
