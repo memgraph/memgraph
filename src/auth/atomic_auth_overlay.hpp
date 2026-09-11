@@ -13,6 +13,7 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -46,8 +47,6 @@ class AtomicAuthOverlay {
   bool PutMultiple(std::map<std::string, std::string> const &items);
 
   bool DeleteMultiple(std::vector<std::string> const &keys);
-
-  size_t Size(std::string const &prefix = "") const;
 
   /// Merging iterator over base + write-set for a given prefix.
   class iterator {
@@ -88,7 +87,16 @@ class AtomicAuthOverlay {
   bool Flush();
 
  private:
+  /// Records a base key a scan walked past, so a scan's dependency on the keys it saw is conflict-checked the same
+  /// way a named read is. Without this a transaction can decide on which keys exist and leave no trace of it.
+  void RecordScanned(std::string const &key, std::string const &value) const;
+
   kvstore::KVStore &base_;
+
+  /// Prefixes this transaction has scanned. A scan depends on which keys exist under its prefix, not only on the
+  /// ones it saw, so `Flush` re-walks each prefix and fails if a key has appeared. Recording the keys seen is not
+  /// enough on its own: a scan of an empty prefix records nothing, which is exactly the first-user case.
+  mutable std::set<std::string, std::less<>> scanned_prefixes_;
 
   /// key -> value at snapshot time (nullopt = did not exist). Mutable because recording a read is bookkeeping for
   /// conflict detection, not observable state: reads stay logically const so Auth's query methods can too.

@@ -287,3 +287,93 @@ TEST_F(AtomicAuthOverlayTest, PutAndDeleteMultiple) {
   EXPECT_EQ(overlay.Get("role:admin").value(), "admin_data");
   EXPECT_FALSE(overlay.Get("link:alice").has_value());
 }
+
+// --- Scans participate in conflict detection ---
+
+namespace {
+size_t CountUnder(AtomicAuthOverlay const &overlay, std::string const &prefix) {
+  size_t n = 0;
+  for (auto it = overlay.begin(prefix), e = overlay.end(prefix); it != e; ++it) ++n;
+  return n;
+}
+}  // namespace
+
+TEST_F(AtomicAuthOverlayTest, FlushDetectsKeyAppearingUnderScannedPrefix) {
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(CountUnder(overlay, "user:"), 0);
+  overlay.Put("role:admin", "admin_data");
+
+  store_->Put("user:alice", "their_alice");
+
+  EXPECT_FALSE(overlay.Flush());
+  EXPECT_FALSE(store_->Get("role:admin").has_value());
+}
+
+TEST_F(AtomicAuthOverlayTest, FlushDetectsModificationOfScannedKey) {
+  store_->Put("user:alice", "alice_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(CountUnder(overlay, "user:"), 1);
+  overlay.Put("role:admin", "admin_data");
+
+  store_->Put("user:alice", "alice_modified");
+
+  EXPECT_FALSE(overlay.Flush());
+}
+
+TEST_F(AtomicAuthOverlayTest, FlushDetectsRemovalOfScannedKey) {
+  store_->Put("user:alice", "alice_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(CountUnder(overlay, "user:"), 1);
+  overlay.Put("role:admin", "admin_data");
+
+  store_->Delete("user:alice");
+
+  EXPECT_FALSE(overlay.Flush());
+}
+
+TEST_F(AtomicAuthOverlayTest, FlushIgnoresChangeOutsideScannedPrefix) {
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(CountUnder(overlay, "user:"), 0);
+  overlay.Put("user:alice", "our_alice");
+
+  store_->Put("role:admin", "their_admin");
+
+  EXPECT_TRUE(overlay.Flush());
+  EXPECT_EQ(store_->Get("user:alice").value(), "our_alice");
+}
+
+TEST_F(AtomicAuthOverlayTest, ScanDoesNotConflictWithOwnWrites) {
+  store_->Put("user:alice", "alice_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  overlay.Put("user:bob", "bob_data");
+  EXPECT_EQ(CountUnder(overlay, "user:"), 2);
+  overlay.Put("user:carol", "carol_data");
+
+  EXPECT_TRUE(overlay.Flush());
+  EXPECT_EQ(store_->Get("user:bob").value(), "bob_data");
+  EXPECT_EQ(store_->Get("user:carol").value(), "carol_data");
+}
+
+// Two sessions both find an empty instance and both elevate their user. Without the scanned-prefix check both
+// flushes validate, because neither read the key the other wrote, and the instance ends up with two superusers.
+TEST_F(AtomicAuthOverlayTest, TwoConcurrentFirstUsersConflict) {
+  auto first_user_txn = [this](std::string const &username) {
+    auto overlay = std::make_unique<AtomicAuthOverlay>(*store_);
+    bool const first_user = CountUnder(*overlay, "user:") == 0;
+    EXPECT_TRUE(first_user);
+    overlay->Put("user:" + username, first_user ? "superuser" : "ordinary");
+    return overlay;
+  };
+
+  auto alice = first_user_txn("alice");
+  auto bob = first_user_txn("bob");
+
+  EXPECT_TRUE(alice->Flush());
+  EXPECT_FALSE(bob->Flush());
+
+  EXPECT_EQ(store_->Get("user:alice").value(), "superuser");
+  EXPECT_FALSE(store_->Get("user:bob").has_value());
+}

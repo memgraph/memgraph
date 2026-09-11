@@ -29,6 +29,10 @@ std::optional<std::string> AtomicAuthOverlay::Get(std::string_view key) const {
   return read_set_.at(key_str);
 }
 
+void AtomicAuthOverlay::RecordScanned(std::string const &key, std::string const &value) const {
+  read_set_.emplace(key, value);  // First read wins: a later one would record a value this transaction already saw
+}
+
 void AtomicAuthOverlay::Put(std::string_view key, std::string_view value) {
   auto const key_str = std::string(key);
 
@@ -74,29 +78,20 @@ bool AtomicAuthOverlay::DeleteMultiple(std::vector<std::string> const &keys) {
   return true;
 }
 
-size_t AtomicAuthOverlay::Size(std::string const &prefix) const {
-  size_t count = 0;
-  // This is an approximation: count base entries not tombstoned, plus new write-set entries
-  for (auto it = base_.begin(prefix); it != base_.end(prefix); ++it) {
-    auto ws = write_set_.find(it->first);
-    if (ws == write_set_.end() || ws->second.has_value()) {
-      ++count;
-    }
-  }
-  for (auto it = write_set_.lower_bound(prefix); it != write_set_.end() && it->first.starts_with(prefix); ++it) {
-    if (it->second.has_value() && !base_.Get(it->first).has_value()) {
-      ++count;
-    }
-  }
-  return count;
-}
-
 bool AtomicAuthOverlay::Flush() {
   // Validate read-set against current base state
   for (auto const &[key, snapshot_val] : read_set_) {
     auto current_val = base_.Get(key);
     if (current_val != snapshot_val) {
       return false;
+    }
+  }
+
+  // A scan saw every key under its prefix, so a key appearing there invalidates whatever it concluded. Keys the
+  // scan did see are in the read-set already, which covers their modification and removal.
+  for (auto const &prefix : scanned_prefixes_) {
+    for (auto it = base_.begin(prefix), e = base_.end(prefix); it != e; ++it) {
+      if (!read_set_.contains(it->first)) return false;
     }
   }
 
@@ -130,6 +125,7 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const *overlay, std::str
       base_end_(overlay->base_.end(prefix_)),
       at_end_(at_end) {
   if (!at_end_) {
+    overlay_->scanned_prefixes_.insert(prefix_);
     write_it_ = overlay_->write_set_.lower_bound(prefix_);
     write_end_ = overlay_->write_set_.end();
     Advance();
@@ -151,6 +147,7 @@ void AtomicAuthOverlay::iterator::Advance() {
     if (have_base && have_write) {
       if (base_it_->first < write_it_->first) {
         // Base entry not overridden; check it's not deleted in write-set
+        overlay_->RecordScanned(base_it_->first, base_it_->second);
         auto ws = overlay_->write_set_.find(base_it_->first);
         if (ws == overlay_->write_set_.end()) {
           current_ = *base_it_;
@@ -164,6 +161,7 @@ void AtomicAuthOverlay::iterator::Advance() {
         ++write_it_;
       } else {
         // Same key: write-set wins
+        overlay_->RecordScanned(base_it_->first, base_it_->second);
         if (write_it_->second.has_value()) {
           current_ = std::make_pair(write_it_->first, *write_it_->second);
         }
@@ -171,6 +169,7 @@ void AtomicAuthOverlay::iterator::Advance() {
         ++write_it_;
       }
     } else if (have_base) {
+      overlay_->RecordScanned(base_it_->first, base_it_->second);
       auto ws = overlay_->write_set_.find(base_it_->first);
       if (ws == overlay_->write_set_.end()) {
         current_ = *base_it_;
