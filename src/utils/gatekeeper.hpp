@@ -362,6 +362,13 @@ struct Gatekeeper {
     return std::nullopt;
   }
 
+  // Rolls back Accessor::prepare_for_deletion() when the drop that set the mark fails before the tenant
+  // is handed to teardown. Clears the advisory delete mark so replication recovery can re-arm for the
+  // still-present tenant. Atomic store, like the set side — no lock needed.
+  void cancel_deletion() {
+    if (pimpl_) pimpl_->is_marked_for_deletion = false;
+  }
+
   // Returns the current lifecycle state (locks mutex_).
   GatekeeperState state() const {
     auto guard = std::unique_lock{pimpl_->mutex_};
