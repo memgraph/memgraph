@@ -59,7 +59,7 @@ void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::Profile
   if (data.contains("usernames")) profile.usernames = data["usernames"].get<std::unordered_set<std::string>>();
 }
 
-UserProfiles::UserProfiles(AuthStorage &durability) : durability_{&durability} {
+UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
   // No migration at the moment
   if (!durability_->Put(kUserProfilesVersionKey, kUserProfilesVersion)) {
     spdlog::error("Failed to put user profiles version");

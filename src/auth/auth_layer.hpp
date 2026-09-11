@@ -19,7 +19,7 @@
 
 #include "auth/atomic_auth_overlay.hpp"
 #include "auth/auth.hpp"
-#include "auth/auth_storage.hpp"
+#include "auth/repository.hpp"
 #include "system/transaction.hpp"
 
 namespace memgraph::auth {
@@ -64,7 +64,7 @@ class AuthLayer {
       if (!overlay) return;
       epoch_.emplace(locked_->epoch());
       previous_.emplace(locked_->storage());
-      locked_->storage() = AuthStorage{*overlay};
+      locked_->storage() = Repository{*overlay};
     }
 
     /// Restores both the storage and the epoch. Nothing this call wrote is durable yet, so the epoch must not move:
@@ -90,7 +90,7 @@ class AuthLayer {
     // being modified, not that the Auth behind it is read-only.
     mutable LockedAuth locked_;
     std::optional<Auth::Epoch> epoch_;
-    std::optional<AuthStorage> previous_;
+    std::optional<Repository> previous_;
   };
 
   /// A read guard: a shared lock outside a transaction, or the transaction's exclusive overlay guard inside one.

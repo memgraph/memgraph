@@ -1058,8 +1058,8 @@ if (MG_ENTERPRISE)
         LINK_TARGETS mg-auth mg-kvstore mg-utils
     )
 
-    add_unit_test(auth_storage
-        SOURCES auth_storage.cpp
+    add_unit_test(auth_repository
+        SOURCES repository.cpp
         LINK_TARGETS mg-auth mg-kvstore mg-utils
     )
 
