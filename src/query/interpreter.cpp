@@ -8616,8 +8616,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       .rw_type = RWType::NONE};
 }
 
-PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        Interpreter &interpreter) {
+PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
+                                        InterpreterContext *interpreter_context, Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
@@ -8688,8 +8688,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [db_name = query->db_name_,
                             force = query->force_,
+                            force_abort = query->force_abort_,
                             db_handler,
                             interpreter_context,
+                            notifications,
                             auth = interpreter_context->auth,
                             interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -8702,7 +8704,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             try {
               // Remove database
               dbms::DbmsHandler::DeleteResult success;
-              if (force) {
+              if (force || force_abort) {
                 success = db_handler->Delete(db_name, &*interpreter->system_transaction_);
                 if (success) {
                   // Try to terminate all interpreters using the database
@@ -8722,6 +8724,18 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                             interpreter->user_or_role_.get(),
                             privilege_checker);
                       });
+                  // FORCE ABORT owns the intent to evict every holder, but destruction is deferred to the
+                  // background worker: the tenant is DETACHED at this point and reclaimed once the last
+                  // accessor releases it. Tell the operator so a still-pinned tenant is not read as "gone".
+                  if (force_abort && notifications != nullptr) {
+                    notifications->emplace_back(
+                        SeverityLevel::INFO,
+                        NotificationCode::DROP_DATABASE_DETACHED,
+                        fmt::format(
+                            "Database \"{}\" is being dropped; it is now DETACHED and will be reclaimed once all "
+                            "accessors release it.",
+                            db_name));
+                  }
                 }
               } else {
                 success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
@@ -8911,6 +8925,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
+  (void)notifications;
   (void)interpreter_context;
   (void)interpreter;
   throw EnterpriseOnlyException();
@@ -11098,7 +11113,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+      prepared_query = PrepareMultiDatabaseQuery(
+          std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();
