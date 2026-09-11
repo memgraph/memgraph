@@ -119,6 +119,44 @@ def test_equality_against_an_unstorable_value_holding_a_null_raises_on_no_plan(m
     assert count(sought_on_an_edge) == 0
 
 
+def test_a_scan_does_not_raise_over_a_sought_value_no_filter_needs_stored(memgraph):
+    """A graph element is not equal to any stored property and orders against
+    none, so a filter answers without ever needing it as a property value. A
+    scan standing in for that filter must answer too: converting the value first
+    makes the query fail only once an index exists."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("CREATE (:V {p: 1}), (:V {p: 'abc'}), (:Anchor);")
+    memgraph.execute("CREATE (a:From), (b:To);")
+    memgraph.execute("MATCH (a:From), (b:To) CREATE (a)-[:T {p: 1}]->(b);")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    sought = "MATCH (x:Anchor), (n:V) WHERE n.p = x RETURN count(n) AS c;"
+    # The element that is not storable settles for nothing; the one beside it
+    # still matches, so this membership test keeps a row rather than failing.
+    membership = "MATCH (x:Anchor), (n:V) WHERE n.p IN [1, x] RETURN count(n) AS c;"
+
+    # An edge scan reads the same value through its own conversion, for an
+    # equality and for a range.
+    edge_sought = "MATCH (x:Anchor), ()-[r:T]->() WHERE r.p = x RETURN count(r) AS c;"
+    edge_ranged = "MATCH (x:Anchor), ()-[r:T]->() WHERE r.p < x RETURN count(r) AS c;"
+
+    assert count(sought) == 0
+    assert count(membership) == 1
+    assert count(edge_sought) == 0
+    assert count(edge_ranged) == 0
+
+    memgraph.execute("CREATE INDEX ON :V(p);")
+    memgraph.execute("CREATE EDGE INDEX ON :T(p);")
+
+    assert count(sought) == 0
+    assert count(membership) == 1
+    assert count(edge_sought) == 0
+    assert count(edge_ranged) == 0
+
+
 def test_negated_membership_keeps_no_row_whose_sought_value_is_null(memgraph):
     """Membership of a null in a list holding anything is undecided, and a filter
     keeps no row it cannot decide. Negating it keeps none either, since `NOT` of
