@@ -47,21 +47,17 @@ using namespace std::literals::chrono_literals;
 
 constexpr int port{8183};
 
-// The timeout for the tests that assert a prompt response is not mistaken for a timeout, set to
-// what a client should tolerate rather than to how fast this machine answers: a loaded one does not
-// manage a round trip in a couple of hundred milliseconds, and times out against a server that has
-// already replied. Still bounded, so a call that really does hang fails here rather than running
-// until the job is cancelled.
+// What a client should tolerate, not how fast this machine answers: a timeout set to the latter
+// fires on a loaded machine against a server that has already replied. Bounded all the same, so a
+// call that really does hang fails rather than running until the job is cancelled.
 constexpr int kLongerThanAnyDelay{60'000};
 
 namespace {
 
-// A gate an RPC handler waits at before it finishes responding, opened by the test once the client
-// has stopped waiting. The client's read deadline is only consulted while the bytes it needs are
-// missing, so a handler that sleeps instead leaves a gap the client only pays for if it happens to
-// be scheduled during it: one descheduled long enough finds the whole response already delivered
-// and never times out at all. Holding the response back until the client is done makes the gap
-// outlast any client, however little of it ran.
+// A gate an RPC handler waits at before finishing its response, opened once the client has stopped
+// waiting. A client consults its read deadline only while the bytes it needs are missing, so a
+// handler that sleeps instead leaves a gap a descheduled client sleeps through, finding the whole
+// response delivered and never timing out. Withholding the response outlasts any client.
 class ResponseGate {
  public:
   void Open() {
@@ -72,8 +68,7 @@ class ResponseGate {
     cv_.notify_all();
   }
 
-  // Bounded, so a client that never gives up fails the assertion waiting on it rather than leaving
-  // this handler blocked for the rest of the run.
+  // Bounded, so a client that never gives up leaves this handler blocked only until its test fails.
   void Await() {
     auto lock = std::unique_lock{mutex_};
     cv_.wait_for(lock, 30s, [this] { return open_; });
@@ -162,7 +157,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
   EXPECT_NO_THROW(stream.Finalize());
 }
 
-// A response that never comes while the client is waiting for it
+// A response that never arrives while the client waits for it times out
 TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
   Endpoint endpoint{"localhost", port};
 
@@ -209,8 +204,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
   final_response.Open();
 }
 
-// A progress message extends the wait, but a response that still does not come while the client is
-// waiting for it times out
+// A progress message extends the wait; a response that still does not arrive times out
 TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
   Endpoint endpoint{"localhost", port};
 
@@ -232,9 +226,8 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
         Decoder decoder(req_reader);
         auto maybe_epoch_id = decoder.ReadString();
 
-        // Sent at once rather than just inside the client's deadline. Timed to arrive near it, a
-        // client that ran late would be thrown by the progress message it was supposed to accept,
-        // and the wait this test is about would never be reached.
+        // Sent at once. Delayed to arrive near the client's deadline, a client that ran late would
+        // be thrown by the progress message it is supposed to accept.
         memgraph::rpc::SendInProgressMsg(res_builder);
         final_response.Await();
         PrepareCommitRes res{true};
@@ -296,8 +289,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
   EXPECT_NO_THROW(stream.SendAndWaitProgress());
 }
 
-// A progress message extends the wait, but a response that still does not come while the client is
-// waiting for it times out
+// A progress message extends the wait; a response that still does not arrive times out
 TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
   Endpoint endpoint{"localhost", port};
 
@@ -370,8 +362,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
   EXPECT_NO_THROW(stream.SendAndWaitProgress());
 }
 
-// A progress message extends the wait, but a response that still does not come while the client is
-// waiting for it times out
+// A progress message extends the wait; a response that still does not arrive times out
 TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   Endpoint endpoint{"localhost", port};
 
@@ -410,8 +401,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   final_response.Open();
 }
 
-// A timeout is configured per request type, so a call of a type without one waits however long its
-// response takes even on a client that times another type out
+// A timeout is set per request type, so a call of a type without one waits however long it takes
 TEST_F(ReplicationRpcProgressTest, TimeoutAppliesOnlyToTheRequestTypeItIsSetFor) {
   Endpoint endpoint{"localhost", port};
 
@@ -442,9 +432,9 @@ TEST_F(ReplicationRpcProgressTest, TimeoutAppliesOnlyToTheRequestTypeItIsSetFor)
          auto *res_builder) {
         memgraph::storage::replication::WalFilesReq req;
         Load(&req, req_reader);
-        // Longer than the timeout configured for the other request type, so a client applying that
-        // one to every type would give up here. Nothing is waiting on this delay, so its length is
-        // a lower bound on what the client tolerates rather than a deadline it has to beat.
+        // Longer than the timeout set for the other request type, so a client applying that one to
+        // every type gives up here. Nothing waits on this delay, so a slow machine only lengthens
+        // it.
         std::this_thread::sleep_for(1s);
         memgraph::storage::replication::WalFilesRes res{1, 1};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
