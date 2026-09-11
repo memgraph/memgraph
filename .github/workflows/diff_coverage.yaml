@@ -243,8 +243,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Coverage / Core tests"
 
   clang-tidy:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -380,5 +378,3 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Coverage / Clang tidy"

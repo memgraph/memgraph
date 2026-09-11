@@ -328,8 +328,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Release / Core tests"
 
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
@@ -698,8 +696,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Release / Benchmark"
 
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
@@ -871,8 +867,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Release / End to end tests"
 
   stress:
     if: ${{ inputs.run_stress == 'true' }}
@@ -1063,5 +1057,3 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Release / Stress tests"
