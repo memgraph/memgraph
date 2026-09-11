@@ -155,6 +155,48 @@ TEST_F(GeneralKShortestTestInMemory, KShortestWithLimit) {
   db_->KShortestTest(db_.get(), 2, -1, EdgeAtom::Direction::OUT, {}, 1);
 }
 
+// A dropped candidate shows up as a missing path only once deviations start deep, which the
+// 6-vertex fixture never does - it stops at index 3 where the ladder reaches 10. Runs the ladder
+// unbounded and checks the exact count and per-index length against the brute-force enumerator.
+// The bounded, truncated case below drives the same depth through the length bound and `| k`.
+TEST_F(GeneralKShortestTestInMemory, LadderMatchesOracleAtDepth) {
+  for (auto direction : {EdgeAtom::Direction::OUT, EdgeAtom::Direction::BOTH}) {
+    db_->KShortestTest(
+        db_.get(), -1, -1, direction, {}, -1, FilterLambdaType::NONE, kLadderVertexLocations, kLadderEdges);
+  }
+}
+
+// The unbounded case leaves the length bound, the `| k` truncation and the expansion memo out of
+// the deep regime entirely: with no bound the candidate-too-long return never fires, and with no
+// filter lambda the memo is never consulted. This case drives all three at deviation index 10, and
+// its `| k` truncates most of the groups it enumerates.
+TEST_F(GeneralKShortestTestInMemory, LadderBoundedAndTruncatedAtDepth) {
+  db_->KShortestTest(db_.get(),
+                     -1,
+                     12,
+                     EdgeAtom::Direction::BOTH,
+                     {},
+                     5,
+                     FilterLambdaType::USE_CTX,
+                     kLadderVertexLocations,
+                     kLadderEdges);
+}
+
+// Depth is not enough on its own: every deviation root on the ladder stays productive, so a driver
+// that stops deviating once the index is deep still reaches every path there. This graph's roots
+// interleave, and three of its pairs lose a path when such a root is skipped.
+TEST_F(GeneralKShortestTestInMemory, InterleavedRootsMatchOracle) {
+  db_->KShortestTest(db_.get(),
+                     -1,
+                     -1,
+                     EdgeAtom::Direction::BOTH,
+                     {},
+                     -1,
+                     FilterLambdaType::NONE,
+                     kInterleavedVertexLocations,
+                     kInterleavedEdges);
+}
+
 TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
   db_->KShortestTestInvertedRangeDoesNotSearch(db_.get());
 }
