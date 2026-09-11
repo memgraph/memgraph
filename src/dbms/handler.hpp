@@ -348,14 +348,22 @@ class Handler {
         // that. Set stopped_ first so a persistent failure cannot spin re-stopping every tick; the stop
         // is best-effort and ~Database (via try_delete below) is the teardown backstop.
         stopped_ = true;
-        try {
-          auto *database = acc->get();
-          database->StopAllBackgroundTasks();
-          database->streams()->DropAll();
-        } catch (...) {  // NOLINT(bugprone-empty-catch)
-          spdlog::error(
-              "Deferred teardown of a dropped database could not stop its background tasks "
-              "cleanly; destruction will still proceed.");
+        // `if constexpr (requires ...)`: Handler<T> is generic -- a unit test instantiates it with a
+        // probe type that has no background tasks, so the stop-step must compile away for such T. For
+        // T == Database this stops streams + after-commit triggers etc.
+        if constexpr (requires(T &db) {
+                        db.StopAllBackgroundTasks();
+                        db.streams()->DropAll();
+                      }) {
+          try {
+            auto *database = acc->get();
+            database->StopAllBackgroundTasks();
+            database->streams()->DropAll();
+          } catch (...) {  // NOLINT(bugprone-empty-catch)
+            spdlog::error(
+                "Deferred teardown of a dropped database could not stop its background tasks "
+                "cleanly; destruction will still proceed.");
+          }
         }
       }
       if (!acc->try_delete(kDeferTryTimeout)) {

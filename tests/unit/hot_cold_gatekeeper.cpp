@@ -410,8 +410,8 @@ TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
   auto held_acc = std::move(*new_result);
   ASSERT_TRUE(held_acc);
 
-  // held_acc + DeferDelete's own minted accessor push count_ to 2, so try_delete()'s count_==1 check
-  // times out (~100ms) and takes the deferred path; the 500ms bound catches a regression to inline delete.
+  // DeferDelete always defers destruction to the worker (no inline destroy under the caller), so it
+  // returns without joining or waiting; the 500ms bound catches a regression to inline destruction.
   const auto call_start = std::chrono::steady_clock::now();
   handler.DeferDelete("probe", [&callback_fired] { callback_fired.store(true, std::memory_order_release); });
   const auto call_elapsed = std::chrono::steady_clock::now() - call_start;
