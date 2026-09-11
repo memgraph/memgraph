@@ -217,25 +217,31 @@ class Handler {
     } else {
       // Defer deletion
       db_acc->reset();
-      auto guard = std::lock_guard{defer_lock_};
-      // `gk` is declared LAST in PendingDestruction: designated initializers evaluate in declaration order,
-      // so if post_delete_func's move or the gauge Increment() throws, itr->second is never half-moved.
-      pending_.emplace_back(
-          PendingDestruction{.post_delete_func = std::forward<Func>(post_delete_func),
-                             .pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
-                             .gk = std::move(itr->second)});
-      // Swallowed: a throw from Increment/warn/Wake would skip items_.erase(itr) and strand a moved-from
-      // husk under a live name. Wake() un-pauses the worker; a concurrent pause is cancelled by it.
-      try {
-        metrics::Metrics().global.deferred_tenant_destructions->Increment();
-        spdlog::warn(
-            "Destruction of dropped database \"{}\" is deferred because it is still in use; its memory "
-            "stays accounted for until the last accessor is released ({} tenant destruction(s) pending).",
-            name,
-            pending_.size());
-        defer_scheduler_.Wake();
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      // `name` may alias itr->first (Delete(uuid) passes the map key); own it for the warn() below,
+      // which now runs after items_.erase() frees that node. Copy before the pd move so a throw here
+      // strands nothing.
+      const std::string name_copy{name};
+      // Invariant: node-alloc bad_alloc must not strand a husk (hence erase-before-push_back)
+      // nor block ~Gatekeeper under defer_lock_ (hence pd-before-guard).
+      PendingDestruction pd{.post_delete_func = std::forward<Func>(post_delete_func),
+                            .pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
+                            .gk = std::move(itr->second)};
+      items_.erase(itr);
+      {
+        auto guard = std::lock_guard{defer_lock_};
+        pending_.push_back(std::move(pd));
+        try {
+          metrics::Metrics().global.deferred_tenant_destructions->Increment();
+          spdlog::warn(
+              "Destruction of dropped database \"{}\" is deferred because it is still in use; its memory "
+              "stays accounted for until the last accessor is released ({} tenant destruction(s) pending).",
+              name_copy,
+              pending_.size());
+          defer_scheduler_.Wake();
+        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        }
       }
+      return;
     }
     // In any case remove from handled map
     items_.erase(itr);

@@ -83,18 +83,13 @@ struct UUID {
 }  // namespace memgraph::utils
 
 namespace std {
-// Lets UUID be an unordered_map/set key (e.g. the deferred-destruction registry keys on it). FNV-1a
-// over the 16 identity bytes, reached through the public operator arr_t() so uuid stays private.
+// Lets UUID be an unordered_map/set key (e.g. the deferred-destruction registry keys on it). Reuses
+// std::hash<string_view> over the 16 identity bytes, reached through the public operator arr_t().
 template <>
 struct hash<memgraph::utils::UUID> {
   std::size_t operator()(const memgraph::utils::UUID &id) const noexcept {
     const auto bytes = static_cast<memgraph::utils::UUID::arr_t>(id);
-    std::size_t h = 1469598103934665603ULL;  // FNV offset basis
-    for (const unsigned char b : bytes) {
-      h ^= b;
-      h *= 1099511628211ULL;  // FNV prime
-    }
-    return h;
+    return std::hash<std::string_view>{}(std::string_view(reinterpret_cast<const char *>(bytes.data()), bytes.size()));
   }
 };
 }  // namespace std
