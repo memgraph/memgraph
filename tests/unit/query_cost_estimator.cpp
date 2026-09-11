@@ -732,6 +732,27 @@ TEST_F(QueryCostEstimatorStringPredicates, EstimateNarrowsToTheStringsWhenMostVa
   EXPECT_GT(string_band, CostParam::kMinimumCost);
 }
 
+TEST_F(QueryCostEstimatorStringPredicates, InListElementHoldingNullCountsForNothing) {
+  // An element holding a Null matches nothing, and the empty range that says so carries no bounds
+  // at all. Reading a bound it never set is undefined, and a Debug build asserts on it, so this
+  // covers the estimator rather than the answer: the scan is over a global property index, which
+  // is the only shape that reads an IN list's elements one by one.
+  auto *sought = Literal(std::string(1, 'a') + "0");
+  auto const one_element =
+      CostOf(ExpressionRange::In(sought, storage_.Create<ListLiteral>(std::vector<Expression *>{sought})));
+
+  // The Null element still costs an Unwind row, so it lowers the per-row average rather than
+  // vanishing from it. Halving it is what a second element matching nothing has to mean.
+  auto *held_null =
+      storage_.Create<ListLiteral>(std::vector<Expression *>{sought, Literal(ms::ExternalPropertyValue())});
+  EXPECT_FLOAT_EQ(CostOf(ExpressionRange::In(sought, held_null)), one_element / 2);
+
+  // A Null nested inside an element is undecidable for the same reason, so it counts the same.
+  auto *held_nested_null = storage_.Create<ListLiteral>(
+      std::vector<Expression *>{sought, Literal(std::vector<ms::ExternalPropertyValue>{ms::ExternalPropertyValue()})});
+  EXPECT_FLOAT_EQ(CostOf(ExpressionRange::In(sought, held_nested_null)), one_element / 2);
+}
+
 TEST_F(QueryCostEstimatorStringPredicates, StartsWithStillNarrowsToItsPrefix) {
   // The prefix is a real bound on what matches, and STARTS_WITH already accepts that its plan is
   // settled by the term. This pins the line between the two: only the prefix seek reads it.
