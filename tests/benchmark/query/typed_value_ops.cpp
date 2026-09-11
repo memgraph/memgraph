@@ -273,6 +273,24 @@ void SortColumn(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(source.size()));
 }
 
+// A sort over a column of one type, where the payload comparison is the larger part of the work
+// rather than telling the types apart. A per-comparison figure on such a type reads high next to a
+// number without saying what a sort of one pays.
+void SortStringColumn(benchmark::State &state) {
+  auto source = std::vector<TypedValue>{};
+  for (int i = 0; i != 12; ++i) {
+    source.emplace_back(std::string("row-") + static_cast<char>('a' + (11 - i)), Mem());
+  }
+  auto const compare = OrderedTypedValueCompare{Ordering::ASC};
+  for (auto _ : state) {
+    auto values = source;
+    std::ranges::sort(values,
+                      [&compare](TypedValue const &a, TypedValue const &b) { return std::is_lt(compare(a, b)); });
+    benchmark::DoNotOptimize(values);
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(source.size()));
+}
+
 // The label comes from the same token that selects the shape, so the two cannot disagree.
 #define SHAPE(bench, shape) BENCHMARK_TEMPLATE(bench, shape)->Name(#bench "/" #shape)->Unit(benchmark::kNanosecond)
 
@@ -319,6 +337,7 @@ FOR_EACH_CONTAINER(Equivalence)
 SHAPE(Orderability, NaN);
 SHAPE(Orderability, IntAgainstDouble);
 BENCHMARK(SortColumn)->Unit(benchmark::kNanosecond);
+BENCHMARK(SortStringColumn)->Unit(benchmark::kNanosecond);
 
 #undef FOR_EACH_TYPE
 #undef FOR_EACH_COMPARABLE_TYPE
