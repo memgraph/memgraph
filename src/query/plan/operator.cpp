@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 #include <range/v3/all.hpp>
 #include "metrics/prometheus_metrics.hpp"
+#include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 
 #include <algorithm>
@@ -231,6 +232,17 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     }
 
     case Type::RANGE: {
+      // A bound of a type comparability places no pair of makes every ordered comparison Null, so
+      // the filter this scan stands in for keeps no row. The index orders such values all the same,
+      // by where their type sits, and would otherwise hand back rows no filter would pass.
+      auto const placed_by_comparability = [&](auto const &bound) {
+        if (bound == std::nullopt) return true;
+        return relations::comparability::Admits(bound->value()->Accept(evaluator).type());
+      };
+      if (!placed_by_comparability(lower_) || !placed_by_comparability(upper_)) {
+        return storage::PropertyValueRange::Empty();
+      }
+
       auto lower_bound = to_bounded_property_value(lower_);
       auto upper_bound = to_bounded_property_value(upper_);
 
