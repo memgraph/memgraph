@@ -16,17 +16,17 @@
 #include <string>
 #include <vector>
 
-#include "auth/auth_storage.hpp"
+#include "auth/repository.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 
 namespace fs = std::filesystem;
 using memgraph::auth::AtomicAuthOverlay;
-using memgraph::auth::AuthStorage;
+using memgraph::auth::Repository;
 
 // Each test runs its body against both arms of the adapter and asserts they agree. The overlay arm is flushed
 // afterwards, so a passing test also shows the two reach the same durable state.
-class AuthStorageTest : public ::testing::Test {
+class RepositoryTest : public ::testing::Test {
  protected:
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
@@ -40,12 +40,12 @@ class AuthStorageTest : public ::testing::Test {
   template <typename Fn>
   void ForBothArms(Fn &&body) {
     {
-      AuthStorage direct{*direct_store_};
+      Repository direct{*direct_store_};
       body(direct);
     }
     {
       AtomicAuthOverlay overlay{*overlay_store_};
-      AuthStorage buffered{overlay};
+      Repository buffered{overlay};
       body(buffered);
       ASSERT_TRUE(overlay.Flush());
     }
@@ -59,26 +59,26 @@ class AuthStorageTest : public ::testing::Test {
     EXPECT_EQ(direct, overlay);
   }
 
-  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth_storage"};
+  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth_repository"};
   std::optional<memgraph::kvstore::KVStore> direct_store_;
   std::optional<memgraph::kvstore::KVStore> overlay_store_;
 };
 
-TEST_F(AuthStorageTest, PutThenGet) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, PutThenGet) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.Put("user:alice", "data"));
     EXPECT_EQ(storage.Get("user:alice"), "data");
   });
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, GetMissingKey) {
-  ForBothArms([](AuthStorage &storage) { EXPECT_EQ(storage.Get("user:nobody"), std::nullopt); });
+TEST_F(RepositoryTest, GetMissingKey) {
+  ForBothArms([](Repository &storage) { EXPECT_EQ(storage.Get("user:nobody"), std::nullopt); });
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, Overwrite) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, Overwrite) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.Put("user:alice", "first"));
     EXPECT_TRUE(storage.Put("user:alice", "second"));
     EXPECT_EQ(storage.Get("user:alice"), "second");
@@ -86,8 +86,8 @@ TEST_F(AuthStorageTest, Overwrite) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, Delete) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, Delete) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.Put("user:alice", "data"));
     EXPECT_TRUE(storage.Delete("user:alice"));
     EXPECT_EQ(storage.Get("user:alice"), std::nullopt);
@@ -95,8 +95,8 @@ TEST_F(AuthStorageTest, Delete) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, PutMultiple) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, PutMultiple) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.PutMultiple({{"user:alice", "a"}, {"user:bob", "b"}}));
     EXPECT_EQ(storage.Get("user:alice"), "a");
     EXPECT_EQ(storage.Get("user:bob"), "b");
@@ -104,8 +104,8 @@ TEST_F(AuthStorageTest, PutMultiple) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, DeleteMultiple) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, DeleteMultiple) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.PutMultiple({{"user:alice", "a"}, {"user:bob", "b"}}));
     EXPECT_TRUE(storage.DeleteMultiple({"user:alice", "user:bob"}));
     EXPECT_EQ(storage.Get("user:alice"), std::nullopt);
@@ -114,8 +114,8 @@ TEST_F(AuthStorageTest, DeleteMultiple) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, PutAndDeleteMultiple) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, PutAndDeleteMultiple) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.Put("user:stale", "old"));
     EXPECT_TRUE(storage.PutAndDeleteMultiple({{"user:alice", "a"}}, {"user:stale"}));
     EXPECT_EQ(storage.Get("user:alice"), "a");
@@ -124,8 +124,8 @@ TEST_F(AuthStorageTest, PutAndDeleteMultiple) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, Size) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, Size) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.PutMultiple({{"user:alice", "a"}, {"user:bob", "b"}, {"role:admin", "r"}}));
     EXPECT_EQ(storage.Size("user:"), 2);
     EXPECT_EQ(storage.Size("role:"), 1);
@@ -133,8 +133,8 @@ TEST_F(AuthStorageTest, Size) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, ForEachVisitsPrefix) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, ForEachVisitsPrefix) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.PutMultiple({{"user:alice", "a"}, {"user:bob", "b"}, {"role:admin", "r"}}));
     std::map<std::string, std::string> seen;
     storage.ForEach("user:", [&seen](auto const &entry) { seen.emplace(entry); });
@@ -143,8 +143,8 @@ TEST_F(AuthStorageTest, ForEachVisitsPrefix) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, AnyOfShortCircuits) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, AnyOfShortCircuits) {
+  ForBothArms([](Repository &storage) {
     EXPECT_TRUE(storage.PutMultiple({{"user:alice", "a"}, {"user:bob", "b"}}));
     int visited = 0;
     EXPECT_TRUE(storage.AnyOf("user:", [&visited](auto const &) {
@@ -157,8 +157,8 @@ TEST_F(AuthStorageTest, AnyOfShortCircuits) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, HasAny) {
-  ForBothArms([](AuthStorage &storage) {
+TEST_F(RepositoryTest, HasAny) {
+  ForBothArms([](Repository &storage) {
     EXPECT_FALSE(storage.HasAny("user:"));
     EXPECT_TRUE(storage.Put("user:alice", "a"));
     EXPECT_TRUE(storage.HasAny("user:"));
@@ -166,9 +166,9 @@ TEST_F(AuthStorageTest, HasAny) {
   ExpectSameState();
 }
 
-TEST_F(AuthStorageTest, BufferedWritesAreNotVisibleUntilFlush) {
+TEST_F(RepositoryTest, BufferedWritesAreNotVisibleUntilFlush) {
   AtomicAuthOverlay overlay{*overlay_store_};
-  AuthStorage buffered{overlay};
+  Repository buffered{overlay};
 
   EXPECT_TRUE(buffered.Put("user:alice", "data"));
   EXPECT_EQ(buffered.Get("user:alice"), "data");

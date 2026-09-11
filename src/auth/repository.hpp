@@ -25,15 +25,18 @@
 
 namespace memgraph::auth {
 
-/// A handle over the storage auth works against: either the durable KVStore or a transaction's overlay.
+/// The store auth reads and writes: either the durable KVStore or a transaction's overlay.
 ///
-/// `kvstore::KVStore` is final and has no virtual methods, so the two cannot share a base class. This adapter
-/// dispatches over both without touching kvstore, letting Auth stay unaware of which one it holds.
-class AuthStorage {
+/// This is the seam the rules sit on. A rules call is handed a repository and works in terms of keys and bytes,
+/// so it cannot tell whether its writes are landing on disk or buffering in a transaction.
+///
+/// `kvstore::KVStore` is final and has no virtual methods, so the two cannot share a base class. This dispatches
+/// over both without touching kvstore.
+class Repository {
  public:
-  explicit AuthStorage(kvstore::KVStore &base) : target_{&base} {}
+  explicit Repository(kvstore::KVStore &base) : target_{&base} {}
 
-  explicit AuthStorage(AtomicAuthOverlay &overlay) : target_{&overlay} {}
+  explicit Repository(AtomicAuthOverlay &overlay) : target_{&overlay} {}
 
   std::optional<std::string> Get(std::string_view key) const {
     return std::visit([key](auto *target) { return target->Get(key); }, target_);
