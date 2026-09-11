@@ -28,7 +28,6 @@
 #include <compare>
 #include <optional>
 
-#include "query/fmt.hpp"
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::relations::comparability {
@@ -40,10 +39,9 @@ inline constexpr bool kNoPayloadOrder = false;
  * Orders two values of one named type by what they hold.
  *
  * The type is a template argument, so a caller whose own switch has already
- * selected it reaches the comparison without a second dispatch. Every type that
- * carries an order of its own has that order written here once, and
- * ComparePayload below is the runtime dispatch onto them for a caller whose
- * type is not settled until it runs.
+ * selected it reaches the comparison without a second dispatch. ComparePayload
+ * below is the runtime dispatch onto these, for a caller whose type is not
+ * settled until it runs.
  *
  * The two values must be of type T.
  */
@@ -68,12 +66,6 @@ inline std::partial_ordering ComparePayloadOf(const TypedValue &a, const TypedVa
     return a.UnsafeValueZonedDateTime() <=> b.UnsafeValueZonedDateTime();
   } else if constexpr (T == Duration) {
     return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
-  } else if constexpr (T == Enum) {
-    return a.UnsafeValueEnum() <=> b.UnsafeValueEnum();
-  } else if constexpr (T == Point2d) {
-    return a.UnsafeValuePoint2d() <=> b.UnsafeValuePoint2d();
-  } else if constexpr (T == Point3d) {
-    return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
   } else {
     static_assert(kNoPayloadOrder<T>, "This type carries no order of its own");
   }
@@ -122,10 +114,9 @@ inline bool Admits(TypedValue::Type type) {
  * Orders two values of one type by what they hold, for the types
  * comparability admits.
  *
- * Nothing is returned for a type it does not admit, which is every type that
- * carries no order of its own plus the three orderability alone places. Those
- * three reach their order through ComparePayloadOf, which holds each type's
- * own ordering once for both relations to read.
+ * Nothing is returned for a type it does not admit, which is every type
+ * carrying no order of its own plus enums and the two point types, which
+ * orderability places and this relation does not.
  *
  * The two values must be of the same type.
  *
@@ -209,10 +200,18 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
     return std::nullopt;
   }
 
-  // Numbers are the only unlike pair the relation places. Every other pair of
-  // unlike types is incomparable, as is any pair involving a Null.
-  if (!(a.IsNumeric() && b.IsNumeric())) return std::nullopt;
-  return ToDouble(a) <=> ToDouble(b);
+  // Numbers are the only unlike pair the relation places, so the two are one
+  // Int and one Double. Every other pair of unlike types is incomparable, as is
+  // any pair involving a Null.
+  //
+  // The tag tests read type() rather than IsNumeric(), and the payloads are
+  // read directly rather than through ToDouble, because both are defined in the
+  // value's own translation unit and are calls anywhere else. A filter asks
+  // this once per row.
+  using enum TypedValue::Type;
+  if (a.type() == Int && b.type() == Double) return a.UnsafeValueInt() <=> b.UnsafeValueDouble();
+  if (a.type() == Double && b.type() == Int) return a.UnsafeValueDouble() <=> b.UnsafeValueInt();
+  return std::nullopt;
 }
 
 /** Reads a comparison the way one operator asks it, carrying `a`'s memory resource. */
