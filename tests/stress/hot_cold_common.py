@@ -102,8 +102,19 @@ def run_query(session, query: str, **params) -> list[dict]:
     return data
 
 
+class ResumeTimeout(RuntimeError):
+    """A tenant did not come HOT within its timeout.
+
+    Carries the last RESUME error for diagnostics. Terminal by construction: the embedded
+    server text holds transitional markers, so classifying it by substring would send the
+    caller back for another full timeout.
+    """
+
+
 def is_transient(exc: Exception) -> bool:
     """Return True if the exception is an expected hot/cold transient error."""
+    if isinstance(exc, ResumeTimeout):
+        return False
     msg = str(exc).lower()
     return any(marker.lower() in msg for marker in TRANSITIONAL_MARKERS)
 
@@ -154,13 +165,17 @@ def resume_tenant_blocking(endpoint: str, username: str, password: str, name: st
     """
     deadline = time.monotonic() + timeout
     drv = make_driver(endpoint, username, password)
+    last_resume_error = None
+    last_probe_error = None
     try:
         while time.monotonic() < deadline:
             try:
                 with drv.session() as sess:
                     run_query(sess, f"RESUME DATABASE {name}")
-            except Exception:
-                pass  # already HOT, or transient failure — detect below
+            except Exception as exc:
+                # Already HOT, or a transient failure; the USE probe below decides which. Kept so
+                # a timeout can report why RESUME was refused.
+                last_resume_error = exc
 
             try:
                 with drv.session() as sess:
@@ -169,10 +184,14 @@ def resume_tenant_blocking(endpoint: str, username: str, password: str, name: st
                 return
             except Exception as exc:
                 if is_transient(exc):
+                    last_probe_error = exc
                     time.sleep(0.2)
                     continue
                 raise
-        raise RuntimeError(f"Tenant {name} did not come HOT within {timeout}s")
+        raise ResumeTimeout(
+            f"Tenant {name} did not come HOT within {timeout}s; "
+            f"last RESUME error: {last_resume_error}; last USE probe error: {last_probe_error}"
+        )
     finally:
         drv.close()
 

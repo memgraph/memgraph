@@ -465,19 +465,29 @@ def main() -> None:
         resumed = False
 
         # Resume with bounded retry (tolerates transient errors).
+        reported = False
+        last_exc = None
         for _attempt in range(MAX_RETRIES):
             try:
                 resume_tenant_blocking(endpoint, username, password, tname, timeout=90.0)
                 resumed = True
                 break
             except Exception as exc:
+                last_exc = exc
                 if is_transient(exc):
                     time.sleep(RETRY_SLEEP)
                     continue
                 mismatches.append((tname, -1, expected[tname], f"resume failed: {exc}"))
+                reported = True
                 break
 
         if not resumed:
+            # Exhausting the retries leaves this tenant unverified, which the summary has to
+            # report as a failure rather than pass over.
+            if not reported:
+                mismatches.append(
+                    (tname, -1, expected[tname], f"resume did not succeed within {MAX_RETRIES} retries: {last_exc}")
+                )
             # Re-suspend best-effort before next iteration.
             suspend_tenant(endpoint, username, password, tname)
             continue
