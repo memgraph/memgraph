@@ -13,6 +13,7 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
+#include <limits>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -22,6 +23,7 @@
 #include "disk_test_utils.hpp"
 #include "query/db_accessor.hpp"
 #include "query/graph.hpp"
+#include "query/relations/comparability.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -248,14 +250,16 @@ TEST(TypedValue, Comparison) {
 
   run_comparison_cases(local_date_time_1, local_date_time_2);
 
+  // An enum and a point carry no order of their own, so comparability places no
+  // pair of them and answers Null rather than refusing the question.
   auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
-  EXPECT_THROW((void)(enum_val < enum_val), memgraph::query::TypedValueException);
+  EXPECT_PROP_ISNULL(enum_val < enum_val);
 
   auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
   auto point_2 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
 
-  EXPECT_THROW((void)(point_1 < point_1), memgraph::query::TypedValueException);
-  EXPECT_THROW((void)(point_2 < point_2), memgraph::query::TypedValueException);
+  EXPECT_PROP_ISNULL(point_1 < point_1);
+  EXPECT_PROP_ISNULL(point_2 < point_2);
 }
 
 namespace {
@@ -263,6 +267,49 @@ TypedValue List(std::vector<TypedValue> elements) { return TypedValue(std::move(
 
 TypedValue Map(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
 }  // namespace
+
+TEST(TypedValue, ComparabilityLeavesAnUnorderedPairFalseInAllFourReadings) {
+  // Comparability is partial. A NaN has no order against anything, itself
+  // included, so all four comparisons are false for it. Reading one as the
+  // negation of another assumes every pair is ordered and turns the missing
+  // order into a true.
+  auto const nan = TypedValue(std::numeric_limits<double>::quiet_NaN());
+  for (auto const &other : {TypedValue(0), TypedValue(1.5), nan}) {
+    EXPECT_PROP_FALSE(nan < other);
+    EXPECT_PROP_FALSE(nan <= other);
+    EXPECT_PROP_FALSE(nan > other);
+    EXPECT_PROP_FALSE(nan >= other);
+    EXPECT_PROP_FALSE(other < nan);
+    EXPECT_PROP_FALSE(other <= nan);
+    EXPECT_PROP_FALSE(other > nan);
+    EXPECT_PROP_FALSE(other >= nan);
+  }
+}
+
+TEST(TypedValue, ComparabilityPlacesBooleans) {
+  // A boolean carries an order Cypher gives it, and refusing to read it made a
+  // range over such a column impossible to write.
+  EXPECT_PROP_TRUE(TypedValue(false) < TypedValue(true));
+  EXPECT_PROP_FALSE(TypedValue(true) < TypedValue(false));
+  EXPECT_PROP_TRUE(TypedValue(false) <= TypedValue(false));
+  EXPECT_PROP_TRUE(TypedValue(true) > TypedValue(false));
+}
+
+TEST(TypedValue, ComparabilityAnswersNullForAPairItCannotPlace) {
+  // A pair of unlike types has no order between it, and neither has a pair of
+  // one type carrying no order of its own. Neither raises: having no order is
+  // an answer this relation gives rather than a question it refuses.
+  EXPECT_PROP_ISNULL(TypedValue(1) < TypedValue("a"));
+  EXPECT_PROP_ISNULL(TypedValue("a") < TypedValue(1));
+
+  // A list and a map are placed by orderability alone, so a sort arranges two
+  // of them while all four comparisons answer Null. Placing a list here means
+  // ordering it by its elements, which is not the order the store keeps one in,
+  // and a scan reading that order stands in for this comparison.
+  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < List({TypedValue(2)}));
+  EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
+  EXPECT_PROP_ISNULL(Map({{"k", TypedValue(1)}}) < Map({{"k", TypedValue(2)}}));
+}
 
 TEST(TypedValue, EqualityOfAContainerHoldingNullIsUndecided) {
   // A Null element stands for a value nobody knows, so a comparison that has to
@@ -415,18 +462,16 @@ TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
-  // 'Less' is legal only between numerics, Null and strings.
-  using memgraph::query::is_canonical;
-  auto is_string_compatible = [](const TypedValue &v) { return v.IsNull() || v.type() == TypedValue::Type::String; };
-  auto is_numeric_compatible = [](const TypedValue &v) { return v.IsNull() || v.IsNumeric(); };
+  // Comparability answers for every pair it is handed, and none of them raises.
+  // Where it has no order to give it says so with Null, which is every pair of
+  // unlike types that are not both numbers.
   for (TypedValue &a : this->values_) {
     for (TypedValue &b : this->values_) {
-      if (is_canonical(a.type()) || is_canonical(b.type())) continue;
-      if (is_numeric_compatible(a) && is_numeric_compatible(b)) continue;
-      if (is_string_compatible(a) && is_string_compatible(b)) continue;
-      // Comparison should raise an exception. Cast to (void) so the compiler
-      // does not complain about unused comparison result.
-      EXPECT_THROW((void)(a < b), TypedValueException);
+      // Cast to (void) so the compiler does not complain about an unused result.
+      EXPECT_NO_THROW((void)(a < b));
+      if (a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())) {
+        EXPECT_PROP_ISNULL(a < b);
+      }
     }
   }
 

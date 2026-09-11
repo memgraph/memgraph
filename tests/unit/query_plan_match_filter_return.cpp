@@ -3680,7 +3680,11 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
 }
 
-TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeOverABoundThatIsNotAPropertyValue) {
+  // A graph element is not a value comparability places against a stored
+  // property, so the comparison is Null for every row and the filter this scan
+  // stands in for keeps none. The scan has to keep none as well, rather than
+  // raising over a value it would never have had to store.
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
@@ -3718,7 +3722,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
                                                       std::nullopt,
                                                       scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+    EXPECT_EQ(PullAll(*scan_index.op_, &context), 0);
   }
   {
     // Upper bound isn't property value
@@ -3731,7 +3735,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
                                                       Bound{ident_m, Bound::Type::INCLUSIVE},
                                                       scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+    EXPECT_EQ(PullAll(*scan_index.op_, &context), 0);
   }
   {
     // Both bounds aren't property value
@@ -3744,7 +3748,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
                                                       Bound{ident_m, Bound::Type::INCLUSIVE},
                                                       scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+    EXPECT_EQ(PullAll(*scan_index.op_, &context), 0);
   }
 }
 
