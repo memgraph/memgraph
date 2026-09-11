@@ -16,6 +16,7 @@
 // withheld on its answer, and no operator reaches it at all.
 
 #include <chrono>
+#include <cmath>
 #include <map>
 #include <optional>
 #include <string>
@@ -23,6 +24,7 @@
 
 #include <gtest/gtest.h>
 
+#include "query/exceptions.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 #include "query/relations/equivalence.hpp"
@@ -118,6 +120,12 @@ std::optional<OrderedPair> PairOf(Type type) {
       return std::nullopt;
   }
 }
+
+TypedValue ListOf(std::vector<TypedValue> elements) { return TypedValue(std::move(elements)); }
+
+TypedValue MapOf(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
+
+TypedValue Int(int64_t value) { return TypedValue(value); }
 
 }  // namespace
 
@@ -239,6 +247,113 @@ TEST(Orderability, OrdersAListByItsElements) {
   EXPECT_TRUE(std::is_eq(orderability::Compare(shorter, shorter)));
 }
 
+// The walks each relation delegates a container to, asked directly
+
+TEST(Orderability, CompareOfListsPlacesAPrefixFirst) {
+  auto const prefix = ListOf({Int(1)});
+  auto const longer = ListOf({Int(1), Int(2)});
+  auto const empty = ListOf({});
+
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(prefix.ValueList(), longer.ValueList())));
+  EXPECT_TRUE(std::is_gt(orderability::CompareOfLists(longer.ValueList(), prefix.ValueList())));
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(empty.ValueList(), prefix.ValueList())));
+  EXPECT_TRUE(std::is_eq(orderability::CompareOfLists(empty.ValueList(), empty.ValueList())));
+}
+
+TEST(Orderability, CompareOfListsSettlesOnTheFirstElementThatDiffers) {
+  // A later element cannot overturn an earlier one, whichever way it would have gone.
+  auto const first_lesser = ListOf({Int(1), Int(9)});
+  auto const first_greater = ListOf({Int(2), Int(0)});
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(first_lesser.ValueList(), first_greater.ValueList())));
+}
+
+TEST(Orderability, CompareOfListsReadsTheRelationAgainForEachElement) {
+  // Whatever orderability does for a scalar it has to do inside a list, so the element order
+  // is asked for rather than restated: a null sorts last, a nested list is walked, and one
+  // integer is placed against one double.
+  auto const with_null = ListOf({TypedValue()});
+  auto const with_number = ListOf({Int(1)});
+  EXPECT_TRUE(std::is_gt(orderability::CompareOfLists(with_null.ValueList(), with_number.ValueList())));
+
+  auto const nested_lesser = ListOf({ListOf({Int(1)})});
+  auto const nested_greater = ListOf({ListOf({Int(1), Int(0)})});
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(nested_lesser.ValueList(), nested_greater.ValueList())));
+
+  auto const one = ListOf({Int(1)});
+  auto const one_and_a_half = ListOf({TypedValue(1.5)});
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(one.ValueList(), one_and_a_half.ValueList())));
+}
+
+TEST(Orderability, CompareOfListsLeavesAnElementItCannotPlaceUnordered) {
+  auto const nan = ListOf({TypedValue(std::nan(""))});
+  auto const number = ListOf({TypedValue(1.0)});
+  EXPECT_EQ(orderability::CompareOfLists(nan.ValueList(), number.ValueList()), std::partial_ordering::unordered);
+}
+
+TEST(Orderability, CompareOfListsRefusesAnElementPairItHasNoOrderFor) {
+  auto const number = ListOf({Int(1)});
+  auto const text = ListOf({TypedValue("a")});
+  EXPECT_THROW(orderability::CompareOfLists(number.ValueList(), text.ValueList()),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST(Equivalence, EquivalentOfListsWalksElementByElement) {
+  auto const one_two = ListOf({Int(1), Int(2)});
+  auto const two_one = ListOf({Int(2), Int(1)});
+  auto const shorter = ListOf({Int(1)});
+
+  EXPECT_TRUE(equivalence::EquivalentOfLists(one_two.ValueList(), one_two.ValueList()));
+  EXPECT_FALSE(equivalence::EquivalentOfLists(one_two.ValueList(), two_one.ValueList()));
+  EXPECT_FALSE(equivalence::EquivalentOfLists(one_two.ValueList(), shorter.ValueList()));
+}
+
+TEST(Equivalence, EquivalentOfListsReadsTheRelationAgainForEachElement) {
+  // The element answer is equivalence rather than equality, so a null element decides rather
+  // than leaving the list undecided, and a nested container is reached the same way.
+  auto const with_null = ListOf({TypedValue()});
+  EXPECT_TRUE(equivalence::EquivalentOfLists(with_null.ValueList(), with_null.ValueList()));
+
+  auto const with_number = ListOf({Int(1)});
+  EXPECT_FALSE(equivalence::EquivalentOfLists(with_null.ValueList(), with_number.ValueList()));
+
+  auto const nested = ListOf({ListOf({TypedValue(), Int(1)})});
+  EXPECT_TRUE(equivalence::EquivalentOfLists(nested.ValueList(), nested.ValueList()));
+}
+
+TEST(Equivalence, EquivalentOfMapsMatchesByKeyRatherThanByPosition) {
+  auto const one_then_two = MapOf({{"a", Int(1)}, {"b", Int(2)}});
+  auto const same_pairs = MapOf({{"b", Int(2)}, {"a", Int(1)}});
+  auto const swapped_values = MapOf({{"a", Int(2)}, {"b", Int(1)}});
+
+  EXPECT_TRUE(equivalence::EquivalentOfMaps(one_then_two.ValueMap(), same_pairs.ValueMap()));
+  EXPECT_FALSE(equivalence::EquivalentOfMaps(one_then_two.ValueMap(), swapped_values.ValueMap()));
+}
+
+TEST(Equivalence, EquivalentOfMapsRefusesAKeyTheOtherSideLacks) {
+  auto const under_a = MapOf({{"a", Int(1)}});
+  auto const under_b = MapOf({{"b", Int(1)}});
+  auto const two_keys = MapOf({{"a", Int(1)}, {"b", Int(1)}});
+
+  EXPECT_FALSE(equivalence::EquivalentOfMaps(under_a.ValueMap(), under_b.ValueMap()));
+  EXPECT_FALSE(equivalence::EquivalentOfMaps(under_a.ValueMap(), two_keys.ValueMap()));
+}
+
+TEST(Equivalence, EquivalentOfMapsReadsTheRelationAgainForEachValue) {
+  auto const holding_null = MapOf({{"a", TypedValue()}});
+  EXPECT_TRUE(equivalence::EquivalentOfMaps(holding_null.ValueMap(), holding_null.ValueMap()));
+  EXPECT_FALSE(equivalence::EquivalentOfMaps(holding_null.ValueMap(), MapOf({{"a", Int(1)}}).ValueMap()));
+
+  auto const nested = MapOf({{"a", ListOf({TypedValue()})}});
+  EXPECT_TRUE(equivalence::EquivalentOfMaps(nested.ValueMap(), nested.ValueMap()));
+}
+
+TEST(Equivalence, HashesEquivalentMapsAlike) {
+  auto const holding_null = MapOf({{"a", TypedValue()}, {"b", Int(1)}});
+  auto const same = MapOf({{"b", Int(1)}, {"a", TypedValue()}});
+  ASSERT_TRUE(equivalence::Equivalent(holding_null, same));
+  EXPECT_EQ(equivalence::Hash(holding_null), equivalence::Hash(same));
+}
+
 // Equality, the three-valued relation
 
 TEST(Equality, AnswersNullWhereverANullSits) {
@@ -284,6 +399,31 @@ TEST(Equivalence, HoldsAContainerHoldingANullEquivalentToItself) {
   auto const holding_null = TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue(int64_t{1})});
   EXPECT_TRUE(equivalence::Equivalent(holding_null, holding_null));
   EXPECT_TRUE(equality::Equal(holding_null, holding_null).IsNull());
+}
+
+TEST(Equivalence, HoldsEveryValueEquivalentToItself) {
+  // A hash container keyed by this relation finds a key again only if the key is equivalent to
+  // itself, so the property is asked of every type, of a null, and of an empty container.
+  for (auto const type : kEveryType) {
+    auto const pair = PairOf(type);
+    if (!pair) continue;
+    EXPECT_TRUE(equivalence::Equivalent(pair->lesser, pair->lesser)) << "type " << static_cast<unsigned>(type);
+  }
+
+  for (auto const &value :
+       {TypedValue(), ListOf({TypedValue(), Int(1)}), MapOf({{"a", TypedValue()}}), ListOf({}), MapOf({})}) {
+    EXPECT_TRUE(equivalence::Equivalent(value, value));
+  }
+}
+
+TEST(Equivalence, HoldsNoNaNEquivalentToItself) {
+  // The one value the property above does not reach. A double is equivalent as a double
+  // compares, which leaves each NaN its own group under DISTINCT and its own key in a hash
+  // container. Two of them still hash alike, so the lookup reaches the comparison and fails it.
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_FALSE(equivalence::Equivalent(nan, nan));
+  EXPECT_FALSE(equivalence::Equivalent(ListOf({nan}), ListOf({nan})));
+  EXPECT_EQ(equivalence::Hash(nan), equivalence::Hash(nan));
 }
 
 TEST(Equivalence, HashesEquivalentValuesAlike) {
