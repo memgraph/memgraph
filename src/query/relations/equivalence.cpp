@@ -16,9 +16,7 @@
 namespace memgraph::query::relations::equivalence {
 
 bool EquivalentOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b) {
-  return a.size() == b.size() &&
-         std::equal(
-             a.begin(), a.end(), b.begin(), [](TypedValue const &x, TypedValue const &y) { return Equivalent(x, y); });
+  return std::ranges::equal(a, b, [](TypedValue const &x, TypedValue const &y) { return Equivalent(x, y); });
 }
 
 bool EquivalentOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b) {
