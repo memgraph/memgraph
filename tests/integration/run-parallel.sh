@@ -8,9 +8,40 @@ PORT_BASE=30000
 PORT_STRIDE=10
 
 print_help() {
-  echo -e "$0 [jobs] => run all under tests/integration in parallel (default jobs: nproc)"
+  echo -e "$0 [jobs]                    => run all under tests/integration in parallel (default jobs: nproc)"
+  echo -e "$0 monitoring-targets <host> => print MEMGRAPH_METRICS_TARGETS/MEMGRAPH_LOG_WS_TARGETS for every suite"
   exit 1
 }
+
+# Suite i (sorted directory order) always gets the same block, so monitoring
+# targets can be computed before anything runs.
+list_suites() {
+  cd "$DIR"
+  for name in *; do
+    if [ -d "$name" ]; then echo "$name"; fi
+  done
+}
+bolt_port() { echo $((PORT_BASE + $1 * PORT_STRIDE)); }
+monitoring_port() { echo $(( $(bolt_port "$1") + 1 )); }
+metrics_port() { echo $(( $(bolt_port "$1") + 2 )); }
+
+if [ "$1" = "monitoring-targets" ]; then
+  host=$2
+  if [ "$#" -ne 2 ] || [ -z "$host" ]; then
+    print_help
+  fi
+  metrics_targets=()
+  log_ws_targets=()
+  index=0
+  for name in $(list_suites); do
+    metrics_targets+=("$host:$(metrics_port "$index")")
+    log_ws_targets+=("$host:$(monitoring_port "$index")")
+    index=$((index + 1))
+  done
+  echo "MEMGRAPH_METRICS_TARGETS=$(IFS=,; echo "${metrics_targets[*]}")"
+  echo "MEMGRAPH_LOG_WS_TARGETS=$(IFS=,; echo "${log_ws_targets[*]}")"
+  exit 0
+fi
 
 if [ "$#" -gt 1 ]; then
   print_help
@@ -27,17 +58,14 @@ echo
 names=()
 pids=()
 index=0
-cd "$DIR"
-for name in *; do
-  if [ ! -d "$name" ]; then continue; fi
+for name in $(list_suites); do
   # Wait for a free slot.
   while [ "$(jobs -rp | wc -l)" -ge "$jobs" ]; do
     wait -n
   done
-  base=$((PORT_BASE + index * PORT_STRIDE))
-  MG_INTEGRATION_BOLT_PORT=$base \
-  MG_INTEGRATION_MONITORING_PORT=$((base + 1)) \
-  MG_INTEGRATION_METRICS_PORT=$((base + 2)) \
+  MG_INTEGRATION_BOLT_PORT=$(bolt_port "$index") \
+  MG_INTEGRATION_MONITORING_PORT=$(monitoring_port "$index") \
+  MG_INTEGRATION_METRICS_PORT=$(metrics_port "$index") \
     "$DIR/run.sh" "$name" >"$log_dir/$name.log" 2>&1 &
   names+=("$name")
   pids+=($!)
