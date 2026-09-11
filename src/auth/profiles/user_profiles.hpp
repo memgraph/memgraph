@@ -29,7 +29,6 @@ class UserProfiles {
 
   static auto AllLimits() { return fmt::format("{}, {}", kLimits[0], kLimits[1]); }
 
-  static constexpr std::string_view kUserProfilesPrefix = "user_profile:";
   static constexpr std::string_view kUserProfilesVersionKey = "user_profile_version";
   static constexpr std::string_view kUserProfilesV1 = "V1";
   static constexpr std::string_view kUserProfilesVersion = kUserProfilesV1;
