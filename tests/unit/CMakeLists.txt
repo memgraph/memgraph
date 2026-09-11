@@ -561,9 +561,13 @@ add_unit_test(utils_pointer_pack
     LINK_TARGETS mg-utils
 )
 
+# TIMEOUT caps a run that wedges rather than fails. A writer that is never granted the exclusive
+# lock blocks in the acquisition, and the thread waiting on it cannot assert anything; without a
+# bound the whole job runs to its own cancellation with nothing naming this test.
 add_unit_test(utils_rwlock
     SOURCES utils_rwlock.cpp
     LINK_TARGETS mg-utils
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 add_unit_test(utils_scheduler
