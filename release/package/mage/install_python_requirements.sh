@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
-# run me as `memgraph` user
+# Run me as `memgraph` for a per-user install (~/.local, what the deb/rpm
+# postinst does) or as root for a global install (/usr/local/lib/python3.*/
+# dist-packages, what the docker images do so any UID can import the deps).
 
 CI=false
 CACHE_PRESENT=false
