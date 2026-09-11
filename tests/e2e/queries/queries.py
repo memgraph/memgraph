@@ -119,5 +119,35 @@ def test_equality_against_an_unstorable_value_holding_a_null_raises_on_no_plan(m
     assert count(sought_on_an_edge) == 0
 
 
+def test_negated_membership_keeps_no_row_whose_sought_value_is_null(memgraph):
+    """Membership of a null in a list holding anything is undecided, and a filter
+    keeps no row it cannot decide. Negating it keeps none either, since `NOT` of
+    an undecided answer is undecided. The set the operator caches the list in is
+    filled by the first row and read by every row after it, so a row holding a
+    null has to be answered the same way whichever of those it is."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("UNWIND range(1, 5) AS i CREATE (:R {v: i});")
+    # A node with no `v` at all, so reading it gives null.
+    memgraph.execute("CREATE (:R {w: 1});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    # Four rows hold a value that is decidedly not 1, and the row holding none is
+    # undecided rather than kept.
+    assert count("MATCH (n:R) WHERE NOT (n.v IN [1]) RETURN count(n) AS c;") == 4
+    assert count("MATCH (n:R) WHERE n.v IN [1] RETURN count(n) AS c;") == 1
+
+    # A null in the list leaves every row it does not otherwise match undecided,
+    # so only the rows the list does hold survive.
+    assert count("MATCH (n:R) WHERE n.v IN [1, 2, null] RETURN count(n) AS c;") == 2
+    assert count("MATCH (n:R) WHERE NOT (n.v IN [1, 2, null]) RETURN count(n) AS c;") == 0
+
+    # The row holding a null reaches the operator first here, so it fills the set
+    # rather than reading one already filled.
+    assert count("MATCH (n:R) WITH n ORDER BY n.v DESC WHERE NOT (n.v IN [1]) RETURN count(n) AS c;") == 4
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

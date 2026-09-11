@@ -590,6 +590,44 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorWhereTheSoughtValueIsNullOnALaterRow) {
+  // A filter reads one membership test over every row, so a row whose sought
+  // value is Null arrives after rows that filled the set. That row takes the
+  // path that reads the set rather than the one that fills it, and a lookup
+  // there can only report present or absent. Membership of a Null in a list
+  // holding anything is undecided, and `NOT` of it stays undecided, so a row no
+  // filter can judge is kept by neither.
+  auto *sought = this->storage.template Create<Identifier>("v", true);
+  auto const sought_symbol = this->symbol_table.CreateSymbol("v", true);
+  sought->MapTo(sought_symbol);
+  auto const bind = [this, sought_symbol](TypedValue value) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(sought_symbol, value);
+  };
+
+  auto *op = this->storage.template Create<InListOperator>(
+      sought,
+      this->storage.template Create<ListLiteral>(
+          std::vector<Expression *>{this->storage.template Create<PrimitiveLiteral>(10)}));
+  auto *negated = this->storage.template Create<NotOperator>(op);
+
+  FrameChangeCollector collector;
+  collector.AddInListKey(memgraph::utils::GetFrameChangeId(*op));
+  ExpressionEvaluator caching{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+
+  bind(TypedValue(10));
+  EXPECT_EQ(op->Accept(caching).ValueBool(), true);
+  EXPECT_EQ(negated->Accept(caching).ValueBool(), false);
+
+  bind(TypedValue());
+  EXPECT_TRUE(op->Accept(caching).IsNull());
+  EXPECT_TRUE(negated->Accept(caching).IsNull());
+
+  bind(TypedValue(11));
+  EXPECT_EQ(op->Accept(caching).ValueBool(), false);
+  EXPECT_EQ(negated->Accept(caching).ValueBool(), true);
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, InListOperator) {
   auto *list_literal = this->storage.template Create<ListLiteral>(
       std::vector<Expression *>{this->storage.template Create<PrimitiveLiteral>(1),
