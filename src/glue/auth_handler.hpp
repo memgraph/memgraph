@@ -11,21 +11,41 @@
 
 #pragma once
 
+#include <thread>
+#include <utility>
+
 #include "auth/auth.hpp"
+#include "auth/auth_layer.hpp"
 #include "auth_global.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/auth_query_handler.hpp"
 #include "utils/join_vector.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::glue {
 
 class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
-  memgraph::auth::SynchedAuth *auth_;
+  memgraph::auth::AuthLayer layer_;
+
+  // The auth transaction this handler's methods route through, bound for the duration of a single query callback.
+  // There is one handler for the process, so this is only safe because an auth query runs on its own session's
+  // thread: PrepareAuthQuery produces a PullPlanVector with no plan, so it never reaches the worker pool. If that
+  // ever changes, two sessions would clobber this and route each other's writes; the assert in WithTransaction is
+  // there to catch it at the point it appears.
+  memgraph::auth::AuthTransaction *tx_{nullptr};
+  std::thread::id bound_thread_{};
 
  public:
   explicit AuthQueryHandler(memgraph::auth::SynchedAuth *auth);
+
+  memgraph::auth::AuthTransaction *BindTransaction(memgraph::auth::AuthTransaction *tx) override {
+    DMG_ASSERT(tx_ == nullptr || bound_thread_ == std::this_thread::get_id(),
+               "Auth transaction bound from two threads: auth queries must run on their own session's thread");
+    bound_thread_ = std::this_thread::get_id();
+    return std::exchange(tx_, tx);
+  }
 
   query::CreateUserResult CreateUser(const std::string &username, const std::optional<std::string> &password,
                                      system::Transaction *system_tx) override;
@@ -205,5 +225,13 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
                            auth::UserOrRoleType type, system::Transaction *system_tx) override;
 #endif
+
+ private:
+  /// Locked access, routed through the bound transaction when there is one.
+  auto Lock() { return layer_.Lock(tx_); }
+
+  /// Reads inside a transaction take the WRITE lock, not a shared one: installing the overlay mutates Auth's storage
+  /// handle, so it cannot be shared with a concurrent reader. The exclusion lasts one statement, not the transaction.
+  auto ReadLock() { return layer_.ReadLock(tx_); }
 };
 }  // namespace memgraph::glue

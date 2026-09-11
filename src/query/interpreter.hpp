@@ -18,6 +18,7 @@
 #include <optional>
 #include <utility>
 
+#include "auth/auth_layer.hpp"
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -420,6 +421,10 @@ class Interpreter final {
   // Leaf lock for session_info_; only the foreign GetActiveUsersInfo reader locks (owning-thread reads serialized).
   mutable std::mutex session_info_mutex_;
   bool in_explicit_transaction_{false};
+  // Fixed by the first statement of an explicit transaction. An auth transaction releases the storage accessor that
+  // BEGIN opened, so the two modes cannot be mixed: a data query afterwards would have no accessor to run against.
+  enum class TxMode : uint8_t { Data, Auth };
+  std::optional<TxMode> tx_mode_{};
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
@@ -629,6 +634,13 @@ class Interpreter final {
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 
+  // An explicit auth transaction's buffered state, live from the first auth statement until COMMIT or ROLLBACK.
+  // Unlike system_transaction_ this is created on the first auth statement, not at BEGIN, because a transaction is
+  // only known to be an auth one once its first statement has been classified.
+  std::optional<memgraph::auth::AuthTransaction> auth_transaction_{};
+
+  memgraph::auth::AuthTransaction *auth_transaction_ptr() { return auth_transaction_ ? &*auth_transaction_ : nullptr; }
+
   memgraph::system::Transaction *system_transaction_ptr() {
     return system_transaction_ ? &*system_transaction_ : nullptr;
   }
@@ -660,8 +672,10 @@ class Interpreter final {
   void ResetInterpreter() {
     query_executions_.clear();
     system_transaction_.reset();
+    auth_transaction_.reset();
     transaction_queries_->clear();
     commit_notification_.reset();
+    tx_mode_.reset();
     current_db_.ReleaseDbIfMarked();
   }
 
