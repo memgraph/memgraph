@@ -12,6 +12,9 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include <condition_variable>
+#include <mutex>
+
 #include "storage/v2/inmemory/replication/recovery.cpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -44,6 +47,46 @@ using namespace std::literals::chrono_literals;
 
 constexpr int port{8183};
 
+// The timeout for the tests that assert a prompt response is not mistaken for a timeout, set to
+// what a client should tolerate rather than to how fast this machine answers: a loaded one does not
+// manage a round trip in a couple of hundred milliseconds, and times out against a server that has
+// already replied. Still bounded, so a call that really does hang fails here rather than running
+// until the job is cancelled.
+constexpr int kLongerThanAnyDelay{60'000};
+
+namespace {
+
+// A gate an RPC handler waits at before it finishes responding, opened by the test once the client
+// has stopped waiting. The client's read deadline is only consulted while the bytes it needs are
+// missing, so a handler that sleeps instead leaves a gap the client only pays for if it happens to
+// be scheduled during it: one descheduled long enough finds the whole response already delivered
+// and never times out at all. Holding the response back until the client is done makes the gap
+// outlast any client, however little of it ran.
+class ResponseGate {
+ public:
+  void Open() {
+    {
+      auto const lock = std::lock_guard{mutex_};
+      open_ = true;
+    }
+    cv_.notify_all();
+  }
+
+  // Bounded, so a client that never gives up fails the assertion waiting on it rather than leaving
+  // this handler blocked for the rest of the run.
+  void Await() {
+    auto lock = std::unique_lock{mutex_};
+    cv_.wait_for(lock, 30s, [this] { return open_; });
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  bool open_{false};
+};
+
+}  // namespace
+
 class ReplicationRpcProgressTest : public ::testing::Test {
  public:
   std::filesystem::path main_directory{std::filesystem::temp_directory_path() /
@@ -74,7 +117,7 @@ class ReplicationRpcProgressTest : public ::testing::Test {
   InMemoryStorage main_storage{main_conf};
 };
 
-// Timeout immediately
+// A response that comes straight back is not treated as a timeout
 TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
   Endpoint endpoint{"localhost", port};
 
@@ -104,7 +147,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("PrepareCommitReq"sv, 100)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("PrepareCommitReq"sv, kLongerThanAnyDelay)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -119,11 +162,12 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
   EXPECT_NO_THROW(stream.Finalize());
 }
 
-// Timeout immediately
+// A response that never comes while the client is waiting for it
 TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
+  ResponseGate final_response;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
@@ -131,17 +175,16 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
   }};
 
   rpc_server.Register<memgraph::storage::replication::PrepareCommitRpc>(
-      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version,
-         auto *req_reader,
-         auto *res_builder) {
+      [&final_response](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                        uint64_t const request_version,
+                        auto *req_reader,
+                        auto *res_builder) {
         PrepareCommitReq req;
         Load(&req, req_reader);
         Decoder decoder(req_reader);
         auto maybe_epoch_id = decoder.ReadString();
 
-        // Simulate done
-        std::this_thread::sleep_for(150ms);
+        final_response.Await();
         PrepareCommitRes res{true};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -162,13 +205,17 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_THROW(stream.Finalize(), RpcTimeoutException);
+
+  final_response.Open();
 }
 
-// First send progress, then timeout
+// A progress message extends the wait, but a response that still does not come while the client is
+// waiting for it times out
 TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
+  ResponseGate final_response;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
@@ -176,20 +223,20 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
   }};
 
   rpc_server.Register<PrepareCommitRpc>(
-      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version,
-         auto *req_reader,
-         auto *res_builder) {
+      [&final_response](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                        uint64_t const request_version,
+                        auto *req_reader,
+                        auto *res_builder) {
         PrepareCommitReq req;
         Load(&req, req_reader);
         Decoder decoder(req_reader);
         auto maybe_epoch_id = decoder.ReadString();
 
-        std::this_thread::sleep_for(100ms);
+        // Sent at once rather than just inside the client's deadline. Timed to arrive near it, a
+        // client that ran late would be thrown by the progress message it was supposed to accept,
+        // and the wait this test is about would never be reached.
         memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(200ms);
-        memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(100ms);
+        final_response.Await();
         PrepareCommitRes res{true};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -211,9 +258,10 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
 
   EXPECT_THROW(stream.Finalize(), RpcTimeoutException);
+
+  final_response.Open();
 }
 
-// First send progress, then timeout
 TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
   Endpoint endpoint{"localhost", port};
 
@@ -239,7 +287,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("CurrentWalReq"sv, 150)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("CurrentWalReq"sv, kLongerThanAnyDelay)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -248,11 +296,13 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
   EXPECT_NO_THROW(stream.SendAndWaitProgress());
 }
 
-// First send progress, then timeout
+// A progress message extends the wait, but a response that still does not come while the client is
+// waiting for it times out
 TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
+  ResponseGate final_response;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
@@ -260,18 +310,15 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
   }};
 
   rpc_server.Register<CurrentWalRpc>(
-      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version,
-         auto *req_reader,
-         auto *res_builder) {
+      [&final_response](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                        uint64_t const request_version,
+                        auto *req_reader,
+                        auto *res_builder) {
         memgraph::storage::replication::CurrentWalReq req;
         Load(&req, req_reader);
 
-        std::this_thread::sleep_for(100ms);
         memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(200ms);
-        memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(100ms);
+        final_response.Await();
         memgraph::storage::replication::CurrentWalRes res{1, 1};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -286,9 +333,10 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
   auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
 
   EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
+
+  final_response.Open();
 }
 
-// First send progress, then timeout
 TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
   Endpoint endpoint{"localhost", port};
 
@@ -314,7 +362,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("WalFilesReq"sv, 150)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("WalFilesReq"sv, kLongerThanAnyDelay)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -322,11 +370,13 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
   EXPECT_NO_THROW(stream.SendAndWaitProgress());
 }
 
-// First send progress, then timeout
+// A progress message extends the wait, but a response that still does not come while the client is
+// waiting for it times out
 TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
+  ResponseGate final_response;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
@@ -334,18 +384,15 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   }};
 
   rpc_server.Register<memgraph::storage::replication::WalFilesRpc>(
-      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version,
-         auto *req_reader,
-         auto *res_builder) {
+      [&final_response](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                        uint64_t const request_version,
+                        auto *req_reader,
+                        auto *res_builder) {
         memgraph::storage::replication::WalFilesReq req;
         Load(&req, req_reader);
 
-        std::this_thread::sleep_for(100ms);
         memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(200ms);
-        memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(100ms);
+        final_response.Await();
         memgraph::storage::replication::WalFilesRes res{1, 1};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -359,13 +406,17 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
 
   auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
   EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
+
+  final_response.Open();
 }
 
-// Timeout immediately
-TEST_F(ReplicationRpcProgressTest, TestTTT) {
+// A timeout is configured per request type, so a call of a type without one waits however long its
+// response takes even on a client that times another type out
+TEST_F(ReplicationRpcProgressTest, TimeoutAppliesOnlyToTheRequestTypeItIsSetFor) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
+  ResponseGate current_wal_response;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
@@ -373,15 +424,14 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
   }};
 
   rpc_server.Register<memgraph::storage::replication::CurrentWalRpc>(
-      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version,
-         auto *req_reader,
-         auto *res_builder) {
+      [&current_wal_response](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                              uint64_t const request_version,
+                              auto *req_reader,
+                              auto *res_builder) {
         memgraph::storage::replication::CurrentWalReq req;
         Load(&req, req_reader);
-        std::this_thread::sleep_for(150ms);
+        current_wal_response.Await();
         memgraph::storage::replication::CurrentWalRes res{1, 1};
-        std::this_thread::sleep_for(500ms);
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
 
@@ -392,6 +442,9 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
          auto *res_builder) {
         memgraph::storage::replication::WalFilesReq req;
         Load(&req, req_reader);
+        // Longer than the timeout configured for the other request type, so a client applying that
+        // one to every type would give up here. Nothing is waiting on this delay, so its length is
+        // a lower bound on what the client tolerates rather than a deadline it has to beat.
         std::this_thread::sleep_for(1s);
         memgraph::storage::replication::WalFilesRes res{1, 1};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
@@ -408,6 +461,8 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
     auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
     EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
   }
+
+  current_wal_response.Open();
 
   {
     auto wal_files_stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
