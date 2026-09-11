@@ -256,13 +256,12 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       auto lower_bound = to_bound(lower_value, lower_);
       auto upper_bound = to_bound(upper_value, upper_);
 
-      // When scanning a range, the bounds must be the same type
-      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      if (lower_bound && upper_bound && !storage::AreComparable(lower_bound->value(), upper_bound->value())) {
         return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
-      // bound will be limitted to the same type as the other bound
+      // bound will be limited to the stretch of the order the other bound is compared over
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
@@ -383,13 +382,12 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       auto lower_bound = std::move(std::get<obpv>(maybe_lower_bound));
       auto upper_bound = std::move(std::get<obpv>(maybe_upper_bound));
 
-      // When scanning a range, the bounds must be the same type
-      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      if (lower_bound && upper_bound && !storage::AreComparable(lower_bound->value(), upper_bound->value())) {
         return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
-      // bound will be limitted to the same type as the other bound
+      // bound will be limited to the stretch of the order the other bound is compared over
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
@@ -1398,26 +1396,21 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
   return utils::Bound<storage::PropertyValue>(value.ToPropertyValue(evaluator.GetNameIdMapper()), bound->type());
 }
 
-// Helper function to evaluate an expression and convert it to a property value.
 std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expression *expression, Frame &frame,
                                                                         ExecutionContext &context, storage::View view) {
   ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view, nullptr, &context.number_of_hops};
 
   auto value = expression->Accept(evaluator);
-  // An equality against a value holding a Null answers Null for every row, so a
-  // filter keeps none of them and this scan has to find none. A Null within a
-  // list or a map counts: the lookup below compares by a relation that holds a
-  // Null equal to a Null, and would report a match the filter does not.
-  //
-  // A value no property can hold settles the same way: nothing stored equals a graph element, so
-  // the filter keeps no row and never asks for the value as a property.
+  // Both keep no row, so this scan has to find none. A Null nested in a list or a map counts: the
+  // lookup below compares by a relation holding a Null equal to a Null, and would report a match
+  // the filter does not.
   if (relations::equality::HoldsANull(value) || !value.IsPropertyValue()) {
     return std::nullopt;
   }
   return value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
 }
 
-// Helper function to convert bounds and check for null values.
+// A bound that comes back unset holds for no row, which is not the same as a scan given no bound.
 std::pair<std::optional<utils::Bound<storage::PropertyValue>>, std::optional<utils::Bound<storage::PropertyValue>>>
 ConvertBoundsAndCheckNull(std::optional<utils::Bound<Expression *>> lower_bound,
                           std::optional<utils::Bound<Expression *>> upper_bound, ExpressionEvaluator &evaluator) {
@@ -10971,8 +10964,7 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
-    // Bounds that came back unset mean the comparison holds for no row, which is not the same as a
-    // scan with no bounds. Asking for no chunks is how that is said here.
+    // No chunks is how a scan that finds nothing is asked for here.
     if (!maybe_lower && !maybe_upper) {
       return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
     }
@@ -11113,8 +11105,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
-    // Bounds that came back unset mean the comparison holds for no row, which is not the same as a
-    // scan with no bounds. Asking for no chunks is how that is said here.
+    // No chunks is how a scan that finds nothing is asked for here.
     if (!maybe_lower && !maybe_upper) {
       return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
     }

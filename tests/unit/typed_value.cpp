@@ -467,7 +467,6 @@ TYPED_TEST(AllTypesFixture, Less) {
   // unlike types that are not both numbers.
   for (TypedValue &a : this->values_) {
     for (TypedValue &b : this->values_) {
-      // Cast to (void) so the compiler does not complain about an unused result.
       EXPECT_NO_THROW((void)(a < b));
       if (a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())) {
         EXPECT_PROP_ISNULL(a < b);
