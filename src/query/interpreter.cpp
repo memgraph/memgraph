@@ -11460,7 +11460,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       execution_memory.resource(),
                       flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down,
-                      /* transaction_status = */ nullptr,
+                      // Cooperative stop for a dropped tenant: StopAfterCommitTriggers() stores TERMINATED here
+                      // so a long-running after-commit trigger aborts promptly instead of blocking the pool's
+                      // join (now on the shared defer worker). See Database::StopAfterCommitTriggers().
+                      /* transaction_status = */ db_acc->after_commit_trigger_status(),
                       trigger_context,
                       is_main,
                       triggering_user,
