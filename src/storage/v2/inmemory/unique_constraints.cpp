@@ -517,6 +517,15 @@ auto InMemoryUniqueConstraints::CreateConstraint(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info, ProgressCallback const &on_progress,
     CheckCancelFunction const &cancel_check) -> std::expected<CreationStatus, ConstraintViolation> {
   // TODO: we should do the proper register -> populate(with cancel + parallel) -> publish pattern
+  //
+  // That pattern admits writers during the populate, which is what makes it worth having and also what the
+  // two consuming sites currently assume cannot happen: neither Validate nor UpdateBeforeCommit checks a
+  // constraint's status, because READ_ONLY means one cannot be half-populated while a writer commits. Doing
+  // this without gating both on the status enforces a constraint through a skiplist that is still filling,
+  // and a writer colliding with a not-yet-scanned row commits the duplicate. Registering before admitting
+  // any writer is then also load-bearing, the way index creation registers under READ_ONLY and only then
+  // downgrades: a writer that began earlier captured a constraint set without this one and maintains nothing
+  // for it.
 
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
@@ -615,6 +624,13 @@ void InMemoryUniqueConstraints::RestoreConstraint(LabelId label, const std::set<
   (void)InstallConstraint_(label, properties, std::move(evicted));
 }
 
+// Every constraint in the container is enforced here, with no check of its status, and that is only correct
+// because creation holds READ_ONLY (or UNIQUE) for its whole life: admission demands no write accessor exists,
+// so a constraint is installed, populated and published with no writer running, and any constraint a committing
+// writer can see has already scanned every committed row. A constraint enforced before it finished populating
+// would be read through a skiplist missing exactly the row the writer collides with, and the duplicate commits.
+// One row committed before the constraint existed is enough; no concurrency is required to get it wrong.
+// UpdateBeforeCommit relies on the same precondition and says so at its own site.
 auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
                                          uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation> {
   auto container = container_.ReadCopy();
