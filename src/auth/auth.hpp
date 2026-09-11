@@ -93,6 +93,12 @@ class Auth final {
     std::string password_regex_str{glue::kDefaultPasswordRegex};
     bool password_permit_null{true};
 
+    /// Throws AuthException if the password is null and nulls are not permitted, or fails the strength regex.
+    void ValidatePassword(std::optional<std::string> const &password) const;
+
+    /// Throws AuthException if a custom regex is set without an enterprise licence.
+    bool NameMatches(std::string const &user_or_role) const;
+
    private:
     friend class Auth;
     bool custom_name_regex{false};
