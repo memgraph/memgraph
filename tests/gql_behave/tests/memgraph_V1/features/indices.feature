@@ -263,3 +263,19 @@ Feature: Indices
             DROP INDEX ON :L(prop) WITH CONFIG {"foo": "ASC"};
             """
         Then an error should be raised
+
+    Scenario: An index whose bound reads another pattern's property returns the unindexed result
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:L1 {a: 'b'}), (:L1 {a: 'x'}), (:L2 {b: 'm'}), (:L2 {b: 'c'});
+            """
+        And with new index :L2(b)
+        When executing query:
+            """
+            MATCH (n :L1), (m :L2) WITH * WHERE n.a < m.b RETURN m.b ORDER BY m.b;
+            """
+        Then the result should be:
+            | m.b |
+            | 'c' |
+            | 'm' |
