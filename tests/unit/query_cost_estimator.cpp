@@ -164,6 +164,37 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstant) {
   }
 }
 
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesEqualToAListHoldingNull) {
+  // Equality against a value holding a Null answers Null for every row, so the
+  // scan finds nothing and the estimate has to say so.
+  AddVertices(100, 30, 20);
+  // A vertex that does hold the sought value, so the index counts it. Without
+  // one, an exact-value range over a value nothing holds already estimates the
+  // minimum, and the rule below would make no difference.
+  {
+    auto vertex = dba->InsertVertex();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(
+        vertex
+            .SetProperty(prop_a,
+                         ms::PropertyValue{std::vector<ms::PropertyValue>{ms::PropertyValue{}, ms::PropertyValue{}}})
+            .has_value());
+    dba->AdvanceCommand();
+  }
+
+  // A parameter, because that is what the planner can resolve: a list literal is
+  // not known until the query runs, and is estimated as an unknown either way.
+  auto *held_null =
+      Parameter(std::vector<ms::ExternalPropertyValue>{ms::ExternalPropertyValue(), ms::ExternalPropertyValue()});
+  MakeOp<ScanAllByLabelProperties>(nullptr,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::Equal(held_null)});
+  // No entry can match, so the scan is charged only what everything is charged.
+  EXPECT_COST(CostParam::kMinimumCost);
+}
+
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstExpr) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
@@ -699,6 +730,27 @@ TEST_F(QueryCostEstimatorStringPredicates, EstimateNarrowsToTheStringsWhenMostVa
   auto const string_band = CostOfProperty(mixed, ExpressionRange::Contains(Literal("a")));
   EXPECT_LT(string_band, whole_property / 2);
   EXPECT_GT(string_band, CostParam::kMinimumCost);
+}
+
+TEST_F(QueryCostEstimatorStringPredicates, InListElementHoldingNullCountsForNothing) {
+  // An element holding a Null matches nothing, and the empty range that says so carries no bounds
+  // at all. Reading a bound it never set is undefined, and a Debug build asserts on it, so this
+  // covers the estimator rather than the answer: the scan is over a global property index, which
+  // is the only shape that reads an IN list's elements one by one.
+  auto *sought = Literal(std::string(1, 'a') + "0");
+  auto const one_element =
+      CostOf(ExpressionRange::In(sought, storage_.Create<ListLiteral>(std::vector<Expression *>{sought})));
+
+  // The Null element still costs an Unwind row, so it lowers the per-row average rather than
+  // vanishing from it. Halving it is what a second element matching nothing has to mean.
+  auto *held_null =
+      storage_.Create<ListLiteral>(std::vector<Expression *>{sought, Literal(ms::ExternalPropertyValue())});
+  EXPECT_FLOAT_EQ(CostOf(ExpressionRange::In(sought, held_null)), one_element / 2);
+
+  // A Null nested inside an element is undecidable for the same reason, so it counts the same.
+  auto *held_nested_null = storage_.Create<ListLiteral>(
+      std::vector<Expression *>{sought, Literal(std::vector<ms::ExternalPropertyValue>{ms::ExternalPropertyValue()})});
+  EXPECT_FLOAT_EQ(CostOf(ExpressionRange::In(sought, held_nested_null)), one_element / 2);
 }
 
 TEST_F(QueryCostEstimatorStringPredicates, StartsWithStillNarrowsToItsPrefix) {

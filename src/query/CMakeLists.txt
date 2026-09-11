@@ -98,6 +98,7 @@ target_sources(mg-query
     procedure/module.cpp
     query_user.cpp
     relations/equality.cpp
+    relations/equivalence.cpp
     relations/orderability.cpp
     serialization/property_value.cpp
     stream/common.cpp

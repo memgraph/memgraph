@@ -760,6 +760,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
           for (auto *elem : list->elements_) {
             auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
             if (!resolved) return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+            // An element holding a Null matches nothing, and an empty range says so by carrying no
+            // bounds at all. It contributes nothing to the sum, and reading a bound it never set
+            // would read one that was never there.
+            if (resolved->type_ == storage::PropertyRangeType::INVALID) continue;
             sum += db_accessor_->VerticesCount(property, resolved->lower_->value());
           }
           auto n = static_cast<double>(list->elements_.size());

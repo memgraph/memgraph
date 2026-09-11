@@ -1685,6 +1685,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         for (auto *elem : list->elements_) {
           auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters_, mapper);
           if (!resolved) return static_cast<double>(db_->VerticesCount(scan_op->property_));
+          // The same rule the single-value path above follows: an empty range carries no bounds,
+          // and it counts for nothing rather than being read as one.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) continue;
           sum += db_->VerticesCount(scan_op->property_, resolved->lower_->value());
         }
         return sum;

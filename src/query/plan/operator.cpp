@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 #include <range/v3/all.hpp>
 #include "metrics/prometheus_metrics.hpp"
+#include "query/relations/equality.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -168,22 +169,35 @@ auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
 auto ExpressionRange::IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
 auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
+  auto const bound_from = [&](TypedValue const &typed_value, auto bound_type) {
+    if (!typed_value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
+    }
+    return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), bound_type};
+  };
+
   auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
     if (value == std::nullopt) {
       return std::nullopt;
     } else {
-      auto const typed_value = value->value()->Accept(evaluator);
-      if (!typed_value.IsPropertyValue()) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
-      }
-      return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), value->type()};
+      return bound_from(value->value()->Accept(evaluator), value->type());
     }
   };
 
   switch (type_) {
     case Type::EQUAL:
     case Type::IN: {
-      auto bounded_property_value = to_bounded_property_value(lower_);
+      if (!lower_) return storage::PropertyValueRange::Bounded(std::nullopt, std::nullopt);
+      auto const typed_value = lower_->value()->Accept(evaluator);
+      // Equality against a value holding a Null answers Null for every row, so a filter keeps
+      // none of them. The scan has to agree, or the same query answers differently once an index
+      // exists. The Null is read before the value is converted, because a value holding one need
+      // not be storable at all: converting `[null, <a node>]` raises where the filter this scan
+      // stands in for raises nothing.
+      if (relations::equality::HoldsANull(typed_value)) {
+        return storage::PropertyValueRange::Empty();
+      }
+      auto bounded_property_value = bound_from(typed_value, lower_->type());
       return storage::PropertyValueRange::Bounded(bounded_property_value, bounded_property_value);
     }
 
@@ -303,8 +317,13 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
     case Type::IN: {
       auto bounded_property_value = to_bounded_property_value(lower_);
       if (std::holds_alternative<UnknownAtPlanTime>(bounded_property_value)) return std::nullopt;
-      return storage::PropertyValueRange::Bounded(std::get<obpv>(bounded_property_value),
-                                                  std::get<obpv>(bounded_property_value));
+      auto const &bound = std::get<obpv>(bounded_property_value);
+      // The same rule the evaluated form follows: nothing equals a value holding
+      // a Null, so the scan finds nothing and its cost is estimated on that.
+      if (bound && relations::equality::HoldsANull(bound->value())) {
+        return storage::PropertyValueRange::Empty();
+      }
+      return storage::PropertyValueRange::Bounded(bound, bound);
     }
 
     case Type::REGEX_MATCH:
@@ -1383,7 +1402,11 @@ std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expressi
   ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view, nullptr, &context.number_of_hops};
 
   auto value = expression->Accept(evaluator);
-  if (value.IsNull()) {
+  // An equality against a value holding a Null answers Null for every row, so a
+  // filter keeps none of them and this scan has to find none. A Null within a
+  // list or a map counts: the lookup below compares by a relation that holds a
+  // Null equal to a Null, and would report a match the filter does not.
+  if (relations::equality::HoldsANull(value)) {
     return std::nullopt;
   }
   if (!value.IsPropertyValue()) {
@@ -9890,7 +9913,7 @@ class HashJoinCursor : public Cursor {
             ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
-        if (hashtable_.contains(right_value)) {
+        if (!relations::equality::HoldsANull(right_value) && hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
           right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
           common_value_found_ = true;
@@ -9939,7 +9962,11 @@ class HashJoinCursor : public Cursor {
           ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
-      if (left_value.type() != TypedValue::Type::Null) {
+      // A join keeps a pair only where the equality it stands for is true, and
+      // an equality against a value holding a Null is never true. Such a row
+      // joins with nothing, so it is not offered to the table at all. The
+      // filter this join replaced would have dropped it too.
+      if (!relations::equality::HoldsANull(left_value)) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }
     }

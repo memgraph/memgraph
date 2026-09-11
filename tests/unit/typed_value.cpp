@@ -258,6 +258,51 @@ TEST(TypedValue, Comparison) {
   EXPECT_THROW((void)(point_2 < point_2), memgraph::query::TypedValueException);
 }
 
+namespace {
+TypedValue List(std::vector<TypedValue> elements) { return TypedValue(std::move(elements)); }
+
+TypedValue Map(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
+}  // namespace
+
+TEST(TypedValue, EqualityOfAContainerHoldingNullIsUndecided) {
+  // A Null element stands for a value nobody knows, so a comparison that has to
+  // read one cannot answer. It answers Null, exactly as `null = null` does.
+  EXPECT_PROP_ISNULL(List({TypedValue()}) == List({TypedValue()}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1), TypedValue(), TypedValue(3)}) ==
+                     List({TypedValue(1), TypedValue(), TypedValue(3)}));
+  EXPECT_PROP_ISNULL(List({TypedValue()}) != List({TypedValue()}));
+  EXPECT_PROP_ISNULL(Map({{"k", TypedValue()}}) == Map({{"k", TypedValue()}}));
+
+  // Null against a known value is undecided for the same reason: nothing here
+  // shows the two differ.
+  EXPECT_PROP_ISNULL(List({TypedValue()}) == List({TypedValue(1)}));
+  EXPECT_PROP_ISNULL(Map({{"k", TypedValue()}}) == Map({{"k", TypedValue(1)}}));
+}
+
+TEST(TypedValue, EqualityOfAContainerAnswersWhereOneElementSettlesIt) {
+  // An element that differs proves the two containers differ, whatever else
+  // they hold, so a Null elsewhere does not hide it.
+  EXPECT_PROP_NE(List({TypedValue(), TypedValue(1)}), List({TypedValue(), TypedValue(2)}));
+  EXPECT_PROP_NE(Map({{"a", TypedValue()}, {"b", TypedValue(1)}}), Map({{"a", TypedValue()}, {"b", TypedValue(2)}}));
+
+  // So does a length that differs, or a key one side does not have.
+  EXPECT_PROP_NE(List({TypedValue()}), List({TypedValue(), TypedValue()}));
+  EXPECT_PROP_NE(Map({{"a", TypedValue()}}), Map({{"b", TypedValue()}}));
+
+  // And a container holding no Null at all still answers.
+  EXPECT_PROP_EQ(List({TypedValue(1)}), List({TypedValue(1)}));
+  EXPECT_PROP_NE(List({TypedValue(1)}), List({TypedValue(2)}));
+}
+
+TEST(TypedValue, EquivalenceOfAContainerHoldingNullDecides) {
+  // Equivalence is two-valued, which is what a hash container needs: it holds a
+  // Null equivalent to a Null so a key can be found again.
+  auto eq = TypedValue::BoolEqual{};
+  EXPECT_TRUE(eq(List({TypedValue()}), List({TypedValue()})));
+  EXPECT_TRUE(eq(Map({{"k", TypedValue()}}), Map({{"k", TypedValue()}})));
+  EXPECT_FALSE(eq(List({TypedValue()}), List({TypedValue(1)})));
+}
+
 TEST(TypedValue, BoolEquals) {
   auto eq = TypedValue::BoolEqual{};
   EXPECT_TRUE(eq(TypedValue(1), TypedValue(1)));
@@ -784,13 +829,12 @@ TYPED_TEST(AllTypesFixture, CopyConstruction) {
       EXPECT_PROP_ISNULL(cpy);
     } else if (value.IsGraph()) {
       // not comparable
-    } else if (value.IsMap()) {
-      // map contains NULL so can't be true
-      auto res = cpy == value;
-      // THIS IS NOT THE SAME AS NEO4J
-      // NEO4J returns NULL
-      ASSERT_EQ(res.type(), TypedValue::Type::Bool);
-      ASSERT_EQ(res.ValueBool(), false);
+    } else if (value.IsList() || value.IsMap()) {
+      // Both hold a Null, so equality cannot decide that the copy is the same
+      // value: it answers Null. Equivalence is the relation that does decide,
+      // and the one that has to, since a hash container is keyed by it.
+      EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value));
+      EXPECT_PROP_ISNULL(cpy == value);
     } else {
       EXPECT_PROP_EQ(cpy, value);
     }

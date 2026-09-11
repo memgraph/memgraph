@@ -30,6 +30,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/name_id_mapper.hpp"
@@ -478,14 +479,21 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         const auto &cached_value = cached_value_ref->get();
 
-        if (cached_value.Contains(literal)) {
-          return TypedValue(true, ctx_->memory);
+        // A lookup in the set answers by equivalence, which holds a Null equivalent to a Null.
+        // Equality answers Null against anything holding one, so the set stands in for the loop
+        // below only while neither the list's elements nor the sought value hold a Null below
+        // their top level. A top-level Null does not spoil it, because the explicit lookup for
+        // one answers exactly that case.
+        if (cached_value.AnswersEquality() && !relations::equality::HoldsANull(literal)) {
+          if (cached_value.Contains(literal)) {
+            return TypedValue(true, ctx_->memory);
+          }
+          // has null
+          if (cached_value.Contains(TypedValue(ctx_->memory))) {
+            return TypedValue(ctx_->memory);
+          }
+          return TypedValue(false, ctx_->memory);
         }
-        // has null
-        if (cached_value.Contains(TypedValue(ctx_->memory))) {
-          return TypedValue(ctx_->memory);
-        }
-        return TypedValue(false, ctx_->memory);
       }
     }
     // When caching is not an option, we need to evaluate list literal every time
