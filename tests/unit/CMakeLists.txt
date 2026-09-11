@@ -372,6 +372,11 @@ add_unit_test(typed_value
     LINK_TARGETS mg-query disk_test_utils
 )
 
+add_unit_test(query_relations
+    SOURCES query_relations.cpp
+    LINK_TARGETS mg-query
+)
+
 # Test mg-communication
 add_unit_test(bolt_chunked_decoder_buffer
     SOURCES bolt_chunked_decoder_buffer.cpp

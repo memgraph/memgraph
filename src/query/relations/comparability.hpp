@@ -28,48 +28,10 @@
 #include <compare>
 #include <optional>
 
+#include "query/relations/payload_order.hpp"
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::relations::comparability {
-
-template <TypedValue::Type>
-inline constexpr bool kNoPayloadOrder = false;
-
-/**
- * Orders two values of one named type by what they hold.
- *
- * The type is a template argument, so a caller whose own switch has already
- * selected it reaches the comparison without a second dispatch. ComparePayload
- * below is the runtime dispatch onto these, for a caller whose type is not
- * settled until it runs.
- *
- * The two values must be of type T.
- */
-template <TypedValue::Type T>
-inline std::partial_ordering ComparePayloadOf(const TypedValue &a, const TypedValue &b) {
-  using enum TypedValue::Type;
-  if constexpr (T == Bool) {
-    return a.UnsafeValueBool() <=> b.UnsafeValueBool();
-  } else if constexpr (T == Int) {
-    return a.UnsafeValueInt() <=> b.UnsafeValueInt();
-  } else if constexpr (T == Double) {
-    return a.UnsafeValueDouble() <=> b.UnsafeValueDouble();
-  } else if constexpr (T == String) {
-    return a.UnsafeValueString() <=> b.UnsafeValueString();
-  } else if constexpr (T == Date) {
-    return a.UnsafeValueDate() <=> b.UnsafeValueDate();
-  } else if constexpr (T == LocalTime) {
-    return a.UnsafeValueLocalTime() <=> b.UnsafeValueLocalTime();
-  } else if constexpr (T == LocalDateTime) {
-    return a.UnsafeValueLocalDateTime() <=> b.UnsafeValueLocalDateTime();
-  } else if constexpr (T == ZonedDateTime) {
-    return a.UnsafeValueZonedDateTime() <=> b.UnsafeValueZonedDateTime();
-  } else if constexpr (T == Duration) {
-    return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
-  } else {
-    static_assert(kNoPayloadOrder<T>, "This type carries no order of its own");
-  }
-}
 
 /**
  * Whether comparability places values of a type at all.
@@ -200,18 +162,10 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
     return std::nullopt;
   }
 
-  // Numbers are the only unlike pair the relation places, so the two are one
-  // Int and one Double. Every other pair of unlike types is incomparable, as is
-  // any pair involving a Null.
-  //
-  // The tag tests read type() rather than IsNumeric(), and the payloads are
-  // read directly rather than through ToDouble, because both are defined in the
-  // value's own translation unit and are calls anywhere else. A filter asks
-  // this once per row.
-  using enum TypedValue::Type;
-  if (a.type() == Int && b.type() == Double) return a.UnsafeValueInt() <=> b.UnsafeValueDouble();
-  if (a.type() == Double && b.type() == Int) return a.UnsafeValueDouble() <=> b.UnsafeValueInt();
-  return std::nullopt;
+  // Numbers are the only unlike pair the relation places. Every other pair of
+  // unlike types is incomparable, as is any pair involving a Null.
+  if (!AreMixedNumbers(a.type(), b.type())) return std::nullopt;
+  return ComparePayloadOfMixedNumbers(a, b);
 }
 
 /** Reads a comparison the way one operator asks it, carrying `a`'s memory resource. */
