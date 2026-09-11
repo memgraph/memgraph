@@ -2064,6 +2064,9 @@ test_memgraph() {
       local PINNED=0
       # write-pct: percentage of writes in the realistic mix (rest are reads). 0 = 100% read.
       local WRITE_PCT=20
+      # dataset: which workload the realistic mix runs over. pokec (default) = read/write mix over
+      # the pokec arango group; bench = a write-isolated ~1ms range-scan READ workload (read-only).
+      local DATASET='pokec'
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2103,9 +2106,13 @@ test_memgraph() {
             WRITE_PCT="$2"
             shift 2
           ;;
+          --dataset)
+            DATASET="$2"
+            shift 2
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench-ha"
-            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --routing-tx-mode, --num-workers, --pinned, --write-pct"
+            echo "Supported flags: --size, --export-results-file, --cluster-description, --realistic, --routing, --routing-tx-mode, --num-workers, --pinned, --write-pct, --dataset"
             exit 1
           ;;
         esac
@@ -2132,6 +2139,16 @@ test_memgraph() {
         fi
       fi
       if [[ "$MODE" == "realistic" ]]; then
+        # bench is a read-only dataset (single range-scan read query, no write query), so it only
+        # makes sense at 100% read; refuse a write mix over it rather than fail deep in validation.
+        local TARGET="pokec/$DATASET_SIZE/arango/*"
+        if [[ "$DATASET" == "bench" ]]; then
+          if [[ "$WRITE_PCT" != "0" ]]; then
+            echo "Error: --dataset bench is read-only; use --write-pct 0"
+            exit 1
+          fi
+          TARGET="bench/default/scan/*"
+        fi
         # Realistic mix over the pokec arango group at high concurrency: many clients contend for the
         # commit path while writes replicate SYNC. WRITE_PCT% write / the rest read (0 => 100% read).
         # 50k queries so the window is ~80s of steady state (noise ~1/sqrt(window)); --warm-up hot drops
@@ -2143,9 +2160,9 @@ test_memgraph() {
           # Each instance is pinned by ha_pin_wrapper.sh (passed as --vendor-binary); ha_pin_map.sh
           # computes MG_PIN_MAP + CLIENT_CPUS from the container's effective cpuset; the client is
           # taskset-pinned to the leftover cores.
-          docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && export MG_REAL_BINARY=$MGBUILD_ROOT_DIR/build/memgraph && eval \"\$(./ha_pin_map.sh)\" && export MG_PIN_MAP && taskset -c \"\$CLIENT_CPUS\" ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 $MIX --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION --vendor-binary $MGBUILD_ROOT_DIR/tests/mgbench/ha_pin_wrapper.sh -- pokec/$DATASET_SIZE/arango/*"
+          docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && export MG_REAL_BINARY=$MGBUILD_ROOT_DIR/build/memgraph && eval \"\$(./ha_pin_map.sh)\" && export MG_PIN_MAP && taskset -c \"\$CLIENT_CPUS\" ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 $MIX --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION --vendor-binary $MGBUILD_ROOT_DIR/tests/mgbench/ha_pin_wrapper.sh -- $TARGET"
         else
-          docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 $MIX --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/arango/*"
+          docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --warm-up hot $ROUTING_ARGS --num-workers-for-benchmark $WORKERS --workload-realistic 50000 $MIX --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- $TARGET"
         fi
       else
         local WORKERS="${NUM_WORKERS:-6}"

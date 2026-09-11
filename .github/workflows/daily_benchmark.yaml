@@ -45,6 +45,9 @@ jobs:
       DEFAULT_MGBENCH_HA_2REP_MIX_DIRECT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_mix_direct.json'
       DEFAULT_MGBENCH_HA_2REP_MIX_ROUTING_EXPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_mix_routing_explicit.json'
       DEFAULT_MGBENCH_HA_2REP_MIX_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_mix_routing_implicit.json'
+      DEFAULT_MGBENCH_HA_2REP_BENCHREAD_DIRECT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_benchread_direct.json'
+      DEFAULT_MGBENCH_HA_2REP_BENCHREAD_ROUTING_EXPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_benchread_routing_explicit.json'
+      DEFAULT_MGBENCH_HA_2REP_BENCHREAD_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_benchread_routing_implicit.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -231,6 +234,59 @@ jobs:
             "mgbench-ha --realistic --pinned --write-pct 20 --routing --routing-tx-mode implicit" \
             mgbench-ha-2rep-mix-routing-implicit \
             ${{ env.DEFAULT_MGBENCH_HA_2REP_MIX_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      # Heavy (~1ms) routed-read arm on the pinned 2-replica cluster using the write-isolated :Bench
+      # range-scan dataset (read-only). Direct (C++ client, single-instance ceiling) vs bolt+routing
+      # explicit/implicit (python client, reads dispatched to the two replicas). Unlike the microsecond
+      # pokec point-read, each query does real server work, so this probes whether routed reads reach
+      # the replicas rather than being purely client-bound.
+      - name: Run and upload mgbench-ha-2rep-benchread-direct
+        id: mgbench-ha-2rep-benchread-direct
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-benchread-direct,') }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --pinned --dataset bench --write-pct 0" \
+            mgbench-ha-2rep-benchread-direct \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_BENCHREAD_DIRECT_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2rep-benchread-routing-explicit
+        id: mgbench-ha-2rep-benchread-routing-explicit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-benchread-routing-explicit,') }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --pinned --dataset bench --write-pct 0 --routing --routing-tx-mode managed" \
+            mgbench-ha-2rep-benchread-routing-explicit \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_BENCHREAD_ROUTING_EXPLICIT_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2rep-benchread-routing-implicit
+        id: mgbench-ha-2rep-benchread-routing-implicit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.benchmarks == 'all' || contains(format(',{0},', inputs.benchmarks), ',mgbench-ha-2rep-benchread-routing-implicit,') }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --realistic --pinned --dataset bench --write-pct 0 --routing --routing-tx-mode implicit" \
+            mgbench-ha-2rep-benchread-routing-implicit \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_BENCHREAD_ROUTING_IMPLICIT_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \
