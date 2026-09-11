@@ -11,6 +11,74 @@ on:
         type: number
         description: "Number of times to run the benchmarks. Default is 10. Not applied to HA suites"
         default: 10
+      load_parquet:
+        type: boolean
+        description: "load-parquet"
+        default: true
+      mgbench_vector_search_index:
+        type: boolean
+        description: "mgbench-vector-search-index"
+        default: true
+      mgbench_vector_search_edge_index:
+        type: boolean
+        description: "mgbench-vector-search-edge-index"
+        default: true
+      mgbench_text_search_index:
+        type: boolean
+        description: "mgbench-text-search-index"
+        default: true
+      mgbench_text_search_edge_index:
+        type: boolean
+        description: "mgbench-text-search-edge-index"
+        default: true
+      macro_benchmark:
+        type: boolean
+        description: "macro-benchmark"
+        default: true
+      mgbench_supernode:
+        type: boolean
+        description: "mgbench-supernode"
+        default: true
+      mgbench:
+        type: boolean
+        description: "mgbench"
+        default: true
+      planner:
+        type: boolean
+        description: "planner"
+        default: true
+      mgbench_ha:
+        type: boolean
+        description: "mgbench-ha"
+        default: true
+      mgbench_ha_2_replicas:
+        type: boolean
+        description: "mgbench-ha-2-replicas"
+        default: true
+      mgbench_ha_async:
+        type: boolean
+        description: "mgbench-ha-async"
+        default: true
+      mgbench_ha_strict_sync:
+        type: boolean
+        description: "mgbench-ha-strict-sync"
+        default: true
+      mgbench_ha_2_strict_sync:
+        type: boolean
+        description: "mgbench-ha-2-strict-sync"
+        default: true
+      mgbench_ha_sync_async:
+        type: boolean
+        description: "mgbench-ha-sync-async"
+        default: true
+      mgbench_ha_strict_sync_async:
+        type: boolean
+        description: "mgbench-ha-strict-sync-async"
+        default: true
+      mgbench_ha_2_async:
+        type: boolean
+        description: "mgbench-ha-2-async"
+        default: true
   schedule:
     - cron: "0 0 * * *"
 
@@ -111,6 +179,7 @@ jobs:
 
       - name: Run and upload mgbench-ha
         id: mgbench-ha
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -126,6 +195,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-replicas
         id: mgbench-ha-2-replicas
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2_replicas }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -141,6 +211,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-async
         id: mgbench-ha-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_async }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -156,6 +227,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-strict-sync
         id: mgbench-ha-strict-sync
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_strict_sync }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -171,6 +243,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-strict-sync
         id: mgbench-ha-2-strict-sync
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2_strict_sync }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -186,6 +259,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-sync-async
         id: mgbench-ha-sync-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_sync_async }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -201,6 +275,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-strict-sync-async
         id: mgbench-ha-strict-sync-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_strict_sync_async }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -216,6 +291,7 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-async
         id: mgbench-ha-2-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2_async }}
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -231,6 +307,7 @@ jobs:
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.load_parquet }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -243,6 +320,7 @@ jobs:
 
       - name: Run and upload mgbench-vector-search-index
         id: mgbench-vector-search-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_vector_search_index }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -256,6 +334,7 @@ jobs:
 
       - name: Run and upload mgbench-vector-search-edge-index
         id: mgbench-vector-search-edge-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_vector_search_edge_index }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -269,6 +348,7 @@ jobs:
 
       - name: Run and upload mgbench-text-search-index
         id: mgbench-text-search-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_text_search_index }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -282,6 +362,7 @@ jobs:
 
       - name: Run and upload mgbench-text-search-edge-index
         id: mgbench-text-search-edge-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_text_search_edge_index }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -295,6 +376,7 @@ jobs:
 
       - name: Run and upload macro benchmarks
         id: macro-benchmark
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.macro_benchmark }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -308,6 +390,7 @@ jobs:
 
       - name: Run and upload mgbench-supernode
         id: mgbench-supernode
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_supernode }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -321,6 +404,7 @@ jobs:
 
       - name: Run and upload mgbench
         id: mgbench
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
@@ -334,6 +418,7 @@ jobs:
 
       - name: Run extended planner optimizations mgbench
         id: planner
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.planner }}
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
