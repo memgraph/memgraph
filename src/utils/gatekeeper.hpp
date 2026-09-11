@@ -285,6 +285,9 @@ struct Gatekeeper {
       if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
         return {not_run_t{}};
       }
+      // count_ == 1 can briefly coincide with value_ == nullptr in try_delete()'s unlocked move-out
+      // window; refuse rather than dereference null (matches the 0-arg overload's count_/value_ check).
+      if (!owner_->value_) return {not_run_t{}};
       // Invoke and hold result in wrapper type
       return {run_t{}, std::forward<Func>(func), *owner_->value_};
     }

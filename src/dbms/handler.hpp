@@ -72,9 +72,25 @@ class Handler {
     defer_scheduler_.Pause();
   }
 
-  // Defaulted: defer_scheduler_ is declared LAST, so ~Scheduler (Stop+join) runs before pending_/items_.
-  // Un-drainable tenants block shutdown by design — see the member-order block near the declarations.
-  virtual ~Handler() = default;
+  // Stop the worker, then drain any still-pending drops. Two reasons this cannot be defaulted:
+  //  (1) Correctness: with the teardown deferred to the worker, a pending drop whose stop-step has not
+  //      run yet still has streams/triggers holding accessors. Default member teardown of pending_ would
+  //      call ~Gatekeeper, which waits for count_==0 BEFORE it destroys the Database that stops those
+  //      tasks -- a deadlock. TryReserve() below runs the stop-step first, so the accessors are released.
+  //  (2) Cleanup: RunCallback() fires post_delete_func (on-disk data-dir cleanup + detached-row forget),
+  //      which default teardown would skip, leaking the dir and the detached_ row.
+  // An orphaned (never-draining) tenant still blocks shutdown here, by design.
+  virtual ~Handler() {
+    defer_scheduler_.Stop();  // idempotent; the later ~Scheduler is then a no-op
+    for (auto &entry : pending_) {
+      try {
+        entry.TryReserve();   // one-time stop-step (releases background accessors); may also destroy
+        entry.RunCallback();  // destroy if still live (count_ now only external holders) + fire callback
+      } catch (...) {         // NOLINT(bugprone-empty-catch): a destructor must not propagate; drain best-effort
+      }
+    }
+    pending_.clear();
+  }
 
   /**
    * @brief Generate a new context and corresponding configuration.
