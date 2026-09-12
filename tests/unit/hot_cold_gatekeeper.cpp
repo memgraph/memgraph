@@ -497,3 +497,43 @@ TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 }
+
+// ---------------------------------------------------------------------------
+// CancelDeletionClearsTheMark
+// ---------------------------------------------------------------------------
+// Pins B2: Gatekeeper::cancel_deletion() must roll back the advisory delete mark
+// that Accessor::prepare_for_deletion() set, so that a drop which fails before
+// the tenant is handed to teardown does not permanently suppress replication
+// recovery re-arm for a still-present tenant.
+TEST(HotColdGatekeeper, CancelDeletionClearsTheMark) {
+  auto gk = make_hot();
+
+  auto acc = gk.access();
+  ASSERT_TRUE(acc.has_value());
+
+  // Confirm clean baseline: the mark must be clear before any prepare_for_deletion().
+  {
+    auto mark = gk.is_marked_for_deletion();
+    ASSERT_TRUE(mark.has_value()) << "is_marked_for_deletion() must return a value while the gatekeeper is HOT";
+    EXPECT_FALSE(*mark) << "deletion mark must be clear before prepare_for_deletion() is called";
+  }
+
+  // Set the advisory delete mark via the Accessor.
+  acc->prepare_for_deletion();
+  {
+    auto mark = gk.is_marked_for_deletion();
+    ASSERT_TRUE(mark.has_value());
+    EXPECT_TRUE(*mark) << "is_marked_for_deletion() must report true after prepare_for_deletion()";
+  }
+
+  // cancel_deletion() rolls back the mark; the gatekeeper must report false again.
+  gk.cancel_deletion();
+  {
+    auto mark = gk.is_marked_for_deletion();
+    ASSERT_TRUE(mark.has_value());
+    EXPECT_FALSE(*mark) << "is_marked_for_deletion() must report false after cancel_deletion()";
+  }
+
+  // Release the accessor so the gatekeeper destructs cleanly.
+  acc->reset();
+}
