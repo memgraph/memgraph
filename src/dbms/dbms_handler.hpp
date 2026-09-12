@@ -535,7 +535,9 @@ class DbmsHandler {
    *
    * Appends DETACHED rows last; HOT/COLD names already in out win the de-dup. Multiple detached_
    * entries sharing a name collapse to one row (detached_ is uuid-keyed; TenantMemorySum/AllDetached
-   * still count every uuid). DETACHED is deliberate — returns "ready" in health_of (interpreter.cpp).
+   * still count every uuid). DETACHED is deliberate — health_of (interpreter.cpp) reports it "ready": a
+   * detached tenant has no live storage to probe, so the metadata row is reported healthy rather than
+   * health-checked, until the worker reclaims it.
    */
   std::vector<std::pair<std::string, std::string>> AllWithHotColdStatus() const {
     auto rd = std::shared_lock{lock_};
@@ -1205,13 +1207,14 @@ class DbmsHandler {
   //     calls ForgetDetached_ and needs detached_/detached_lock_ still alive. Mirrors the
   //     items_-before-pending_ note in handler.hpp. Don't reorder, and don't insert another
   //     callback-owning member between them.
-  //  b) Separate mutex, not lock_: the callback runs INLINE on Delete_'s thread when
-  //     Gatekeeper::Accessor::try_delete() succeeds, and Delete_ already holds lock_ EXCLUSIVE — a
-  //     non-recursive pthread rwlock, so reusing it would self-deadlock. detached_lock_ works on both
-  //     the inline and the drain-thread path.
-  //  c) Lock order is lock_ -> detached_lock_, never taken the other way round. Readers hold both
-  //     (lock_ shared, outermost) so a row can't be observed for a tenant the inline path already
-  //     destroyed synchronously. Don't "optimize" a reader to take detached_lock_ alone.
+  //  b) Separate mutex, not lock_: ForgetDetached_ runs from the drain worker's post-delete callback
+  //     (DeferDelete always defers now -- there is no inline-on-Delete_ path), so it must not need lock_,
+  //     which a DROP holds EXCLUSIVE while it detaches; lock_ is also a non-recursive pthread rwlock. The
+  //     worker holds defer_lock_, not lock_. detached_lock_ is independent and serves both the DROP thread
+  //     (RecordDetached_) and the worker (ForgetDetached_).
+  //  c) Lock order is lock_ -> detached_lock_, never the other way round. Readers hold both (lock_ shared,
+  //     outermost) so the live-tenant map and the detached rows stay mutually consistent under a snapshot.
+  //     Don't "optimize" a reader to take detached_lock_ alone.
   //  d) The callback captures a raw DbmsHandler* `this`, safe only because ~Handler's join runs as
   //     part of ~DbmsHandler, so `this` stays a live (mid-destruction) object throughout the join.
   mutable std::mutex detached_lock_;  //!< guards detached_; see lock-order note above

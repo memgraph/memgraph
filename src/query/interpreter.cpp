@@ -9033,7 +9033,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
     // (AllWithHotColdStatus de-dups: suspended_ wins).
     std::vector<std::string> all_names;
-    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD"
+    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD" | "DETACHED"
     for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
       all_names.push_back(name);
       status_of.emplace(std::move(name), std::move(st));

@@ -244,7 +244,10 @@ void Scheduler::Wake() {
     auto lk = std::unique_lock{mutex_};
     wake_requested_ = true;
     is_paused_ = false;
-    spin_once_ = true;  // don't wait out the interval before the first retry
+    // Break the current interval wait so the loop recomputes its next deadline right after this un-pause
+    // (it `continue`s WITHOUT running the task) instead of sleeping out a now-stale one; it does not itself
+    // make the next run prompt.
+    spin_once_ = true;
   }
   condition_variable_.notify_one();
 }

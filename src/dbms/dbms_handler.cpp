@@ -852,6 +852,9 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     // Last point this Database is reachable from Delete_: the accessor above is the only thing
     // keeping it alive, and it goes out of scope at the end of this block.
     tenant_uuid = database.uuid();
+    // Point-in-time snapshot, taken before the worker stops this tenant's background tasks and reclaims
+    // it. Its live memory can still change between here and reclamation, so the DETACHED row's reported
+    // memory (SHOW STORAGE INFO) may transiently disagree with a still-live tenant's live memory_tracked.
     memory_at_detach = database.DbMemoryUsage();
   }
 
