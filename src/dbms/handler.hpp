@@ -236,17 +236,26 @@ class Handler {
     // which runs after items_.erase() frees that node. Copy before the pd move so a throw here
     // strands nothing.
     const std::string name_copy{name};
-    // Invariant: node-alloc bad_alloc must not strand a husk (hence erase-before-push_back)
-    // nor block ~Gatekeeper under defer_lock_ (hence pd-before-guard).
+    // pd owns the gatekeeper (and thus the Database) once constructed; build it OFF defer_lock_ so a
+    // ~Gatekeeper it may run never happens under that lock. gk is declared last so a throw building the
+    // earlier members never half-moves the source.
     PendingDestruction pd{.post_delete_func = std::forward<Func>(post_delete_func),
                           .pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
                           .gk = std::move(itr->second)};
     items_.erase(itr);
     std::size_t pending_count = 0;
-    {
+    try {
       auto guard = std::lock_guard{defer_lock_};
       pending_.push_back(std::move(pd));
       pending_count = pending_.size();
+    } catch (...) {
+      // The only throwing step is the list-node allocation, and push_back gives the strong guarantee, so
+      // pd still owns the tenant. The node never reached pending_, so the worker will never reclaim it --
+      // do it inline in RunCallback's order (destroy the Database, THEN run post_delete_func) so a
+      // bad_alloc here cannot orphan the on-disk data directory. defer_lock_ is already released by the
+      // guard's unwind, so ~Gatekeeper does not run under it.
+      pd.RunCallback();
+      throw;
     }
     // Wake() OUTSIDE defer_lock_ and OUTSIDE the try/catch. Outside the lock: formatting/flushing the
     // log must not stall the drain worker (which contends on defer_lock_). Outside the try: a throw
@@ -344,13 +353,10 @@ class Handler {
       if (!stopped_) {
         // Runs on the defer worker, whose scheduler does NOT guard its callback (Scheduler::ThreadRun
         // calls f() unguarded), so an escaping throw here would std::terminate the process. On the old
-        // path these joins ran on the query thread where a throw was a recoverable query error; keep
-        // that. Set stopped_ first so a persistent failure cannot spin re-stopping every tick; the stop
-        // is best-effort and ~Database (via try_delete below) is the teardown backstop.
-        stopped_ = true;
-        // `if constexpr (requires ...)`: Handler<T> is generic -- a unit test instantiates it with a
-        // probe type that has no background tasks, so the stop-step must compile away for such T. For
-        // T == Database this stops streams + after-commit triggers etc.
+        // path these joins ran on the query thread where a throw was a recoverable query error; keep that.
+        // `if constexpr (requires ...)`: Handler<T> is generic -- a unit test instantiates it with a probe
+        // type that has no background tasks, so the stop-step must compile away for such T. For T == Database
+        // this stops streams + after-commit triggers etc.
         if constexpr (requires(T &db) {
                         db.StopAllBackgroundTasks();
                         db.streams()->DropAll();
@@ -359,11 +365,19 @@ class Handler {
             auto *database = acc->get();
             database->StopAllBackgroundTasks();
             database->streams()->DropAll();
+            // Latch stopped_ only on success. A throw (e.g. a ConsumerStopped TOCTOU) would otherwise leave
+            // still-running tasks holding accessors while every later tick skips the stop -- try_delete never
+            // passes and ~Gatekeeper waits unbounded at shutdown. Leaving it false lets a later tick, or the
+            // ~Handler drain, re-attempt the (idempotent) stop; a fast-throwing persistent failure just
+            // retries per 50ms tick.
+            stopped_ = true;
           } catch (...) {  // NOLINT(bugprone-empty-catch)
             spdlog::error(
                 "Deferred teardown of a dropped database could not stop its background tasks "
-                "cleanly; destruction will still proceed.");
+                "cleanly; will retry on the next tick.");
           }
+        } else {
+          stopped_ = true;  // nothing to stop for this T
         }
       }
       if (!acc->try_delete(kDeferTryTimeout)) {
@@ -389,35 +403,43 @@ class Handler {
   // One tick: snapshot the list under defer_lock_, trylock each tenant OFF the lock (so ~Gatekeeper and
   // re-entrant callbacks don't run under the list mutex), splice drained nodes, park if empty.
   utils::SchedulerResult DrainDeferred_() {
-    // Brief lock: stable std::list iterators stay valid until we splice below (only this worker erases);
-    // a concurrent DeferDelete can only append — newcomers are picked up on the next tick.
-    std::vector<typename PendingList::iterator> snapshot;
-    {
-      auto guard = std::lock_guard{defer_lock_};
-      snapshot.reserve(pending_.size());
-      for (auto it = pending_.begin(); it != pending_.end(); ++it) snapshot.push_back(it);
+    // Scheduler::ThreadRun calls this callback UNGUARDED, so an escaping throw std::terminate()s the
+    // process. The per-tick vector allocations below can throw bad_alloc; keep the whole tick nothrow and,
+    // on a throw, drop this tick and keep running so the next one retries.
+    try {
+      // Brief lock: stable std::list iterators stay valid until we splice below (only this worker erases);
+      // a concurrent DeferDelete can only append — newcomers are picked up on the next tick.
+      std::vector<typename PendingList::iterator> snapshot;
+      {
+        auto guard = std::lock_guard{defer_lock_};
+        snapshot.reserve(pending_.size());
+        for (auto it = pending_.begin(); it != pending_.end(); ++it) snapshot.push_back(it);
+      }
+
+      // Trylock + value teardown OFF the lock.
+      std::vector<typename PendingList::iterator> completed;
+      for (auto it : snapshot) {
+        if (it->TryReserve()) completed.push_back(it);
+      }
+
+      PendingList ready;
+      bool drained_empty = false;
+      {
+        auto guard = std::lock_guard{defer_lock_};
+        for (auto it : completed) ready.splice(ready.end(), pending_, it);
+        drained_empty = pending_.empty();
+      }
+
+      // Callbacks OFF the lock; `ready` then destructs -- moved-from gks are no-ops, ScopedGauges decrement.
+      for (auto &entry : ready) entry.RunCallback();
+
+      // Park iff still empty: a racing DeferDelete either appended before the check (drained_empty = false)
+      // or its Wake() after return cancels the pause (scheduler skips pause when a wake landed mid-tick).
+      return drained_empty ? utils::SchedulerResult::Pause : utils::SchedulerResult::KeepRunning;
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+      spdlog::error("A deferred-tenant-destruction tick could not complete; it will be retried next tick.");
+      return utils::SchedulerResult::KeepRunning;
     }
-
-    // Trylock + value teardown OFF the lock.
-    std::vector<typename PendingList::iterator> completed;
-    for (auto it : snapshot) {
-      if (it->TryReserve()) completed.push_back(it);
-    }
-
-    PendingList ready;
-    bool drained_empty = false;
-    {
-      auto guard = std::lock_guard{defer_lock_};
-      for (auto it : completed) ready.splice(ready.end(), pending_, it);
-      drained_empty = pending_.empty();
-    }
-
-    // Callbacks OFF the lock; `ready` then destructs -- moved-from gks are no-ops, ScopedGauges decrement.
-    for (auto &entry : ready) entry.RunCallback();
-
-    // Park iff still empty: a racing DeferDelete either appended before the check (drained_empty = false)
-    // or its Wake() after return cancels the pause (scheduler skips pause when a wake landed mid-tick).
-    return drained_empty ? utils::SchedulerResult::Pause : utils::SchedulerResult::KeepRunning;
   }
 
   // Declaration order is LOAD-BEARING (members destruct in reverse declaration order):
