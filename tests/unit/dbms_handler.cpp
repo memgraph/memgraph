@@ -15,9 +15,12 @@
 #ifdef MG_ENTERPRISE
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <system_error>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -28,9 +31,12 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "memory/db_arena.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "system/system.hpp"
+#include "tests/test_commit_args_helper.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/uuid.hpp"
 
 namespace {
@@ -143,6 +149,25 @@ memgraph::storage::Config MakeSeededConfig(const std::filesystem::path &root) {
   conf.durability.snapshot_wal_mode =
       memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   return conf;
+}
+
+// Unsigned-safe absolute difference for the memory-tracker snapshots below (int64_t IDs can be
+// negative in theory; std::abs overload resolution on int64_t is platform-fiddly, so spell it out).
+int64_t AbsDiff(int64_t lhs, int64_t rhs) { return lhs > rhs ? lhs - rhs : rhs - lhs; }
+
+// Bounded poll: retries `pred` (checking wall-clock time only between retries, never spinning
+// unbounded) until it returns true or `timeout` elapses. Every wait in the memory-attribution tests
+// below is bounded like this, because what's being waited on is a background thread pool's progress,
+// not a fixed-latency operation -- an unbounded wait would hang forever on a real regression, and a
+// single fixed sleep would either flake (too short) or slow the suite down for nothing (too long).
+template <typename Pred>
+bool WaitUntil(std::chrono::milliseconds timeout, Pred &&pred) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  do {
+    if (pred()) return true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  } while (std::chrono::steady_clock::now() < deadline);
+  return pred();
 }
 }  // namespace
 
@@ -902,6 +927,414 @@ TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
   EXPECT_TRUE(fs::exists(TenantDataDir(sr, seeded.uuid))) << "the tenant's data directory must be untouched by RENAME";
 
   fs::remove_all(sr.root);
+}
+
+// --- Memory attribution for a force-deleted-while-held Database ---
+//
+// A Database force-deleted via DbmsHandler::Delete (NOT TryDelete, which would refuse with USING)
+// while a DatabaseAccess is still held becomes invisible to DbmsHandler::Get/ForEach immediately:
+// Handler::DeferDelete erases the entry from `items_` unconditionally, whether or not
+// Gatekeeper::Accessor::try_delete() managed to delete synchronously. But the Database object stays
+// ALIVE until its deferred destructor actually runs, which cannot happen until every outstanding
+// accessor is released. Meanwhile its db_memory_tracker_ still parents into the global
+// utils::graph_memory_tracker, so its bytes stay counted globally even though the tenant has
+// vanished from the per-tenant reachable set. That is the "global total far exceeds the sum over
+// tenants" gap.
+//
+// This test covers the part that made one stuck tenant expensive: each deferred destruction gets its
+// own thread, so a tenant nobody can drain must not hold up an unrelated tenant's destruction (and
+// its memory) behind it.
+TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
+  auto &dbms = *TestEnvironment::get();
+
+#if USE_JEMALLOC
+  const int64_t global_baseline = memgraph::utils::graph_memory_tracker.Amount();
+#endif
+
+  auto new_t1 = dbms.New("starve_orphan_t1");
+  ASSERT_TRUE(new_t1.has_value()) << (int)new_t1.error();
+  memgraph::dbms::DatabaseAccess t1_acc = std::move(new_t1.value());
+
+  auto new_t2 = dbms.New("starve_orphan_t2");
+  ASSERT_TRUE(new_t2.has_value()) << (int)new_t2.error();
+  memgraph::dbms::DatabaseAccess t2_acc = std::move(new_t2.value());
+
+  // Captured while the accessors are alive: post_delete_func removes these directories, so their
+  // disappearance is a direct, binary signal that a tenant's deferred destruction actually ran --
+  // independent of any allocator or memory-tracker bookkeeping.
+  const auto t1_dir = t1_acc->config().durability.storage_directory;
+  const auto t2_dir = t2_acc->config().durability.storage_directory;
+
+  constexpr size_t kNumVertices = 2000;
+  constexpr size_t kPropertyBytes = 1024;
+  const std::string blob(kPropertyBytes, 'y');
+  auto write_payload = [&](memgraph::dbms::DatabaseAccess &acc) {
+    // DbArenaScope required -- see the comment in the previous test for why.
+    memgraph::memory::DbArenaScope db_arena_scope{acc.get()};
+    auto storage_acc = acc->Access();
+    ASSERT_TRUE(storage_acc);
+    const auto property = storage_acc->NameToProperty("payload");
+    for (size_t i = 0; i < kNumVertices; ++i) {
+      auto vertex = storage_acc->CreateVertex();
+      ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue(blob)).has_value());
+    }
+    ASSERT_TRUE(storage_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  write_payload(t1_acc);
+  write_payload(t2_acc);
+
+#if USE_JEMALLOC
+  constexpr int64_t kTightToleranceBytes = 64 * 1024;
+  const int64_t global_with_both = memgraph::utils::graph_memory_tracker.Amount();
+  ASSERT_GT(global_with_both - global_baseline, static_cast<int64_t>(2 * kNumVertices * kPropertyBytes))
+      << "both t1 and t2 must have an unambiguous, measurable footprint before either is deleted";
+#endif
+
+  // Force-delete BOTH while both accessors are still held, so BOTH must go through the deferred
+  // (not the immediate/synchronous) path in Handler::DeferDelete: try_delete()'s count_==1 check
+  // fails for each, since each tenant's own accessor (t1_acc / t2_acc) is still outstanding.
+  auto del1 = dbms.Delete("starve_orphan_t1");
+  ASSERT_TRUE(del1.has_value()) << (int)del1.error();
+  auto del2 = dbms.Delete("starve_orphan_t2");
+  ASSERT_TRUE(del2.has_value()) << (int)del2.error();
+
+  // Release t2's accessor. t2 now has nothing holding it, while t1 is still pinned and can never
+  // drain. t2's destruction must complete anyway -- it has its own thread and cannot be queued
+  // behind t1's. Three assertions, because each catches a different way this could go wrong.
+  t2_acc.reset();
+
+  // (1) Mechanism: t2's post_delete_func removed its storage directory, so t2's deferred task really
+  //     did run to completion.
+  const bool t2_destroyed = WaitUntil(std::chrono::seconds(10), [&] { return !std::filesystem::exists(t2_dir); });
+  EXPECT_TRUE(t2_destroyed) << "t2's deferred destruction must complete even though t1 is still pinned; its storage "
+                               "directory is still present: "
+                            << t2_dir;
+
+  // (2) t1 must NOT have been dragged along. Without this, the test would also pass if something had
+  //     released t1 -- i.e. for the wrong reason, without the two tenants actually being decoupled.
+  EXPECT_TRUE(std::filesystem::exists(t1_dir))
+      << "t1 is still held by t1_acc, so its destruction must NOT have completed";
+
+#if USE_JEMALLOC
+  // The customer-visible symptom: roughly one tenant's worth of memory (t2's) comes back while
+  // roughly one tenant's worth (t1's) is still held.
+  const int64_t after_t2 = memgraph::utils::graph_memory_tracker.Amount();
+  EXPECT_GT(global_with_both - after_t2, static_cast<int64_t>(kNumVertices * kPropertyBytes))
+      << "releasing t2 must return t2's memory even while t1 is stuck; with_both=" << global_with_both
+      << " now=" << after_t2;
+  EXPECT_GT(after_t2 - global_baseline, static_cast<int64_t>(kNumVertices * kPropertyBytes))
+      << "t1's memory must still be accounted for while t1_acc is alive; now=" << after_t2
+      << " baseline=" << global_baseline;
+#endif
+
+  // Now release t1's accessor too. This finally lets t1's stuck task complete.
+  t1_acc.reset();
+
+#if USE_JEMALLOC
+  const bool both_recovered = WaitUntil(std::chrono::seconds(10), [&] {
+    return AbsDiff(memgraph::utils::graph_memory_tracker.Amount(), global_baseline) <= kTightToleranceBytes;
+  });
+  EXPECT_TRUE(both_recovered) << "both t1 and t2 must eventually be reclaimed once t1_acc is released; "
+                                 "current amount: "
+                              << memgraph::utils::graph_memory_tracker.Amount() << ", baseline: " << global_baseline;
+  // Memory is freed when the Gatekeeper value is destroyed (in TryReserve), which happens before
+  // post_delete_func removes the directory; wait for the directory too so the check below is race-free.
+  WaitUntil(std::chrono::seconds(10), [&] { return !std::filesystem::exists(t1_dir); });
+#else
+  // Without jemalloc the memory tracker reads 0, so t1_dir's disappearance is the completion signal
+  // that both deferred destructions ran once t1_acc was released.
+  EXPECT_TRUE(WaitUntil(std::chrono::seconds(10), [&] { return !std::filesystem::exists(t1_dir); }))
+      << "t1's deferred destruction must complete once its accessor is released; " << t1_dir << " is still present";
+#endif
+  EXPECT_FALSE(std::filesystem::exists(t1_dir))
+      << "t1's deferred destruction must complete once its accessor is released; " << t1_dir << " is still present";
+}
+
+// Pins the deferred-drop invariant: a force-dropped tenant with a live accessor is unaddressable by
+// name immediately, but stays attributable (TenantMemorySum/AllDetached) until the drain retires it.
+TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t1 = dbms.New("detached_mem_t1");
+  ASSERT_TRUE(new_t1.has_value()) << (int)new_t1.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t1.value());
+  const auto tenant_uuid = acc->uuid();
+
+  constexpr size_t kNumVertices = 4000;
+  constexpr size_t kPropertyBytes = 1024;
+  const std::string blob(kPropertyBytes, 'z');
+  {
+    // DbArenaScope required -- see StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete above.
+    memgraph::memory::DbArenaScope db_arena_scope{acc.get()};
+    auto storage_acc = acc->Access();
+    ASSERT_TRUE(storage_acc);
+    const auto property = storage_acc->NameToProperty("payload");
+    for (size_t i = 0; i < kNumVertices; ++i) {
+      auto vertex = storage_acc->CreateVertex();
+      ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue(blob)).has_value());
+    }
+    ASSERT_TRUE(storage_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+#if USE_JEMALLOC
+  const int64_t footprint = acc->DbMemoryUsage();
+  ASSERT_GT(footprint, static_cast<int64_t>(kNumVertices * kPropertyBytes))
+      << "the footprint must be unambiguous before it is used as a tolerance baseline below";
+
+  const auto before = dbms.TenantMemorySum();
+  ASSERT_GE(before.hot, footprint);
+#endif
+
+  // Force-drop while acc is still held: try_delete() times out and the destruction is deferred onto
+  // its own drain thread (see DbmsHandler::Delete's single-arg, no-transaction overload).
+  auto del = dbms.Delete("detached_mem_t1");
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  ASSERT_ANY_THROW(dbms.Get("detached_mem_t1"));
+  bool seen_by_foreach = false;
+  dbms.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
+    if (db_acc->name() == "detached_mem_t1") seen_by_foreach = true;
+  });
+  EXPECT_FALSE(seen_by_foreach) << "a detached tenant must not be walkable via ForEach";
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    EXPECT_TRUE(std::ranges::none_of(statuses, [](auto const &kv) {
+      return kv.first == "detached_mem_t1" && kv.second == "HOT";
+    })) << "a detached tenant must not be reported HOT";
+  }
+
+  {
+    const auto all_detached = dbms.AllDetached();
+    const auto it = std::ranges::find_if(
+        all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
+    ASSERT_NE(it, all_detached.end()) << "the force-dropped, still-held tenant must have a detached row";
+    EXPECT_EQ(it->name, "detached_mem_t1");
+    // Unfalsifiable while DetachReason has only DROP; kept as the anchor for a future second reason.
+    EXPECT_EQ(it->reason, memgraph::dbms::DbmsHandler::DetachReason::DROP);
+    EXPECT_GE(it->holders_at_detach, 1u);
+#if USE_JEMALLOC
+    EXPECT_LE(AbsDiff(it->memory_at_detach, footprint), footprint / 10)
+        << "memory_at_detach=" << it->memory_at_detach << " footprint=" << footprint;
+#endif
+  }
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    EXPECT_TRUE(std::ranges::any_of(
+        statuses, [](auto const &kv) { return kv.first == "detached_mem_t1" && kv.second == "DETACHED"; }));
+  }
+#if USE_JEMALLOC
+  {
+    // The two halves are asserted separately on purpose: a regression that simply stopped counting the
+    // tenant anywhere would still pass a test that only checked the (hot + detached) total.
+    const auto after = dbms.TenantMemorySum();
+    const int64_t tolerance = footprint / 10;
+    EXPECT_GE(after.detached, footprint - tolerance) << "the bytes must have moved into the detached half";
+    EXPECT_LE(after.hot, before.hot - (footprint - tolerance)) << "and must have left the hot half";
+  }
+#endif
+
+  acc.reset();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  bool retired = false;
+  do {
+    const auto all_detached = dbms.AllDetached();
+    retired = std::ranges::none_of(
+        all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
+    if (retired) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+        << "detached_mem_t1's row must be retired once its drain completes";
+  } while (true);
+  EXPECT_TRUE(retired);
+
+  const auto statuses_after_drain = dbms.AllWithHotColdStatus();
+  EXPECT_TRUE(std::ranges::none_of(statuses_after_drain, [](auto const &kv) {
+    return kv.first == "detached_mem_t1" && kv.second == "DETACHED";
+  })) << "the DETACHED row must disappear from AllWithHotColdStatus once the row is retired";
+}
+
+// Negative control: with no accessor held, try_delete() succeeds inline, so the row must be retired
+// synchronously too (see the detached_lock_ lock-order note, dbms_handler.hpp) or it leaks forever.
+TEST(DBMS_Handler, DroppedTenantWithNoHoldersLeavesNoDetachedRow) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t2 = dbms.New("detached_mem_t2");
+  ASSERT_TRUE(new_t2.has_value()) << (int)new_t2.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t2.value());
+  const auto tenant_uuid = acc->uuid();
+
+  // Release before dropping so nothing pins the tenant; the deferred worker reclaims it on its next tick.
+  acc.reset();
+
+  auto del = dbms.Delete("detached_mem_t2");
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  // Every FORCE drop now defers destruction to the background worker (no inline destroy under lock_):
+  // the tenant is briefly DETACHED, then reclaimed. Once reclaimed it leaves no registry row.
+  const bool reclaimed = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(
+        all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
+  });
+  EXPECT_TRUE(reclaimed) << "the deferred worker must reclaim a no-holders drop, leaving no detached row";
+
+  const auto statuses = dbms.AllWithHotColdStatus();
+  EXPECT_TRUE(std::ranges::none_of(statuses, [](auto const &kv) { return kv.first == "detached_mem_t2"; }))
+      << "a fully reclaimed tenant must not appear under any status";
+}
+
+// Pins the uuid-keyed registry against name reuse: DROP x (held) -> CREATE x -> DROP x (held) again
+// must leave TWO rows in AllDetached() (one per uuid), while AllWithHotColdStatus() -- a name-keyed
+// listing -- still reports the name exactly once.
+TEST(DBMS_Handler, TwoDetachedTenantsCanShareANameAndAreCountedByUuid) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t1 = dbms.New("detached_reuse");
+  ASSERT_TRUE(new_t1.has_value()) << (int)new_t1.error();
+  memgraph::dbms::DatabaseAccess acc1 = std::move(new_t1.value());
+  const auto uuid1 = acc1->uuid();
+
+  auto del1 = dbms.Delete("detached_reuse");
+  ASSERT_TRUE(del1.has_value()) << (int)del1.error();
+  {
+    const auto all_detached = dbms.AllDetached();
+    EXPECT_TRUE(std::ranges::any_of(
+        all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == uuid1; }));
+  }
+
+  // The name is free again -- DeferDelete erased it from items_ unconditionally -- so re-creating it
+  // must succeed; that is itself load-bearing, since it's what forces two rows to share a name below.
+  auto new_t2 = dbms.New("detached_reuse");
+  ASSERT_TRUE(new_t2.has_value()) << (int)new_t2.error();
+  memgraph::dbms::DatabaseAccess acc2 = std::move(new_t2.value());
+  const auto uuid2 = acc2->uuid();
+  ASSERT_NE(uuid2, uuid1);
+
+  auto del2 = dbms.Delete("detached_reuse");
+  ASSERT_TRUE(del2.has_value()) << (int)del2.error();
+
+  {
+    const auto all_detached = dbms.AllDetached();
+    EXPECT_EQ(std::ranges::count_if(
+                  all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == uuid1; }),
+              1)
+        << "a name-keyed registry would have clobbered uuid1's row when uuid2 was recorded";
+    EXPECT_EQ(std::ranges::count_if(
+                  all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == uuid2; }),
+              1);
+  }
+  {
+    // AllWithHotColdStatus's own de-dup is load-bearing here: the interpreter push_backs one row per
+    // returned pair with no de-dup of its own, so an un-collapsed duplicate would render as two lines.
+    const auto statuses = dbms.AllWithHotColdStatus();
+    EXPECT_EQ(std::ranges::count_if(
+                  statuses, [](auto const &kv) { return kv.first == "detached_reuse" && kv.second == "DETACHED"; }),
+              1);
+  }
+
+  acc1.reset();
+  acc2.reset();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  bool retired = false;
+  do {
+    const auto all_detached = dbms.AllDetached();
+    retired = std::ranges::none_of(all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) {
+      return d.uuid == uuid1 || d.uuid == uuid2;
+    });
+    if (retired) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+        << "both detached_reuse rows must be retired once their drains complete";
+  } while (true);
+  EXPECT_TRUE(retired);
+
+  const auto statuses_after_drain = dbms.AllWithHotColdStatus();
+  EXPECT_TRUE(std::ranges::none_of(statuses_after_drain, [](auto const &kv) { return kv.first == "detached_reuse"; }));
+}
+
+// Pins B1: a running after-commit trigger task observes `Database::after_commit_trigger_status()`
+// (TERMINATED) and aborts promptly once the deferred-drop worker calls StopAllBackgroundTasks().
+// On this branch Delete() is asynchronous — it records the DETACHED row and hands teardown to the
+// defer worker, so the TERMINATED signal arrives on the worker's tick, not inside Delete() itself.
+TEST(DBMS_Handler, AfterCommitTriggerIsToldToStopDuringDrop) {
+  auto &dbms = *TestEnvironment::get();
+  auto new_t = dbms.New("act_stop_during_drop");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  std::atomic<bool> task_running{false}, left_via_signal{false}, task_done{false};
+  constexpr auto kSafetyNet = std::chrono::seconds(10);
+  // task_acc is a copy of `acc` and acts as an extra holder so the Database stays alive until the
+  // task completes; the worker can only destroy the tenant once this extra ref is released.
+  acc->AddTask([&, task_acc = acc]() mutable {
+    task_running.store(true, std::memory_order_release);
+    memgraph::query::StoppingContext stopping{.transaction_status = task_acc->after_commit_trigger_status()};
+    const auto deadline = std::chrono::steady_clock::now() + kSafetyNet;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (stopping.MustAbort() == memgraph::query::AbortReason::TERMINATED) {
+        left_via_signal.store(true, std::memory_order_release);
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    task_done.store(true, std::memory_order_release);
+  });
+  ASSERT_TRUE(WaitUntil(std::chrono::seconds(5), [&] { return task_running.load(std::memory_order_acquire); }));
+  acc.reset();
+  // Delete() marks for deletion, records a DETACHED row, and hands teardown to the defer worker.
+  auto del = dbms.Delete("act_stop_during_drop", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+  // Wait for the worker to call StopAllBackgroundTasks() → StopAfterCommitTriggers() → join pool.
+  ASSERT_TRUE(
+      WaitUntil(kSafetyNet + std::chrono::seconds(2), [&] { return task_done.load(std::memory_order_acquire); }));
+  EXPECT_TRUE(left_via_signal.load(std::memory_order_acquire))
+      << "the after-commit trigger task must abort because the drop latched TERMINATED via "
+         "StopAfterCommitTriggers(), not because its own safety net expired";
+}
+
+// Pins the recovery re-arm gate: once Delete() sets the advisory deletion mark (synchronously, inside
+// Delete_() before returning), every DatabaseProtector that calls is_tenant_marked_for_deletion()
+// sees true and must stop cloning fresh protectors, letting deferred destruction converge.
+TEST(DBMS_Handler, ProtectorStopsBackgroundWorkFromReArmingItself) {
+  auto &dbms = *TestEnvironment::get();
+  auto new_t = dbms.New("rearm_chain_stops_on_drop");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  const auto tenant_uuid = acc->uuid();
+  ASSERT_FALSE(memgraph::dbms::DatabaseProtector{acc}.is_tenant_marked_for_deletion());
+  std::atomic<int> rearms{0};
+  std::atomic<bool> chain_stopped{false};
+  constexpr auto kSafetyNet = std::chrono::seconds(10);
+  const auto chain_deadline = std::chrono::steady_clock::now() + kSafetyNet;
+  memgraph::utils::ThreadPool chain_pool{1};
+  // step is a shared_ptr<function> to allow the lambda to recursively schedule itself.
+  auto step = std::make_shared<std::function<void(memgraph::storage::DatabaseProtectorPtr)>>();
+  *step = [&, step](memgraph::storage::DatabaseProtectorPtr held) {
+    rearms.fetch_add(1, std::memory_order_acq_rel);
+    if (held->is_tenant_marked_for_deletion() || std::chrono::steady_clock::now() >= chain_deadline) {
+      chain_stopped.store(true, std::memory_order_release);
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    auto next = held->clone();
+    chain_pool.AddTask([step, next = std::move(next)]() mutable { (*step)(std::move(next)); });
+  };
+  chain_pool.AddTask(
+      [step, first = memgraph::dbms::DatabaseProtector{acc}.clone()]() mutable { (*step)(std::move(first)); });
+  ASSERT_TRUE(WaitUntil(std::chrono::seconds(5), [&] { return rearms.load(std::memory_order_acquire) > 0; }));
+  acc.reset();
+  // Delete() sets is_marked_for_deletion synchronously inside Delete_() before returning, so the chain
+  // will see the mark on its next is_tenant_marked_for_deletion() poll and stop re-arming.
+  auto del = dbms.Delete("rearm_chain_stops_on_drop", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all = dbms.AllDetached();
+    return std::ranges::none_of(
+        all, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
+  });
+  EXPECT_TRUE(chain_stopped.load(std::memory_order_acquire));
+  EXPECT_TRUE(retired)
+      << "the chain must stop re-arming once the drop marks the tenant, so deferred destruction completes";
+  chain_pool.ShutDown();
 }
 
 int main(int argc, char *argv[]) {

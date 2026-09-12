@@ -14,6 +14,8 @@
 #include <uuid/uuid.h>
 // NOLINTNEXTLINE
 #include <array>
+#include <cstddef>
+#include <functional>
 #include <nlohmann/json_fwd.hpp>
 #include <stdexcept>
 #include <string>
@@ -79,3 +81,15 @@ struct UUID {
 };
 
 }  // namespace memgraph::utils
+
+namespace std {
+// Lets UUID be an unordered_map/set key (e.g. the deferred-destruction registry keys on it). Reuses
+// std::hash<string_view> over the 16 identity bytes, reached through the public operator arr_t().
+template <>
+struct hash<memgraph::utils::UUID> {
+  std::size_t operator()(const memgraph::utils::UUID &id) const noexcept {
+    const auto bytes = static_cast<memgraph::utils::UUID::arr_t>(id);
+    return std::hash<std::string_view>{}(std::string_view(reinterpret_cast<const char *>(bytes.data()), bytes.size()));
+  }
+};
+}  // namespace std

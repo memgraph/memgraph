@@ -827,6 +827,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   const auto storage_path = StorageDir_(db_name);
   if (!storage_path) return std::unexpected{DeleteError::NON_EXISTENT};
 
+  utils::UUID tenant_uuid;
+  int64_t memory_at_detach = 0;
   {
     auto db = db_handler_.Get(db_name);
     if (!db) {
@@ -843,23 +845,65 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     //       can occur while we are dropping the database
     db->prepare_for_deletion();
     auto &database = *db->get();
-    database.StopAllBackgroundTasks();
-    database.streams()->DropAll();
+    // Teardown (StopAllBackgroundTasks + streams()->DropAll()) is deferred to the defer worker
+    // (Handler::PendingDestruction::TryReserve), NOT run here: those are bounded thread joins, and
+    // running them under lock_ would freeze every tenant on the instance for their duration. The
+    // worker stops the background tasks off-lock, before reclaiming the tenant.
+    // Last point this Database is reachable from Delete_: the accessor above is the only thing
+    // keeping it alive, and it goes out of scope at the end of this block.
+    tenant_uuid = database.uuid();
+    // Point-in-time snapshot, taken before the worker stops this tenant's background tasks and reclaims
+    // it. Its live memory can still change between here and reclamation, so the DETACHED row's reported
+    // memory (SHOW STORAGE INFO) may transiently disagree with a still-live tenant's live memory_tracked.
+    memory_at_detach = database.DbMemoryUsage();
   }
+
+  // prepare_for_deletion() above set the advisory delete mark. The accessor is gone, but the gatekeeper
+  // entry is still present (we hold lock_ exclusive and the !db branch already returned), so hold a raw
+  // pointer to it. If any step below throws before DeferDelete takes ownership of the teardown, the tenant
+  // stays present-but-marked, which would permanently suppress its replication recovery re-arm; roll the
+  // mark back on that path. Disabled once the drop is committed to the worker.
+  auto *gk = db_handler_.GetGatekeeper(db_name);
+  auto delete_mark_rollback = utils::OnScopeExit{[gk] {
+    if (gk) gk->cancel_deletion();
+  }};
 
   DetachProfileAndRetireDurabilityKey_(db_name);
 
+  // The accessor above is gone, so this read no longer counts it; nullptr is defensive only (see above).
+  uint64_t holders = 0;
+  if (gk) holders = gk->holder_count();
+
+  // Publish before DeferDelete: DeferDelete hands the tenant to the worker, whose post_delete_func runs
+  // ForgetDetached_ once destruction completes; publishing after the handoff could race that and orphan the row.
+  RecordDetached_(DetachedTenant{.name = std::string{db_name},
+                                 .uuid = tenant_uuid,
+                                 .detached_at = std::chrono::system_clock::now(),
+                                 .reason = DetachReason::DROP,
+                                 .holders_at_detach = holders,
+                                 .memory_at_detach = memory_at_detach});
+
   // Check if db exists
   // Low level handlers
-  db_handler_.DeferDelete(db_name, [storage_path = *storage_path, db_name = std::string{db_name}]() {
-    // Delete disk storage
-    std::error_code ec;
-    (void)std::filesystem::remove_all(storage_path, ec);
-    if (ec) {
-      spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
-    }
-  });
+  // Row is published above; if DeferDelete throws before ForgetDetached_ runs, undo or the row outlives the tenant
+  // forever.
+  try {
+    db_handler_.DeferDelete(
+        db_name, [this, tenant_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
+          ForgetDetached_(tenant_uuid);
+          std::error_code ec;
+          (void)std::filesystem::remove_all(storage_path, ec);
+          if (ec) {
+            spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
+          }
+        });
+  } catch (...) {
+    ForgetDetached_(tenant_uuid);
+    throw;
+  }
 
+  // The drop now belongs to the defer worker; the mark correctly persists until teardown reclaims the tenant.
+  delete_mark_rollback.Disable();
   return {};  // Success
 }
 

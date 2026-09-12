@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <thread>
 #include <variant>
@@ -59,6 +60,10 @@ struct SchedulerInterval {
   }
 };
 
+// Self-pacing tick result: KeepRunning ticks again; Pause parks until Wake() (or Resume()).
+// Pause and a concurrent Wake() cannot lose the wakeup: both hold mutex_ before touching is_paused_.
+enum class SchedulerResult : uint8_t { KeepRunning, Pause };
+
 /**
  * Class used to run scheduled function execution.
  */
@@ -66,6 +71,10 @@ class Scheduler {
  public:
   Scheduler() = default;
   void Run(const std::string &service_name, const std::function<void()> &f);
+
+  // Self-pacing variant: callback returns SchedulerResult to self-park when idle; Wake() when work arrives.
+  // Named RunSelfPaced, not Run(), because SchedulerResult→void makes a Run() overload ambiguous.
+  void RunSelfPaced(const std::string &service_name, std::function<SchedulerResult()> f);
 
   void SetInterval(const SchedulerInterval &setup);
 
@@ -94,6 +103,10 @@ class Scheduler {
 
   void Pause();
 
+  // Un-pause and run the tick promptly, and guarantee no self-pause from an in-flight tick is lost.
+  // Pairs with RunSelfPaced: call after enqueueing work the callback drains.
+  void Wake();
+
   void Stop();
 
   bool IsRunning();
@@ -118,7 +131,7 @@ class Scheduler {
 
   void SetInterval_(std::string_view cron_expr);
 
-  void ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token);
+  void ThreadRun(std::string service_name, std::function<SchedulerResult()> f, std::stop_token token);
 
   Synchronized<std::function<time_point(const time_point &, bool)>> find_next_{
       [](auto && /* unused */, bool /* unused */) { return time_point::max(); }};  // default to infinity
@@ -132,6 +145,11 @@ class Scheduler {
    * Variable is true when thread is paused.
    */
   bool is_paused_ = false;
+
+  /**
+   * Set by Wake(); prevents the self-pacing worker from parking on work that just arrived.
+   */
+  bool wake_requested_ = false;
 
   /**
    * Mutex used to synchronize threads using condition variable.

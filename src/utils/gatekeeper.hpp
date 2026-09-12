@@ -285,6 +285,9 @@ struct Gatekeeper {
       if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
         return {not_run_t{}};
       }
+      // count_ == 1 can briefly coincide with value_ == nullptr in try_delete()'s unlocked move-out
+      // window; refuse rather than dereference null (matches the 0-arg overload's count_/value_ check).
+      if (!owner_->value_) return {not_run_t{}};
       // Invoke and hold result in wrapper type
       return {run_t{}, std::forward<Func>(func), *owner_->value_};
     }
@@ -359,10 +362,25 @@ struct Gatekeeper {
     return std::nullopt;
   }
 
+  // Rolls back Accessor::prepare_for_deletion() when the drop that set the mark fails before the tenant
+  // is handed to teardown. Clears the advisory delete mark so replication recovery can re-arm for the
+  // still-present tenant. Atomic store, like the set side — no lock needed.
+  void cancel_deletion() {
+    if (pimpl_) pimpl_->is_marked_for_deletion = false;
+  }
+
   // Returns the current lifecycle state (locks mutex_).
   GatekeeperState state() const {
     auto guard = std::unique_lock{pimpl_->mutex_};
     return pimpl_->state_;
+  }
+
+  // Live-Accessor count at this instant — INHERENTLY RACY: Accessors mint/release under only
+  // pimpl_->mutex_ (e.g. the database-protector factory takes no handler lock). Diagnostics only;
+  // use try_delete()/try_begin_suspend(), which re-check count_ under this mutex, to actually gate.
+  uint64_t holder_count() const {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    return pimpl_->count_;
   }
 
   // HOT -> SUSPENDING.

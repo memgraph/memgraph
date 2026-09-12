@@ -179,6 +179,10 @@ void Database::AddTask(utils::ThreadPool::TaskSignature new_task) {
 }
 
 void Database::StopAllBackgroundTasks() {
+  // Tell after-commit triggers to abort BEFORE joining the trigger pool below: ShutDown()'s join would
+  // otherwise block on a trigger that was never told to stop (see StopAfterCommitTriggers's doc).
+  // Idempotent + noexcept; runs on the defer worker for a dropped tenant, so it must not block.
+  StopAfterCommitTriggers();
   streams()->Shutdown();
   auto const discarded = thread_pool()->ShutDown();
   if (discarded != 0) {
