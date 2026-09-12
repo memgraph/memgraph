@@ -54,6 +54,7 @@
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
+#include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -10250,9 +10251,8 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
 #ifdef MG_ENTERPRISE
-  // Native Bolt BEGIN bypasses Prepare(), so re-acquire db_acc_ here too if the reaper released it
-  // while this pooled session was parked -- otherwise the BEGIN handler throws on a null db_acc_ for a
-  // healthy tenant. Falls back to a db-less session on drop/suspend/recycle, exactly like Prepare().
+  // Native Bolt BEGIN bypasses Prepare(), so re-acquire db_acc_ here if the reaper released it while
+  // this pooled session was parked — the BEGIN handler would throw on a null db_acc_ for a live tenant.
   if (flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) EnsureDbAccessForQuery();
 #endif
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
@@ -10372,9 +10372,8 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
     memgraph::logging::EmitSessionTraceEvent("Query parsing started.");
-    // db_acc_ may be null here after a prior idle reap (Parse runs before EnsureDbAccessForQuery
-    // re-acquires); use current_db_uuid_ as the cache key to avoid a null db_acc_->get()->uuid().
-    // Only an AST-cache-key hint; params are re-resolved with the real uuid after Prepare re-acquires.
+    // db_acc_ may be null post-reap; use current_db_uuid_ as the cache key instead of db_acc_->uuid().
+    // AST-cache-key hint only — params are re-resolved with the live uuid after EnsureDbAccessForQuery.
     std::string database_uuid;
     if (current_db_.current_db_uuid_) {
       database_uuid = std::string{*current_db_.current_db_uuid_};
@@ -11439,9 +11438,8 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
 void Interpreter::SetMessageInFlight() noexcept {
   if (!flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) return;
   message_in_flight_.store(true, std::memory_order_seq_cst);
-  // Dekker StoreLoad: the seq_cst store is globally ordered before this seq_cst load, pairing with
-  // TryReapIdleDbAccessor's seq_cst store(REAPING)+load(message_in_flight_). If a reaper owns REAPING,
-  // wait it out; it will restore IDLE and, seeing our gate on its re-check, decline to reap.
+  // Dekker StoreLoad: seq_cst store/load pairs with TryReapIdleDbAccessor's CAS(REAPING)+load(message_in_flight_).
+  // If the reaper already owns REAPING, spin; it restores IDLE and its re-check will see our gate and back out.
   while (transaction_status_.load(std::memory_order_seq_cst) == TransactionStatus::REAPING) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -11450,8 +11448,8 @@ void Interpreter::SetMessageInFlight() noexcept {
 void Interpreter::ClearMessageInFlight() noexcept {
   if (!flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) return;
   message_in_flight_.store(false, std::memory_order_seq_cst);
-  // Parking back to Idle: stamp the idle clock so the reaper measures the idle window from now (not
-  // from last query start, and never from epoch 0 for a session that only ran db-independent commands).
+  // Parking back to Idle: stamp the idle clock so the reaper measures idle from last message
+  // completion, not from connect time (MarkReapable stamps once at connect, not per message).
   last_activity_ns_.store(SteadyNowNs(), std::memory_order_relaxed);
 }
 
@@ -11466,10 +11464,8 @@ void Interpreter::EnsureDbAccessForQuery() {
   if (!current_db_.current_db_name_) return;  // already db-less
   try {
     auto reacquired = interpreter_context_->dbms_handler->Get(*current_db_.current_db_name_);
-    // Recycle guard: the name may have been dropped and a DIFFERENT tenant recreated under it, which a
-    // name-only re-acquire would silently attach to. Reaped tenants are non-default, so their UUID is a
-    // stable identity and a mismatch is unambiguously a recycle -> fall back to a db-less session rather
-    // than wedge (the client can USE another database in the same session).
+    // Recycle guard: the tenant name may have been recycled (dropped+recreated under the same name);
+    // UUID mismatch means we would attach to the wrong tenant — fall back to db-less instead.
     if (current_db_.current_db_uuid_ && reacquired->uuid() != *current_db_.current_db_uuid_) {
       spdlog::trace("Session database '{}' was recreated; falling back to a db-less session.",
                     *current_db_.current_db_name_);
@@ -11490,7 +11486,7 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
   // Message-in-flight gate pre-check (Dekker StoreLoad, seq_cst). If a Bolt message is being handled,
   // the session may touch db_acc_ at any moment — never reap. Cheap and catches the common case.
   if (message_in_flight_.load(std::memory_order_seq_cst)) return false;
-  // Cheap pre-check: only an IDLE session is a candidate. No spin — if it is busy we catch it next tick.
+  // No spin: a non-IDLE session is skipped; the reaper catches it on the next tick.
   if (transaction_status_.load(std::memory_order_seq_cst) != TransactionStatus::IDLE) return false;
   // Single CAS IDLE -> REAPING. On failure the session just became active (or a verifier ran) — skip.
   // Success ordering is seq_cst so the CAS totally-orders against SetMessageInFlight's seq_cst store.
@@ -11499,10 +11495,8 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
           expected, TransactionStatus::REAPING, std::memory_order_seq_cst, std::memory_order_acquire)) {
     return false;
   }
-  // Re-check the gate now that we own REAPING, closing the TOCTOU with SetMessageInFlight: if the session
-  // stored message_in_flight_ but observed our status as not-yet-REAPING (so did NOT spin-wait), its
-  // seq_cst store is globally ordered either before this load (we see it and back out) or after our
-  // store(REAPING) (it spins until we restore IDLE). Either way one side yields -- no torn reap.
+  // Re-check closes the TOCTOU with SetMessageInFlight: seq_cst total order ensures one side yields —
+  // either we see message_in_flight_=true here and back out, or SetMessageInFlight sees REAPING and spins.
   if (message_in_flight_.load(std::memory_order_seq_cst)) {
     transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
     return false;
@@ -11516,8 +11510,7 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
     auto *db = current_db_.db_acc_->get();
     const auto last_used_ns = last_activity_ns_.load(std::memory_order_relaxed);
     if (db->name() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
-      // Release the accessor (drops the gatekeeper count). current_db_name_ is kept so the next query
-      // transparently re-acquires via EnsureDbAccessForQuery.
+      // current_db_name_ is kept so the next query transparently re-acquires via EnsureDbAccessForQuery.
       current_db_.ReleaseDbAccessor();
       reaped = true;
     }

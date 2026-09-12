@@ -423,9 +423,8 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef MG_ENTERPRISE
-  // Enterprise-only idle-session reaper scheduler. Declared here at function scope -- NOT inside the
-  // MG_PYTHON_SUPPORT block -- so it exists in an enterprise build compiled without Python. Every use
-  // (arm/run/stop, below) is under #ifdef MG_ENTERPRISE.
+  // Declared outside MG_PYTHON_SUPPORT so it exists when enterprise is built without Python;
+  // arm/run/stop below are each under their own #ifdef MG_ENTERPRISE.
   std::optional<memgraph::utils::Scheduler> idle_reaper_scheduler{std::nullopt};
 #endif
 
@@ -1045,11 +1044,8 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef MG_ENTERPRISE
-  // Idle-session reaper. Periodically releases the database accessor held by a connected-but-idle Bolt
-  // session once that session has been idle past --session-idle-accessor-release-sec, so a tenant pinned
-  // only by idle (e.g. pooled) connections drops to sole-accessor. The connection stays open; the next
-  // query re-acquires the accessor. Experiment-gated: flag-off sessions never claim db_acc_ ownership at
-  // query entry, so they are not reapable and the reaper must not run for them.
+  // Experiment gate is correctness-critical: flag-off sessions skip EnsureDbAccessForQuery at query
+  // entry and cannot safely recover from a released accessor — the reaper must not run for them.
   if (!is_coordinator_instance && dbms_handler.has_value() && FLAGS_session_idle_accessor_release_sec > 0 &&
       memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::IDLE_SESSION_REAPER)) {
     idle_reaper_scheduler.emplace();
@@ -1063,10 +1059,8 @@ int main(int argc, char **argv) {
       // steady_clock pairs with the interpreter's steady-clock last_activity_ns_.
       const auto now_ns = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
       uint64_t reaped = 0;
-      // Hold the interpreters lock for the sweep (mirrors ShowTransactions iteration). Each
-      // TryReapIdleDbAccessor call is non-blocking — a single CAS plus, at most, an accessor reset
-      // (a refcount decrement, no I/O) — so the critical section is short, and holding the lock
-      // prevents a session's SessionHL destructor from erasing+destroying an interpreter mid-reap.
+      // Lock held for the full sweep: SessionHL's destructor erases under the same lock (SessionHL.cpp:755),
+      // so it cannot destroy an interpreter while we iterate; each TryReapIdleDbAccessor call is non-blocking.
       interpreter_context_.interpreters.WithLock([&](auto &interpreters) {
         for (auto *interpreter : interpreters) {
           if (interpreter->TryReapIdleDbAccessor(now_ns, timeout_ns)) ++reaped;
@@ -1080,7 +1074,7 @@ int main(int argc, char **argv) {
                  FLAGS_session_idle_accessor_release_sec,
                  sweep_sec);
   }
-#endif  // MG_ENTERPRISE (idle-session reaper)
+#endif
 
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance

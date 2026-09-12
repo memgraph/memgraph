@@ -20,7 +20,6 @@
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
-#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
@@ -32,7 +31,6 @@
 #include "system/transaction.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
-#include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
@@ -266,7 +264,7 @@ struct CurrentDB {
   // No lock needed: db_acc_ is set via the member-init list, before this CurrentDB becomes reachable
   // (e.g. via InterpreterContext::interpreters), so no other thread can observe it mid-construction.
   explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {
-    // Stash identity like SetCurrentDB (the other fresh-accessor entry) so it survives a reaper release.
+    // Stash identity so it survives an idle-reaper release.
     current_db_name_ = db_acc_->get()->name();
     current_db_uuid_ = db_acc_->get()->uuid();
   }
@@ -324,11 +322,8 @@ struct CurrentDB {
     }
   }
 
-  // Unconditionally release db_acc_ (drops the gatekeeper count) under the lock, so a concurrent
-  // foreign_db_view() never tears against the null-ing. Called by the idle-session reaper from its
-  // background sweep thread. The identity cache (current_db_name_/current_db_uuid_) is deliberately
-  // KEPT so the session's next query re-acquires the same tenant by name. Same swap-out-under-lock /
-  // destruct-outside-lock discipline as ReleaseDbIfMarked (Accessor dtor can block on GKInternals::mutex_).
+  // Releases db_acc_ under the lock (tear-safe for concurrent foreign_db_view); called by the idle-session
+  // reaper. Identity cache kept so the session re-acquires by name. Swap-out-under-lock / destruct-outside.
   void ReleaseDbAccessor() {
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
@@ -337,10 +332,8 @@ struct CurrentDB {
     }
   }
 
-  // Re-attach a freshly-acquired accessor under the lock so a concurrent foreign_db_view() sees a
-  // consistent (fully-constructed) optional, not a torn write. Precondition: db_acc_ is currently empty
-  // (the reaper released it); callers guarantee this, so there is no outgoing Accessor to destruct.
-  // in_explicit_db_ and the identity cache are unchanged (same tenant is being re-attached).
+  // Re-attach a freshly-acquired accessor under the lock (consistent optional for concurrent foreign_db_view).
+  // Precondition: db_acc_ is empty (reaper released it). in_explicit_db_ and identity cache unchanged.
   void ReacquireDbAccessor(memgraph::dbms::DatabaseAccess db) {
     std::lock_guard lock{db_acc_mutex_};
     db_acc_ = std::move(db);
@@ -380,9 +373,8 @@ struct CurrentDB {
   // Session DB identity (kept in sync with db_acc_ by SetCurrentDB) so name() survives the idle reaper
   // releasing db_acc_ on a parked session; the next query re-acquires by name.
   std::optional<std::string> current_db_name_;
-  // Tenant UUID captured alongside current_db_name_ so a re-acquire can reject a recycled name. Safe
-  // because reaped tenants (non-default) have a stable UUID; the default DB's UUID mutates in place but
-  // is never reaped. See Interpreter::EnsureDbAccessForQuery.
+  // Tenant UUID so a re-acquire can reject a recycled name. Safe: non-default tenants have stable UUIDs;
+  // the default DB's UUID can change but is never reaped.
   std::optional<utils::UUID> current_db_uuid_;
   std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
@@ -649,12 +641,12 @@ class Interpreter final {
 
   // Held for the whole span of a Bolt message so the reaper only reaps a genuinely parked session.
   // Pairs with transaction_status_ via a Dekker StoreLoad (both seq_cst) against TryReapIdleDbAccessor.
-  // Flag-off: both are no-ops and the reaper never reads the gate, so behaviour is byte-identical.
+  // Flag-off: both are no-ops and the reaper never runs, so existing code paths are behaviourally unchanged.
   void SetMessageInFlight() noexcept;
   void ClearMessageInFlight() noexcept;
 
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
-  // IDLE_SESSION_REAPER: true for the whole Bolt-message handling span (see Set/ClearMessageInFlight).
+  // true for the whole Bolt-message handling span; the reaper checks this before releasing db_acc_.
   std::atomic<bool> message_in_flight_{false};
   // steady_clock ns of the end of this session's last Bolt message; the reaper's idle clock. Stamped at
   // connect (MarkReapable) and every time the session parks back to Idle (ClearMessageInFlight).

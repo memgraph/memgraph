@@ -50,9 +50,8 @@ enum class TransactionStatus {
   TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
-  // Transient exclusive-ownership state entered by the idle-session reaper (from IDLE only) while it
-  // releases this interpreter's connection-scoped db_acc_. The session honors it by spin-waiting at
-  // query entry. Reached only when the idle-session-reaper experiment is enabled.
+  // Transient exclusive-ownership state: the idle-session reaper CAS(IDLE→REAPING) while releasing
+  // db_acc_; the session spin-waits on it inside SetMessageInFlight. Requires IDLE_SESSION_REAPER.
   REAPING,
 };
 
