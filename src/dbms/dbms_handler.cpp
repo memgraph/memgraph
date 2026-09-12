@@ -858,12 +858,21 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     memory_at_detach = database.DbMemoryUsage();
   }
 
+  // prepare_for_deletion() above set the advisory delete mark. The accessor is gone, but the gatekeeper
+  // entry is still present (we hold lock_ exclusive and the !db branch already returned), so hold a raw
+  // pointer to it. If any step below throws before DeferDelete takes ownership of the teardown, the tenant
+  // stays present-but-marked, which would permanently suppress its replication recovery re-arm; roll the
+  // mark back on that path. Disabled once the drop is committed to the worker.
+  auto *gk = db_handler_.GetGatekeeper(db_name);
+  auto delete_mark_rollback = utils::OnScopeExit{[gk] {
+    if (gk) gk->cancel_deletion();
+  }};
+
   DetachProfileAndRetireDurabilityKey_(db_name);
 
-  // The accessor above is gone, so this read no longer counts it; nullptr is defensive only (we hold
-  // lock_ exclusive and the !db branch above already returned, so the entry is guaranteed present).
+  // The accessor above is gone, so this read no longer counts it; nullptr is defensive only (see above).
   uint64_t holders = 0;
-  if (auto *gk = db_handler_.GetGatekeeper(db_name)) holders = gk->holder_count();
+  if (gk) holders = gk->holder_count();
 
   // Publish before DeferDelete: DeferDelete hands the tenant to the worker, whose post_delete_func runs
   // ForgetDetached_ once destruction completes; publishing after the handoff could race that and orphan the row.
@@ -893,6 +902,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     throw;
   }
 
+  // The drop now belongs to the defer worker; the mark correctly persists until teardown reclaims the tenant.
+  delete_mark_rollback.Disable();
   return {};  // Success
 }
 

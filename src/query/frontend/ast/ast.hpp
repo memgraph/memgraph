@@ -4076,6 +4076,8 @@ class MultiDatabaseQuery : public memgraph::query::Query {
   memgraph::query::MultiDatabaseQuery::Action action_;
   std::string db_name_;
   bool force_{false};
+  // Only meaningful when force_ is true (grammar nests ABORT under FORCE); implies force_.
+  bool force_abort_{false};
   std::optional<std::string> new_db_name_;
 
   MultiDatabaseQuery *Clone(AstStorage *storage) const override {
@@ -4083,6 +4085,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
     object->action_ = action_;
     object->db_name_ = db_name_;
     object->force_ = force_;
+    object->force_abort_ = force_abort_;
     object->new_db_name_ = new_db_name_;
     return object;
   }

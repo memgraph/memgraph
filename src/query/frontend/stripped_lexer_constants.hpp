@@ -88,7 +88,8 @@ class Trie {
 
 constexpr int kBitsetSize = 65'536;
 
-const trie::Trie kKeywords = {"aborting",
+const trie::Trie kKeywords = {"abort",
+                              "aborting",
                               "active",
                               "add",
                               "after",

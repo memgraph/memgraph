@@ -23,6 +23,7 @@ lexer grammar MemgraphCypherLexer ;
 
 import CypherLexer ;
 
+ABORT                   : A B O R T ;
 ABORTING                : A B O R T I N G ;
 ACTIVE                  : A C T I V E ;
 ADD                     : A D D ;
