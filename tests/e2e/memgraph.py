@@ -43,9 +43,8 @@ log = logging.getLogger("memgraph.tests.e2e")
 PORT_WINDOW_START_ENV = "MEMGRAPH_PORT_WINDOW_START"
 PORT_WINDOW_SIZE_ENV = "MEMGRAPH_PORT_WINDOW_SIZE"
 PORT_MAP_ENV = "MEMGRAPH_E2E_PORT_MAP"
+PORT_RESERVED_ENV = "MEMGRAPH_E2E_RESERVED_PORTS"
 HA_INIT_QUERIES_ENV = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES"
-DEFAULT_MONITORING_PORT = 7444
-DEFAULT_METRICS_PORT = 9091
 PORT_FLAGS = {
     "--bolt-port",
     "--bolt_port",
@@ -73,6 +72,10 @@ class PortRemap:
         self.active = self.window_start > 0 and self.window_size > 0
         self.forward = {}
         self.reverse = {}
+        # Window ports handed out to a single instance rather than to an original port. They have no reverse mapping,
+        # so they must be kept out of the free-port search on their own.
+        self.reserved = set()
+        self.reserved_by_key = {}
         # Clusters start their instances from a thread pool, so allocation and the env override must be serialized.
         self.lock = threading.RLock()
         if not self.active:
@@ -84,9 +87,30 @@ class PortRemap:
         for original, mapped in seed.items():
             self.forward[int(original)] = int(mapped)
             self.reverse[int(mapped)] = int(original)
+        try:
+            self.reserved.update(int(port) for port in json.loads(os.getenv(PORT_RESERVED_ENV, "") or "[]"))
+        except Exception:
+            pass
 
     def is_candidate(self, port):
         return 1024 <= port < self.window_start
+
+    def _take_free_port(self):
+        """Returns an unused window port. Caller must hold the lock and record what it hands the port to."""
+        free = next(
+            (
+                p
+                for p in range(self.window_start, self.window_start + self.window_size)
+                if p not in self.reverse and p not in self.reserved
+            ),
+            None,
+        )
+        if free is None:
+            raise RuntimeError(
+                f"Port window {self.window_start}-{self.window_start + self.window_size - 1} exhausted, "
+                "increase --port-offset-step of runner_parallel.py."
+            )
+        return free
 
     def map_port(self, port):
         """Allocates a window port for `port` on first sight; later calls return the same one."""
@@ -94,22 +118,22 @@ class PortRemap:
             return port
         with self.lock:
             if port not in self.forward:
-                mapped = next(
-                    (
-                        p
-                        for p in range(self.window_start, self.window_start + self.window_size)
-                        if p not in self.reverse
-                    ),
-                    None,
-                )
-                if mapped is None:
-                    raise RuntimeError(
-                        f"Port window {self.window_start}-{self.window_start + self.window_size - 1} exhausted, "
-                        "increase --port-offset-step of runner_parallel.py."
-                    )
+                mapped = self._take_free_port()
                 self.forward[port] = mapped
                 self.reverse[mapped] = port
             return self.forward[port]
+
+    def reserve_port(self, key):
+        """Allocates a window port for `key` on first sight; later calls return the same one. Listeners the workload
+        never addresses share a single default port number across every instance, so `map_port` would hand the whole
+        cluster one port and only the first instance could bind it. The key stands for the instance, so a workload
+        that starts the same cluster once per test reserves ports for it once."""
+        with self.lock:
+            if key not in self.reserved_by_key:
+                reserved = self._take_free_port()
+                self.reserved_by_key[key] = reserved
+                self.reserved.add(reserved)
+            return self.reserved_by_key[key]
 
     def lookup_port(self, port):
         """Like map_port but never allocates: a port nothing was started on (e.g. a local Kafka) is left alone."""
@@ -276,6 +300,9 @@ class MemgraphInstanceRunner:
     ):
         self.host = "127.0.0.1"
         self.bolt_port = None
+        # Set when the workload leaves these listeners implicit and the port window is active.
+        self.monitoring_port = None
+        self.metrics_port = None
         self.binary_path = binary_path
         self.args = None
         self.proc_mg = None
@@ -452,13 +479,19 @@ class MemgraphInstanceRunner:
         if not any(arg.startswith("--metrics-format") for arg in self.args):
             default_args.append("--metrics-format=OpenMetrics")
         if PORT_REMAP.active:
-            # Give the implicit listeners explicit ports so they get remapped away from other workers too.
+            # Give the implicit listeners explicit ports so they get remapped away from other workers too. Monitoring
+            # and metrics get a port each of their own: every instance of a cluster would otherwise be handed the
+            # port that the single default number maps to, and only the first to start could bind it. The Bolt port
+            # identifies the instance, so a restart rebinds the ports it had.
+            instance_key = extract_bolt_port(self.args)
             if not any(arg.startswith("--bolt-port") or arg.startswith("--bolt_port") for arg in self.args):
                 default_args += ["--bolt-port", "7687"]
             if not any(arg.startswith("--monitoring-port") or arg.startswith("--monitoring_port") for arg in self.args):
-                default_args += ["--monitoring-port", str(DEFAULT_MONITORING_PORT)]
+                self.monitoring_port = PORT_REMAP.reserve_port(f"monitoring@{instance_key}")
+                default_args += ["--monitoring-port", str(self.monitoring_port)]
             if not any(arg.startswith("--metrics-port") or arg.startswith("--metrics_port") for arg in self.args):
-                default_args += ["--metrics-port", str(DEFAULT_METRICS_PORT)]
+                self.metrics_port = PORT_REMAP.reserve_port(f"metrics@{instance_key}")
+                default_args += ["--metrics-port", str(self.metrics_port)]
         args_mg = PORT_REMAP.map_args(default_args + self.args)
 
         if bolt_port:

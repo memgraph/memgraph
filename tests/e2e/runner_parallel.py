@@ -61,8 +61,6 @@ DISABLE_NODE = os.getenv("DISABLE_NODE", "false") == "true"
 PORT_NAMESPACE_BASE = 20000
 DEFAULT_PORT_OFFSET_STEP = 200
 DEFAULT_BOLT_PORT = 7687
-DEFAULT_MONITORING_PORT = 7444
-DEFAULT_METRICS_PORT = 9091
 
 OFFSETTABLE_FLAGS = {
     "--bolt-port",
@@ -330,15 +328,34 @@ def _has_port_flag(args, *flags):
 
 
 def _ensure_default_listener_ports(args):
-    """Memgraph listens on these even when not asked to, so they need remapping too."""
+    """Memgraph listens on Bolt even when not asked to, so that port needs remapping too."""
     normalized = list(args or [])
     if not _has_port_flag(normalized, "--bolt-port", "--bolt_port"):
         normalized += ["--bolt-port", str(DEFAULT_BOLT_PORT)]
-    if not _has_port_flag(normalized, "--monitoring-port", "--monitoring_port"):
-        normalized += ["--monitoring-port", str(DEFAULT_MONITORING_PORT)]
-    if not _has_port_flag(normalized, "--metrics-port", "--metrics_port"):
-        normalized += ["--metrics-port", str(DEFAULT_METRICS_PORT)]
     return normalized
+
+
+def _assign_implicit_listener_ports(prepared, namespace_start, port_map, port_offset_step):
+    """Gives every instance its own monitoring and metrics port, taken from the worker's window past what the port
+    map uses, and returns the ports handed out. The workload addresses neither listener, so both are left at one
+    default port number across the whole cluster; mapping them by that number would hand every instance the same
+    port and only the first could bind it."""
+    next_free = namespace_start + len(port_map)
+    namespace_end = namespace_start + port_offset_step
+    assigned = []
+    for config in prepared.get("cluster", {}).values():
+        for flag, underscored in (("--monitoring-port", "--monitoring_port"), ("--metrics-port", "--metrics_port")):
+            if _has_port_flag(config.get("args", []), flag, underscored):
+                continue
+            if next_free >= namespace_end:
+                raise RuntimeError(
+                    f"Worker window {namespace_start}-{namespace_end - 1} has no port left for {flag}. "
+                    "Increase --port-offset-step."
+                )
+            config["args"] = list(config.get("args", [])) + [flag, str(next_free)]
+            assigned.append(next_free)
+            next_free += 1
+    return assigned
 
 
 def _extract_bolt_port_from_args(args):
@@ -403,12 +420,14 @@ def prepare_workload_for_worker(workload, worker_slot, port_offset_step):
         if isinstance(config.get("data_directory"), str):
             config["data_directory"] = _append_suffix(config["data_directory"], suffix)
 
+    reserved_ports = _assign_implicit_listener_ports(prepared, namespace_start, port_map, port_offset_step)
+
     prepared["args"] = _remap_ports_in_args(prepared.get("args", []), port_map)
     # C++ e2e binaries default to --bolt-port 7687 when the workload passes no port at all.
     is_cpp_binary = not prepared["binary"].endswith(".sh")
     if is_cpp_binary and not _extract_ports_from_args(workload.get("args", [])) and DEFAULT_BOLT_PORT in port_map:
         prepared["args"] = prepared["args"] + ["--bolt-port", str(port_map[DEFAULT_BOLT_PORT])]
-    return prepared, namespace_start, port_map
+    return prepared, namespace_start, port_map, reserved_ports
 
 
 def find_leftover_processes(window=None):
@@ -500,13 +519,16 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
     if exclusive:
         prepared = copy.deepcopy(workload)
     else:
-        prepared, port_namespace_start, port_map = prepare_workload_for_worker(
+        prepared, port_namespace_start, port_map, reserved_ports = prepare_workload_for_worker(
             workload, worker_slot, args_dict["port_offset_step"]
         )
         # Consumed by PortRemap in memgraph.py (through sitecustomize.py) inside the test process.
         env["MEMGRAPH_PORT_WINDOW_START"] = str(port_namespace_start)
         env["MEMGRAPH_PORT_WINDOW_SIZE"] = str(args_dict["port_offset_step"])
         env["MEMGRAPH_E2E_PORT_MAP"] = json.dumps(port_map)
+        # Instances the test starts itself allocate from the same window, so they have to know which ports the
+        # workload's own instances were already given.
+        env["MEMGRAPH_E2E_RESERVED_PORTS"] = json.dumps(reserved_ports)
         reverse_map = {mapped: original for original, mapped in port_map.items()}
         if prepared.get("cluster"):
             first_instance_config = next(iter(prepared["cluster"].values()))
