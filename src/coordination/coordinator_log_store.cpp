@@ -15,6 +15,7 @@
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
+#include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <libnuraft/buffer.hxx>
@@ -74,11 +75,16 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       }
 
       uint64_t const last_log_entry = std::stoull(maybe_last_log_entry.value());
-      auto const durable_start_idx_value = std::stoull(maybe_start_idx.value());
+      uint64_t const durable_start_idx_value = std::stoull(maybe_start_idx.value());
       start_idx_.store(durable_start_idx_value, std::memory_order_release);
 
+      // A start index past the newest entry means everything the store ever held was compacted away, so there is
+      // nothing to restore and the leader refetches from the start index. The bound must never end up below the
+      // start of the range below: iota_view would then count away from it rather than yield nothing.
+      auto const restore_end = std::max(durable_start_idx_value, last_log_entry + 1);
+
       // Compaction might have happened so we might be missing some logs.
-      for (auto const id : std::ranges::iota_view{durable_start_idx_value, last_log_entry + 1}) {
+      for (auto const id : std::ranges::iota_view{durable_start_idx_value, restore_end}) {
         auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
         if (!entry) {
@@ -325,7 +331,6 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
 }
 
 // NOTE: Remove all logs up to given 'last_log_index' (inclusive).
-// NOTE: Remove all logs up to given 'last_log_index' (inclusive).
 bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Compacting logs up to {}", last_log_index));
   auto lock = std::lock_guard{logs_lock_};
@@ -348,6 +353,12 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
     auto const new_idx = last_log_index + 1;
     start_idx_.store(new_idx, std::memory_order_release);
     put_batch.emplace(kStartIdx, std::to_string(new_idx));
+    // NuRaft compacts up to the index of a snapshot it installed, which can be past every entry this store holds.
+    // The durable last entry then still names an index below the new start, and the two keys must agree for the
+    // next restore to know which range to read.
+    if (logs_.empty()) {
+      put_batch.emplace(kLastLogEntry, std::to_string(last_log_index));
+    }
   }
 
   durability_->PutAndDeleteMultiple(put_batch, del_batch);

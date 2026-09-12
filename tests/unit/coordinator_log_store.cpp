@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_log_store.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
@@ -20,6 +21,11 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
+
+#include <chrono>
+#include <filesystem>
+#include <future>
+#include <thread>
 
 using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;
@@ -569,4 +575,68 @@ TEST_F(CoordinatorLogStoreTests, TestLogsAfterSnapshotWithNewConfEntries) {
     EXPECT_EQ(entries[1].first, 3);
     EXPECT_EQ(entries[1].second->get_val_type(), nuraft::log_val_type::app_log);
   }
+}
+
+namespace {
+// Opening the store happens on its own thread so that a restore which fails to terminate is reported as a failed
+// test rather than hanging the suite.
+auto OpenLogStoreWithin(std::chrono::seconds const deadline, std::filesystem::path const &path)
+    -> std::shared_ptr<CoordinatorLogStore> {
+  auto promise = std::make_shared<std::promise<std::shared_ptr<CoordinatorLogStore>>>();
+  auto future = promise->get_future();
+  std::thread{[promise, path]() {
+    auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+    memgraph::coordination::LogStoreDurability const durability{kv};
+    promise->set_value(std::make_shared<CoordinatorLogStore>(CoordinatorLogStoreTests::GetLogger(), durability));
+  }}.detach();
+
+  if (future.wait_for(deadline) != std::future_status::ready) {
+    return nullptr;
+  }
+  return future.get();
+}
+}  // namespace
+
+// A durable start index past the newest durable entry means everything below it was compacted away, so the store
+// restores as empty from that index on and leaves NuRaft to refetch.
+TEST_F(CoordinatorLogStoreTests, TestRestoreWithStartIdxPastLastEntry) {
+  auto const path = test_folder_ / "TestRestoreWithStartIdxPastLastEntry";
+
+  {
+    auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+    ASSERT_TRUE(kv->Put(std::string{memgraph::coordination::kStartIdx}, "10"));
+    ASSERT_TRUE(kv->Put(std::string{memgraph::coordination::kLastLogEntry}, "3"));
+  }
+
+  auto const log_store = OpenLogStoreWithin(std::chrono::seconds{30}, path);
+  ASSERT_NE(log_store, nullptr) << "restoring a log store with start index 10 and last entry 3 did not terminate";
+  EXPECT_EQ(log_store->start_index(), 10);
+  EXPECT_EQ(log_store->next_slot(), 10);
+}
+
+// NuRaft compacts up to the index of a snapshot it installed, which can be past everything this store ever appended.
+TEST_F(CoordinatorLogStoreTests, TestCompactPastNewestEntry) {
+  auto const path = test_folder_ / "TestCompactPastNewestEntry";
+
+  {
+    auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+    memgraph::coordination::LogStoreDurability const durability{kv};
+    CoordinatorLogStore log_store{GetLogger(), durability};
+
+    for (int i = 1; i <= 5; ++i) {
+      auto buf = MakeAppLogBuffer("entry_" + std::to_string(i));
+      auto entry = nuraft::cs_new<log_entry>(i, buf, nuraft::log_val_type::app_log);
+      log_store.append(entry);
+    }
+    ASSERT_EQ(log_store.next_slot(), 6);
+
+    ASSERT_TRUE(log_store.compact(7));
+    EXPECT_EQ(log_store.start_index(), 8);
+    EXPECT_EQ(log_store.next_slot(), 8);
+  }
+
+  auto const log_store = OpenLogStoreWithin(std::chrono::seconds{30}, path);
+  ASSERT_NE(log_store, nullptr) << "restoring a log store compacted past its newest entry did not terminate";
+  EXPECT_EQ(log_store->start_index(), 8);
+  EXPECT_EQ(log_store->next_slot(), 8);
 }
