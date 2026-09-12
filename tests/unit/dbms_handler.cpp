@@ -1252,6 +1252,91 @@ TEST(DBMS_Handler, TwoDetachedTenantsCanShareANameAndAreCountedByUuid) {
   EXPECT_TRUE(std::ranges::none_of(statuses_after_drain, [](auto const &kv) { return kv.first == "detached_reuse"; }));
 }
 
+// Pins B1: a running after-commit trigger task observes `Database::after_commit_trigger_status()`
+// (TERMINATED) and aborts promptly once the deferred-drop worker calls StopAllBackgroundTasks().
+// On this branch Delete() is asynchronous — it records the DETACHED row and hands teardown to the
+// defer worker, so the TERMINATED signal arrives on the worker's tick, not inside Delete() itself.
+TEST(DBMS_Handler, AfterCommitTriggerIsToldToStopDuringDrop) {
+  auto &dbms = *TestEnvironment::get();
+  auto new_t = dbms.New("act_stop_during_drop");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  std::atomic<bool> task_running{false}, left_via_signal{false}, task_done{false};
+  constexpr auto kSafetyNet = std::chrono::seconds(10);
+  // task_acc is a copy of `acc` and acts as an extra holder so the Database stays alive until the
+  // task completes; the worker can only destroy the tenant once this extra ref is released.
+  acc->AddTask([&, task_acc = acc]() mutable {
+    task_running.store(true, std::memory_order_release);
+    memgraph::query::StoppingContext stopping{.transaction_status = task_acc->after_commit_trigger_status()};
+    const auto deadline = std::chrono::steady_clock::now() + kSafetyNet;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (stopping.MustAbort() == memgraph::query::AbortReason::TERMINATED) {
+        left_via_signal.store(true, std::memory_order_release);
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    task_done.store(true, std::memory_order_release);
+  });
+  ASSERT_TRUE(WaitUntil(std::chrono::seconds(5), [&] { return task_running.load(std::memory_order_acquire); }));
+  acc.reset();
+  // Delete() marks for deletion, records a DETACHED row, and hands teardown to the defer worker.
+  auto del = dbms.Delete("act_stop_during_drop", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+  // Wait for the worker to call StopAllBackgroundTasks() → StopAfterCommitTriggers() → join pool.
+  ASSERT_TRUE(
+      WaitUntil(kSafetyNet + std::chrono::seconds(2), [&] { return task_done.load(std::memory_order_acquire); }));
+  EXPECT_TRUE(left_via_signal.load(std::memory_order_acquire))
+      << "the after-commit trigger task must abort because the drop latched TERMINATED via "
+         "StopAfterCommitTriggers(), not because its own safety net expired";
+}
+
+// Pins the recovery re-arm gate: once Delete() sets the advisory deletion mark (synchronously, inside
+// Delete_() before returning), every DatabaseProtector that calls is_tenant_marked_for_deletion()
+// sees true and must stop cloning fresh protectors, letting deferred destruction converge.
+TEST(DBMS_Handler, ProtectorStopsBackgroundWorkFromReArmingItself) {
+  auto &dbms = *TestEnvironment::get();
+  auto new_t = dbms.New("rearm_chain_stops_on_drop");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  const auto tenant_uuid = acc->uuid();
+  ASSERT_FALSE(memgraph::dbms::DatabaseProtector{acc}.is_tenant_marked_for_deletion());
+  std::atomic<int> rearms{0};
+  std::atomic<bool> chain_stopped{false};
+  constexpr auto kSafetyNet = std::chrono::seconds(10);
+  const auto chain_deadline = std::chrono::steady_clock::now() + kSafetyNet;
+  memgraph::utils::ThreadPool chain_pool{1};
+  // step is a shared_ptr<function> to allow the lambda to recursively schedule itself.
+  auto step = std::make_shared<std::function<void(memgraph::storage::DatabaseProtectorPtr)>>();
+  *step = [&, step](memgraph::storage::DatabaseProtectorPtr held) {
+    rearms.fetch_add(1, std::memory_order_acq_rel);
+    if (held->is_tenant_marked_for_deletion() || std::chrono::steady_clock::now() >= chain_deadline) {
+      chain_stopped.store(true, std::memory_order_release);
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    auto next = held->clone();
+    chain_pool.AddTask([step, next = std::move(next)]() mutable { (*step)(std::move(next)); });
+  };
+  chain_pool.AddTask(
+      [step, first = memgraph::dbms::DatabaseProtector{acc}.clone()]() mutable { (*step)(std::move(first)); });
+  ASSERT_TRUE(WaitUntil(std::chrono::seconds(5), [&] { return rearms.load(std::memory_order_acquire) > 0; }));
+  acc.reset();
+  // Delete() sets is_marked_for_deletion synchronously inside Delete_() before returning, so the chain
+  // will see the mark on its next is_tenant_marked_for_deletion() poll and stop re-arming.
+  auto del = dbms.Delete("rearm_chain_stops_on_drop", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all = dbms.AllDetached();
+    return std::ranges::none_of(
+        all, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
+  });
+  EXPECT_TRUE(chain_stopped.load(std::memory_order_acquire));
+  EXPECT_TRUE(retired)
+      << "the chain must stop re-arming once the drop marks the tenant, so deferred destruction completes";
+  chain_pool.ShutDown();
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.
