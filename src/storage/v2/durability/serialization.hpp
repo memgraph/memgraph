@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <concepts>
 #include <cstdint>
 #include <filesystem>
@@ -53,14 +54,19 @@ class BaseEncoder {
 template <typename FileType>
 class Encoder final : public BaseEncoder {
  public:
+  Encoder() = default;
+  // Pending writes belong to this encoder; copying and moving are unsupported.
+  Encoder(Encoder const &) = delete;
+  Encoder &operator=(Encoder const &) = delete;
+  Encoder(Encoder &&) = delete;
+  Encoder &operator=(Encoder &&) = delete;
+
   bool Initialize(const std::filesystem::path &path);
   bool Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
 
   bool OpenExisting(const std::filesystem::path &path);
 
   void Close();
-  // Main write function, the only one that is allowed to write to the `file_`
-  // directly.
   void Write(const uint8_t *data, uint64_t size);
 
   /// See NonConcurrentOutputFile::AppendFrom.
@@ -112,16 +118,33 @@ class Encoder final : public BaseEncoder {
 
   auto GetPath() const { return file_.path(); }
 
-  void ResetCrcAcc() override { crc_acc.Reset(); }
+  // A CRC reset marks a point in the stream, so whatever is staged belongs to the stream before it.
+  void ResetCrcAcc() override {
+    DrainStage();
+    crc_acc.Reset();
+  }
 
-  auto CrcAccValue() const -> uint32_t override { return crc_acc.Value(); }
+  // The accumulator only covers bytes handed to the file; fold the staged tail in without disturbing it.
+  auto CrcAccValue() const -> uint32_t override {
+    if (staged_ == 0) return crc_acc.Value();
+    auto acc = crc_acc;
+    acc.Update(stage_.data(), static_cast<uint32_t>(staged_));
+    return acc.Value();
+  }
+
+  ~Encoder() { DrainStage(); }
 
  private:
+  // Batch small writes to amortize file locking and encoder CRC updates. Position/size getters
+  // are logical; operations that read or reposition the file drain first.
+  static constexpr size_t kStageCapacity = 16 * 1024;
+  void DrainStage();
+
   FileType file_;
   utils::CrcAccumulator crc_acc;
-  // Logical write position: the file offset plus the bytes still sitting in file_'s buffer. Tracked
-  // here so GetPosition never has to flush the buffer and seek — two syscalls per query which, on the
-  // WAL hot path (every transaction records its start and end positions), defeat write batching.
+  std::array<uint8_t, kStageCapacity> stage_;  // intentionally uninitialized for performance
+  size_t staged_{0};
+  // File offset plus bytes in both buffers, avoiding a flush and seek for GetPosition().
   uint64_t logical_position_{0};
   // High-water mark of logical_position_: the size of everything this encoder wrote, so GetSize
   // never has to seek to the end of the file. Encoders write files from scratch or from their end
