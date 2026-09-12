@@ -11464,6 +11464,14 @@ void Interpreter::EnsureDbAccessForQuery() {
   if (!current_db_.current_db_name_) return;  // already db-less
   try {
     auto reacquired = interpreter_context_->dbms_handler->Get(*current_db_.current_db_name_);
+    // The tenant is being dropped (HOT but marked for deletion — the gatekeeper still grants its
+    // accessor). Do not re-pin it; go db-less so the drop can complete.
+    if (reacquired.is_marked_for_deletion()) {
+      spdlog::trace("Session database '{}' is being dropped; falling back to a db-less session.",
+                    *current_db_.current_db_name_);
+      current_db_.ResetDB();
+      return;
+    }
     // Recycle guard: the tenant name may have been recycled (dropped+recreated under the same name);
     // UUID mismatch means we would attach to the wrong tenant — fall back to db-less instead.
     if (current_db_.current_db_uuid_ && reacquired->uuid() != *current_db_.current_db_uuid_) {

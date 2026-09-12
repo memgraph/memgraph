@@ -361,6 +361,55 @@ TEST_F(IdleSessionReaperTest, ReacquireFallsBackToDbLessWhenTenantDropped) {
   }
 }
 
+// R11: EnsureDbAccessForQuery must not re-pin a tenant whose in-map gatekeeper has been marked for
+// deletion. The fix: after the reaper releases db_acc_, re-acquisition via Get() can still grant an
+// Accessor (the gatekeeper remains HOT in the map during the Delete_() critical section), but
+// is_marked_for_deletion() detects the drop in progress; ResetDB() is called and the session falls
+// back to db-less rather than re-pinning the dying tenant and delaying the drop.
+//
+// The simulation: call prepare_for_deletion() on a helper DatabaseAccess obtained from the same
+// gatekeeper while it is still in the handler's map. This sets the shared pimpl's
+// is_marked_for_deletion flag — exactly what Delete_() does between its prepare_for_deletion() call
+// and DeferDelete(). The helper accessor is then released (out of scope); the flag persists on the
+// pimpl, and the gatekeeper remains in the map. Any subsequent Get() for that name grants an
+// accessor with is_marked_for_deletion() == true, which is the condition the fix detects.
+TEST_F(IdleSessionReaperTest, DoesNotRepinMarkedForDeletionTenant) {
+  const std::string db_name = "reap_r11";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+  interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
+
+  // Release the accessor: keeps current_db_name_ + current_db_uuid_ so the next query re-acquires.
+  ASSERT_TRUE(interpreter.interpreter.TryReapIdleDbAccessor(kHugeNs, 0));
+  ASSERT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value());
+
+  // Mark the in-map gatekeeper for deletion without DeferDelete (simulates Delete_()'s critical
+  // section). The gatekeeper stays HOT in the map, so Get() will grant an accessor, but the
+  // accessor's is_marked_for_deletion() will be true.
+  {
+    auto dying_acc = DBMS().Get(db_name);
+    dying_acc.prepare_for_deletion();
+    // dying_acc released here; is_marked_for_deletion persists on the shared pimpl.
+  }
+
+  // Next query: EnsureDbAccessForQuery acquires via Get() and detects is_marked_for_deletion().
+  // It calls ResetDB(), leaving the session db-less. SetupDatabaseTransaction then throws because
+  // db_acc_ is null.
+  try {
+    auto [stream, qid] = interpreter.Prepare("MATCH (n) RETURN count(n)");
+    interpreter.Pull(&stream);
+    FAIL() << "a db-requiring query on a db-less session must not succeed";
+  } catch (const memgraph::query::QueryException &) {
+  }
+
+  EXPECT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "must not re-pin the marked-for-deletion tenant";
+  EXPECT_FALSE(interpreter.interpreter.current_db_.current_db_name_.has_value())
+      << "session must fall back to db-less after the marked-for-deletion detection";
+}
+
 // R7: a background reaper sweep thread races a session that is continuously running queries on the
 // same interpreter (autocommit + explicit BEGIN/COMMIT). This drives the real sync protocol: the
 // reaper CAS-es IDLE->REAPING and resets db_acc_ in the gaps between queries, while the session

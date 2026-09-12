@@ -320,6 +320,12 @@ struct CurrentDB {
         old_db.swap(db_acc_);
       }
     }
+    if (old_db) {
+      // Released a marked-for-deletion tenant: drop the identity cache so EnsureDbAccessForQuery
+      // goes db-less rather than re-pinning the dying tenant (its accessor is still grantable while HOT).
+      current_db_name_.reset();
+      current_db_uuid_.reset();
+    }
   }
 
   // Releases db_acc_ under the lock (tear-safe for concurrent foreign_db_view); called by the idle-session
