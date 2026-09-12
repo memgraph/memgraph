@@ -403,6 +403,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     PropertiesPermutationHelper const *permutation_helper_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
+    /// Read for the same reason the serial iterable reads it, and it has to be read here too: a
+    /// scan that answers a string predicate hands every value in the band to the filter otherwise,
+    /// and the plans that ask for chunks are the ones with the most to hand over.
+    PropertyValueRange::ValuePredicate leading_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
