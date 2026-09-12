@@ -160,6 +160,59 @@ class TestParallelProfileMatrix:
             assert has_time, f"Missing CPU time for query: {query}"
 
 
+class TestParallelIndexSkip:
+    """
+    A scan over a string predicate reads the index with a predicate attached, which lets it
+    leave whole runs of equal values behind instead of handing them up to the filter. Asking
+    for parallelism must not give that up: the rows a scan produces are what the work above it
+    costs, and PROFILE reports them per operator.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, memgraph):
+        self.memgraph = memgraph
+        clear_database(memgraph)
+        # Few distinct values over many rows, so most of the column is runs of equal values and
+        # skipping one is worth something.
+        memgraph.execute_query("UNWIND range(1, 20000) AS i CREATE (:Skip {s: 'val-' + toString(i % 200)})")
+        memgraph.execute_query("CREATE INDEX ON :Skip(s)")
+        yield
+        clear_database(memgraph)
+
+    def _scan_hits(self, query):
+        """The rows the scan operator handed upwards, whichever scan the plan chose."""
+        profile = self.memgraph.fetch_all(f"PROFILE {query}")
+        for record in profile:
+            operator = record.get("OPERATOR", "")
+            if "ScanChunk" in operator or "ScanAllByLabelProperties" in operator:
+                return record.get("ACTUAL HITS", 0)
+        raise AssertionError(f"no scan operator in profile for {query}")
+
+    def test_a_contains_scan_skips_the_same_rows_however_it_is_planned(self):
+        match = "MATCH (n:Skip) WHERE n.s CONTAINS 'val-7' RETURN count(n) AS c"
+
+        serial_hits = self._scan_hits(match)
+        parallel_hits = self._scan_hits(pq(match))
+
+        # Non-vacuous: the predicate has to be leaving most of the column behind in the serial
+        # plan, or the two numbers would agree for want of anything to skip.
+        assert serial_hits < 5000, f"serial scan handed up {serial_hits} of 20000, so nothing was skipped"
+
+        assert parallel_hits <= 2 * serial_hits, (
+            f"the parallel scan handed up {parallel_hits} rows where the serial scan handed up "
+            f"{serial_hits}, so it read the whole column instead of skipping"
+        )
+
+    def test_a_contains_scan_answers_the_same_however_it_is_planned(self):
+        match = "MATCH (n:Skip) WHERE n.s CONTAINS 'val-7' RETURN count(n) AS c"
+
+        serial = self.memgraph.fetch_all(match)[0]["c"]
+        parallel = self.memgraph.fetch_all(pq(match))[0]["c"]
+
+        assert serial == parallel
+        assert serial == 1100
+
+
 class TestParallelProfileWarmup:
     """
     Test profiling behavior across multiple runs to detect warm-up effects.
