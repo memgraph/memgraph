@@ -422,6 +422,12 @@ int main(int argc, char **argv) {
   }
 #endif
 
+#ifdef MG_ENTERPRISE
+  // Declared outside MG_PYTHON_SUPPORT so it exists when enterprise is built without Python;
+  // arm/run/stop below are each under their own #ifdef MG_ENTERPRISE.
+  std::optional<memgraph::utils::Scheduler> idle_reaper_scheduler{std::nullopt};
+#endif
+
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
 
@@ -1038,6 +1044,39 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef MG_ENTERPRISE
+  // Experiment gate is correctness-critical: flag-off sessions skip EnsureDbAccessForQuery at query
+  // entry and cannot safely recover from a released accessor — the reaper must not run for them.
+  if (!is_coordinator_instance && dbms_handler.has_value() && FLAGS_session_idle_accessor_release_sec > 0 &&
+      memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::IDLE_SESSION_REAPER)) {
+    idle_reaper_scheduler.emplace();
+    // Sweep at half the idle timeout (bounded to at least 1s) so a newly-idle session is reaped within
+    // roughly one-and-a-half timeout windows.
+    const auto sweep_sec = std::max<uint64_t>(1, FLAGS_session_idle_accessor_release_sec / 2);
+    idle_reaper_scheduler->SetInterval(std::chrono::seconds(sweep_sec));
+    idle_reaper_scheduler->Run("IdleReaper", [&interpreter_context_]() {
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
+      const uint64_t timeout_ns = FLAGS_session_idle_accessor_release_sec * 1'000'000'000ULL;
+      // steady_clock pairs with the interpreter's steady-clock last_activity_ns_.
+      const auto now_ns = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+      uint64_t reaped = 0;
+      // Lock held for the full sweep: SessionHL's destructor erases under the same lock (SessionHL.cpp:755),
+      // so it cannot destroy an interpreter while we iterate; each TryReapIdleDbAccessor call is non-blocking.
+      interpreter_context_.interpreters.WithLock([&](auto &interpreters) {
+        for (auto *interpreter : interpreters) {
+          if (interpreter->TryReapIdleDbAccessor(now_ns, timeout_ns)) ++reaped;
+        }
+      });
+      if (reaped > 0) {
+        spdlog::info("Idle-session reaper: released {} idle session accessor(s).", reaped);
+      }
+    });
+    spdlog::info("Idle-session reaper started (idle timeout {}s, sweep {}s).",
+                 FLAGS_session_idle_accessor_release_sec,
+                 sweep_sec);
+  }
+#endif
+
+#ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
   // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
   // This thread takes unique lock on dbms handler and waits for storage write access
@@ -1147,6 +1186,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
                       &coordinator_state,
                       &metrics_server,
+                      &idle_reaper_scheduler,
 #endif
                       is_coordinator_instance,
                       &websocket_server,
@@ -1195,6 +1235,13 @@ int main(int argc, char **argv) {
         locked_repl_state->Shutdown();
       }
     }
+
+#ifdef MG_ENTERPRISE
+    if (idle_reaper_scheduler) {
+      spdlog::trace("Stopping idle-session reaper");
+      idle_reaper_scheduler->Stop();
+    }
+#endif
 
     if (dbms_handler.has_value()) {
       dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {

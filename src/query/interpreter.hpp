@@ -35,6 +35,7 @@
 #include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
@@ -262,7 +263,11 @@ struct CurrentDB {
 
   // No lock needed: db_acc_ is set via the member-init list, before this CurrentDB becomes reachable
   // (e.g. via InterpreterContext::interpreters), so no other thread can observe it mid-construction.
-  explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {}
+  explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {
+    // Stash identity so it survives an idle-reaper release.
+    current_db_name_ = db_acc_->get()->name();
+    current_db_uuid_ = db_acc_->get()->uuid();
+  }
 
   CurrentDB(CurrentDB const &) = delete;
   CurrentDB &operator=(CurrentDB const &) = delete;
@@ -272,6 +277,10 @@ struct CurrentDB {
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
+    // Stash the session DB identity (name + uuid) before moving the accessor in, so it survives a
+    // reaper release of db_acc_. Owning-thread-only, like name() -- no lock needed for the cache.
+    current_db_name_ = new_db->name();
+    current_db_uuid_ = new_db->uuid();
     // Move the outgoing Accessor out of db_acc_ under the lock, then let it destruct AFTER the lock is
     // released (see db_acc_mutex_ for why: its dtor can block on a foreign GKInternals::mutex_).
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
@@ -292,6 +301,8 @@ struct CurrentDB {
       old_db.swap(db_acc_);
     }
     old_db.reset();  // release db access before the accessors below, as before
+    current_db_name_.reset();
+    current_db_uuid_.reset();
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
@@ -309,6 +320,29 @@ struct CurrentDB {
         old_db.swap(db_acc_);
       }
     }
+    if (old_db) {
+      // Released a marked-for-deletion tenant: drop the identity cache so EnsureDbAccessForQuery
+      // goes db-less rather than re-pinning the dying tenant (its accessor is still grantable while HOT).
+      current_db_name_.reset();
+      current_db_uuid_.reset();
+    }
+  }
+
+  // Releases db_acc_ under the lock (tear-safe for concurrent foreign_db_view); called by the idle-session
+  // reaper. Identity cache kept so the session re-acquires by name. Swap-out-under-lock / destruct-outside.
+  void ReleaseDbAccessor() {
+    std::optional<memgraph::dbms::DatabaseAccess> old_db;
+    {
+      std::lock_guard lock{db_acc_mutex_};
+      old_db.swap(db_acc_);
+    }
+  }
+
+  // Re-attach a freshly-acquired accessor under the lock (consistent optional for concurrent foreign_db_view).
+  // Precondition: db_acc_ is empty (reaper released it). in_explicit_db_ and identity cache unchanged.
+  void ReacquireDbAccessor(memgraph::dbms::DatabaseAccess db) {
+    std::lock_guard lock{db_acc_mutex_};
+    db_acc_ = std::move(db);
   }
 
   // Owning-thread-only. Reads db_acc_ with no synchronization, safe only because a session's queries are
@@ -318,7 +352,7 @@ struct CurrentDB {
   // establishes no happens-before against SetCurrentDB's db_acc_ swap -- a foreign unlocked read here would
   // tear against a concurrent USE DATABASE. A foreign thread -- including one observing an IDLE session --
   // must use foreign_db_view() instead.
-  std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+  std::string name() const { return db_acc_ ? db_acc_->get()->name() : current_db_name_.value_or(""); }
 
   // Safe from any thread: unlike name(), it needs no verifier CAS, which can never succeed on IDLE anyway.
   // Reads db_acc_ live, not cached -- DbmsHandler::Rename mutates storage's name in place, not db_acc_.
@@ -342,6 +376,12 @@ struct CurrentDB {
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
+  // Session DB identity (kept in sync with db_acc_ by SetCurrentDB) so name() survives the idle reaper
+  // releasing db_acc_ on a parked session; the next query re-acquires by name.
+  std::optional<std::string> current_db_name_;
+  // Tenant UUID so a re-acquire can reject a recycled name. Safe: non-default tenants have stable UUIDs;
+  // the default DB's UUID can change but is never reaped.
+  std::optional<utils::UUID> current_db_uuid_;
   std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
@@ -586,7 +626,37 @@ class Interpreter final {
    */
   std::optional<TxVerifier> TryAcquireForVerification();
 
+#ifdef MG_ENTERPRISE
+  // Mark this a reapable Bolt session. Set once by SessionHL BEFORE registration in
+  // InterpreterContext::interpreters (that lock publishes it); stream/internal interpreters stay false
+  // so the reaper never touches them. Also stamps the idle clock so the window starts at connect.
+  void MarkReapable() noexcept {
+    reapable_ = true;
+    last_activity_ns_.store(SteadyNowNs(), std::memory_order_relaxed);
+  }
+
+  // Called ONLY from the background reaper sweep. Releases db_acc_ (dropping the gatekeeper count) iff
+  // this is a reapable, non-explicit-txn session on a non-default tenant idle past idle_timeout_ns.
+  // Returns true iff it reaped.
+  bool TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns);
+
+  // Re-acquire db_acc_ if the reaper released it while parked. No-op if held or db-less; on a
+  // recycled/dropped tenant falls back to a db-less session.
+  void EnsureDbAccessForQuery();
+#endif
+
+  // Held for the whole span of a Bolt message so the reaper only reaps a genuinely parked session.
+  // Pairs with transaction_status_ via a Dekker StoreLoad (both seq_cst) against TryReapIdleDbAccessor.
+  // Flag-off: both are no-ops and the reaper never runs, so existing code paths are behaviourally unchanged.
+  void SetMessageInFlight() noexcept;
+  void ClearMessageInFlight() noexcept;
+
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
+  // true for the whole Bolt-message handling span; the reaper checks this before releasing db_acc_.
+  std::atomic<bool> message_in_flight_{false};
+  // steady_clock ns of the end of this session's last Bolt message; the reaper's idle clock. Stamped at
+  // connect (MarkReapable) and every time the session parks back to Idle (ClearMessageInFlight).
+  std::atomic<uint64_t> last_activity_ns_{0};
   // current_transaction_ is protected by the transaction_status_ atomic.
   // When transaction_status_ is VERIFYING, current_transaction_ is stable.
   // When transaction_status_ is IDLE, current_transaction_ is nullopt.
@@ -596,6 +666,17 @@ class Interpreter final {
   // is used for start_time; steady_clock for elapsed_ms (immune to NTP / manual clock jumps).
   std::chrono::system_clock::time_point transaction_start_time_{};
   std::chrono::steady_clock::time_point transaction_start_steady_{};
+
+  // steady_clock ns since epoch — the idle clock's monotone time source (immune to NTP / clock jumps).
+  static uint64_t SteadyNowNs() noexcept {
+    return static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+  }
+
+#ifdef MG_ENTERPRISE
+  // True => reapable Bolt session (see MarkReapable). Written once before registration, then const;
+  // the registration lock on InterpreterContext::interpreters publishes it to the reaper thread.
+  bool reapable_{false};
+#endif
 
   void ResetUser();
 

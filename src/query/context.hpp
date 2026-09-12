@@ -50,6 +50,9 @@ enum class TransactionStatus {
   TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
+  // Transient exclusive-ownership state: the idle-session reaper CAS(IDLE→REAPING) while releasing
+  // db_acc_; the session spin-waits on it inside SetMessageInFlight. Requires IDLE_SESSION_REAPER.
+  REAPING,
 };
 
 struct Scope {
