@@ -137,6 +137,11 @@ auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::
                                      replica_stream);
   // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
   if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+    // Tenant is being dropped; skip the 2PC finalize RPC (data is about to be deleted).
+    if (db_acc.sealed()) {
+      raw_client->SetMaybeBehind();
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+    }
     return raw_client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp);
   }
   // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
