@@ -1015,6 +1015,54 @@ TEST(Handler, DeferDeleteDrainsOnHandlerDestruction) {
   EXPECT_EQ(post.load(std::memory_order_relaxed), 1) << "post_delete_step must run exactly once";
 }
 
+// Pins drop-observability registry behavior: a FORCE drop that is pinned by a held accessor must
+// appear in AllWithHotColdStatus() as a DROPPING row immediately after Delete() returns (recording
+// is synchronous inside Delete_ under lock_), and must disappear once the holder releases and the
+// background worker finishes reclaiming the tenant (ForgetDropping_ runs in post_delete_step).
+TEST(DBMS_Handler, DroppingTenantIsVisibleInShowDatabases) {
+  using namespace std::chrono_literals;
+
+  auto &dbms = *TestEnvironment::get();
+
+  // 1. Create the tenant. New() returns a live accessor that itself pins the
+  //    Gatekeeper — keep this single accessor held so the deferred-drop worker
+  //    cannot reach exclusive access (and converge) until we release it. (Do NOT
+  //    also Get() a second accessor, or the count never drops to 1.)
+  auto pin = dbms.New("dropping_visible");
+  ASSERT_TRUE(pin.has_value()) << "New() must succeed for a fresh name";
+
+  // 2. Issue the FORCE delete (null transaction → deferred teardown path).
+  //    Delete() must accept a pinned tenant and hand teardown off to the worker.
+  auto del = dbms.Delete("dropping_visible", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << "Delete() with a null transaction must succeed (deferred)";
+
+  // 3. The DROPPING row must be present immediately — RecordDropping_ inserts
+  //    into dropping_ synchronously inside Delete_ before it returns.
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    const bool found = std::any_of(statuses.begin(), statuses.end(), [](const auto &p) {
+      return p.first == "dropping_visible" && p.second == "DROPPING";
+    });
+    EXPECT_TRUE(found) << "a pinned FORCE-dropped tenant must appear as DROPPING in AllWithHotColdStatus() "
+                          "while the pinning accessor is still held";
+  }
+
+  // 4. Release the pin so the background worker can reach exclusive access and converge.
+  pin->reset();
+
+  // 5. Poll until the DROPPING row disappears: ForgetDropping_ is called by the
+  //    worker's post_delete_step lambda once the tenant is fully reclaimed.
+  ASSERT_TRUE(PollUntil(
+      [&] {
+        const auto statuses = dbms.AllWithHotColdStatus();
+        return std::none_of(
+            statuses.begin(), statuses.end(), [](const auto &p) { return p.first == "dropping_visible"; });
+      },
+      30s))
+      << "the DROPPING entry must disappear from AllWithHotColdStatus() within 30 s after the "
+         "pinning accessor is released";
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.
