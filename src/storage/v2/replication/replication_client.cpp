@@ -68,6 +68,12 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   auto &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
+  // Tenant is being dropped; stay MAYBE_BEHIND (not RECOVERY) — ForEach skips destroyed tenants via access() nullopt.
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return;
+  }
+
   // A broken main holds no valid data for this tenant. Driving recovery from it would overwrite a
   // healthy replica with corrupt/empty state, so skip until the tenant is cured. Recovery resumes
   // automatically once the broken flag is cleared.
@@ -219,6 +225,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
               const memory::DbArenaScope db_arena_scope{arena_pool};
               this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                    main_storage,
+                                   *gk,
                                    true);  // needs force reset so we need to recover from 0.
             } catch (...) {
               // The task runs raw on the maintenance worker; left in RECOVERY the replica would never
@@ -304,7 +311,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                                          this] {
         try {
           const memory::DbArenaScope db_arena_scope{arena_pool};
-          this->RecoverReplica(current_commit_timestamp, main_storage);
+          this->RecoverReplica(current_commit_timestamp, main_storage, *gk);
         } catch (...) {
           // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
           // rechecked, the frequent check reacts to MAYBE_BEHIND alone.
@@ -330,6 +337,10 @@ void ReplicationStorageClient::LogRpcFailure() const {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return;
+  }
   client_.maintenance_pool_.AddTask(
       [main_storage, protector = protector.clone(), arena_pool = main_storage->DbArenaPool(), this]() {
         try {
@@ -347,6 +358,10 @@ void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, 
 void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseProtector const &protector) const {
   spdlog::debug(
       "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return;
+  }
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
     client_.maintenance_pool_.AddTask(
@@ -355,6 +370,7 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
             const memory::DbArenaScope db_arena_scope{arena_pool};
             this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                  main_storage,
+                                 *gk,
                                  true);  // needs force reset so we need to recover from 0.
           } catch (...) {
             // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
@@ -704,7 +720,7 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &
 // The replica will be considered as READY if it gets fully recovered. If there are commits taking place while recovery
 // is running, the replica will be again set to MAYBE_BEHIND state.
 void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage,
-                                              bool const reset_needed) const {
+                                              DatabaseProtector const &protector, bool const reset_needed) const {
   auto const &main_db_name = main_storage->name();
 
   // A guardrail, not a decision point: read without a hold, so the mode could flip right after.
@@ -722,6 +738,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                  client_.name_,
                  main_db_name);
     metrics::Metrics().global.replica_recovery_skip->Increment();
+    return;
+  }
+
+  if (protector.sealed()) {
+    spdlog::info("Tenant for replica {} is being dropped; stopping recovery.", client_.name_);
+    replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
     return;
   }
 
@@ -754,6 +776,11 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
 
   for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
     try {
+      if (protector.sealed()) {
+        spdlog::info("Tenant for replica {} is being dropped; stopping recovery.", client_.name_);
+        replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+        return;
+      }
       spdlog::trace("Replica: {}, db: {}. Recovering in step: {}. Current local replica commit: {}.",
                     client_.name_,
                     main_db_name,
