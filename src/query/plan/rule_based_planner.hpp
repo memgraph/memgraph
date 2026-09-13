@@ -628,6 +628,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                       *context.symbol_table,
                                       *context_->ast_storage,
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
+                                      call_sub->optional_,
                                       scoped_variables);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(
@@ -1655,7 +1656,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
   std::unique_ptr<LogicalOperator> HandleSubquery(
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
-      AstStorage &storage, Expression *commit_frequency,
+      AstStorage &storage, Expression *commit_frequency, bool optional,
       const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
@@ -1680,6 +1681,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
     auto subquery_op = Plan(*subquery);
     auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
+    // `OPTIONAL CALL` nulls out what the branch introduces, never what it imported: `RETURN *` projects the
+    // imported variables straight back out, and those must keep the caller's values. Taken here because the move
+    // below drains `subquery_bound_symbols`.
+    std::vector<Symbol> null_symbols;
+    if (optional) {
+      std::ranges::copy_if(subquery_bound_symbols, std::back_inserter(null_symbols), [&](const Symbol &sym) {
+        return !outer_scope_bound_symbols.contains(sym);
+      });
+    }
 
     context_->bound_symbols.clear();
     context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
@@ -1688,18 +1698,21 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     context_->bound_symbols.insert(std::make_move_iterator(subquery_bound_symbols.begin()),
                                    std::make_move_iterator(subquery_bound_symbols.end()));
 
-    auto subquery_has_return = true;
-    if (subquery_op->GetTypeInfo() == EmptyResult::kType) {
-      subquery_has_return = false;
-    }
+    // A unit subquery projects nothing, so `OPTIONAL` has nothing to null and nothing to change - Neo4j leaves
+    // the cardinality alone there too.
+    auto const empty_branch = std::invoke([&]() {
+      if (subquery_op->GetTypeInfo() == EmptyResult::kType) return EmptyBranch::kPassRow;
+      return optional ? EmptyBranch::kPassRowWithNulls : EmptyBranch::kDropRow;
+    });
 
     bool has_periodic_commit = commit_frequency != nullptr;
     if (!has_periodic_commit) {
-      last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
+      last_op =
+          std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), empty_branch, std::move(null_symbols));
     } else {
       // this periodic commit is from CALL IN TRANSACTIONS OF x ROWS
       last_op = std::make_unique<PeriodicSubquery>(
-          std::move(last_op), std::move(subquery_op), commit_frequency, subquery_has_return);
+          std::move(last_op), std::move(subquery_op), commit_frequency, empty_branch, std::move(null_symbols));
     }
 
     return last_op;

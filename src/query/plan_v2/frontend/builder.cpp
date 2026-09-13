@@ -275,7 +275,7 @@ struct symbol_build_traits<symbol::Subquery> {
     // metadata for the Subquery e-node; the v1 Apply operator doesn't consume
     // them directly.
     return std::static_pointer_cast<LogicalOperator>(
-        std::make_shared<query::plan::Apply>(outer_input, inner_root, /*subquery_has_return=*/true));
+        std::make_shared<query::plan::Apply>(outer_input, inner_root, query::plan::EmptyBranch::kDropRow));
   }
 };
 
