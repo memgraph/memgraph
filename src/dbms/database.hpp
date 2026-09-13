@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -19,6 +20,7 @@
 
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/context.hpp"
 #include "query/plan_cache.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
@@ -168,6 +170,9 @@ class Database {
    */
   utils::ThreadPool *thread_pool() { return &after_commit_trigger_pool_; }
 
+  // See after_commit_trigger_status_.
+  std::atomic<query::TransactionStatus> *after_commit_trigger_status() { return &after_commit_trigger_status_; }
+
   /**
    * @brief Add task to the after commit trigger thread pool.
    *
@@ -261,8 +266,12 @@ class Database {
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
-  std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
-  query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+  // Cooperative stop signal for after-commit triggers. StopAllBackgroundTasks() stores TERMINATED
+  // here BEFORE joining after_commit_trigger_pool_, so a trigger already running on that pool observes
+  // it via StoppingContext::MustAbort() and aborts, letting the join complete promptly.
+  std::atomic<query::TransactionStatus> after_commit_trigger_status_{query::TransactionStatus::ACTIVE};
+  std::unique_ptr<query::stream::Streams> streams_;  //!< Streams associated with the storage
+  query::PlanCacheLRU plan_cache_;                   //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms

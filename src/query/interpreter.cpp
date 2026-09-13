@@ -11444,7 +11444,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       execution_memory.resource(),
                       flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down,
-                      /* transaction_status = */ nullptr,
+                      /* transaction_status = */ db_acc->after_commit_trigger_status(),
                       trigger_context,
                       is_main,
                       triggering_user,
