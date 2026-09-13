@@ -29,6 +29,7 @@
 #include <string>
 #include <system_error>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include <nlohmann/json_fwd.hpp>
@@ -54,6 +55,8 @@
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
@@ -520,6 +523,16 @@ class DbmsHandler {
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
       if (!suspended_.contains(name)) out.emplace_back(std::move(name), "HOT");
     }
+    // Append in-flight deferred drops as DROPPING rows. Lock order: lock_ (already held shared above)
+    // -> dropping_ (its own SpinLock, taken here). The worker's ForgetDropping_ takes ONLY dropping_,
+    // never lock_, so this nesting is the only direction that exists — no inversion is possible.
+    // A same-name HOT + DROPPING pair can appear simultaneously if a fresh DB was created under the
+    // same name while the old one is still draining; that is intentional (they differ by UUID).
+    dropping_.WithLock([&](const auto &map) {
+      for (const auto &[uuid_str, info] : map) {
+        out.emplace_back(info.name, "DROPPING");
+      }
+    });
     return out;
   }
 
@@ -841,6 +854,21 @@ class DbmsHandler {
 
  private:
 #ifdef MG_ENTERPRISE
+  // Metadata recorded for a FORCE DROP that has passed the DeferDelete hand-off point but whose
+  // background teardown worker has not yet finished. These entries are visible in SHOW DATABASES
+  // as DROPPING rows, making an in-flight (and possibly stuck) deferred drop observable.
+  struct DroppingInfo {
+    std::string name;
+    std::chrono::system_clock::time_point detached_at;
+  };
+
+  // Erase the entry keyed by @p uuid's string form from the dropping_ registry. Called by the
+  // post_delete_step lambda (deferred-drop worker thread) once the tenant is fully reclaimed.
+  // Takes ONLY dropping_'s own SpinLock — never acquires lock_.
+  void ForgetDropping_(utils::UUID uuid) {
+    dropping_.WithLock([&](auto &map) { map.erase(std::string{uuid}); });
+  }
+
   // Hot/cold: rebuild metadata for a suspended (COLD) tenant. The gatekeeper stays in
   // db_handler_ as a COLD shell (value_ == nullopt); this holds what a later resume needs.
   struct SuspendedEntry {
@@ -1097,7 +1125,24 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
-  DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
+
+  // DECLARATION ORDER (load-bearing): dropping_ MUST be declared BEFORE db_handler_ so that
+  // dropping_ is destroyed AFTER ~DatabaseHandler. The Handler's drain runs each deferred-drop
+  // worker's post_delete_step, which calls ForgetDropping_ (erases from dropping_). If dropping_
+  // were destroyed first, ForgetDropping_ would access a dangled map. C++ destroys members in
+  // reverse declaration order, so declaring dropping_ before db_handler_ guarantees db_handler_
+  // is torn down (and all post_delete_steps have run) before dropping_ is destroyed.
+  //
+  // Key type: std::string (UUID's string form). utils::UUID has no std::hash<> specialization,
+  // so we key the map by std::string{uuid} to avoid a custom hasher.
+  //
+  // mutable: AllWithHotColdStatus is a const method (holds a shared_lock on lock_) but must
+  // still acquire dropping_'s SpinLock to read entries. Marking mutable lets WithLock run from
+  // a const call site without breaking the logical-const contract (lock acquisition is not an
+  // observable state mutation).
+  mutable utils::Synchronized<std::unordered_map<std::string, DroppingInfo>, utils::SpinLock> dropping_;
+
+  DatabaseHandler db_handler_;  //!< multi-tenancy storage handler
   // COLD tenant rebuild metadata; guarded by lock_. The transparent std::less<> comparator is LOAD-BEARING
   // for the Resume_ publish block's noexcept guarantee: that block does suspended_.find(name) (string_view,
   // no temporary std::string -> no allocation) AFTER the gatekeeper has been committed HOT, so it must not

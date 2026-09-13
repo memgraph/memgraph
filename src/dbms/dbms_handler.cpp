@@ -832,7 +832,10 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   const auto storage_path = StorageDir_(db_name);
   if (!storage_path) return std::unexpected{DeleteError::NON_EXISTENT};
 
-  utils::UUID retired_uuid;
+  // Capture the tenant's UUID inside the accessor scope (before the accessor is released).
+  // Database::uuid() is const and does not re-acquire lock_ — safe to call while lock_ is held.
+  // Reused below both to announce the retired uuid (uuid-keyed stores) and to key the dropping_ row.
+  utils::UUID db_uuid;
   {
     auto db = db_handler_.Get(db_name);
     if (!db) {
@@ -843,10 +846,10 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
       if (gk && gk->state() != utils::GatekeeperState::HOT) return std::unexpected{DeleteError::USING};
       return std::unexpected{DeleteError::NON_EXISTENT};
     }
+    db_uuid = db->get()->uuid();
     // Advisory seal only (microseconds). The heavy stop work (StopAllBackgroundTasks + streams DropAll)
     // is deferred to the background teardown worker below, so we do NOT stall other tenants under lock_.
     db->prepare_for_deletion();
-    retired_uuid = db->get()->uuid();
   }  // release our accessor so the worker can reach sole access
 
   // Roll back the seal on any throw before DeferDelete transfers ownership: a stranded
@@ -859,7 +862,16 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   }
 
   // Announce the retired uuid so uuid-keyed stores (e.g. database-scoped parameters) discard its rows.
-  if (on_uuid_retired_) on_uuid_retired_(retired_uuid);
+  if (on_uuid_retired_) on_uuid_retired_(db_uuid);
+
+  // Record the in-flight drop in the dropping_ registry so SHOW DATABASES can surface it as a
+  // DROPPING row for the duration of the deferred teardown. Runs under lock_ (all Delete_ callers
+  // hold lock_ exclusively). Lock order: lock_ (already held) -> dropping_ (SpinLock, taken here);
+  // the only other lock order is ForgetDropping_ taking ONLY dropping_ — no inversion.
+  dropping_.WithLock([&](auto &map) {
+    map.insert_or_assign(std::string{db_uuid},
+                         DroppingInfo{.name = std::string{db_name}, .detached_at = std::chrono::system_clock::now()});
+  });
 
   db_handler_.DeferDelete(
       db_name,
@@ -869,12 +881,15 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
         db.streams()->DropAll();
       },
       /*post_delete_step=*/
-      [storage_path = *storage_path, db_name = std::string{db_name}]() {
+      // Captures `this` (safe: dropping_ outlives db_handler_'s drain due to declaration order)
+      // and db_uuid to erase the DROPPING registry entry once teardown is complete.
+      [this, db_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
         std::error_code ec;
         (void)std::filesystem::remove_all(storage_path, ec);
         if (ec) {
           spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
         }
+        ForgetDropping_(db_uuid);
       });
 
   return {};  // Success
