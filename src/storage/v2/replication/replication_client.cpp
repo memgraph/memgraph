@@ -601,6 +601,13 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
   metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.finalize_txn_replication_seconds};
+
+  // Tenant is being dropped; stay MAYBE_BEHIND and do not issue the finalize RPC.
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+  }
+
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString(state));
 
@@ -638,6 +645,11 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
                commit_num_committed_txns,
                is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
+    // Tenant may have been sealed between AddTask and this task running; do not issue the finalize RPC.
+    if (protector->sealed()) {
+      this->SetMaybeBehind();
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+    }
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       const memory::DbArenaScope db_arena_scope{arena_pool};

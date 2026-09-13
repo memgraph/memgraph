@@ -25,6 +25,7 @@
 #include "global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
+#include "utils/logging.hpp"
 #include "utils/scheduler.hpp"
 
 namespace memgraph::dbms {
@@ -64,6 +65,13 @@ class Handler {
   Handler() = default;
 
   virtual ~Handler() {
+    // FIX A: signal destruction under the lock so a concurrent DeferDelete (racing
+    // with ~Handler) will not start a new background worker after we stop ours.
+    {
+      auto lock = std::unique_lock{pending_mutex_};
+      destroying_ = true;
+    }
+
     // Stop the background worker before touching pending_ so the worker and
     // this drain loop cannot race on the list structure or node contents.
     defer_worker_.Stop();
@@ -81,7 +89,8 @@ class Handler {
         if (auto a = node.gk.access()) {
           if (!node.stopped) node.stop_step(*a->get());
         }
-      } catch (...) {
+      } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort shutdown drain; one stop_step failure must not
+                       // stall the rest
       }
 
       // Non-blocking try: if we are the sole accessor, value is destroyed here;
@@ -90,7 +99,8 @@ class Handler {
         if (auto a = node.gk.access()) {
           (void)a->try_delete(std::chrono::milliseconds(0));
         }
-      } catch (...) {
+      } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort shutdown drain; one try_delete failure must not
+                       // stall the rest
       }
 
       // Blocking ~Gatekeeper: count == 0 + terminal state → returns immediately
@@ -101,7 +111,8 @@ class Handler {
 
       try {
         node.post_delete_step();
-      } catch (...) {
+      } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort shutdown drain; one post_delete failure must not
+                       // stall the rest
       }
     }
   }
@@ -238,6 +249,11 @@ class Handler {
     auto itr = items_.find(name);
     if (itr == items_.end()) return;
 
+    // FIX C: only a HOT gatekeeper may be deferred. A SUSPENDING/RESUMING one mid-transition
+    // would make ~Gatekeeper block indefinitely waiting for a terminal state, causing a hang.
+    MG_ASSERT(
+        itr->second.state() == utils::GatekeeperState::HOT, "DeferDelete requires a HOT gatekeeper (name='{}')", name);
+
     auto gk = std::move(itr->second);
     items_.erase(itr);
 
@@ -251,14 +267,16 @@ class Handler {
       // Run best-effort inline teardown so the data directory is not orphaned.
       try {
         if (auto a = gk.access()) stop_step(*a->get());
-      } catch (...) {
+      } catch (
+          ...) {  // NOLINT(bugprone-empty-catch) — OOM fallback teardown; secondary stop_step failure is suppressed
       }
       {
         auto dying = std::move(gk);
       }
       try {
         post_delete_step();
-      } catch (...) {
+      } catch (
+          ...) {  // NOLINT(bugprone-empty-catch) — OOM fallback teardown; secondary post_delete failure is suppressed
       }
       return;
     }
@@ -268,7 +286,18 @@ class Handler {
       pending_.splice(pending_.end(), node);
     }
 
-    EnsureWorkerStarted_();
+    // FIX B: EnsureWorkerStarted_ may throw std::system_error (pthread_create EAGAIN) after the
+    // node is already spliced into pending_. Do not propagate — the logical drop has already
+    // succeeded (gatekeeper moved out of items_). std::call_once does NOT consume its flag on a
+    // throw, so the next DeferDelete will retry starting the worker; ~Handler drains pending_
+    // unconditionally regardless of whether the worker ever ran.
+    try {
+      EnsureWorkerStarted_();
+    } catch (...) {
+      spdlog::warn(
+          "DeferDelete: background teardown worker could not start (thread creation failed). "
+          "Teardown will be retried on the next deferred drop or completed at shutdown.");
+    }
   }
 
   /**
@@ -337,6 +366,12 @@ class Handler {
   // so unused Handlers pay zero thread overhead.
   void EnsureWorkerStarted_() {
     std::call_once(worker_started_, [this] {
+      // FIX A: if ~Handler already set destroying_ we are racing with shutdown — do
+      // not start a worker that will immediately be stopped (or worse, never be stopped).
+      {
+        auto lock = std::unique_lock{pending_mutex_};
+        if (destroying_) return;
+      }
       // Install the cadence BEFORE Run() so the worker's first loop reads the real 50 ms schedule
       // instead of the Scheduler's default (which waits until time_point::max()); a plain SetInterval
       // after Run() would not wake a worker already parked on that default wait.
@@ -368,7 +403,8 @@ class Handler {
             // with an accessor and try_delete is the one that clears value_).
             try {
               node.post_delete_step();
-            } catch (...) {
+            } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort cleanup; one post_delete failure must not
+                             // stall the tick
             }
             auto lock = std::unique_lock{pending_mutex_};
             pending_.erase(it);
@@ -387,14 +423,16 @@ class Handler {
             acc.reset();
             try {
               node.post_delete_step();
-            } catch (...) {
+            } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort cleanup; one post_delete failure must not
+                             // stall the tick
             }
             // ~Gatekeeper on list node destruction: count == 0 + HOT (terminal)
             // → returns immediately without blocking.
             auto lock = std::unique_lock{pending_mutex_};
             pending_.erase(it);
           }
-        } catch (...) {
+        } catch (...) {  // NOLINT(bugprone-empty-catch) — per-node isolation; one failing node must not stall the rest
+                         // of the list
           // Per-node catch: one failing node does not stall the rest of the list.
         }
       }
@@ -407,9 +445,10 @@ class Handler {
   // is bypassed, live gatekeepers in items_ outlive the worker-side structures.
   container_type items_;  //!< map of all active items
 
-  // pending_mutex_ guards only structural changes to pending_ (splice/erase);
-  // node contents (stopped, stop_step) are mutated by the single worker thread only.
+  // pending_mutex_ guards structural changes to pending_ (splice/erase) AND destroying_.
+  // Node contents (stopped, stop_step) are mutated by the single worker thread only.
   std::mutex pending_mutex_;
+  bool destroying_ = false;             //!< set by ~Handler before Stop(); blocks late worker starts
   std::list<PendingDeletion> pending_;  //!< nodes awaiting deferred teardown
   utils::Scheduler defer_worker_;       //!< single shared background worker (~50 ms cadence)
   std::once_flag worker_started_;       //!< ensures EnsureWorkerStarted_ runs at most once
