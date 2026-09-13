@@ -265,11 +265,14 @@ class Database {
 
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
-  utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
   // Cooperative stop signal for after-commit triggers. StopAllBackgroundTasks() stores TERMINATED
   // here BEFORE joining after_commit_trigger_pool_, so a trigger already running on that pool observes
   // it via StoppingContext::MustAbort() and aborts, letting the join complete promptly.
+  // Declaration order matters: members destruct in reverse declaration order, so declaring this
+  // BEFORE after_commit_trigger_pool_ guarantees the atomic outlives the pool's worker thread join
+  // at destruction — the same store-before-join guarantee StopAllBackgroundTasks provides at runtime.
   std::atomic<query::TransactionStatus> after_commit_trigger_status_{query::TransactionStatus::ACTIVE};
+  utils::ThreadPool after_commit_trigger_pool_{1};   //!< Thread pool for after commit triggers
   std::unique_ptr<query::stream::Streams> streams_;  //!< Streams associated with the storage
   query::PlanCacheLRU plan_cache_;                   //!< Plan cache associated with the storage
 };
