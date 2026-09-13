@@ -970,8 +970,8 @@ TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
   EXPECT_EQ(stop.load(std::memory_order_relaxed), 1)
       << "stop_step is latched (node.stopped=true after first run) and must not repeat";
 
-  EXPECT_EQ(dtor.load(std::memory_order_relaxed), 0) << "value must not be destroyed while holder is live";
-  EXPECT_EQ(post.load(std::memory_order_relaxed), 0) << "post_delete_step must not run while holder is live";
+  ASSERT_EQ(dtor.load(std::memory_order_relaxed), 0) << "value must not be destroyed while holder is live";
+  ASSERT_EQ(post.load(std::memory_order_relaxed), 0) << "post_delete_step must not run while holder is live";
 
   // Release: count drops 1→0.  The next tick opens its accessor (count 0→1),
   // finds count==1 in try_delete(0ms), destroys the value, and runs post_delete_step.
