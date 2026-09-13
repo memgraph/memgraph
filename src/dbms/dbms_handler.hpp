@@ -537,7 +537,13 @@ class DbmsHandler {
     // dropping_, never lock_, so this is the only nesting direction — no inversion is possible.
     dropping_.WithLock([&](const auto &map) {
       for (const auto &[uuid_str, name] : map) {
-        if (!live_names.contains(name)) out.emplace_back(name, "DROPPING");
+        // Emit at most one DROPPING row per name: two same-name husks (drop, recreate, drop again while
+        // the first is still draining) are both tracked by uuid internally, but showing the name once is
+        // enough. Insert into live_names after emitting so the second husk is suppressed here.
+        if (!live_names.contains(name)) {
+          out.emplace_back(name, "DROPPING");
+          live_names.insert(name);
+        }
       }
     });
     return out;

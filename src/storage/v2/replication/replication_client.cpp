@@ -602,8 +602,15 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   // called from a one thread stands)
   metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.finalize_txn_replication_seconds};
 
-  // Tenant is being dropped; stay MAYBE_BEHIND and do not issue the finalize RPC.
+  // Tenant is being dropped; stay MAYBE_BEHIND and do not issue the finalize RPC. Reset the stream
+  // (matching the sibling bail-outs below) and abort the RPC client: ~StreamHandler releases the RPC
+  // lock but does NOT close the socket, so without this the next RPC on this connection (e.g.
+  // DropDatabaseRpc) reuses a stream the replica is still mid-read on and corrupts framing. A sealed
+  // tenant is going away, so retiring the connection is correct (unlike the recovery-races-txn siblings
+  // that keep it for reuse).
   if (protector.sealed()) {
+    replica_stream.reset();
+    AbortRpcClient();
     SetMaybeBehind();
     return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
   }

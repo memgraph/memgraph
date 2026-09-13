@@ -835,7 +835,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   // Capture the tenant's UUID inside the accessor scope (before the accessor is released).
   // Database::uuid() is const and does not re-acquire lock_ — safe to call while lock_ is held.
   // Reused below both to announce the retired uuid (uuid-keyed stores) and to key the dropping_ row.
-  utils::UUID db_uuid;
+  std::optional<utils::UUID> db_uuid;
   {
     auto db = db_handler_.Get(db_name);
     if (!db) {
@@ -854,40 +854,43 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 
   // Roll back the seal on any throw before DeferDelete transfers ownership: a stranded
   // present+sealed tenant suppresses recovery (replication_client.cpp:74) until restart.
+  // Guard spans durability-key retirement, the dropping_ registry insert, and the DeferDelete
+  // handoff; any throw before DeferDelete moves the gatekeeper leaves it still present in
+  // items_ so GetGatekeeper returns a valid pointer for unseal().
   try {
     DetachProfileAndRetireDurabilityKey_(db_name);
+    // Record the in-flight drop in the dropping_ registry so SHOW DATABASES can surface it as a
+    // DROPPING row for the duration of the deferred teardown. Runs under lock_ (all Delete_ callers
+    // hold lock_ exclusively). Lock order: lock_ (already held) -> dropping_ (SpinLock, taken here);
+    // the only other lock order is ForgetDropping_ taking ONLY dropping_ — no inversion.
+    dropping_.WithLock([&](auto &map) { map.insert_or_assign(std::string{*db_uuid}, std::string{db_name}); });
+    db_handler_.DeferDelete(
+        db_name,
+        /*stop_step=*/
+        [](Database &db) {
+          db.StopAllBackgroundTasks();
+          db.streams()->DropAll();
+        },
+        /*post_delete_step=*/
+        // Captures `this` (safe: dropping_ outlives db_handler_'s drain due to declaration order)
+        // and db_uuid to erase the DROPPING registry entry once teardown is complete.
+        [this, db_uuid = *db_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
+          std::error_code ec;
+          (void)std::filesystem::remove_all(storage_path, ec);
+          if (ec) {
+            spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
+          }
+          ForgetDropping_(db_uuid);
+        });
   } catch (...) {
     if (auto *gk = db_handler_.GetGatekeeper(db_name)) gk->unseal();
     throw;
   }
 
   // Announce the retired uuid so uuid-keyed stores (e.g. database-scoped parameters) discard its rows.
-  if (on_uuid_retired_) on_uuid_retired_(db_uuid);
-
-  // Record the in-flight drop in the dropping_ registry so SHOW DATABASES can surface it as a
-  // DROPPING row for the duration of the deferred teardown. Runs under lock_ (all Delete_ callers
-  // hold lock_ exclusively). Lock order: lock_ (already held) -> dropping_ (SpinLock, taken here);
-  // the only other lock order is ForgetDropping_ taking ONLY dropping_ — no inversion.
-  dropping_.WithLock([&](auto &map) { map.insert_or_assign(std::string{db_uuid}, std::string{db_name}); });
-
-  db_handler_.DeferDelete(
-      db_name,
-      /*stop_step=*/
-      [](Database &db) {
-        db.StopAllBackgroundTasks();
-        db.streams()->DropAll();
-      },
-      /*post_delete_step=*/
-      // Captures `this` (safe: dropping_ outlives db_handler_'s drain due to declaration order)
-      // and db_uuid to erase the DROPPING registry entry once teardown is complete.
-      [this, db_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
-        std::error_code ec;
-        (void)std::filesystem::remove_all(storage_path, ec);
-        if (ec) {
-          spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
-        }
-        ForgetDropping_(db_uuid);
-      });
+  // Placed after the seal + DeferDelete handoff (the drop's point of no return): any earlier failure
+  // leaves the tenant HOT and unsealed, so a not-actually-dropped tenant never loses its rows.
+  if (on_uuid_retired_) on_uuid_retired_(*db_uuid);
 
   return {};  // Success
 }

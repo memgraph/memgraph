@@ -84,6 +84,7 @@ class Handler {
       remaining.splice(remaining.end(), pending_);
     }
 
+    // Unbounded: ~Gatekeeper blocks until accessor count hits zero; Bolt session reaping is a prereq (separate change).
     for (auto &node : remaining) {
       TeardownNode_(node);
     }
@@ -255,7 +256,9 @@ class Handler {
     }
 
     // EnsureWorkerStarted_ may throw (pthread_create EAGAIN) after the node is spliced; don't
-    // propagate — the drop succeeded. call_once retries on next call; ~Handler drains regardless.
+    // propagate — the drop succeeded. Throwing leaves the once_flag unset, so call_once retries on
+    // the next DeferDelete; the destroying_ early-return instead marks it done permanently — safe,
+    // because ~Handler drains pending_ regardless.
     try {
       EnsureWorkerStarted_();
     } catch (...) {
@@ -361,6 +364,7 @@ class Handler {
       }
       // SetInterval before Run: Scheduler's default wait is time_point::max(); a post-Run
       // SetInterval cannot wake a worker already parked on that default.
+      // Outside pending_mutex_: callers hold DbmsHandler::lock_ (write), so ~Handler cannot run here.
       defer_worker_.SetInterval(std::chrono::milliseconds(50));
       defer_worker_.Run("defer-delete", [this] { Tick_(); });
     });
@@ -436,7 +440,10 @@ class Handler {
     }
   }
 
-  //!< Absorbs a transient accessor; limits stuck-node cost to ~10 ms per tick.
+  //!< Absorbs a transient accessor; limits per-node cost to ~10 ms. One tick's worst case is
+  //!< N * kDeferTryTimeout for N pinned nodes (no starvation — every snapshotted node is still
+  //!< processed each tick; a freshly-enqueued unpinned drop waits at most one 50 ms cadence +
+  //!< N * kDeferTryTimeout).
   static constexpr auto kDeferTryTimeout = std::chrono::milliseconds{10};
   //!< Threshold for the one-shot stall warning per pending node.
   static constexpr auto kStuckWarnAfter = std::chrono::minutes{5};
