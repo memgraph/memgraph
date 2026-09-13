@@ -251,7 +251,7 @@ class Handler {
 
     // FIX C: only a HOT gatekeeper may be deferred. A SUSPENDING/RESUMING one mid-transition
     // would make ~Gatekeeper block indefinitely waiting for a terminal state, causing a hang.
-    MG_ASSERT(
+    DMG_ASSERT(
         itr->second.state() == utils::GatekeeperState::HOT, "DeferDelete requires a HOT gatekeeper (name='{}')", name);
 
     auto gk = std::move(itr->second);
@@ -267,22 +267,40 @@ class Handler {
       // Run best-effort inline teardown so the data directory is not orphaned.
       try {
         if (auto a = gk.access()) stop_step(*a->get());
-      } catch (
-          ...) {  // NOLINT(bugprone-empty-catch) — OOM fallback teardown; secondary stop_step failure is suppressed
+      } catch (...) {  // NOLINT(bugprone-empty-catch) OOM-fallback teardown; stop_step failure suppressed
       }
       {
         auto dying = std::move(gk);
       }
       try {
         post_delete_step();
-      } catch (
-          ...) {  // NOLINT(bugprone-empty-catch) — OOM fallback teardown; secondary post_delete failure is suppressed
+      } catch (...) {  // NOLINT(bugprone-empty-catch) OOM-fallback teardown; post_delete failure suppressed
       }
       return;
     }
 
     {
       auto lock = std::unique_lock{pending_mutex_};
+      if (destroying_) {
+        // ~Handler has already drained pending_.  Splicing now would leave this node
+        // unprocessed: nobody calls stop_step or post_delete_step before ~pending_ runs
+        // ~Gatekeeper.  Release the lock FIRST — pending_mutex_ must never be held across
+        // potentially-blocking ~Gatekeeper or user-supplied callbacks.
+        lock.unlock();
+        auto &entry = node.front();
+        try {
+          if (auto a = entry.gk.access()) entry.stop_step(*a->get());
+        } catch (...) {  // NOLINT(bugprone-empty-catch) shutdown-race teardown; stop_step failure suppressed
+        }
+        {
+          auto dying = std::move(entry.gk);
+        }
+        try {
+          entry.post_delete_step();
+        } catch (...) {  // NOLINT(bugprone-empty-catch) shutdown-race teardown; post_delete failure suppressed
+        }
+        return;
+      }
       pending_.splice(pending_.end(), node);
     }
 
@@ -356,10 +374,15 @@ class Handler {
     std::move_only_function<void(T &)> stop_step;
     std::move_only_function<void()> post_delete_step;
     bool stopped = false;
+    std::chrono::steady_clock::time_point enqueued_at;
+    bool warned = false;
 
     PendingDeletion(utils::Gatekeeper<T> gk_, std::move_only_function<void(T &)> stop_step_,
                     std::move_only_function<void()> post_delete_step_)
-        : gk{std::move(gk_)}, stop_step{std::move(stop_step_)}, post_delete_step{std::move(post_delete_step_)} {}
+        : gk{std::move(gk_)},
+          stop_step{std::move(stop_step_)},
+          post_delete_step{std::move(post_delete_step_)},
+          enqueued_at{std::chrono::steady_clock::now()} {}
   };
 
   // Lazy: worker starts only on the first DeferDelete call, not at construction,
@@ -412,13 +435,16 @@ class Handler {
           }
 
           if (!node.stopped) {
-            // stop_step may throw; stopped is latched only on success so the next
-            // tick retries without re-running it on a partially-stopped value.
+            // stop_step must be idempotent: stopped is latched only on success, so a
+            // throwing invocation will be re-invoked on the next tick until it succeeds.
             node.stop_step(*acc->get());
             node.stopped = true;
           }
 
-          if (acc->try_delete(std::chrono::milliseconds(0))) {
+          // kDeferTryTimeout: absorbs a query about to release so we avoid a full 50 ms retry
+          // cycle.  A truly stuck detach is acceptable — the wait is deliberately small so even a
+          // permanently-held node only costs ~10 ms of a tick and never blocks the rest of the queue.
+          if (acc->try_delete(kDeferTryTimeout)) {
             // Release before post_delete_step — value is already gone, count: 1 → 0.
             acc.reset();
             try {
@@ -430,6 +456,22 @@ class Handler {
             // → returns immediately without blocking.
             auto lock = std::unique_lock{pending_mutex_};
             pending_.erase(it);
+          } else if (!node.warned && std::chrono::steady_clock::now() - node.enqueued_at > kStuckWarnAfter) {
+            // One-shot warning per node: a holder has not released the resource within the
+            // expected window. Use the opt-in label from the managed type when available
+            // (utils::GatekeeperLabelFor<T> returns "" for types that don't declare gatekeeper_label()).
+            auto const label = utils::GatekeeperLabelFor<T>::get(*acc->get());
+            if (label.empty()) {
+              spdlog::warn(
+                  "Deferred teardown has been pending for over 5 minutes; "
+                  "a holder has not released the resource.");
+            } else {
+              spdlog::warn(
+                  "Deferred teardown has been pending for over 5 minutes; "
+                  "a holder has not released the resource '{}'.",
+                  label);
+            }
+            node.warned = true;
           }
         } catch (...) {  // NOLINT(bugprone-empty-catch) — per-node isolation; one failing node must not stall the rest
                          // of the list
@@ -440,6 +482,14 @@ class Handler {
       spdlog::error("Deferred-deletion worker tick failed; will retry.");
     }
   }
+
+  //!< Brief wait inside Tick_ to absorb a transient accessor (a query that is about to
+  //!< release). Small enough that a permanently-held node only costs ~10 ms of a tick
+  //!< and never starves the rest of the defer queue.
+  static constexpr auto kDeferTryTimeout = std::chrono::milliseconds{10};
+  //!< Emit one warning when a pending node has been waiting for this long without completing
+  //!< (i.e. all accessors have not yet been released). Mirrors the stall diagnostic in ~Gatekeeper.
+  static constexpr auto kStuckWarnAfter = std::chrono::minutes{5};
 
   // items_ first (destroyed last) as a conservative failsafe: if ~Handler's drain
   // is bypassed, live gatekeepers in items_ outlive the worker-side structures.
