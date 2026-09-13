@@ -9022,8 +9022,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // SHOW DATABASES carries a "state" column (HOT/COLD) and a "health" column (ready/broken), and lists
-  // COLD tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
+  // SHOW DATABASES carries a "state" column (HOT/COLD, or DROPPING for a tenant whose FORCE drop is still
+  // draining and has no live same-name replacement) and a "health" column (ready/broken), and lists COLD
+  // tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
   callback.header = std::vector<std::string>{"Name", "State", "Health"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
@@ -9034,7 +9035,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
     // (AllWithHotColdStatus de-dups: suspended_ wins).
     std::vector<std::string> all_names;
-    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD"
+    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD" | "DROPPING"
     for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
       all_names.push_back(name);
       status_of.emplace(std::move(name), std::move(st));

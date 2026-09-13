@@ -65,8 +65,8 @@ class Handler {
   Handler() = default;
 
   virtual ~Handler() {
-    // FIX A: signal destruction under the lock so a concurrent DeferDelete (racing
-    // with ~Handler) will not start a new background worker after we stop ours.
+    // Signal destruction before stopping the worker so a concurrent DeferDelete cannot
+    // start a new background worker after we stop ours.
     {
       auto lock = std::unique_lock{pending_mutex_};
       destroying_ = true;
@@ -85,35 +85,7 @@ class Handler {
     }
 
     for (auto &node : remaining) {
-      try {
-        if (auto a = node.gk.access()) {
-          if (!node.stopped) node.stop_step(*a->get());
-        }
-      } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort shutdown drain; one stop_step failure must not
-                       // stall the rest
-      }
-
-      // Non-blocking try: if we are the sole accessor, value is destroyed here;
-      // if not, the blocking ~Gatekeeper below waits for all accessors to drain.
-      try {
-        if (auto a = node.gk.access()) {
-          (void)a->try_delete(std::chrono::milliseconds(0));
-        }
-      } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort shutdown drain; one try_delete failure must not
-                       // stall the rest
-      }
-
-      // Blocking ~Gatekeeper: count == 0 + terminal state → returns immediately
-      // in the normal case; blocks if another thread is still holding an accessor.
-      {
-        auto dying = std::move(node.gk);
-      }
-
-      try {
-        node.post_delete_step();
-      } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort shutdown drain; one post_delete failure must not
-                       // stall the rest
-      }
+      TeardownNode_(node);
     }
   }
 
@@ -249,8 +221,8 @@ class Handler {
     auto itr = items_.find(name);
     if (itr == items_.end()) return;
 
-    // FIX C: only a HOT gatekeeper may be deferred. A SUSPENDING/RESUMING one mid-transition
-    // would make ~Gatekeeper block indefinitely waiting for a terminal state, causing a hang.
+    // Only a HOT gatekeeper may be deferred: a SUSPENDING/RESUMING one mid-transition would
+    // make ~Gatekeeper block indefinitely waiting for a terminal state.
     DMG_ASSERT(
         itr->second.state() == utils::GatekeeperState::HOT, "DeferDelete requires a HOT gatekeeper (name='{}')", name);
 
@@ -263,52 +235,27 @@ class Handler {
     try {
       node.emplace_back(std::move(gk), std::move(stop_step), std::move(post_delete_step));
     } catch (...) {
-      // Allocation failed before gk was moved into the list; it is still valid.
-      // Run best-effort inline teardown so the data directory is not orphaned.
-      try {
-        if (auto a = gk.access()) stop_step(*a->get());
-      } catch (...) {  // NOLINT(bugprone-empty-catch) OOM-fallback teardown; stop_step failure suppressed
-      }
-      {
-        auto dying = std::move(gk);
-      }
-      try {
-        post_delete_step();
-      } catch (...) {  // NOLINT(bugprone-empty-catch) OOM-fallback teardown; post_delete failure suppressed
-      }
+      // emplace_back failed (OOM); gk was not moved. Run teardown via a stack-local node
+      // so the sequence is identical to the normal path.
+      PendingDeletion fallback{std::move(gk), std::move(stop_step), std::move(post_delete_step)};
+      TeardownNode_(fallback);
       return;
     }
 
     {
       auto lock = std::unique_lock{pending_mutex_};
       if (destroying_) {
-        // ~Handler has already drained pending_.  Splicing now would leave this node
-        // unprocessed: nobody calls stop_step or post_delete_step before ~pending_ runs
-        // ~Gatekeeper.  Release the lock FIRST — pending_mutex_ must never be held across
-        // potentially-blocking ~Gatekeeper or user-supplied callbacks.
+        // ~Handler has already drained pending_; splicing would orphan this node.
+        // Release the lock before the potentially-blocking ~Gatekeeper and user callbacks.
         lock.unlock();
-        auto &entry = node.front();
-        try {
-          if (auto a = entry.gk.access()) entry.stop_step(*a->get());
-        } catch (...) {  // NOLINT(bugprone-empty-catch) shutdown-race teardown; stop_step failure suppressed
-        }
-        {
-          auto dying = std::move(entry.gk);
-        }
-        try {
-          entry.post_delete_step();
-        } catch (...) {  // NOLINT(bugprone-empty-catch) shutdown-race teardown; post_delete failure suppressed
-        }
+        TeardownNode_(node.front());
         return;
       }
       pending_.splice(pending_.end(), node);
     }
 
-    // FIX B: EnsureWorkerStarted_ may throw std::system_error (pthread_create EAGAIN) after the
-    // node is already spliced into pending_. Do not propagate — the logical drop has already
-    // succeeded (gatekeeper moved out of items_). std::call_once does NOT consume its flag on a
-    // throw, so the next DeferDelete will retry starting the worker; ~Handler drains pending_
-    // unconditionally regardless of whether the worker ever ran.
+    // EnsureWorkerStarted_ may throw (pthread_create EAGAIN) after the node is spliced; don't
+    // propagate — the drop succeeded. call_once retries on next call; ~Handler drains regardless.
     try {
       EnsureWorkerStarted_();
     } catch (...) {
@@ -385,19 +332,35 @@ class Handler {
           enqueued_at{std::chrono::steady_clock::now()} {}
   };
 
+  // Best-effort teardown: stop, destroy gatekeeper, then post_delete. Each step is
+  // independently guarded. MUST be called with no Handler lock held.
+  void TeardownNode_(PendingDeletion &node) {
+    if (!node.stopped) {
+      try {
+        if (auto a = node.gk.access()) node.stop_step(*a->get());
+      } catch (...) {  // NOLINT(bugprone-empty-catch) best-effort teardown; stop_step failure must not skip the rest
+      }
+    }
+    {
+      auto dying = std::move(node.gk);
+    }
+    try {
+      node.post_delete_step();
+    } catch (...) {  // NOLINT(bugprone-empty-catch) best-effort teardown; post_delete failure is suppressed
+    }
+  }
+
   // Lazy: worker starts only on the first DeferDelete call, not at construction,
   // so unused Handlers pay zero thread overhead.
   void EnsureWorkerStarted_() {
     std::call_once(worker_started_, [this] {
-      // FIX A: if ~Handler already set destroying_ we are racing with shutdown — do
-      // not start a worker that will immediately be stopped (or worse, never be stopped).
+      // If ~Handler already set destroying_ we are racing with shutdown — skip worker start.
       {
         auto lock = std::unique_lock{pending_mutex_};
         if (destroying_) return;
       }
-      // Install the cadence BEFORE Run() so the worker's first loop reads the real 50 ms schedule
-      // instead of the Scheduler's default (which waits until time_point::max()); a plain SetInterval
-      // after Run() would not wake a worker already parked on that default wait.
+      // SetInterval before Run: Scheduler's default wait is time_point::max(); a post-Run
+      // SetInterval cannot wake a worker already parked on that default.
       defer_worker_.SetInterval(std::chrono::milliseconds(50));
       defer_worker_.Run("defer-delete", [this] { Tick_(); });
     });
@@ -426,8 +389,7 @@ class Handler {
             // with an accessor and try_delete is the one that clears value_).
             try {
               node.post_delete_step();
-            } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort cleanup; one post_delete failure must not
-                             // stall the tick
+            } catch (...) {  // NOLINT(bugprone-empty-catch) best-effort; post_delete failure must not stall the tick
             }
             auto lock = std::unique_lock{pending_mutex_};
             pending_.erase(it);
@@ -441,25 +403,18 @@ class Handler {
             node.stopped = true;
           }
 
-          // kDeferTryTimeout: absorbs a query about to release so we avoid a full 50 ms retry
-          // cycle.  A truly stuck detach is acceptable — the wait is deliberately small so even a
-          // permanently-held node only costs ~10 ms of a tick and never blocks the rest of the queue.
           if (acc->try_delete(kDeferTryTimeout)) {
-            // Release before post_delete_step — value is already gone, count: 1 → 0.
             acc.reset();
             try {
               node.post_delete_step();
-            } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort cleanup; one post_delete failure must not
-                             // stall the tick
+            } catch (...) {  // NOLINT(bugprone-empty-catch) best-effort; post_delete failure must not stall the tick
             }
-            // ~Gatekeeper on list node destruction: count == 0 + HOT (terminal)
-            // → returns immediately without blocking.
+            // ~Gatekeeper on node destruction: count == 0 + HOT → returns without blocking.
             auto lock = std::unique_lock{pending_mutex_};
             pending_.erase(it);
           } else if (!node.warned && std::chrono::steady_clock::now() - node.enqueued_at > kStuckWarnAfter) {
-            // One-shot warning per node: a holder has not released the resource within the
-            // expected window. Use the opt-in label from the managed type when available
-            // (utils::GatekeeperLabelFor<T> returns "" for types that don't declare gatekeeper_label()).
+            // One-shot warning (warned latched). GatekeeperLabelFor<T> returns "" when the
+            // type does not declare gatekeeper_label(), producing the unlabeled message variant.
             auto const label = utils::GatekeeperLabelFor<T>::get(*acc->get());
             if (label.empty()) {
               spdlog::warn(
@@ -473,9 +428,7 @@ class Handler {
             }
             node.warned = true;
           }
-        } catch (...) {  // NOLINT(bugprone-empty-catch) — per-node isolation; one failing node must not stall the rest
-                         // of the list
-          // Per-node catch: one failing node does not stall the rest of the list.
+        } catch (...) {  // NOLINT(bugprone-empty-catch) per-node isolation; one failing node must not stall the rest
         }
       }
     } catch (...) {
@@ -483,25 +436,22 @@ class Handler {
     }
   }
 
-  //!< Brief wait inside Tick_ to absorb a transient accessor (a query that is about to
-  //!< release). Small enough that a permanently-held node only costs ~10 ms of a tick
-  //!< and never starves the rest of the defer queue.
+  //!< Absorbs a transient accessor; limits stuck-node cost to ~10 ms per tick.
   static constexpr auto kDeferTryTimeout = std::chrono::milliseconds{10};
-  //!< Emit one warning when a pending node has been waiting for this long without completing
-  //!< (i.e. all accessors have not yet been released). Mirrors the stall diagnostic in ~Gatekeeper.
+  //!< Threshold for the one-shot stall warning per pending node.
   static constexpr auto kStuckWarnAfter = std::chrono::minutes{5};
 
   // items_ first (destroyed last) as a conservative failsafe: if ~Handler's drain
   // is bypassed, live gatekeepers in items_ outlive the worker-side structures.
-  container_type items_;  //!< map of all active items
+  container_type items_;
 
   // pending_mutex_ guards structural changes to pending_ (splice/erase) AND destroying_.
   // Node contents (stopped, stop_step) are mutated by the single worker thread only.
   std::mutex pending_mutex_;
-  bool destroying_ = false;             //!< set by ~Handler before Stop(); blocks late worker starts
-  std::list<PendingDeletion> pending_;  //!< nodes awaiting deferred teardown
-  utils::Scheduler defer_worker_;       //!< single shared background worker (~50 ms cadence)
-  std::once_flag worker_started_;       //!< ensures EnsureWorkerStarted_ runs at most once
+  bool destroying_ = false;  //!< set by ~Handler before Stop(); blocks late worker starts
+  std::list<PendingDeletion> pending_;
+  utils::Scheduler defer_worker_;  //!< ~50 ms cadence background worker
+  std::once_flag worker_started_;
 };
 
 }  // namespace memgraph::dbms

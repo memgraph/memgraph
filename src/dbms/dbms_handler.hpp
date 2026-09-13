@@ -30,6 +30,7 @@
 #include <system_error>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include <nlohmann/json_fwd.hpp>
@@ -508,20 +509,26 @@ class DbmsHandler {
     out.reserve(suspended_.size() + db_handler_.size());
     // Every suspended tenant is a user-initiated (or restored) COLD shell: a HOT recovery that fails at
     // boot aborts the process, so a degraded "recovery failed" tenant can never appear here.
+    std::unordered_set<std::string> live_names;
     for (const auto &[name, entry] : suspended_) {
       out.emplace_back(name, "COLD");
+      live_names.insert(name);
     }
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
-      if (!suspended_.contains(name)) out.emplace_back(std::move(name), "HOT");
+      if (!suspended_.contains(name)) {
+        live_names.insert(name);
+        out.emplace_back(std::move(name), "HOT");
+      }
     }
-    // Append in-flight deferred drops as DROPPING rows. Lock order: lock_ (already held shared above)
-    // -> dropping_ (its own SpinLock, taken here). The worker's ForgetDropping_ takes ONLY dropping_,
-    // never lock_, so this nesting is the only direction that exists — no inversion is possible.
-    // A same-name HOT + DROPPING pair can appear simultaneously if a fresh DB was created under the
-    // same name while the old one is still draining; that is intentional (they differ by UUID).
+    // Append in-flight deferred drops as DROPPING rows only when the name has no live (HOT/COLD)
+    // tenant. If a same-name tenant was recreated while the old one is still draining, the live
+    // tenant is shown and the draining husk is not listed (it remains tracked internally and is
+    // WARN-logged by the defer worker if it stays stuck). Lock order: lock_ (already held shared
+    // above) -> dropping_ (its own SpinLock, taken here). The worker's ForgetDropping_ takes ONLY
+    // dropping_, never lock_, so this is the only nesting direction — no inversion is possible.
     dropping_.WithLock([&](const auto &map) {
-      for (const auto &[uuid_str, info] : map) {
-        out.emplace_back(info.name, "DROPPING");
+      for (const auto &[uuid_str, name] : map) {
+        if (!live_names.contains(name)) out.emplace_back(name, "DROPPING");
       }
     });
     return out;
@@ -845,14 +852,6 @@ class DbmsHandler {
 
  private:
 #ifdef MG_ENTERPRISE
-  // Metadata recorded for a FORCE DROP that has passed the DeferDelete hand-off point but whose
-  // background teardown worker has not yet finished. These entries are visible in SHOW DATABASES
-  // as DROPPING rows, making an in-flight (and possibly stuck) deferred drop observable.
-  struct DroppingInfo {
-    std::string name;
-    std::chrono::system_clock::time_point detached_at;
-  };
-
   // Erase the entry keyed by @p uuid's string form from the dropping_ registry. Called by the
   // post_delete_step lambda (deferred-drop worker thread) once the tenant is fully reclaimed.
   // Takes ONLY dropping_'s own SpinLock — never acquires lock_.
@@ -1131,7 +1130,8 @@ class DbmsHandler {
   // still acquire dropping_'s SpinLock to read entries. Marking mutable lets WithLock run from
   // a const call site without breaking the logical-const contract (lock acquisition is not an
   // observable state mutation).
-  mutable utils::Synchronized<std::unordered_map<std::string, DroppingInfo>, utils::SpinLock> dropping_;
+  mutable utils::Synchronized<std::unordered_map<std::string /*uuid*/, std::string /*name*/>, utils::SpinLock>
+      dropping_;
 
   DatabaseHandler db_handler_;  //!< multi-tenancy storage handler
   // COLD tenant rebuild metadata; guarded by lock_. The transparent std::less<> comparator is LOAD-BEARING
