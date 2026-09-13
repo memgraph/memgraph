@@ -234,7 +234,8 @@ class ReplicationStorageClient {
    * @param main_storage pointer to the storage associated with the client
    * @param reset_needed If true, replica needs to reset its storage when the 1st recovery step is sent.
    */
-  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, bool reset_needed = false) const;
+  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, DatabaseProtector const &protector,
+                      bool reset_needed = false) const;
 
   /**
    * @brief Check replica state
