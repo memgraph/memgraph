@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <thread>
@@ -91,6 +92,18 @@ void RenameDatabase(auto &interpreter, const std::string &old_name, const std::s
                     std::optional<std::string_view> res = std::nullopt) {
   RunMtQuery(interpreter, "RENAME DATABASE " + old_name + " TO " + new_name, res);
 }
+
+template <typename Pred>
+bool PollUntil(Pred &&pred, std::chrono::steady_clock::duration timeout) {
+  using clk = std::chrono::steady_clock;
+  auto const deadline = clk::now() + timeout;
+  while (!std::forward<Pred>(pred)()) {
+    if (clk::now() >= deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  return true;
+}
+
 }  // namespace
 
 class MultiTenantTest : public ::testing::Test {
@@ -465,30 +478,20 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
   ASSERT_EQ(dbms.All().size(), 1);
   // Reclamation is asynchronous: the background worker removes the unused databases' dirs shortly
   // after Delete() returns, while the in-use databases (db2, db4) remain on disk (held), but unusable.
-  {
-    int tries = 0;
-    constexpr int max_tries = 50;
-    for (; tries < max_tries; ++tries) {
-      if (GetDirs(data_directory / "databases").size() == 3) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3)
-        << "Expected unused DB dirs reclaimed and in-use ones (db2, db4) plus default to remain";
-  }
+  ASSERT_TRUE(PollUntil([&] { return GetDirs(data_directory / "databases").size() == 3; }, std::chrono::seconds{30}))
+      << "Timed out after 30 s: expected 3 DB dirs (default + db2 + db4) to remain, got "
+      << GetDirs(data_directory / "databases").size();
+  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3)
+      << "Expected unused DB dirs reclaimed and in-use ones (db2, db4) plus default to remain";
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(:Node{on:db4}) RETURN count(*)"),
                memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(:Node{on:db2}) RETURN count(*)"),
                memgraph::query::DatabaseContextRequiredException);
 
   // 5
-  int tries = 0;
-  constexpr int max_tries = 50;
-  for (; tries < max_tries; tries++) {
-    if (GetDirs(data_directory / "databases").size() == 1) break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Wait for the filesystem to be updated
-  }
-  ASSERT_LT(tries, max_tries) << "Failed to delete databases. Remaining databases "
-                              << GetDirs(data_directory / "databases").size();
+  ASSERT_TRUE(PollUntil([&] { return GetDirs(data_directory / "databases").size() == 1; }, std::chrono::seconds{30}))
+      << "Timed out after 30 s: expected only default DB dir to remain, got "
+      << GetDirs(data_directory / "databases").size() << " dir(s)";
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 }
@@ -536,16 +539,11 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   // Reclamation is asynchronous: the background worker removes the unused databases' dirs shortly
   // after Delete() returns, while the in-use databases (db2, db4) remain on disk (held) and usable
   // (open transactions keep them alive until commit/rollback).
-  {
-    int tries = 0;
-    constexpr int max_tries = 50;
-    for (; tries < max_tries; ++tries) {
-      if (GetDirs(data_directory / "databases").size() == 3) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3)
-        << "Expected unused DB dirs reclaimed and in-use ones (db2, db4) plus default to remain";
-  }
+  ASSERT_TRUE(PollUntil([&] { return GetDirs(data_directory / "databases").size() == 3; }, std::chrono::seconds{30}))
+      << "Timed out after 30 s: expected 3 DB dirs (default + db2 + db4) to remain, got "
+      << GetDirs(data_directory / "databases").size();
+  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3)
+      << "Expected unused DB dirs reclaimed and in-use ones (db2, db4) plus default to remain";
   ASSERT_EQ(RunQuery(interpreter1, "MATCH(:Node{on:\"db4\"}) RETURN count(*)")[0][0].ValueInt(), 4);
   ASSERT_EQ(RunQuery(interpreter2, "MATCH(:Node{on:\"db2\"}) RETURN count(*)")[0][0].ValueInt(), 2);
   RunQuery(interpreter1, "MATCH(n:Node{on:\"db4\"}) DELETE n");
@@ -556,15 +554,10 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   RunQuery(interpreter2, "COMMIT");
 
   // 5
-  int tries = 0;
-  constexpr int max_tries = 50;
-  for (; tries < max_tries; tries++) {
-    if (GetDirs(data_directory / "databases").size() == 1) break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Wait for the filesystem to be updated
-  }
-  ASSERT_LT(tries, max_tries) << "Failed to delete databases. Remaining databases "
-                              << GetDirs(data_directory / "databases").size();
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 1);  // Only the active databases remain
+  ASSERT_TRUE(PollUntil([&] { return GetDirs(data_directory / "databases").size() == 1; }, std::chrono::seconds{30}))
+      << "Timed out after 30 s: expected only default DB dir to remain, got "
+      << GetDirs(data_directory / "databases").size() << " dir(s)";
+  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 1);  // Only the default database dir remains
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 
