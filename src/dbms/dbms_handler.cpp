@@ -868,10 +868,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   // DROPPING row for the duration of the deferred teardown. Runs under lock_ (all Delete_ callers
   // hold lock_ exclusively). Lock order: lock_ (already held) -> dropping_ (SpinLock, taken here);
   // the only other lock order is ForgetDropping_ taking ONLY dropping_ — no inversion.
-  dropping_.WithLock([&](auto &map) {
-    map.insert_or_assign(std::string{db_uuid},
-                         DroppingInfo{.name = std::string{db_name}, .detached_at = std::chrono::system_clock::now()});
-  });
+  dropping_.WithLock([&](auto &map) { map.insert_or_assign(std::string{db_uuid}, std::string{db_name}); });
 
   db_handler_.DeferDelete(
       db_name,
