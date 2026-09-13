@@ -366,7 +366,18 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3);  // All used databases remain on disk, but unusable
+  // Reclamation is asynchronous: the background worker removes the unused databases' dirs shortly
+  // after Delete() returns, while the in-use databases (db2, db4) remain on disk (held), but unusable.
+  {
+    int tries = 0;
+    constexpr int max_tries = 50;
+    for (; tries < max_tries; ++tries) {
+      if (GetDirs(data_directory / "databases").size() == 3) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3)
+        << "Expected unused DB dirs reclaimed and in-use ones (db2, db4) plus default to remain";
+  }
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(:Node{on:db4}) RETURN count(*)"),
                memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(:Node{on:db2}) RETURN count(*)"),
@@ -425,7 +436,19 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3);  // All used databases remain on disk, and usable
+  // Reclamation is asynchronous: the background worker removes the unused databases' dirs shortly
+  // after Delete() returns, while the in-use databases (db2, db4) remain on disk (held) and usable
+  // (open transactions keep them alive until commit/rollback).
+  {
+    int tries = 0;
+    constexpr int max_tries = 50;
+    for (; tries < max_tries; ++tries) {
+      if (GetDirs(data_directory / "databases").size() == 3) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3)
+        << "Expected unused DB dirs reclaimed and in-use ones (db2, db4) plus default to remain";
+  }
   ASSERT_EQ(RunQuery(interpreter1, "MATCH(:Node{on:\"db4\"}) RETURN count(*)")[0][0].ValueInt(), 4);
   ASSERT_EQ(RunQuery(interpreter2, "MATCH(:Node{on:\"db2\"}) RETURN count(*)")[0][0].ValueInt(), 2);
   RunQuery(interpreter1, "MATCH(n:Node{on:\"db4\"}) DELETE n");

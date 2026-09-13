@@ -12,15 +12,20 @@
 #pragma once
 
 #include <spdlog/spdlog.h>
+#include <chrono>
 #include <expected>
+#include <functional>
+#include <list>
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
-#include "utils/thread_pool.hpp"
+#include "utils/scheduler.hpp"
 
 namespace memgraph::dbms {
 
@@ -58,7 +63,48 @@ class Handler {
    */
   Handler() = default;
 
-  virtual ~Handler() = default;
+  virtual ~Handler() {
+    // Stop the background worker before touching pending_ so the worker and
+    // this drain loop cannot race on the list structure or node contents.
+    defer_worker_.Stop();
+
+    // Drain under the lock: worker is stopped, but a concurrent DeferDelete call
+    // could still splice into pending_ before seeing ~Handler — guard against that.
+    std::list<PendingDeletion> remaining;
+    {
+      auto lock = std::unique_lock{pending_mutex_};
+      remaining.splice(remaining.end(), pending_);
+    }
+
+    for (auto &node : remaining) {
+      try {
+        if (auto a = node.gk.access()) {
+          if (!node.stopped) node.stop_step(*a->get());
+        }
+      } catch (...) {
+      }
+
+      // Non-blocking try: if we are the sole accessor, value is destroyed here;
+      // if not, the blocking ~Gatekeeper below waits for all accessors to drain.
+      try {
+        if (auto a = node.gk.access()) {
+          (void)a->try_delete(std::chrono::milliseconds(0));
+        }
+      } catch (...) {
+      }
+
+      // Blocking ~Gatekeeper: count == 0 + terminal state → returns immediately
+      // in the normal case; blocks if another thread is still holding an accessor.
+      {
+        auto dying = std::move(node.gk);
+      }
+
+      try {
+        node.post_delete_step();
+      } catch (...) {
+      }
+    }
+  }
 
   /**
    * @brief Generate a new context and corresponding configuration.
@@ -181,42 +227,48 @@ class Handler {
   }
 
   /**
-   * @brief Delete or defunct the context associated with the name.
+   * @brief Defer teardown of the context associated with @p name to a shared background worker.
    *
-   * @param name Name associated with the context to delete
-   * @param post_delete_func What to do after deletion has happened
+   * @param name           Name of the item to tear down (erased from items_ unconditionally).
+   * @param stop_step      One-time stop work (e.g. StopAllBackgroundTasks). Receives a T& ref.
+   * @param post_delete_step  Cleanup after value destruction (e.g. remove_all(dir)).
    */
-  template <typename Func>
-  void DeferDelete(std::string_view name, Func &&post_delete_func) {
+  void DeferDelete(std::string_view name, std::move_only_function<void(T &)> stop_step,
+                   std::move_only_function<void()> post_delete_step) {
     auto itr = items_.find(name);
     if (itr == items_.end()) return;
 
-    auto db_acc = itr->second.access();
-    if (!db_acc) return;
-
-    if (db_acc->try_delete()) {
-      // Delete the database now
-      db_acc->reset();
-      post_delete_func();
-    } else {
-      // Defer deletion
-      db_acc->reset();
-      // TODO: Make sure this shuts down correctly
-      auto task = [gk = std::move(itr->second), post_delete_func = std::forward<Func>(post_delete_func)]() mutable {
-        // Destroy the gatekeeper exactly once, via natural scope — NOT an explicit gk.~Gatekeeper<T>()
-        // followed by the captured gk being destructed again when this lambda is destroyed (that is a
-        // double-destruction: [basic.life] UB, reading a destroyed object's pimpl_). Moving into a
-        // block-scoped local runs the blocking ~Gatekeeper once here; the moved-from capture then
-        // destroys cleanly (null pimpl_) with the lambda.
-        {
-          auto dying = std::move(gk);
-        }
-        post_delete_func();
-      };
-      defer_pool_.AddTask(std::move(task));
-    }
-    // In any case remove from handled map
+    auto gk = std::move(itr->second);
     items_.erase(itr);
+
+    // splice is noexcept, so the transfer to pending_ cannot fail once the node is built.
+    // On emplace_back bad_alloc, gk is still valid — fall through to inline teardown.
+    std::list<PendingDeletion> node;
+    try {
+      node.emplace_back(std::move(gk), std::move(stop_step), std::move(post_delete_step));
+    } catch (...) {
+      // Allocation failed before gk was moved into the list; it is still valid.
+      // Run best-effort inline teardown so the data directory is not orphaned.
+      try {
+        if (auto a = gk.access()) stop_step(*a->get());
+      } catch (...) {
+      }
+      {
+        auto dying = std::move(gk);
+      }
+      try {
+        post_delete_step();
+      } catch (...) {
+      }
+      return;
+    }
+
+    {
+      auto lock = std::unique_lock{pending_mutex_};
+      pending_.splice(pending_.end(), node);
+    }
+
+    EnsureWorkerStarted_();
   }
 
   /**
@@ -269,13 +321,98 @@ class Handler {
   [[nodiscard]] bool empty() const noexcept { return items_.empty(); }
 
  private:
-  // Declaration order is LOAD-BEARING for shutdown: members destruct in reverse declaration order, so
-  // `defer_pool_` (declared last) destructs FIRST — its ~ThreadPool joins the defer thread and drains
-  // queued deferred-delete tasks (each owning a moved-out Gatekeeper) BEFORE `items_` is destroyed.
-  // Reordering these would let `items_` (and the live gatekeepers) be torn down while a deferred
-  // ~Gatekeeper task is still running/queued -> hang or use-after-free. Keep items_ before defer_pool_.
-  container_type items_;  //!< map to all active items
-  utils::ThreadPool defer_pool_{1};
+  // Explicit constructor: lets std::list::emplace_back forward the three args directly.
+  struct PendingDeletion {
+    utils::Gatekeeper<T> gk;
+    std::move_only_function<void(T &)> stop_step;
+    std::move_only_function<void()> post_delete_step;
+    bool stopped = false;
+
+    PendingDeletion(utils::Gatekeeper<T> gk_, std::move_only_function<void(T &)> stop_step_,
+                    std::move_only_function<void()> post_delete_step_)
+        : gk{std::move(gk_)}, stop_step{std::move(stop_step_)}, post_delete_step{std::move(post_delete_step_)} {}
+  };
+
+  // Lazy: worker starts only on the first DeferDelete call, not at construction,
+  // so unused Handlers pay zero thread overhead.
+  void EnsureWorkerStarted_() {
+    std::call_once(worker_started_, [this] {
+      // Install the cadence BEFORE Run() so the worker's first loop reads the real 50 ms schedule
+      // instead of the Scheduler's default (which waits until time_point::max()); a plain SetInterval
+      // after Run() would not wake a worker already parked on that default wait.
+      defer_worker_.SetInterval(std::chrono::milliseconds(50));
+      defer_worker_.Run("defer-delete", [this] { Tick_(); });
+    });
+  }
+
+  // Must be noexcept: Scheduler calls f() without a try/catch (scheduler.cpp:188),
+  // so an uncaught exception would call std::terminate on the jthread.
+  void Tick_() noexcept {
+    try {
+      // Snapshot iterators under the lock; heavy per-node work runs lock-free.
+      // Only structural mutations (erase) re-acquire pending_mutex_ below.
+      std::vector<typename std::list<PendingDeletion>::iterator> its;
+      {
+        auto lock = std::unique_lock{pending_mutex_};
+        for (auto it = pending_.begin(); it != pending_.end(); ++it) its.push_back(it);
+      }
+
+      for (auto it : its) {
+        try {
+          auto &node = *it;
+
+          auto acc = node.gk.access();
+
+          if (!acc) {
+            // Value already gone (defensive path — normally we are the only ones
+            // with an accessor and try_delete is the one that clears value_).
+            try {
+              node.post_delete_step();
+            } catch (...) {
+            }
+            auto lock = std::unique_lock{pending_mutex_};
+            pending_.erase(it);
+            continue;
+          }
+
+          if (!node.stopped) {
+            // stop_step may throw; stopped is latched only on success so the next
+            // tick retries without re-running it on a partially-stopped value.
+            node.stop_step(*acc->get());
+            node.stopped = true;
+          }
+
+          if (acc->try_delete(std::chrono::milliseconds(0))) {
+            // Release before post_delete_step — value is already gone, count: 1 → 0.
+            acc.reset();
+            try {
+              node.post_delete_step();
+            } catch (...) {
+            }
+            // ~Gatekeeper on list node destruction: count == 0 + HOT (terminal)
+            // → returns immediately without blocking.
+            auto lock = std::unique_lock{pending_mutex_};
+            pending_.erase(it);
+          }
+        } catch (...) {
+          // Per-node catch: one failing node does not stall the rest of the list.
+        }
+      }
+    } catch (...) {
+      spdlog::error("Deferred-deletion worker tick failed; will retry.");
+    }
+  }
+
+  // items_ first (destroyed last) as a conservative failsafe: if ~Handler's drain
+  // is bypassed, live gatekeepers in items_ outlive the worker-side structures.
+  container_type items_;  //!< map of all active items
+
+  // pending_mutex_ guards only structural changes to pending_ (splice/erase);
+  // node contents (stopped, stop_step) are mutated by the single worker thread only.
+  std::mutex pending_mutex_;
+  std::list<PendingDeletion> pending_;  //!< nodes awaiting deferred teardown
+  utils::Scheduler defer_worker_;       //!< single shared background worker (~50 ms cadence)
+  std::once_flag worker_started_;       //!< ensures EnsureWorkerStarted_ runs at most once
 };
 
 }  // namespace memgraph::dbms
