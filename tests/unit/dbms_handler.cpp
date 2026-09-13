@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <system_error>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -902,6 +903,116 @@ TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
   EXPECT_TRUE(fs::exists(TenantDataDir(sr, seeded.uuid))) << "the tenant's data directory must be untouched by RENAME";
 
   fs::remove_all(sr.root);
+}
+
+// Handler<T> unit tests — no DbmsHandler, no filesystem, no kvstore;
+// only the Gatekeeper<T> counting semantics matter here.
+
+namespace {
+
+// Minimal type tracking stop and dtor call counts; no GatekeeperGuard or gatekeeper_label needed.
+struct Tracked {
+  std::atomic<int> *stop_calls;
+  std::atomic<int> *dtor_calls;
+
+  explicit Tracked(std::atomic<int> *s, std::atomic<int> *d) noexcept : stop_calls{s}, dtor_calls{d} {}
+
+  ~Tracked() {
+    if (dtor_calls) dtor_calls->fetch_add(1, std::memory_order_relaxed);
+  }
+
+  Tracked(const Tracked &) = delete;
+  Tracked(Tracked &&) = delete;
+  Tracked &operator=(const Tracked &) = delete;
+  Tracked &operator=(Tracked &&) = delete;
+};
+
+template <typename Pred>
+bool PollUntil(Pred &&pred, std::chrono::steady_clock::duration timeout) {
+  using clk = std::chrono::steady_clock;
+  auto const deadline = clk::now() + timeout;
+  while (!std::forward<Pred>(pred)()) {
+    if (clk::now() >= deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  return true;
+}
+
+}  // namespace
+
+// While the holder is alive the worker's own accessor bumps count to 2, so try_delete(0ms)
+// skips deletion; once the holder resets (count→0), the next tick finds count==1 and completes teardown.
+TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
+  using namespace std::chrono_literals;
+
+  std::atomic<int> stop{0}, dtor{0}, post{0};
+  memgraph::dbms::Handler<Tracked> h;
+
+  // After the move, exactly one external accessor (holder) is live; count stays 1.
+  auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
+  ASSERT_TRUE(result.has_value());
+  auto holder = std::move(*result);
+
+  h.DeferDelete(
+      "db",
+      [](Tracked &t) { t.stop_calls->fetch_add(1, std::memory_order_relaxed); },
+      [&post] { post.fetch_add(1, std::memory_order_relaxed); });
+
+  // DeferDelete moves the gatekeeper out of items_ before returning, so the
+  // name is logically absent immediately — no waiting needed here.
+  ASSERT_FALSE(h.Has("db"));
+
+  // stop_step runs on the first tick even while holder is alive: worker accessor bumps count 1→2,
+  // stop_step runs, then try_delete(0ms) sees count==2 and skips deletion.
+  ASSERT_TRUE(PollUntil([&] { return stop.load(std::memory_order_relaxed) >= 1; }, 500ms))
+      << "stop_step must run within 500 ms of DeferDelete (worker cadence ~50 ms)";
+
+  EXPECT_EQ(stop.load(std::memory_order_relaxed), 1)
+      << "stop_step is latched (node.stopped=true after first run) and must not repeat";
+
+  EXPECT_EQ(dtor.load(std::memory_order_relaxed), 0) << "value must not be destroyed while holder is live";
+  EXPECT_EQ(post.load(std::memory_order_relaxed), 0) << "post_delete_step must not run while holder is live";
+
+  // Release: count drops 1→0.  The next tick opens its accessor (count 0→1),
+  // finds count==1 in try_delete(0ms), destroys the value, and runs post_delete_step.
+  holder.reset();
+
+  ASSERT_TRUE(PollUntil([&] { return post.load(std::memory_order_relaxed) >= 1; }, 2s))
+      << "post_delete_step must run within 2 s after holder.reset()";
+
+  EXPECT_EQ(dtor.load(std::memory_order_relaxed), 1) << "value must be destroyed exactly once";
+  EXPECT_EQ(stop.load(std::memory_order_relaxed), 1) << "stop_step must still be exactly 1 (latched)";
+  EXPECT_EQ(post.load(std::memory_order_relaxed), 1) << "post_delete_step must run exactly once";
+}
+
+// Tests ~Handler's drain: Stop() joins the worker jthread, then pending nodes are torn down
+// synchronously (stop_step + try_delete(0ms) + ~Gatekeeper + post_delete_step) with no external holder.
+TEST(Handler, DeferDeleteDrainsOnHandlerDestruction) {
+  std::atomic<int> stop{0}, dtor{0}, post{0};
+
+  {
+    memgraph::dbms::Handler<Tracked> h;
+
+    {
+      // Release immediately: no external holder is live when DeferDelete is called.
+      auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
+      ASSERT_TRUE(result.has_value());
+      (*result).reset();
+    }
+
+    h.DeferDelete(
+        "db",
+        [](Tracked &t) { t.stop_calls->fetch_add(1, std::memory_order_relaxed); },
+        [&post] { post.fetch_add(1, std::memory_order_relaxed); });
+
+    // Both outcomes are deterministic: (A) worker ticked before Stop — drain is a no-op;
+    // (B) Stop quiesces first — drain completes teardown inline. Either way counters are stable.
+  }
+
+  EXPECT_GE(stop.load(std::memory_order_relaxed), 1)
+      << "stop_step must have run at least once (via a worker tick or the ~Handler drain)";
+  EXPECT_EQ(dtor.load(std::memory_order_relaxed), 1) << "value must be destroyed exactly once";
+  EXPECT_EQ(post.load(std::memory_order_relaxed), 1) << "post_delete_step must run exactly once";
 }
 
 int main(int argc, char *argv[]) {

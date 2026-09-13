@@ -843,31 +843,39 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
       if (gk && gk->state() != utils::GatekeeperState::HOT) return std::unexpected{DeleteError::USING};
       return std::unexpected{DeleteError::NON_EXISTENT};
     }
-    // TODO: ATM we assume REPLICA won't have streams,
-    //       this is a best effort approach just in case they do
-    //       there is still subtle data race we stream manipulation
-    //       can occur while we are dropping the database
+    // Advisory seal only (microseconds). The heavy stop work (StopAllBackgroundTasks + streams DropAll)
+    // is deferred to the background teardown worker below, so we do NOT stall other tenants under lock_.
     db->prepare_for_deletion();
-    auto &database = *db->get();
-    retired_uuid = database.uuid();
-    database.StopAllBackgroundTasks();
-    database.streams()->DropAll();
+    retired_uuid = db->get()->uuid();
+  }  // release our accessor so the worker can reach sole access
+
+  // Roll back the seal on any throw before DeferDelete transfers ownership: a stranded
+  // present+sealed tenant suppresses recovery (replication_client.cpp:74) until restart.
+  try {
+    DetachProfileAndRetireDurabilityKey_(db_name);
+  } catch (...) {
+    if (auto *gk = db_handler_.GetGatekeeper(db_name)) gk->unseal();
+    throw;
   }
 
-  DetachProfileAndRetireDurabilityKey_(db_name);
-
+  // Announce the retired uuid so uuid-keyed stores (e.g. database-scoped parameters) discard its rows.
   if (on_uuid_retired_) on_uuid_retired_(retired_uuid);
 
-  // Check if db exists
-  // Low level handlers
-  db_handler_.DeferDelete(db_name, [storage_path = *storage_path, db_name = std::string{db_name}]() {
-    // Delete disk storage
-    std::error_code ec;
-    (void)std::filesystem::remove_all(storage_path, ec);
-    if (ec) {
-      spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
-    }
-  });
+  db_handler_.DeferDelete(
+      db_name,
+      /*stop_step=*/
+      [](Database &db) {
+        db.StopAllBackgroundTasks();
+        db.streams()->DropAll();
+      },
+      /*post_delete_step=*/
+      [storage_path = *storage_path, db_name = std::string{db_name}]() {
+        std::error_code ec;
+        (void)std::filesystem::remove_all(storage_path, ec);
+        if (ec) {
+          spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
+        }
+      });
 
   return {};  // Success
 }
