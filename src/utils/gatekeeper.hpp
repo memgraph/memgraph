@@ -398,6 +398,13 @@ struct Gatekeeper {
     return std::nullopt;
   }
 
+  // Rolls back a deletion seal: mark was set but ownership never transferred to the teardown
+  // worker. access() is intentionally ungated on this flag (checked via Accessor::operator bool).
+  void unseal() {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    pimpl_->is_marked_for_deletion = false;
+  }
+
   // Returns the current lifecycle state (locks mutex_).
   GatekeeperState state() const {
     auto guard = std::unique_lock{pimpl_->mutex_};
