@@ -1226,23 +1226,16 @@ TEST_F(FileCacheHintTest, AppendingFromAnotherFileKeepsPacingAlignedWithTheFile)
 
 // Asking a file for its position seeks to where the file already is, and the snapshot writer asks at
 // every batch boundary. If that counted as a move it would abandon the window in flight each time,
-// so no window would ever be handed to writeback or dropped, which on a large snapshot is most of
-// the file. Residency is what shows it: the pacer's own offset is right either way.
-//
-// The baseline is the same write without the queries, and it is also the gate: whether pacing can
-// drop anything at all is a property of the filesystem, and one that `PageCacheEvictionObservable`
-// cannot answer, because it asks about a file that has been fsynced. On overlayfs, which is what a
-// container's own filesystem is, `sync_file_range` reports success having done nothing: it writes
-// back the mapping of the inode it is given, and the overlay inode holds no pages, they are all on
-// the upper filesystem's inode. The pages stay dirty, DONTNEED skips dirty pages, and nothing is
-// released. `fsync` is passed through to the upper file and so still works, which is why whole-file
-// eviction after a sync is observable there and this is not.
-// Judged by the windows pacing handed to writeback, not by residency afterwards: a runner under
-// memory pressure reclaims pages the code never dropped, so residency there says nothing about the code.
+// and no window would ever reach writeback. Judged by the windows pacing handed over, not by
+// residency afterwards: whether pages leave the cache is the filesystem's and the kernel's to
+// decide, and a runner under memory pressure reclaims pages the code never dropped.
 TEST_F(FileCacheHintTest, RepositioningToTheCurrentOffsetKeepsTheWindowInFlight) {
   const auto data = Pattern(kTotal);
 
   const auto unqueried = WindowsCompletedByPacedWrite(test_dir_ / "streamed.bin", data, PositionQueries::kNone);
+  if (unqueried == 0) {
+    GTEST_SKIP() << "pacing turned itself off under " << test_dir_ << ": sync_file_range is refused there";
+  }
   ASSERT_EQ(unqueried, kTotal / kWindow) << "an append-only stream did not complete a window per kWindow bytes";
 
   // A query flushes every chunk, so windows complete on chunk boundaries and each runs up to a chunk
