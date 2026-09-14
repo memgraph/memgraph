@@ -21,8 +21,8 @@ run-name: Runner Cache Warmup
 
 jobs:
   cache-warmup:
-    if: ${{ inputs.name != "" }}
-    runs-on: [self-hosted, Linux, '${{ inputs.name }}']
+    if: ${{ inputs.runner != "" }}
+    runs-on: [self-hosted, Linux, '${{ inputs.runner }}']
     timeout-minutes: 180
     steps:
       - name: Set up repository
