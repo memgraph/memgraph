@@ -336,10 +336,11 @@ def _ensure_default_listener_ports(args):
 
 
 def _assign_implicit_listener_ports(prepared, namespace_start, port_map, port_offset_step):
-    """Gives every instance its own monitoring and metrics port, taken from the worker's window past what the port
-    map uses, and returns the ports handed out. The workload addresses neither listener, so both are left at one
-    default port number across the whole cluster; mapping them by that number would hand every instance the same
-    port and only the first could bind it."""
+    """Gives every instance a monitoring and a metrics port of its own, taken from the worker's window past what the
+    port map uses, and returns the ports handed out. A listener the workload leaves out of its args sits at one
+    default port number across the whole cluster, so mapping it by that number would hand every instance the same
+    port and only the first could bind it. A port assigned here answers to no number a test could name, so a
+    workload that connects to one of these listeners names the port in the instance args and is skipped below."""
     next_free = namespace_start + len(port_map)
     namespace_end = namespace_start + port_offset_step
     assigned = []

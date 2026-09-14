@@ -482,7 +482,9 @@ class MemgraphInstanceRunner:
             # Give the implicit listeners explicit ports so they get remapped away from other workers too. Monitoring
             # and metrics get a port each of their own: every instance of a cluster would otherwise be handed the
             # port that the single default number maps to, and only the first to start could bind it. The Bolt port
-            # identifies the instance, so a restart rebinds the ports it had.
+            # identifies the instance, so a restart rebinds the ports it had. A reserved port answers to no number a
+            # test could name, so a workload that connects to one of these listeners has to give the instance the
+            # port in its own args, leaving both sides to reach it through the same number.
             instance_key = extract_bolt_port(self.args)
             if not any(arg.startswith("--bolt-port") or arg.startswith("--bolt_port") for arg in self.args):
                 default_args += ["--bolt-port", "7687"]
