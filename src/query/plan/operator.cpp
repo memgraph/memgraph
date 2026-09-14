@@ -9135,6 +9135,9 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Shutdown() override {
+    // `Shutdown` may throw and the cleanup is arbitrary module code, so shut the input down on the way
+    // out -- otherwise one throwing module skips the teardown of everything below it.
+    const utils::OnScopeExit shutdown_input{[this] { input_cursor_->Shutdown(); }};
     if (cleanup_) {
       const utils::MemoryTracker::RefusalHandledScope refusal_handled;
       cleanup_.value()();

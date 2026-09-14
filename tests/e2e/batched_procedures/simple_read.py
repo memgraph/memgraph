@@ -182,5 +182,23 @@ def test_batching_in_subquery_c(connection):
     assert result == [(x, i) for x in (1, 2) for i in range(1, num_ints + 1)]
 
 
+def test_shutdown_reaches_below_a_procedure(connection):
+    # The probe is the lower of two procedure calls and LIMIT stops the query mid-stream, so only the
+    # shutdown arriving from the procedure above it can run its cleanup.
+    cursor = connection.cursor()
+
+    execute_and_fetch_all(
+        cursor,
+        "CALL batch_py_read.teardown_probe_rows() YIELD num "
+        "CALL mg.procedures() YIELD name "
+        "RETURN num, name LIMIT 1",
+    )
+
+    cleanup_ran = execute_and_fetch_all(
+        cursor, "CALL batch_py_read.teardown_probe_cleanup_ran() YIELD cleanup_ran RETURN cleanup_ran"
+    )[0][0]
+    assert cleanup_ran
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
