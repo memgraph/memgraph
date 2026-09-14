@@ -47,6 +47,22 @@ inline bool AreComparable(PropertyValue const &a, PropertyValue const &b) {
   return a.ValueTemporalData().type == b.ValueTemporalData().type;
 }
 
+/// Whether the pair is the bounds of one whole stretch of the order.
+///
+/// A range covering an entire stretch is written as that stretch's own bounds,
+/// so its two ends are of different types by construction, which every other
+/// range of two types is not: those describe nothing. A scan is handed both
+/// shapes and has to keep this one, so the pair is recognised by being exactly
+/// what the stretch functions hand back rather than by reaching the same values.
+inline bool BoundsMarkAWholeStretch(utils::Bound<PropertyValue> const &lower,
+                                    utils::Bound<PropertyValue> const &upper) {
+  if (!lower.IsInclusive() || !upper.IsExclusive()) return false;
+  auto const stretch_lower = LowerBoundComparableWith(lower.value());
+  auto const stretch_upper = UpperBoundComparableWith(lower.value());
+  return stretch_lower && stretch_upper && lower.value() == stretch_lower->value() &&
+         upper.value() == stretch_upper->value();
+}
+
 /// Whether the value holds a NaN, at any depth.
 ///
 /// A NaN is equal to nothing, itself included, so a value holding one is equal

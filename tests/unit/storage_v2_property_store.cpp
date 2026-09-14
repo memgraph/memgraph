@@ -511,6 +511,83 @@ TEST(PropertyStore, IntEncoding) {
   }
 }
 
+namespace {
+
+/// A value of every type, in every representation one can be kept in, and of
+/// the shapes the two comparisons reach by different routes.
+///
+/// A Null is absent because storing one removes the property, so there is no
+/// stored value to compare against.
+std::vector<PropertyValue> EveryStorableShape() {
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const inf = std::numeric_limits<double>::infinity();
+  auto const boxed = [](std::vector<PropertyValue> elements) { return PropertyValue(std::move(elements)); };
+
+  return {
+      PropertyValue(false),
+      PropertyValue(true),
+      PropertyValue(int64_t{0}),
+      PropertyValue(int64_t{1}),
+      PropertyValue(std::numeric_limits<int64_t>::max()),
+      PropertyValue(0.0),
+      PropertyValue(1.0),
+      PropertyValue(inf),
+      PropertyValue(-inf),
+      PropertyValue(nan),
+      PropertyValue(""),
+      PropertyValue("a"),
+      PropertyValue(std::string(300, 'x')),
+      boxed({}),
+      boxed({PropertyValue(int64_t{1})}),
+      boxed({PropertyValue(int64_t{1}), PropertyValue(int64_t{2})}),
+      boxed({PropertyValue(1.0), PropertyValue(nan)}),
+      boxed({PropertyValue("a")}),
+      PropertyValue{IntListTag{}, std::vector<PropertyValue>{PropertyValue(int64_t{1})}},
+      PropertyValue{IntListTag{}, std::vector<PropertyValue>{PropertyValue(int64_t{1}), PropertyValue(int64_t{2})}},
+      PropertyValue{DoubleListTag{}, std::vector<PropertyValue>{PropertyValue(1.0)}},
+      PropertyValue{DoubleListTag{}, std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(nan)}},
+      PropertyValue{NumericListTag{}, std::vector<PropertyValue>{PropertyValue(int64_t{1}), PropertyValue(2.5)}},
+      PropertyValue(PropertyValue::map_t{}),
+      PropertyValue(PropertyValue::map_t{{PropertyId::FromInt(1), PropertyValue(int64_t{1})}}),
+      PropertyValue(PropertyValue::map_t{{PropertyId::FromInt(1), PropertyValue(nan)}}),
+      PropertyValue(TemporalData{TemporalType::Date, 1}),
+      PropertyValue(TemporalData{TemporalType::LocalTime, 1}),
+      PropertyValue(TemporalData{TemporalType::LocalDateTime, 1}),
+      PropertyValue(TemporalData{TemporalType::Duration, 1}),
+      PropertyValue(ZonedTemporalData{
+          ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(1), memgraph::utils::Timezone("Etc/UTC")}),
+      PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}}),
+      PropertyValue(Enum{EnumTypeId{1}, EnumValueId{2}}),
+      PropertyValue(Point2d{WGS84_2d, 1.0, 2.0}),
+      PropertyValue(Point2d{Cartesian_2d, 1.0, 2.0}),
+      PropertyValue(Point2d{WGS84_2d, 1.0, nan}),
+      PropertyValue(Point3d{WGS84_3d, 1.0, 2.0, 3.0}),
+      PropertyValue(Point3d{WGS84_3d, 1.0, 2.0, nan}),
+  };
+}
+
+}  // namespace
+
+TEST(PropertyStore, TheEncodedComparisonAnswersAsTheDecodedOneDoes) {
+  // A stored value is compared without decoding it, by a function with a case
+  // per type of its own. A change made to one reading and not the other is
+  // silent until a lookup answers wrongly, so the two are asked the same
+  // question over every pair of shapes rather than being held together by a
+  // note asking the next author to keep them alike.
+  auto const prop = PropertyId::FromInt(42);
+  auto const shapes = EveryStorableShape();
+
+  for (auto const &stored : shapes) {
+    PropertyStore store;
+    ASSERT_TRUE(store.SetProperty(prop, stored));
+    for (auto const &probe : shapes) {
+      EXPECT_EQ(store.IsPropertyEqual(prop, probe), stored == probe)
+          << "stored " << stored << " (type " << static_cast<unsigned>(stored.type()) << "), probed with " << probe
+          << " (type " << static_cast<unsigned>(probe.type()) << ")";
+    }
+  }
+}
+
 TEST(PropertyStore, IsPropertyEqualReadsANaNAsTheDecodedComparisonDoes) {
   // A stored value is compared without decoding it, and an index confirms the
   // entry it lands on that way. Answering a NaN differently from the decoded
