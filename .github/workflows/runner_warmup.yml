@@ -23,7 +23,7 @@ run-name: Runner Cache Warmup
 jobs:
   cache-warmup:
     #if: ${{ inputs.name != "" }}
-    runs-on: [self-hosted, Linux, nebula]
+    runs-on: [self-hosted, Linux, doctor-octopus]
     timeout-minutes: 180
     steps:
       - name: Set up repository
