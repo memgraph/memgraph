@@ -200,5 +200,24 @@ def test_shutdown_reaches_below_a_procedure(connection):
     assert cleanup_ran
 
 
+def test_one_cleanup_per_initializer(connection):
+    # A reset must not tear the stream down itself; the next pull already cleans up before its
+    # initializer. One init and one cleanup per row, plus the shutdown's -- five would mean a double.
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "CALL batch_py_read.teardown_probe_reset_counts() YIELD ok RETURN ok")
+
+    execute_and_fetch_all(
+        cursor,
+        "UNWIND [1, 2] AS x "
+        "CALL (x) { CALL batch_py_read.teardown_probe_rows() YIELD num RETURN num LIMIT 2 } "
+        "RETURN x, num",
+    )
+
+    inits, cleanups = execute_and_fetch_all(
+        cursor, "CALL batch_py_read.teardown_probe_counts() YIELD inits, cleanups RETURN inits, cleanups"
+    )[0]
+    assert (inits, cleanups) == (2, 3)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

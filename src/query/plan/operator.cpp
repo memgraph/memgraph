@@ -9124,11 +9124,8 @@ class CallProcedureCursor : public Cursor {
   void Reset() override {
     result_.rows.clear();
     result_row_it_ = result_.rows.begin();
-    if (cleanup_) {
-      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
-      cleanup_.value()();
-    }
-    // true == "no live stream, pull a fresh input row first".
+    // true == "no live stream, pull a fresh input row first". The interrupted stream is torn down by
+    // whichever comes first: the next Pull's cleanup, or `Shutdown`.
     stream_exhausted = true;
     call_initializer = false;
     input_cursor_->Reset();
