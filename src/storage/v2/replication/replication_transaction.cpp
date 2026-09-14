@@ -145,9 +145,7 @@ auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::
       // next RPC on this connection (e.g. DropDatabaseRpc) reuses a stream the replica is still mid-read
       // on and corrupts framing. Unlike the recovery-races-txn sibling bail-outs (which keep the
       // connection for reuse), a sealed tenant is going away, so retiring the socket is correct.
-      replica_stream.reset();
-      raw_client->AbortRpcClient();
-      raw_client->SetMaybeBehind();
+      raw_client->RetireForSealedTenant(replica_stream);
       return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
     }
     return raw_client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp);

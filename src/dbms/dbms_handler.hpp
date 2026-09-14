@@ -56,8 +56,6 @@
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
@@ -520,23 +518,24 @@ class DbmsHandler {
         out.emplace_back(std::move(name), "HOT");
       }
     }
-    // Append in-flight deferred drops as DROPPING rows only when the name has no live (HOT/COLD)
-    // tenant. If a same-name tenant was recreated while the old one is still draining, the live
-    // tenant is shown and the draining husk is not listed (it remains tracked internally and is
-    // WARN-logged by the defer worker if it stays stuck). Lock order: lock_ (already held shared
-    // above) -> dropping_ (its own SpinLock, taken here). The worker's ForgetDropping_ takes ONLY
-    // dropping_, never lock_, so this is the only nesting direction — no inversion is possible.
-    dropping_.WithLock([&](const auto &map) {
-      for (const auto &[uuid_str, name] : map) {
-        // Emit at most one DROPPING row per name: two same-name husks (drop, recreate, drop again while
-        // the first is still draining) are both tracked by uuid internally, but showing the name once is
-        // enough. Insert into live_names after emitting so the second husk is suppressed here.
-        if (!live_names.contains(name)) {
-          out.emplace_back(name, "DROPPING");
-          live_names.insert(name);
-        }
+    // Source DROPPING rows from the deferred-drop worker's pending list. Lock order: lock_ (already
+    // held shared above) -> pending_mutex_ (taken inside PendingItems()). The worker's Tick_ takes
+    // pending_mutex_ only, never lock_, so this is the only nesting direction — no inversion possible.
+    //
+    // Disambiguate the DROPPING row with the tenant UUID when the name is ambiguous: a live (HOT/COLD)
+    // tenant retook the name while the old husk is still draining, or more than one husk of the same
+    // name is concurrently draining (drop, recreate, drop again before the first husk finishes). In the
+    // unambiguous case — a single husk whose name has no live claimant — the plain name is shown.
+    auto const pending = db_handler_.PendingItems();  // vector<(name, uuid)>
+    std::unordered_map<std::string, int> husk_name_count;
+    for (auto const &[name, uuid] : pending) ++husk_name_count[name];
+    for (auto const &[name, uuid] : pending) {
+      if (live_names.contains(name) || husk_name_count[name] > 1) {
+        out.emplace_back(fmt::format("{} ({})", name, uuid), "DROPPING");
+      } else {
+        out.emplace_back(name, "DROPPING");
       }
-    });
+    }
     return out;
   }
 
@@ -858,13 +857,6 @@ class DbmsHandler {
 
  private:
 #ifdef MG_ENTERPRISE
-  // Erase the entry keyed by @p uuid's string form from the dropping_ registry. Called by the
-  // post_delete_step lambda (deferred-drop worker thread) once the tenant is fully reclaimed.
-  // Takes ONLY dropping_'s own SpinLock — never acquires lock_.
-  void ForgetDropping_(utils::UUID uuid) {
-    dropping_.WithLock([&](auto &map) { map.erase(std::string{uuid}); });
-  }
-
   // Hot/cold: rebuild metadata for a suspended (COLD) tenant. The gatekeeper stays in
   // db_handler_ as a COLD shell (value_ == nullopt); this holds what a later resume needs.
   struct SuspendedEntry {
@@ -1121,23 +1113,6 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
-
-  // DECLARATION ORDER (load-bearing): dropping_ MUST be declared BEFORE db_handler_ so that
-  // dropping_ is destroyed AFTER ~DatabaseHandler. The Handler's drain runs each deferred-drop
-  // worker's post_delete_step, which calls ForgetDropping_ (erases from dropping_). If dropping_
-  // were destroyed first, ForgetDropping_ would access a dangled map. C++ destroys members in
-  // reverse declaration order, so declaring dropping_ before db_handler_ guarantees db_handler_
-  // is torn down (and all post_delete_steps have run) before dropping_ is destroyed.
-  //
-  // Key type: std::string (UUID's string form). utils::UUID has no std::hash<> specialization,
-  // so we key the map by std::string{uuid} to avoid a custom hasher.
-  //
-  // mutable: AllWithHotColdStatus is a const method (holds a shared_lock on lock_) but must
-  // still acquire dropping_'s SpinLock to read entries. Marking mutable lets WithLock run from
-  // a const call site without breaking the logical-const contract (lock acquisition is not an
-  // observable state mutation).
-  mutable utils::Synchronized<std::unordered_map<std::string /*uuid*/, std::string /*name*/>, utils::SpinLock>
-      dropping_;
 
   DatabaseHandler db_handler_;  //!< multi-tenancy storage handler
   // COLD tenant rebuild metadata; guarded by lock_. The transparent std::less<> comparator is LOAD-BEARING

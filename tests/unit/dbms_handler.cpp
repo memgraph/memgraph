@@ -955,6 +955,7 @@ TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
 
   h.DeferDelete(
       "db",
+      std::string{"db"},
       [](Tracked &t) { t.stop_calls->fetch_add(1, std::memory_order_relaxed); },
       [&post] { post.fetch_add(1, std::memory_order_relaxed); });
 
@@ -1002,6 +1003,7 @@ TEST(Handler, DeferDeleteDrainsOnHandlerDestruction) {
 
     h.DeferDelete(
         "db",
+        std::string{"db"},
         [](Tracked &t) { t.stop_calls->fetch_add(1, std::memory_order_relaxed); },
         [&post] { post.fetch_add(1, std::memory_order_relaxed); });
 
@@ -1061,6 +1063,83 @@ TEST(DBMS_Handler, DroppingTenantIsVisibleInShowDatabases) {
       30s))
       << "the DROPPING entry must disappear from AllWithHotColdStatus() within 30 s after the "
          "pinning accessor is released";
+}
+
+// Pins the UUID-disambiguation branch of AllWithHotColdStatus(): when a live tenant retakes a name
+// while the old husk is still DROPPING (pinned by an external accessor), the husk must appear under
+// "name (<uuid>)" not the plain name, so SHOW DATABASES is unambiguous. The implementation gates on
+// live_names.contains(name) (dbms_handler.hpp AllWithHotColdStatus, the `fmt::format("{} ({})", name,
+// uuid)` branch), which this test drives by holding the pin while a fresh HOT "d" is live.
+TEST(DBMS_Handler, DroppingHuskIsDisambiguatedByUuidWhenNameRetaken) {
+  using namespace std::chrono_literals;
+
+  auto &dbms = *TestEnvironment::get();
+
+  // 1. Create "d" and keep the returned accessor alive to pin the gatekeeper so
+  //    the deferred-drop worker cannot converge until we explicitly release it.
+  auto pin = dbms.New("d");
+  ASSERT_TRUE(pin.has_value()) << "New() must succeed for a fresh name";
+
+  // Capture the UUID before issuing the drop: once Delete_() retires the durability
+  // key the live accessor is the only convenient handle, and after DeferDelete() moves
+  // the gatekeeper out of items_ the accessor is the last owner of that UUID.
+  const memgraph::utils::UUID husk_uuid = (*pin)->uuid();
+  const std::string husk_uuid_str{husk_uuid};
+
+  // 2. FORCE-drop "d" (null transaction -> deferred teardown path). The husk
+  //    remains DROPPING in the pending list while *pin is alive.
+  auto del = dbms.Delete("d", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << "Delete() with a null transaction must succeed (deferred)";
+
+  // 3. Re-create "d" — a fresh HOT tenant with a different UUID. The name is
+  //    immediately available because DeferDelete moves the gatekeeper out of items_
+  //    synchronously before returning.
+  auto fresh = dbms.New("d");
+  ASSERT_TRUE(fresh.has_value()) << "New() must succeed once the old 'd' is logically absent from items_";
+
+  // 4. While the husk is still pinned, verify the disambiguation invariants.
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+
+    // The fresh tenant must appear under the plain name as HOT.
+    const bool has_hot = std::any_of(
+        statuses.begin(), statuses.end(), [](const auto &p) { return p.first == "d" && p.second == "HOT"; });
+    EXPECT_TRUE(has_hot) << "the fresh 'd' tenant must appear as HOT in AllWithHotColdStatus()";
+
+    // The DROPPING husk must appear under the UUID-qualified key: "d (<uuid>)".
+    const std::string disambig = "d (" + husk_uuid_str + ")";
+    const bool has_dropping_disambig = std::any_of(
+        statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == disambig && p.second == "DROPPING"; });
+    EXPECT_TRUE(has_dropping_disambig) << "the pinned DROPPING husk must appear under its UUID-qualified name \""
+                                       << disambig << "\"";
+
+    // The plain "d" / "DROPPING" pairing must NOT exist — that form is reserved for the
+    // unambiguous case (no live tenant has retaken the name, and exactly one husk is pending).
+    const bool plain_dropping = std::any_of(
+        statuses.begin(), statuses.end(), [](const auto &p) { return p.first == "d" && p.second == "DROPPING"; });
+    EXPECT_FALSE(plain_dropping)
+        << "when the name has been retaken by a live HOT tenant the DROPPING husk must NOT appear "
+           "under the plain name -- only under the UUID-qualified form";
+  }
+
+  // 5. Release the husk pin so the background worker can reach exclusive access.
+  pin->reset();
+
+  // 6. Poll until the UUID-qualified DROPPING entry is gone (ForgetDropping_ is called
+  //    by the worker's post_delete_step once the tenant is fully reclaimed).
+  const std::string disambig_key = "d (" + husk_uuid_str + ")";
+  ASSERT_TRUE(PollUntil(
+      [&] {
+        const auto statuses = dbms.AllWithHotColdStatus();
+        return std::none_of(statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == disambig_key; });
+      },
+      30s))
+      << "the DROPPING entry \"" << disambig_key << "\" must disappear within 30 s after pin release";
+
+  // 7. Clean up the fresh "d" tenant so subsequent tests see a clean handler state.
+  fresh->reset();
+  auto cleanup = dbms.TryDelete("d");
+  EXPECT_TRUE(cleanup.has_value()) << "cleanup TryDelete of 'd' must succeed after releasing the fresh accessor";
 }
 
 int main(int argc, char *argv[]) {
