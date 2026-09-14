@@ -140,7 +140,7 @@ index c433b3fc..a2ff76b2 100644
    std::filesystem::path orig_included_pch_file;
  
 diff --git a/src/ccache/ccache.cpp b/src/ccache/ccache.cpp
-index 1466c041..4059bdf3 100644
+index 1466c041..66bcf519 100644
 --- a/src/ccache/ccache.cpp
 +++ b/src/ccache/ccache.cpp
 @@ -41,6 +41,7 @@
@@ -151,7 +151,7 @@ index 1466c041..4059bdf3 100644
  #include <ccache/signalhandler.hpp>
  #include <ccache/storage/storage.hpp>
  #include <ccache/util/args.hpp>
-@@ -969,6 +970,32 @@ find_coverage_file(const Context& ctx)
+@@ -969,6 +970,39 @@ find_coverage_file(const Context& ctx)
    return {true, found_file, found_file == mangled_form};
  }
  
@@ -178,13 +178,20 @@ index 1466c041..4059bdf3 100644
 +  hash.hash(result_key);
 +  hash.hash_delimiter("module_output_cwd");
 +  hash.hash(ctx.actual_cwd);
-+  return hash.digest();
++  const auto storage_key = hash.digest();
++  // Both digests, since the entry is under one and every other line naming a
++  // result names the other. Looking the compile up in the cache by hand needs
++  // the one it is stored under.
++  LOG("Module BMI stored under {} for result key {}",
++      util::format_digest(storage_key),
++      util::format_digest(result_key));
++  return storage_key;
 +}
 +
  [[nodiscard]] static bool
  write_result(Context& ctx,
               const Hash::Digest& result_key,
-@@ -1056,17 +1083,37 @@ write_result(Context& ctx,
+@@ -1056,17 +1090,37 @@ write_result(Context& ctx,
      return false;
    }
  
@@ -224,7 +231,7 @@ index 1466c041..4059bdf3 100644
  
    return true;
  }
-@@ -2154,6 +2201,48 @@ hash_argument(const Context& ctx,
+@@ -2154,6 +2208,48 @@ hash_argument(const Context& ctx,
      return {};
    }
  
@@ -273,7 +280,7 @@ index 1466c041..4059bdf3 100644
    if (util::starts_with(args[i], "-fplugin=")) {
      DirEntry dir_entry(&args[i][9], DirEntry::LogOnError::yes);
      if (dir_entry.is_regular_file()) {
-@@ -2494,9 +2583,10 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Hash::Digest& result_key)
+@@ -2494,9 +2590,10 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Hash::Digest& result_key)
    }
  
    // Get result from cache.
@@ -285,7 +292,7 @@ index 1466c041..4059bdf3 100644
        cache_entry_data = std::move(value);
        return true;
      });
-@@ -2508,21 +2598,28 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Hash::Digest& result_key)
+@@ -2508,21 +2605,28 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Hash::Digest& result_key)
      core::CacheEntry cache_entry(cache_entry_data);
      cache_entry.verify_checksum();
      core::result::Deserializer deserializer(cache_entry.payload());
@@ -668,7 +675,7 @@ index ab3c3b9f..ad7f6ab1 100644
  addtest(depend)
 diff --git a/test/suites/cxx20_modules.bash b/test/suites/cxx20_modules.bash
 new file mode 100644
-index 00000000..b15581c2
+index 00000000..bb298ca0
 --- /dev/null
 +++ b/test/suites/cxx20_modules.bash
 @@ -0,0 +1,416 @@
@@ -1071,7 +1078,7 @@ index 00000000..b15581c2
 +    # treeA's BMI names treeA's files, so treeB compiles its own.
 +    expect_stat direct_cache_miss 3
 +    expect_stat direct_cache_hit 0
-+    strings treeB/build/mod.pcm | grep -q treeA \
++    grep -q -a treeA treeB/build/mod.pcm \
 +        && test_failed "treeB's BMI names treeA's source"
 +
 +    consume_in_tree treeB
