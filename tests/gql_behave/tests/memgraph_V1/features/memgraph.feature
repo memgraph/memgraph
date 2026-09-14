@@ -209,6 +209,21 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result1 | result2 |
             | null    | null    |
 
+    Scenario: Enum equal to a comparison bound answers null:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {s: Status::Good}), (:Person {s: Status::Bad})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.s = Status::Bad AS eq, n.s <= Status::Bad AS le ORDER BY eq
+            """
+        Then the result should be:
+            | eq    | le   |
+            | false | null |
+            | true  | null |
+
     Scenario: Compare enum values for inequality:
         Given an empty graph
         # Values will be used from the previous scenario
