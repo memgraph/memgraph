@@ -11,7 +11,10 @@
 
 #include "property_value_utils.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
+#include <variant>
 
 namespace memgraph::storage {
 
@@ -114,6 +117,75 @@ auto UpperBoundComparableWith(PropertyValue const &value) -> std::optional<utils
       // The last of the four, so the stretch ends where the stored type does.
       return UpperBoundForType(PropertyValueType::TemporalData);
   }
+}
+
+bool HoldsANaN(PropertyValue const &value) {
+  switch (value.type()) {
+    using enum PropertyValueType;
+    case Double:
+      return std::isnan(value.ValueDouble());
+    case DoubleList:
+      return std::ranges::any_of(value.ValueDoubleList(), [](double d) { return std::isnan(d); });
+    case NumericList:
+      return std::ranges::any_of(value.ValueNumericList(), [](auto const &held) {
+        return std::holds_alternative<double>(held) && std::isnan(std::get<double>(held));
+      });
+    case List:
+      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return HoldsANaN(element); });
+    case Map:
+      return std::ranges::any_of(value.ValueMap(), [](auto const &entry) { return HoldsANaN(entry.second); });
+    case Point2d: {
+      auto const &point = value.ValuePoint2d();
+      return std::isnan(point.x()) || std::isnan(point.y());
+    }
+    case Point3d: {
+      auto const &point = value.ValuePoint3d();
+      return std::isnan(point.x()) || std::isnan(point.y()) || std::isnan(point.z());
+    }
+    // A vector holds its coordinates as floats, which carry a NaN of their own.
+    case VectorIndexId:
+      return std::ranges::any_of(value.ValueVectorIndexList(), [](float f) { return std::isnan(f); });
+    // No other type has a number in it to be one.
+    case Null:
+    case Bool:
+    case Int:
+    case IntList:
+    case String:
+    case TemporalData:
+    case ZonedTemporalData:
+    case Enum:
+      return false;
+  }
+  return false;
+}
+
+bool HoldsANull(PropertyValue const &value) {
+  switch (value.type()) {
+    using enum PropertyValueType;
+    case Null:
+      return true;
+    case List:
+      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return HoldsANull(element); });
+    case Map:
+      return std::ranges::any_of(value.ValueMap(), [](auto const &entry) { return HoldsANull(entry.second); });
+    // Every remaining type is a value of its own, and the packed lists hold
+    // numbers by construction.
+    case Bool:
+    case Int:
+    case Double:
+    case IntList:
+    case DoubleList:
+    case NumericList:
+    case String:
+    case TemporalData:
+    case ZonedTemporalData:
+    case Enum:
+    case Point2d:
+    case Point3d:
+    case VectorIndexId:
+      return false;
+  }
+  return false;
 }
 
 auto PrefixSuccessor(std::string_view prefix) -> std::optional<std::string> {
