@@ -384,7 +384,9 @@ class Handler {
       }
       // SetInterval before Run: Scheduler's default wait is time_point::max(); a post-Run
       // SetInterval cannot wake a worker already parked on that default.
-      // Outside pending_mutex_: callers hold DbmsHandler::lock_ (write), so ~Handler cannot run here.
+      // Outside pending_mutex_: safe against ~Handler because shutdown sequencing in memgraph.cpp
+      // (stop worker pool → stop Bolt → StopAllBackgroundTasks) drains all callers before ~DbmsHandler
+      // runs, and declaration order there ensures repl_state is destroyed before dbms_handler.
       defer_worker_.SetInterval(std::chrono::milliseconds(50));
       defer_worker_.Run("defer-delete", [this] { Tick_(); });
     });

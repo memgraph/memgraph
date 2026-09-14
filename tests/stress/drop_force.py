@@ -273,7 +273,7 @@ def _worker_iteration(
     # (left over from a previous interrupted run) are still tolerated here.
     try:
         _run_system_query(admin_drv, f"CREATE DATABASE {name}")
-    except (ClientError, Exception) as exc:
+    except Exception as exc:
         msg = str(exc).lower()
         if "already exists" in msg or "duplicate" in msg:
             log.warning("[worker-%d rep-%d] %s already exists, continuing", worker_id, rep, name)

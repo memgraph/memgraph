@@ -9062,9 +9062,12 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
         // status_of carries the HOT/COLD string. A granted name not in the
         // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
         auto it = status_of.find(ns);
-        status.push_back({TypedValue(ns),
-                          TypedValue(it != status_of.end() ? it->second : std::string{"HOT"}),
-                          TypedValue(health_of(ns))});
+        const std::string state = (it != status_of.end()) ? it->second : std::string{"HOT"};
+        // A DROPPING husk has already been erased from items_ by DeferDelete; calling health_of
+        // would throw UnknownDatabaseException and fall back to "ready" — misleading.  Report
+        // "draining" directly, matching the semantic implied by the DROPPING state.
+        const std::string health = (state == "DROPPING") ? std::string{"draining"} : health_of(ns);
+        status.push_back({TypedValue(ns), TypedValue(state), TypedValue(health)});
       }
 
       std::erase_if(status, [&](auto const &row) {

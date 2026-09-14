@@ -1127,8 +1127,8 @@ TEST(DBMS_Handler, DroppingHuskIsDisambiguatedByUuidWhenNameRetaken) {
   // 5. Release the husk pin so the background worker can reach exclusive access.
   pin->reset();
 
-  // 6. Poll until the UUID-qualified DROPPING entry is gone (ForgetDropping_ is called
-  //    by the worker's post_delete_step once the tenant is fully reclaimed).
+  // 6. Poll until the UUID-qualified DROPPING entry is gone.  The deferred worker's Tick_
+  //    finishes teardown, removes the node from pending_, and PendingItems() stops surfacing it.
   const std::string disambig_key = "d (" + husk_uuid_str + ")";
   ASSERT_TRUE(PollUntil(
       [&] {
