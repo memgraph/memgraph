@@ -140,7 +140,7 @@ index c433b3fc..a2ff76b2 100644
    std::filesystem::path orig_included_pch_file;
  
 diff --git a/src/ccache/ccache.cpp b/src/ccache/ccache.cpp
-index 1466c041..66bcf519 100644
+index 1466c041..87a426df 100644
 --- a/src/ccache/ccache.cpp
 +++ b/src/ccache/ccache.cpp
 @@ -41,6 +41,7 @@
@@ -151,47 +151,7 @@ index 1466c041..66bcf519 100644
  #include <ccache/signalhandler.hpp>
  #include <ccache/storage/storage.hpp>
  #include <ccache/util/args.hpp>
-@@ -969,6 +970,39 @@ find_coverage_file(const Context& ctx)
-   return {true, found_file, found_file == mangled_form};
- }
- 
-+// Where a compile emits a C++20 module BMI, the key its entry is stored under.
-+//
-+// The BMI records the absolute path of the module's source and of every file it
-+// read, and nothing rewrites those strings when the entry is replayed
-+// elsewhere, so an entry holding one is only usable by the directory that
-+// produced it. base_dir together with an unhashed directory otherwise makes two
-+// build trees at different paths agree on result_key, which would hand the
-+// second tree a BMI naming files the first tree owns.
-+//
-+// The directory goes into the storage key alone and not into result_key, so
-+// result_key keeps meaning "these logical inputs". That is what a consumer
-+// folds in through the sidecar, and it leaves consumers sharing one entry
-+// across build trees as they did before.
-+static Hash::Digest
-+storage_key_for(const Context& ctx, const Hash::Digest& result_key)
-+{
-+  if (ctx.args_info.output_pcm.empty()) {
-+    return result_key;
-+  }
-+  Hash hash;
-+  hash.hash(result_key);
-+  hash.hash_delimiter("module_output_cwd");
-+  hash.hash(ctx.actual_cwd);
-+  const auto storage_key = hash.digest();
-+  // Both digests, since the entry is under one and every other line naming a
-+  // result names the other. Looking the compile up in the cache by hand needs
-+  // the one it is stored under.
-+  LOG("Module BMI stored under {} for result key {}",
-+      util::format_digest(storage_key),
-+      util::format_digest(result_key));
-+  return storage_key;
-+}
-+
- [[nodiscard]] static bool
- write_result(Context& ctx,
-              const Hash::Digest& result_key,
-@@ -1056,17 +1090,37 @@ write_result(Context& ctx,
+@@ -1056,6 +1057,17 @@ write_result(Context& ctx,
      return false;
    }
  
@@ -209,29 +169,21 @@ index 1466c041..66bcf519 100644
    core::CacheEntry::Header header(ctx.config, core::CacheEntryType::result);
    const auto cache_entry_data = core::CacheEntry::serialize(header, serializer);
  
-+  const auto storage_key = storage_key_for(ctx, result_key);
-+
-   if (!ctx.config.remote_only()) {
-     const auto& raw_files = serializer.get_raw_files();
-     if (!raw_files.empty()) {
--      ctx.storage.local.put_raw_files(result_key, raw_files);
-+      ctx.storage.local.put_raw_files(storage_key, raw_files);
-     }
-   }
+@@ -1068,6 +1080,13 @@ write_result(Context& ctx,
  
--  ctx.storage.put(result_key, core::CacheEntryType::result, cache_entry_data);
-+  ctx.storage.put(storage_key, core::CacheEntryType::result, cache_entry_data);
-+
+   ctx.storage.put(result_key, core::CacheEntryType::result, cache_entry_data);
+ 
 +  // Synthesise the sidecar after the cache entry is committed so consumers
 +  // can fold in this producer's result_key by reading <pcm>.ccache-meta.
 +  // Same code path runs on hit (after replay); see ResultRetriever caller.
 +  if (!ctx.args_info.output_pcm.empty()) {
 +    ModuleSidecar::write_for(ctx.args_info.output_pcm, result_key);
 +  }
- 
++
    return true;
  }
-@@ -2154,6 +2208,48 @@ hash_argument(const Context& ctx,
+ 
+@@ -2154,6 +2173,48 @@ hash_argument(const Context& ctx,
      return {};
    }
  
@@ -280,37 +232,7 @@ index 1466c041..66bcf519 100644
    if (util::starts_with(args[i], "-fplugin=")) {
      DirEntry dir_entry(&args[i][9], DirEntry::LogOnError::yes);
      if (dir_entry.is_regular_file()) {
-@@ -2494,9 +2590,10 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Hash::Digest& result_key)
-   }
- 
-   // Get result from cache.
-+  const auto storage_key = storage_key_for(ctx, result_key);
-   util::Bytes cache_entry_data;
-   ctx.storage.get(
--    result_key, core::CacheEntryType::result, [&](util::Bytes&& value) {
-+    storage_key, core::CacheEntryType::result, [&](util::Bytes&& value) {
-       cache_entry_data = std::move(value);
-       return true;
-     });
-@@ -2508,21 +2605,28 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Hash::Digest& result_key)
-     core::CacheEntry cache_entry(cache_entry_data);
-     cache_entry.verify_checksum();
-     core::result::Deserializer deserializer(cache_entry.payload());
--    core::ResultRetriever result_retriever(ctx, result_key);
-+    core::ResultRetriever result_retriever(ctx, storage_key);
-     util::UmaskScope umask_scope(ctx.original_umask);
-     deserializer.visit(result_retriever);
-   } catch (core::ResultRetriever::WriteError& e) {
-     LOG("Write error when retrieving result from {}: {}",
--        util::format_digest(result_key),
-+        util::format_digest(storage_key),
-         e.what());
-     return tl::unexpected(Statistic::bad_output_file);
-   } catch (core::Error& e) {
-     LOG("Failed to get result from {}: {}",
--        util::format_digest(result_key),
-+        util::format_digest(storage_key),
-         e.what());
+@@ -2523,6 +2584,13 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Hash::Digest& result_key)
      return false;
    }
  
@@ -675,10 +597,10 @@ index ab3c3b9f..ad7f6ab1 100644
  addtest(depend)
 diff --git a/test/suites/cxx20_modules.bash b/test/suites/cxx20_modules.bash
 new file mode 100644
-index 00000000..bb298ca0
+index 00000000..bf3a6d7c
 --- /dev/null
 +++ b/test/suites/cxx20_modules.bash
-@@ -0,0 +1,416 @@
+@@ -0,0 +1,361 @@
 +# Test C++20 named modules with sidecar-based cache coherence.
 +#
 +# Producer compiles emit a BMI/PCM specified via -fmodule-output=<path>.
@@ -1039,59 +961,4 @@ index 00000000..bb298ca0
 +    # the result_key chain, the consumer might have hit on a stale .o.
 +    expect_stat direct_cache_hit 1
 +    expect_stat direct_cache_miss 6
-+
-+    # -------------------------------------------------------------------------
-+    TEST "producer entry is per build directory, consumer entry is shared"
-+
-+    # base_dir together with an unhashed directory is how one checkout shares a
-+    # cache with a checkout at another path: absolute paths are rewritten before
-+    # hashing, so a compile hashes the same in both. That holds for an object
-+    # file and fails for a BMI, which embeds the producing directory's paths.
-+    # Only the producer is held back: its entry carries the directory, while
-+    # result_key keeps meaning "these logical inputs" so every consumer folding
-+    # it in through the sidecar still shares one entry between the trees.
-+    export CCACHE_NOHASHDIR=true
-+
-+    for tree in treeA treeB; do
-+        mkdir -p $tree/src $tree/build
-+        cp mod.cppm $tree/src/mod.cppm
-+        cp consumer.cpp $tree/src/consumer.cpp
-+    done
-+
-+    produce_in_tree() {
-+        (cd "$1/build" && CCACHE_BASEDIR="$(cd .. && pwd)" $CCACHE_COMPILE \
-+            -std=c++20 -x c++-module -fmodule-output=mod.pcm \
-+            -c ../src/mod.cppm -o mod.cppm.o)
-+    }
-+    consume_in_tree() {
-+        (cd "$1/build" && CCACHE_BASEDIR="$(cd .. && pwd)" $CCACHE_COMPILE \
-+            -std=c++20 -fmodule-file=mod=mod.pcm \
-+            -c ../src/consumer.cpp -o consumer.o)
-+    }
-+
-+    produce_in_tree treeA
-+    consume_in_tree treeA
-+    expect_stat direct_cache_miss 2
-+    expect_stat direct_cache_hit 0
-+
-+    produce_in_tree treeB
-+    # treeA's BMI names treeA's files, so treeB compiles its own.
-+    expect_stat direct_cache_miss 3
-+    expect_stat direct_cache_hit 0
-+    grep -q -a treeA treeB/build/mod.pcm \
-+        && test_failed "treeB's BMI names treeA's source"
-+
-+    consume_in_tree treeB
-+    # Both producers wrote the same result_key, so the sidecars agree and the
-+    # consumer is served treeA's entry.
-+    expect_stat direct_cache_hit 1
-+    expect_stat direct_cache_miss 3
-+
-+    # Rebuilding the directory that produced it still hits.
-+    rm -f treeA/build/mod.cppm.o treeA/build/mod.pcm
-+    produce_in_tree treeA
-+    expect_stat direct_cache_hit 2
-+    expect_exists treeA/build/mod.pcm
-+
-+    unset CCACHE_NOHASHDIR
 +}
