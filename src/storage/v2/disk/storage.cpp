@@ -209,17 +209,9 @@ bool VertexHasEqualPropertyValue(const Vertex &vertex, PropertyId property_id, P
   return GetVertexProperty(vertex, property_id, transaction, view) == property_value;
 }
 
-// True when the pair is the marker for a whole stretch of the order: that stretch's own lower bound
-// together with an exclusive upper bound of the following one (see
-// LowerBoundComparableWith/UpperBoundComparableWith). Its two bounds have different types on
-// purpose, and the pair already confines the range to the one stretch.
 bool BoundsSpanWholeType(const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                          const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
-  if (!lower_bound || !upper_bound || !lower_bound->IsInclusive() || !upper_bound->IsExclusive()) return false;
-  auto const stretch_lower = LowerBoundComparableWith(lower_bound->value());
-  auto const stretch_upper = UpperBoundComparableWith(lower_bound->value());
-  return stretch_lower && stretch_upper && lower_bound->value() == stretch_lower->value() &&
-         upper_bound->value() == stretch_upper->value();
+  return lower_bound && upper_bound && BoundsMarkAWholeStretch(*lower_bound, *upper_bound);
 }
 
 bool IsPropertyValueWithinInterval(const PropertyValue &value,

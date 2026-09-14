@@ -1576,9 +1576,9 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
 // Function used to compare a PropertyValue to the one stored in the byte
 // stream.
 //
-// NOTE: The logic in this function *MUST* be equal to the logic in
-// `PropertyValue::operator==`. If you change this function make sure to change
-// the operator so that they have identical functionality.
+// It answers equivalence, as reading the decoded values does. This has a case
+// per type of its own, so the two are asked the same question over every pair
+// of shapes by a test rather than kept alike by hand.
 //
 // @sa DecodePropertyValue
 [[nodiscard]] bool ComparePropertyValue(Reader *reader, Type type, Size payload_size, const PropertyValue &value) {
