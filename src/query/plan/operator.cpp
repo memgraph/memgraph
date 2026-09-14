@@ -10014,6 +10014,13 @@ RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
       list_collection_branch_(std::move(list_collection_branch)),
       result_symbol_(std::move(result_symbol)),
       pass_input_(pass_input) {
+  // The index rewriter hands this branch whatever the input side bound. A pass-input fold runs its branch
+  // even when the input Pull returned false, so the only input it may carry is a Once that binds nothing -
+  // the row it reads comes from below the enclosing Filter, not from here.
+  if (pass_input_) {
+    auto const *once = utils::Downcast<Once>(input_.get());
+    MG_ASSERT(once && once->symbols_.empty(), "RollUpApply: a pass-input fold's input must be a bare Once.");
+  }
   if (list_collection_symbols.size() != 1) {
     throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Please contact support.");
   }
