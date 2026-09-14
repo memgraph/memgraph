@@ -172,14 +172,18 @@ struct symbol_make_traits<symbol::Function> {
     /// both, keeping them in lockstep; do not insert directly.
     std::vector<FunctionInfo> info;
 
-    /// Intern a name to its stable id, classifying BuiltinKind on first sight.
-    /// The same name always returns the same id.
-    auto intern(std::string_view name) -> uint64_t;
+    /// Intern a name to its stable id, classifying BuiltinKind and caching
+    /// `is_pure` on first sight.  The same name always returns the same id.
+    auto intern(std::string_view name, bool is_pure) -> uint64_t;
   };
 
   /// args is the complete children list (the function arguments).
-  static auto make(storage_type &s, std::string_view name, utils::small_vector<planner::core::EClassId> args)
-      -> seeded_node;
+  /// `seed` carries any analysis facts the caller can establish from the
+  /// builtin's semantics (e.g. `range`'s known length, or `size`'s known
+  /// constant value); empty for opaque functions.  `is_pure` is cached on the
+  /// FunctionInfo (see its doc); the caller has already gated `seed` on it.
+  static auto make(storage_type &s, std::string_view name, utils::small_vector<planner::core::EClassId> args,
+                   ExpressionAnalysis seed, bool is_pure) -> seeded_node;
 };
 
 /// Unwind: no storage, mirrors Bind's [input, sym, list_expr] shape so the
@@ -209,9 +213,13 @@ template <symbol S>
 struct symbol_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs) -> seeded_node {
+  /// `known_list_length` seeds the result when the operator's semantics fix the
+  /// produced list's length over its operands (list concatenation over two
+  /// known-length lists); nullopt leaves the e-class without the fact.
+  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs,
+                   std::optional<std::size_t> known_list_length = std::nullopt) -> seeded_node {
     return {.lowered = {.children = utils::small_vector{lhs, rhs}, .disambiguator = std::nullopt},
-            .seed = default_analysis_seed<S>()};
+            .seed = analysis{ExpressionAnalysis{.known_list_length = known_list_length}}};
   }
 };
 

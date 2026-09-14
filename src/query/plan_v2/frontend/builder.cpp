@@ -150,13 +150,19 @@ struct symbol_build_traits<symbol::Symbol> {
 
   static auto build(BuildState &state, ENodeRef node, Children /*children*/) -> result_type {
     auto const sym_pos = static_cast<std::int32_t>(node.disambiguator());
+    // A symbol is identity: every build of the same logical symbol must yield
+    // the same compact position, so a binder and its references share a frame
+    // slot. The build runs once per resolver entry, so memoise here.
+    if (auto const cached = state.symbol_cache.find(sym_pos); cached != state.symbol_cache.end()) {
+      return cached->second;
+    }
     auto const it = state.symbol_store.find(sym_pos);
     if (it == state.symbol_store.end()) [[unlikely]] {
       ThrowPlannerBug("symbol not found in store");
     }
-    // Diagnostics-only loss: rebuilt Symbol carries no user_declared_/type_/
-    // token_position_. Plan semantics unaffected.
-    return state.symbol_table.CreateSymbol(it->second, false /*TODO*/);
+    // Diagnostics-only loss: rebuilt Symbol carries no user_declared_/type_.
+    auto const &symbol = state.symbol_table.CreateSymbol(it->second, false /*TODO*/);
+    return state.symbol_cache.emplace(sym_pos, symbol).first->second;
   }
 };
 
@@ -250,11 +256,44 @@ struct symbol_build_traits<symbol::Unwind> {
     using list = ChildSlot<child::unwind::list, Expression *>;
   };
 
-  static auto build(BuildState & /*state*/, ENodeRef /*node*/, Children children) -> result_type {
-    auto const &input = children.get<slots::input>();
-    auto const &sym = children.get<slots::sym>();
-    auto const &list_expr = children.get<slots::list>();
+  // Dead Unwind's resolved children are the densely-packed [input, list]; the
+  // sym leaf is elided. Only the input is consumed here - the list child is
+  // resolved (for cost/extraction consistency) but its built form is discarded,
+  // since the row count comes from its analysis fact, not an Expression (see
+  // build_dead). No accessor for the list slot on purpose.
+  struct dead_slots {
+    using input = ChildSlot<child::unwind_dead::input, LogicalOperatorPtr>;
+  };
+
+  static auto build(BuildState &state, ENodeRef node, Children children) -> result_type {
+    if (children.size() == node.children().size()) {
+      return build_alive(children.get<slots::input>(), children.get<slots::sym>(), children.get<slots::list>());
+    }
+    DMG_ASSERT(children.size() == 2, "dead Unwind must emit exactly the input and list children");
+    return build_dead(state, node, children.get<dead_slots::input>());
+  }
+
+ private:
+  // Alive Unwind: bind each list element to the sym, one output row per element.
+  static auto build_alive(LogicalOperatorPtr const &input, Symbol const &sym, Expression *list_expr) -> result_type {
     return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::Unwind>(input, list_expr, sym));
+  }
+
+  // Dead Unwind: the sym is unused and the list length is statically known (the
+  // gate that picks this alt), so emit a CardinalityScale carrying that length.
+  // The count comes from the list child's analysis fact on the e-node; the list
+  // is never evaluated at runtime (any built Expression for it is discarded).
+  static auto build_dead(BuildState &state, ENodeRef node, LogicalOperatorPtr const &input) -> result_type {
+    auto const list_eclass = node.children()[child::unwind::list];
+    auto const *expr = state.egraph.analysis_of(list_eclass).expression();
+    DMG_ASSERT(expr != nullptr && expr->known_list_length.has_value(),
+               "dead Unwind requires a statically known list length");
+    auto const scale = *expr->known_list_length;
+    // n=1 scales each input row to one row: the operator is identity, so drop it.
+    if (scale == 1) return input;
+    // n=0 scales every input row to zero rows: the result is empty.
+    if (scale == 0) return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::EmptyResult>(input));
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::CardinalityScale>(input, scale));
   }
 };
 

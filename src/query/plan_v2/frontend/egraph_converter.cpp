@@ -26,6 +26,7 @@
 #include "query/plan_v2/egraph/child_layout.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/frontend/builder.hpp"
+#include "query/plan_v2/resolve/pre_extraction.hpp"
 #include "query/plan_v2/resolve/resolver.hpp"
 #include "query/plan_v2/resolve/variable_index.hpp"
 #include "query/plan_v2/resolve/variable_set.hpp"
@@ -51,36 +52,7 @@ QueryPlannerContext &QueryPlannerContext::operator=(QueryPlannerContext &&) noex
 
 namespace {
 
-struct PreExtractionData {
-  VariableIndex variable_index;
-  VariableSet referenced_syms;
-};
-
 using enum symbol;
-
-/// One walk of canonical eclass ids: assign VariableIndex bits to Symbol
-/// e-classes and collect Identifier-referenced symbols. O(num_enodes).
-/// TODO: do we care about globally referenced_syms? Or do we need to make
-/// additional consideration for what is referenced by the top-level outputs?
-auto BuildPreExtractionData(EGraph const &core) -> PreExtractionData {
-  PreExtractionData out;
-  boost::container::small_vector<planner::core::EClassId, 32> identifier_referenced;
-  for (auto eclass_id : core.canonical_eclass_ids()) {
-    for (auto enode_id : core.eclass(eclass_id).nodes()) {
-      auto const &enode = core.get_enode(enode_id);
-      auto const sym = enode.symbol();
-      if (sym == Symbol) {
-        out.variable_index.assign(eclass_id);
-      } else if (sym == Identifier && !enode.children().empty()) {
-        // The sym child is canonical: EGraph::emplace canonicalizes children
-        // at insert time and rebuild() re-canonicalizes via canonicalize_in_place().
-        identifier_referenced.push_back(enode.children()[child::identifier::sym]);
-      }
-    }
-  }
-  out.referenced_syms = out.variable_index.to_variable_set(identifier_referenced);
-  return out;
-}
 
 /// Singleton invariant: each Symbol e-class corresponds to one variable.
 /// Compile-time guard on Symbol's shape + debug-build check that no rewrite
@@ -151,6 +123,7 @@ auto BuildOperatorTree(auto const &impl, QueryPlannerContext::Impl &ctx) -> Buil
       .named_output_info = impl.graph.template storage<NamedOutput>().info,
       .symbol_store = impl.graph.template storage<Symbol>().store,
       .function_info = impl.graph.template storage<Function>().info,
+      .egraph = impl.graph.core(),
   };
   auto const resolved_entries = ctx.build.resolved_entries();
   auto built = std::vector<BuildResult>{};
