@@ -83,9 +83,9 @@ auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
     case PropertyValue::Type::Enum:
       return utils::MakeBoundInclusive(kSmallestEnum);
     case PropertyValue::Type::Point2d:
-      return utils::MakeBoundExclusive(kSmallestPoint2d);
+      return utils::MakeBoundInclusive(kSmallestPoint2d);
     case PropertyValue::Type::Point3d:
-      return utils::MakeBoundExclusive(kSmallestPoint3d);
+      return utils::MakeBoundInclusive(kSmallestPoint3d);
     case PropertyValue::Type::VectorIndexId:
       return utils::MakeBoundInclusive(kSmallestVectorIndexId);
   }
