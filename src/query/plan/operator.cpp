@@ -9128,6 +9128,10 @@ class CallProcedureCursor : public Cursor {
       const utils::MemoryTracker::RefusalHandledScope refusal_handled;
       cleanup_.value()();
     }
+    // true == "no live stream, pull a fresh input row first".
+    stream_exhausted = true;
+    call_initializer = false;
+    input_cursor_->Reset();
   }
 
   void Shutdown() override {

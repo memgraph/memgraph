@@ -412,6 +412,68 @@ TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
   EXPECT_EQ(sorted_names(fast), sorted_names(normal));
 }
 
+// `Apply` restarts the subquery branch per input row, so the procedure's cursor must rewind everything
+// on a reset -- its input included -- or every row after the first silently yields nothing.
+TYPED_TEST(InterpreterTest, ProcedureInsideSubqueryRunsForEveryInputRow) {
+  auto baseline = this->Interpret("CALL mg.procedures() YIELD name RETURN count(name) AS c");
+  ASSERT_EQ(baseline.GetResults().size(), 1U);
+  const auto expected_count = baseline.GetResults()[0][0].ValueInt();
+  ASSERT_GT(expected_count, 0);
+  {
+    auto stream = this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name RETURN count(name) AS c } RETURN x, c");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    for (auto &row : stream.GetResults()) {
+      SCOPED_TRACE(row[0].ValueInt());
+      EXPECT_EQ(row[1].ValueInt(), expected_count);
+    }
+  }
+  {
+    // The subquery's LIMIT stops pulling mid-stream, so the reset interrupts a live procedure.
+    auto stream = this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name RETURN name LIMIT 1 } RETURN x, name");
+    EXPECT_EQ(stream.GetResults().size(), 3U);
+  }
+  // Periodic commit is only supported on in-memory storage.
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    // Same restart via the periodic-commit subquery operator; it returns no rows, so check the writes.
+    this->Interpret("MATCH (n) DETACH DELETE n");
+    this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name WITH x, count(name) AS c "
+        "CREATE (:Row {x: x, c: c}) } IN TRANSACTIONS OF 1 ROWS");
+    auto stream = this->Interpret("MATCH (r:Row) RETURN r.x AS x, r.c AS c ORDER BY x");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    for (int64_t i = 0; i < 3; ++i) {
+      SCOPED_TRACE(i);
+      EXPECT_EQ(stream.GetResults()[i][0].ValueInt(), i + 1);
+      EXPECT_EQ(stream.GetResults()[i][1].ValueInt(), expected_count);
+    }
+    this->Interpret("MATCH (n) DETACH DELETE n");
+  }
+}
+
+// Restarting the procedure's cursor restarts everything it feeds on, so a write below it runs per row
+// too. The body without a procedure is the reference; the procedure variant used to run the write once.
+TYPED_TEST(InterpreterTest, WriteBelowProcedureInsideSubqueryRunsForEveryInputRow) {
+  auto count_nodes = [this](const std::string &label) {
+    auto stream = this->Interpret("MATCH (n:" + label + ") RETURN count(n) AS c");
+    return stream.GetResults()[0][0].ValueInt();
+  };
+
+  this->Interpret("MATCH (n) DETACH DELETE n");
+  auto reference = this->Interpret("UNWIND [1, 2, 3] AS x CALL (x) { CREATE (:Ref) WITH x RETURN 1 AS r } RETURN x, r");
+  EXPECT_EQ(reference.GetResults().size(), 3U);
+  EXPECT_EQ(count_nodes("Ref"), 3);
+
+  auto with_procedure = this->Interpret(
+      "UNWIND [1, 2, 3] AS x CALL (x) { CREATE (:Proc) WITH x CALL mg.procedures() YIELD name "
+      "RETURN count(name) AS c } RETURN x, c");
+  EXPECT_EQ(with_procedure.GetResults().size(), 3U);
+  EXPECT_EQ(count_nodes("Proc"), 3);
+
+  this->Interpret("MATCH (n) DETACH DELETE n");
+}
+
 // Column headers from the accessor-free path must be byte-identical to the normal path's (clients
 // rely on stable column names); the two paths derive them via different code (AST names vs. output
 // symbols), so this pins the cases where they could drift.
