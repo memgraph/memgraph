@@ -22,6 +22,10 @@ from typing import List
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 
 def wait_for_server(port: int, delay: float = 0.1) -> float:
@@ -40,7 +44,7 @@ def execute_tester(
     password: str = "",
     check_failure: bool = True,
 ) -> None:
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:
@@ -52,7 +56,7 @@ def execute_tester(
 
 
 def execute_flag_check(binary: str, queries: List[str], expected: int, username: str = "", password: str = "") -> None:
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
 
     args.extend(queries)
     args.append(str(expected))
@@ -64,7 +68,7 @@ def start_memgraph(memgraph_args: List[any]) -> subprocess:
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
 
     return memgraph
 
@@ -124,7 +128,13 @@ def test_init_and_init_data_file(flag_checker_binary: str, tester_binary: str, m
 
 def execute_test(memgraph_binary: str, tester_binary: str, flag_checker_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--metrics-format=OpenMetrics",
+        *PORT_ARGS,
+    ]
 
     # Start the memgraph binary
     with open(os.path.join(os.getcwd(), "dummy_init_file.cypherl"), "w") as temp_file:

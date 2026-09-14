@@ -23,6 +23,10 @@ assertion_queries = [
 ]
 
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 
 def wait_for_server(port, delay=0.1):
@@ -36,10 +40,11 @@ def prepare_memgraph(memgraph_args):
     # Start the memgraph binary
     if "--metrics-format=OpenMetrics" not in memgraph_args:
         memgraph_args = memgraph_args + ["--metrics-format=OpenMetrics"]
+    memgraph_args = memgraph_args + PORT_ARGS
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
     return memgraph
 
 
@@ -55,7 +60,7 @@ def terminate_memgraph(memgraph):
 def execute_tester(
     binary, queries, should_fail=False, failure_message="", username="", password="", check_failure=True
 ):
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:

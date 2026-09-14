@@ -23,6 +23,10 @@ from typing import List
 SCRIPT_DIR = Path(__file__).absolute()
 PROJECT_DIR = SCRIPT_DIR.parents[3]
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 
 def wait_for_server(port, delay=0.1):
@@ -41,7 +45,7 @@ def execute_tester(
     password: str = "",
     check_failure: bool = True,
 ) -> None:
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:
@@ -56,7 +60,7 @@ def start_memgraph(memgraph_args: List[any]) -> subprocess:
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
 
     return memgraph
 
@@ -112,7 +116,13 @@ def test_with_passfile_env_variable(storage_directory: tempfile.TemporaryDirecto
 
 def execute_test(memgraph_binary: str, tester_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--metrics-format=OpenMetrics",
+        *PORT_ARGS,
+    ]
 
     return_to_prev_state = {}
     if "MEMGRAPH_USER" in os.environ:
