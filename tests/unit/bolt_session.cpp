@@ -53,11 +53,14 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   // No trace stream needed; nullptr opts out of the per-message guard.
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return nullptr; }
 
-  // Idle-session-reaper message-in-flight gate hooks. No-ops in this protocol-level unit test: there is
-  // no interpreter behind TestSession, so there is nothing for the reaper to exclude.
-  void SetMessageInFlight() {}
+  // Idle-session-reaper message-in-flight gate hooks. Counters let regression tests verify that each
+  // message cycle both raises and clears the gate (including cycles that end in State::Error).
+  void SetMessageInFlight() { ++set_in_flight_count_; }
 
-  void ClearMessageInFlight() {}
+  void ClearMessageInFlight() { ++clear_in_flight_count_; }
+
+  int set_in_flight_count_ = 0;
+  int clear_in_flight_count_ = 0;
 
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
@@ -1442,6 +1445,49 @@ TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
   EXPECT_EQ(messages[1][1], 0x71);  // RECORD
   ASSERT_GE(messages[2].size(), 2u);
   EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
+
+TEST(BoltSession, ErrorStateClearsMessageInFlight) {
+  // Regression: a Bolt message cycle that ends in State::Error must call ClearMessageInFlight() so
+  // the idle-session reaper can evict or reap the session between messages. Before the fix, the
+  // clear condition in Execute_() omitted State::Error, leaving message_in_flight_ permanently raised
+  // once the session entered the error state. This test verifies the set+clear gate pair fires for
+  // (a) the Idle→Error transition and (b) a subsequent Error→Error (IGNORED) message.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+  output.clear();
+
+  // Capture baselines after init; the HELLO message itself raises+clears the gate once (Init→Idle).
+  const int set_base = session.set_in_flight_count_;
+  const int clear_base = session.clear_in_flight_count_;
+  ASSERT_EQ(set_base, clear_base) << "gate must be balanced after init";
+
+  // Step 1: an invalid RUN drives the session from Idle to Error.
+  // Execute_() raises the gate on entry (Idle case) and must clear it on exit (Error fix).
+  WriteRunRequest(input_stream, kInvalidQuery, true);
+  session.Execute();
+  ASSERT_EQ(session.state_, State::Error);
+  CheckFailureMessage(output);  // clears output
+
+  EXPECT_EQ(session.set_in_flight_count_, set_base + 1) << "SetMessageInFlight must fire on RUN entry";
+  EXPECT_EQ(session.clear_in_flight_count_, clear_base + 1)
+      << "ClearMessageInFlight must fire when cycle ends in Error (regression fix)";
+
+  // Step 2: a further message while already in State::Error is IGNORED; the session stays in Error.
+  // Execute_() raises the gate on entry (Error case) and must clear it on exit (same fix).
+  ExecuteCommand(input_stream, session, init_req, sizeof(init_req));
+  ASSERT_EQ(session.state_, State::Error);
+  {
+    auto to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, ignored_resp, sizeof(ignored_resp));
+  }
+
+  EXPECT_EQ(session.set_in_flight_count_, set_base + 2) << "SetMessageInFlight must fire on Error-state message entry";
+  EXPECT_EQ(session.clear_in_flight_count_, clear_base + 2)
+      << "ClearMessageInFlight must fire when Error-state message cycle ends in Error (regression fix)";
 }
 
 TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {

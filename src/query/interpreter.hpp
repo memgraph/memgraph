@@ -313,6 +313,12 @@ struct CurrentDB {
   // an atomic_bool (no GKInternals::mutex_), so it's safe to call under db_acc_mutex_; the swapped-out
   // Accessor itself is destructed after the lock is released (see db_acc_mutex_).
   void ReleaseDbIfMarked() {
+    // Do not release the gatekeeper accessor while a storage transaction is live: dropping the last
+    // accessor lets the deferred ~Gatekeeper destroy the storage (and its main_lock_) out from under the
+    // ResourceLockGuard that db_transactional_accessor_ still holds -> UAF. The stale transaction is aborted
+    // right after ResetInterpreter (Prepare), and CleanupDBTransaction clears both accessors, so the next
+    // ReleaseDbIfMarked call releases db_acc_ safely.
+    if (db_transactional_accessor_ || execution_db_accessor_) return;
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};

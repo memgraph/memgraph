@@ -164,9 +164,12 @@ class Session {
         return true;  // more data to process
       }
 
-      if (state_ == State::Idle || state_ == State::Close) {
-        // The Bolt message span is over: the session has parked back to Idle (or is closing). Release
-        // the reaper-exclusion gate so an idle session becomes reapable again (no-op when flag off).
+      if (state_ == State::Idle || state_ == State::Close || state_ == State::Error) {
+        // The Bolt message span is over: the session has parked back to Idle, Error, or Close.
+        // An Error-state session between messages is genuinely parked — the next incoming message
+        // re-raises the gate (SetMessageInFlight) before re-entering StateErrorRun, so clearing
+        // here leaves no db_acc_-touching work unguarded. Release the reaper-exclusion gate so
+        // the session becomes reapable / evictable again (no-op when the flag is off).
         impl.ClearMessageInFlight();
       }
 

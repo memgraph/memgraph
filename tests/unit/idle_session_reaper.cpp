@@ -547,4 +547,86 @@ TEST_F(IdleSessionReaperTest, ForceDropDoesNotReleaseAccessorMidExplicitTransact
   }
 }
 
+// NF1 (positive guard): ReleaseDbIfMarked() must NOT release db_acc_ while a storage transaction
+// (db_transactional_accessor_) is live, even when the tenant is marked-for-deletion.
+//
+// Reproduces the UAF scenario the fix prevents: without the guard, dropping the last Accessor lets
+// the deferred ~Gatekeeper destroy the storage (and its main_lock_) out from under the live
+// db_transactional_accessor_ ResourceLockGuard. With the fix, ReleaseDbIfMarked() returns early and
+// db_acc_ stays held until the transaction is cleaned up by the next Prepare or the destructor.
+//
+// Precondition established via the real code path: Prepare() calls SetupDatabaseTransaction() during
+// its own execution (interpreter.cpp line ~10874), which sets db_transactional_accessor_ before
+// returning. Not pulling the stream leaves the storage transaction open.
+TEST_F(IdleSessionReaperTest, ReleaseDbIfMarkedKeepsAccessorWhileTransactionLive) {
+  const std::string db_name = "reap_nf1_guard";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+  interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
+
+  // Open a storage transaction via the real Prepare path (SetupDatabaseTransaction is called inside
+  // Prepare for autocommit data queries). Intentionally do NOT pull: the transaction stays live.
+  auto [stream, qid] = interpreter.Prepare("MATCH (n) RETURN count(n)");
+
+  // Confirm the precondition: a storage transaction accessor is now live.
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_transactional_accessor_)
+      << "precondition: Prepare must have opened db_transactional_accessor_";
+
+  // Mark the in-map gatekeeper for deletion (mirrors the Delete_() critical section in R11).
+  {
+    auto dying_acc = DBMS().Get(db_name);
+    dying_acc.prepare_for_deletion();
+    // dying_acc released here; is_marked_for_deletion persists on the shared pimpl.
+  }
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_->is_marked_for_deletion())
+      << "precondition: db_acc_ must reflect is_marked_for_deletion after prepare_for_deletion";
+
+  // Exercise the fix: the guard must bail out without releasing db_acc_.
+  interpreter.interpreter.current_db_.ReleaseDbIfMarked();
+
+  EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "NF-1 fix: db_acc_ must NOT be released while db_transactional_accessor_ is live";
+  EXPECT_TRUE(interpreter.interpreter.current_db_.current_db_name_.has_value())
+      << "NF-1 fix: current_db_name_ must be kept when the release is suppressed by the guard";
+
+  // ~InterpreterFaker -> ~Interpreter -> Abort() -> CleanupDBTransaction(true) aborts and resets
+  // db_transactional_accessor_, then db_acc_ is released safely in ~CurrentDB.
+}
+
+// NF1 (control): the same marked-for-deletion tenant with NO live storage transaction IS released
+// by ReleaseDbIfMarked(). This proves that the guard in the positive test (above) is what makes the
+// difference — not that ReleaseDbIfMarked() simply never releases.
+TEST_F(IdleSessionReaperTest, ReleaseDbIfMarkedReleasesAccessorWhenNoTransactionLive) {
+  const std::string db_name = "reap_nf1_ctrl";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+  interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
+
+  // Confirm no storage transaction is open (no Prepare has been called yet).
+  ASSERT_FALSE(interpreter.interpreter.current_db_.db_transactional_accessor_)
+      << "precondition: db_transactional_accessor_ must be null before any query";
+
+  // Mark the in-map gatekeeper for deletion (same mechanism as R11 and NF1 positive test).
+  {
+    auto dying_acc = DBMS().Get(db_name);
+    dying_acc.prepare_for_deletion();
+  }
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_->is_marked_for_deletion())
+      << "precondition: db_acc_ must reflect is_marked_for_deletion after prepare_for_deletion";
+
+  // Without a live transaction the guard does not fire: db_acc_ is released and identity cleared.
+  interpreter.interpreter.current_db_.ReleaseDbIfMarked();
+
+  EXPECT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "control: db_acc_ must be released when no storage transaction is live";
+  EXPECT_FALSE(interpreter.interpreter.current_db_.current_db_name_.has_value())
+      << "control: current_db_name_ must be cleared when ReleaseDbIfMarked releases the accessor";
+}
+
 #endif  // MG_ENTERPRISE

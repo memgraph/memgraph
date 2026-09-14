@@ -11455,10 +11455,12 @@ void Interpreter::SetMessageInFlight() noexcept {
 
 void Interpreter::ClearMessageInFlight() noexcept {
   if (!flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) return;
-  message_in_flight_.store(false, std::memory_order_seq_cst);
-  // Parking back to Idle: stamp the idle clock so the reaper measures idle from last message
-  // completion, not from connect time (MarkReapable stamps once at connect, not per message).
+  // Stamp the idle clock BEFORE clearing the gate: the seq_cst store of message_in_flight_ below
+  // carries release semantics, so any reaper that observes message_in_flight_==false also sees
+  // this timestamp. (Measuring idle from last message completion, not connect time —
+  // MarkReapable stamps once at connect, not per message.)
   last_activity_ns_.store(SteadyNowNs(), std::memory_order_relaxed);
+  message_in_flight_.store(false, std::memory_order_seq_cst);
 }
 
 #ifdef MG_ENTERPRISE
