@@ -11385,11 +11385,13 @@ void Interpreter::Abort() {
     db_arena_scope.emplace(current_db_.db_acc_->get());
   }
 
-  // if (!current_db_.db_transactional_accessor_) return;
-  current_db_.CleanupDBTransaction(true);
+  // Plans hold cursors that read the transaction and can run module code as they go away, so they
+  // have to be released while the accessor they were built against is still there.
   for (auto &qe : query_executions_) {
     if (qe) qe->CleanRuntimeData();
   }
+  // if (!current_db_.db_transactional_accessor_) return;
+  current_db_.CleanupDBTransaction(true);
   frame_change_collector_.reset();
 }
 

@@ -551,17 +551,31 @@ void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe)
 // the registry befriends.
 class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemoryStorage> {
  protected:
+  // The probes outlive the test body on purpose: a stream left live at the end of a test is torn
+  // down from `TearDown`, and the cleanup that runs then writes to the probe it was registered with.
+  BatchedProbe probe;
+  BatchedProbe lower;
+  BatchedProbe upper;
+
   void RegisterProbes(std::initializer_list<std::pair<const char *, BatchedProbe *>> probes) {
     auto module = std::make_unique<ProbeModule>();
-    for (auto [name, probe] : probes) {
-      AddBatchedProbe(*module, name, probe);
+    for (auto [name, p] : probes) {
+      AddBatchedProbe(*module, name, p);
     }
-    procedure::gModuleRegistry.RegisterModule("probe_module", std::move(module));
+    const std::unique_lock registry_lock{procedure::gModuleRegistry.lock_};
+    ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_module", std::move(module)));
   }
+
+  // Set by a test that ends with a stream still live, to pin where that stream is torn down.
+  bool expect_teardown_to_clean_up{false};
 
   void TearDown() override {
     // A test that stops mid-query leaves the plan, and with it the module's shared_ptr, alive.
+    const auto cleanups_before = probe.cleanups;
     default_interpreter.Abort();
+    if (expect_teardown_to_clean_up) {
+      EXPECT_EQ(probe.cleanups, cleanups_before + 1);
+    }
     procedure::gModuleRegistry.UnloadAllModules();
     InterpreterTest<memgraph::storage::InMemoryStorage>::TearDown();
   }
@@ -571,8 +585,6 @@ class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemory
 // has to be torn down. Teardown that ran a second cleanup from a destructor while the first was
 // unwinding aborted the process instead.
 TEST_F(ProcedureTeardownTest, ThrowingProcedureCleanupFailsTheQueryInsteadOfTheProcess) {
-  BatchedProbe lower;
-  BatchedProbe upper;
   lower.rows_per_stream = 4;
   upper.rows_per_stream = 4;
   RegisterProbes({{"lower", &lower}, {"upper", &upper}});
@@ -596,7 +608,6 @@ TEST_F(ProcedureTeardownTest, ThrowingProcedureCleanupFailsTheQueryInsteadOfTheP
 // A query that ends in an exception never reaches `Shutdown`, so without a teardown of its own the
 // module keeps the stream's state long after the query that started it is gone.
 TEST_F(ProcedureTeardownTest, ProcedureStreamIsTornDownWhenTheQueryFails) {
-  BatchedProbe probe;
   RegisterProbes({{"probe", &probe}});
 
   // The division fails on the first row, with rows of the stream still unread.
@@ -610,13 +621,45 @@ TEST_F(ProcedureTeardownTest, ProcedureStreamIsTornDownWhenTheQueryFails) {
 // One initializer, one cleanup: a reset defers the teardown to the next pull rather than doing it
 // itself, and no later teardown repeats it.
 TEST_F(ProcedureTeardownTest, ProcedureRunsOneCleanupPerInitializer) {
-  BatchedProbe probe;
   RegisterProbes({{"probe", &probe}});
 
   // The subquery restarts the procedure per input row, and its `LIMIT` leaves every stream live.
   Interpret("UNWIND [1, 2, 3] AS x CALL (x) { CALL probe_module.probe() YIELD num RETURN num LIMIT 1 } RETURN x, num");
   EXPECT_EQ(probe.inits, 3);
   EXPECT_EQ(probe.cleanups, 3);
+}
+
+// Rolling back is the other way a query ends without reaching `Shutdown`. The plan is released while
+// the transaction it reads is still open, so the cleanup does not run against a dead accessor.
+TEST_F(ProcedureTeardownTest, ProcedureStreamIsTornDownWhenTheTransactionRollsBack) {
+  probe.rows_per_stream = 4;
+  RegisterProbes({{"probe", &probe}});
+
+  Interpret("BEGIN");
+  auto [stream, qid] = Prepare("CALL probe_module.probe() YIELD num RETURN num");
+  Pull(&stream, 1, qid);
+  ASSERT_EQ(probe.inits, 1);
+  ASSERT_GT(probe.remaining, 0);
+
+  Interpret("ROLLBACK");
+  // Only the cleanup clears what the initializer set up, so this is the teardown, not a count that
+  // some other cleanup site could also have produced.
+  EXPECT_EQ(probe.remaining, 0);
+  EXPECT_EQ(probe.cleanups, probe.inits);
+}
+
+// A stream left live when the test ends is torn down from `TearDown`, after the test body's locals
+// are gone. The cleanup writes to its probe as it goes, so the probe has to outlive the body.
+TEST_F(ProcedureTeardownTest, ProcedureStreamOutlivesTheQueryUntilTheInterpreterIsAborted) {
+  probe.rows_per_stream = 4;
+  RegisterProbes({{"probe", &probe}});
+  expect_teardown_to_clean_up = true;
+
+  Interpret("BEGIN");
+  auto [stream, qid] = Prepare("CALL probe_module.probe() YIELD num RETURN num");
+  Pull(&stream, 1, qid);
+  ASSERT_EQ(probe.inits, 1);
+  ASSERT_GT(probe.remaining, 0);
 }
 
 // Column headers from the accessor-free path must be byte-identical to the normal path's (clients
