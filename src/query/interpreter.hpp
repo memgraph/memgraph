@@ -640,6 +640,14 @@ class Interpreter final {
   // Returns true iff it reaped.
   bool TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns);
 
+  // Force-releases this session's DB accessor if it is bound to `dropped_db_name`, regardless of idle
+  // time — used by DROP DATABASE ... FORCE to evict idle-pinned sessions so the tenant drains promptly.
+  // Uses the same IDLE->REAPING handshake as TryReapIdleDbAccessor (tear-safe vs a concurrent Bolt
+  // message); an ACTIVE session fails the CAS and is skipped (it is separately TerminateTransactions'd,
+  // then caught once idle). current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next
+  // query; the marked-for-deletion guard then keeps it db-less. Returns true iff it released.
+  bool TryReleaseDbAccessorForDrop(std::string_view dropped_db_name);
+
   // Re-acquire db_acc_ if the reaper released it while parked. No-op if held or db-less; on a
   // recycled/dropped tenant falls back to a db-less session.
   void EnsureDbAccessForQuery();

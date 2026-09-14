@@ -479,4 +479,72 @@ TEST_F(IdleSessionReaperTest, ConcurrentReaperVsSessionQueries) {
   }
 }
 
+// F1: TryReleaseDbAccessorForDrop releases the idle accessor when the session is pinned on the
+// dropped DB. current_db_name_ is retained so EnsureDbAccessForQuery can detect the stale name on
+// the next query and fall back to db-less via the marked-for-deletion guard.
+TEST_F(IdleSessionReaperTest, ForceDropReleasesIdleAccessorForMatchingDb) {
+  const std::string db_name = "reap_f1";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+  interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
+
+  EXPECT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_name));
+  EXPECT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "accessor must be released when the dropped DB matches the session's current DB";
+
+  // current_db_name_ is kept (ReleaseDbAccessor does not clear it) so the next query can re-check
+  // the tenant and detect the pending drop via is_marked_for_deletion().
+  EXPECT_TRUE(interpreter.interpreter.current_db_.current_db_name_.has_value())
+      << "current_db_name_ must be retained after TryReleaseDbAccessorForDrop";
+  EXPECT_EQ(*interpreter.interpreter.current_db_.current_db_name_, db_name);
+}
+
+// F2: TryReleaseDbAccessorForDrop does NOT release a session that is pinned on a DIFFERENT database.
+// The session's accessor must remain held; only the session whose current DB name matches the
+// dropped name is a candidate for release.
+TEST_F(IdleSessionReaperTest, ForceDropDoesNotReleaseAccessorForDifferentDb) {
+  const std::string db_name = "reap_f2";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+  interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
+
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop("some_other_db_not_this_one"))
+      << "must not release an accessor when the dropped name does not match the session's current DB";
+  EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "accessor must remain held when the dropped DB name differs from the session's DB";
+}
+
+// F3: TryReleaseDbAccessorForDrop does NOT release a session that is inside an explicit transaction.
+// Mirrors R5 (DoesNotReapMidExplicitTransaction): after BEGIN the transaction_status_ is ACTIVE, so
+// the IDLE->REAPING CAS fails and the method returns false without touching db_acc_.
+TEST_F(IdleSessionReaperTest, ForceDropDoesNotReleaseAccessorMidExplicitTransaction) {
+  const std::string db_name = "reap_f3";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+  interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
+
+  {
+    auto [stream, qid] = interpreter.Prepare("BEGIN");
+    interpreter.Pull(&stream);
+  }
+  // Inside an explicit transaction transaction_status_ is ACTIVE, so the IDLE->REAPING CAS fails.
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_name))
+      << "must not release from a session that is in an explicit transaction";
+  EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "accessor must remain held for an in-flight explicit transaction";
+
+  {
+    auto [stream, qid] = interpreter.Prepare("COMMIT");
+    interpreter.Pull(&stream);
+  }
+}
+
 #endif  // MG_ENTERPRISE
