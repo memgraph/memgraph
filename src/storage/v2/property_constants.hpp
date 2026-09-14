@@ -52,7 +52,11 @@ static const auto kLargestProperty = PropertyValue(Point3d{CoordinateReferenceSy
                                                            std::numeric_limits<double>::quiet_NaN(),
                                                            std::numeric_limits<double>::quiet_NaN()});
 
-// We statically verify that the ordering of the property values holds.
+// The types below are placed in the order their enumerators are numbered in, so
+// the numbering is checked here rather than trusted. The three that pack a
+// list's elements are absent on purpose: each holds what a boxed list holds and
+// is placed where a list is placed, which their numbering does not say and a
+// test asserts instead.
 static_assert(PropertyValue::Type::Null < PropertyValue::Type::Bool);
 static_assert(PropertyValue::Type::Bool < PropertyValue::Type::Int);
 static_assert(PropertyValue::Type::Int < PropertyValue::Type::Double);
