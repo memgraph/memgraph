@@ -18,10 +18,12 @@ env:
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
+run-name: Runner Cache Warmup
+
 jobs:
   cache-warmup:
     #if: ${{ inputs.name != "" }}
-    runs-on: [self-hosted, Linux, DockerMgBuild, galactus]
+    runs-on: [self-hosted, Linux, galactus]
     timeout-minutes: 120
     steps:
       - name: Set up repository
