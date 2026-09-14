@@ -60,6 +60,7 @@ struct egraph {
   }
 
   auto MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass;
+  auto MakeFilter(eclass input, eclass predicate) -> eclass;
   auto MakeSubquery(eclass outer_input, eclass inner_root, std::span<eclass const> exposed_syms) -> eclass;
 
   auto MakeSubquery(eclass outer_input, eclass inner_root, std::initializer_list<eclass> exposed_syms) -> eclass {

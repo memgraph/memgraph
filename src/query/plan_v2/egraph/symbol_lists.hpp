@@ -55,7 +55,9 @@
   /* CALL { ... } subquery: variadic [outer_input, inner_root, exposed_sym_1, ...]. */ \
   /* Acts as a scope barrier: inner's introduces are stripped at the boundary; */      \
   /* only the explicit exposed_sym children become visible to the outer scope. */      \
-  X(Subquery)
+  X(Subquery)                                                                          \
+  /* WHERE filter: 2 children [input, predicate_expr]; introduces no binding. */       \
+  X(Filter)
 
 #define EGRAPH_ALL_SYMBOLS(X) \
   EGRAPH_LEAF_SYMBOLS(X)      \
@@ -74,7 +76,8 @@
   X(Bind)                          \
   X(Output)                        \
   X(Unwind)                        \
-  X(Subquery)
+  X(Subquery)                      \
+  X(Filter)
 
 // Symbol: e-class denotes a binding. Singleton by invariant.
 #define EGRAPH_SYMBOL_KIND_SYMBOLS(X) X(Symbol)
