@@ -511,6 +511,43 @@ TEST(PropertyStore, IntEncoding) {
   }
 }
 
+TEST(PropertyStore, IsPropertyEqualReadsANaNAsTheDecodedComparisonDoes) {
+  // A stored value is compared without decoding it, and an index confirms the
+  // entry it lands on that way. Answering a NaN differently from the decoded
+  // comparison leaves an entry the index can reach but not confirm.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const prop = PropertyId::FromInt(42);
+
+  auto const holds = [&](PropertyValue const &stored, PropertyValue const &probe) {
+    PropertyStore props;
+    props.SetProperty(prop, stored);
+    return props.IsPropertyEqual(prop, probe);
+  };
+
+  auto const scalar_nan = PropertyValue(nan);
+  EXPECT_EQ(holds(scalar_nan, scalar_nan), scalar_nan == scalar_nan);
+  EXPECT_TRUE(holds(scalar_nan, scalar_nan));
+  EXPECT_FALSE(holds(scalar_nan, PropertyValue(1.0)));
+  EXPECT_FALSE(holds(PropertyValue(1.0), scalar_nan));
+
+  // The same over the representations a list of numbers is kept in, since each
+  // reads its elements by a route of its own.
+  auto const boxed = PropertyValue{std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(nan)}};
+  auto const packed =
+      PropertyValue{DoubleListTag{}, std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(nan)}};
+  EXPECT_EQ(holds(boxed, boxed), boxed == boxed);
+  EXPECT_TRUE(holds(boxed, boxed));
+  EXPECT_TRUE(holds(packed, packed));
+  EXPECT_TRUE(holds(boxed, packed));
+  EXPECT_TRUE(holds(packed, boxed));
+
+  // And over a point, whose coordinates are read as doubles of their own.
+  auto const point = PropertyValue(Point2d{WGS84_2d, 1.0, nan});
+  EXPECT_EQ(holds(point, point), point == point);
+  EXPECT_TRUE(holds(point, point));
+  EXPECT_FALSE(holds(point, PropertyValue(Point2d{WGS84_2d, 1.0, 2.0})));
+}
+
 TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
