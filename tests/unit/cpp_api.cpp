@@ -12,6 +12,8 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
+#include <unordered_set>
+
 #include "disk_test_utils.hpp"
 #include "flags/experimental.hpp"
 #include "mg_procedure.h"
@@ -1794,4 +1796,138 @@ TYPED_TEST(CppApiTestFixture, TestEnum) {
   // Hash
   ASSERT_EQ(std::hash<mgp::Enum>{}(e_1), std::hash<mgp::Enum>{}(e_2));
   ASSERT_NE(std::hash<mgp::Enum>{}(e_1), std::hash<mgp::Enum>{}(e_3));
+}
+
+// Builds {a: 1, b: "x"}, optionally inserting the keys in reverse.
+namespace {
+mgp::Map TwoKeyMap(bool reversed = false) {
+  mgp::Map map{};
+  auto one = mgp::Value(int64_t{1});
+  auto x = mgp::Value("x");
+  if (reversed) {
+    map.Insert("b", x);
+    map.Insert("a", one);
+  } else {
+    map.Insert("a", one);
+    map.Insert("b", x);
+  }
+  return map;
+}
+
+mgp::Map SingleKeyMap(std::string_view key, const mgp::Value &value) {
+  mgp::Map map{};
+  map.Insert(key, value);
+  return map;
+}
+
+// The same items in a map whose storage is hashed rather than sorted, so it iterates in another order.
+mgp::Map UnorderedMap(const mgp::Map &items) {
+  mgp::Map map{mgp::MemHandlerCallback(mgp::unordered_map_make_empty), mgp::StealType{}};
+  for (const auto &item : items) {
+    map.Insert(item.key, item.value);
+  }
+  return map;
+}
+
+mgp::Map ManyKeyMap() {
+  mgp::Map map{};
+  for (const auto *key : {"alpha", "beta", "gamma", "delta", "epsilon", "zeta"}) {
+    map.Insert(key, mgp::Value(std::string_view(key)));
+  }
+  return map;
+}
+}  // namespace
+
+TYPED_TEST(CppApiTestFixture, TestMapEquivalence) {
+  ASSERT_EQ(TwoKeyMap(), TwoKeyMap(true));
+  ASSERT_EQ(mgp::Map(), mgp::Map());
+
+  const auto one = mgp::Value(int64_t{1});
+  const auto two = mgp::Value(int64_t{2});
+  ASSERT_NE(SingleKeyMap("a", one), SingleKeyMap("a", two));
+  ASSERT_NE(SingleKeyMap("a", one), SingleKeyMap("b", one));
+  ASSERT_NE(SingleKeyMap("a", one), TwoKeyMap());
+
+  // Numbers compare across int and float, here nested in a map.
+  ASSERT_EQ(SingleKeyMap("a", one), SingleKeyMap("a", mgp::Value(1.0)));
+
+  // Nested maps recurse.
+  ASSERT_EQ(SingleKeyMap("outer", mgp::Value(SingleKeyMap("a", one))),
+            SingleKeyMap("outer", mgp::Value(SingleKeyMap("a", one))));
+  ASSERT_NE(SingleKeyMap("outer", mgp::Value(SingleKeyMap("a", one))),
+            SingleKeyMap("outer", mgp::Value(SingleKeyMap("a", two))));
+
+  // Under equivalence two nulls are the same value, so these maps are equivalent.
+  ASSERT_EQ(SingleKeyMap("a", mgp::Value()), SingleKeyMap("a", mgp::Value()));
+  // A key holding null is still a different key set from one holding a value.
+  ASSERT_NE(SingleKeyMap("a", mgp::Value()), SingleKeyMap("b", two));
+  ASSERT_NE(SingleKeyMap("a", mgp::Value()), SingleKeyMap("a", two));
+}
+
+TYPED_TEST(CppApiTestFixture, TestMapHash) {
+  // Equal maps must hash alike however their storage iterates, so compare the sorted storage against
+  // the hashed one, which walks the same items in a different order.
+  ASSERT_EQ(std::hash<mgp::Map>{}(ManyKeyMap()), std::hash<mgp::Map>{}(UnorderedMap(ManyKeyMap())));
+  ASSERT_EQ(ManyKeyMap(), UnorderedMap(ManyKeyMap()));
+  ASSERT_EQ(std::hash<mgp::Map>{}(TwoKeyMap()), std::hash<mgp::Map>{}(TwoKeyMap(true)));
+
+  const auto one = mgp::Value(int64_t{1});
+  const auto two = mgp::Value(int64_t{2});
+
+  // Same shape, different values: hashing the values too is what keeps these out of one bucket.
+  ASSERT_NE(std::hash<mgp::Map>{}(SingleKeyMap("a", one)), std::hash<mgp::Map>{}(SingleKeyMap("a", two)));
+
+  std::unordered_set<mgp::Value> values;
+  values.insert(mgp::Value(TwoKeyMap()));
+  values.insert(mgp::Value(TwoKeyMap(true)));
+  values.insert(mgp::Value(SingleKeyMap("a", mgp::Value())));
+  values.insert(mgp::Value(SingleKeyMap("a", mgp::Value())));
+  values.insert(mgp::Value(SingleKeyMap("a", one)));
+  ASSERT_EQ(values.size(), 3);
+}
+
+TYPED_TEST(CppApiTestFixture, TestValueMatches) {
+  const auto one = mgp::Value(int64_t{1});
+  const auto two = mgp::Value(int64_t{2});
+
+  // Away from a null, matching answers exactly as equivalence does.
+  ASSERT_TRUE(one.Matches(mgp::Value(int64_t{1})));
+  ASSERT_TRUE(one.Matches(mgp::Value(1.0)));
+  ASSERT_FALSE(one.Matches(two));
+  ASSERT_FALSE(one.Matches(mgp::Value("1")));
+  ASSERT_TRUE(mgp::Value(TwoKeyMap()).Matches(mgp::Value(TwoKeyMap(true))));
+
+  // Two nulls match, unlike under equality, so a list holding one matches itself.
+  const auto null = mgp::Value();
+  ASSERT_TRUE(null.Matches(mgp::Value()));
+  ASSERT_FALSE(null.Matches(one));
+  ASSERT_FALSE(one.Matches(null));
+
+  // The direction: a key the subject holds null matches one the other side simply lacks, and the
+  // reverse does not. This is the whole of what separates contains from index_of.
+  const auto null_valued = mgp::Value(SingleKeyMap("a", mgp::Value()));
+  const auto other_keyed = mgp::Value(SingleKeyMap("b", two));
+  ASSERT_TRUE(null_valued.Matches(other_keyed));
+  ASSERT_FALSE(other_keyed.Matches(null_valued));
+  // Equivalence stays symmetric, which is what the hash agrees with.
+  ASSERT_NE(null_valued, other_keyed);
+
+  // Equal sizes keep a map from matching a larger one just by holding nulls.
+  mgp::Map two_keys{};
+  two_keys.Insert("a", mgp::Value());
+  two_keys.Insert("b", mgp::Value());
+  ASSERT_FALSE(mgp::Value(std::move(two_keys)).Matches(other_keyed));
+
+  mgp::List with_null{};
+  with_null.AppendExtend(null);
+  mgp::List with_null_again{};
+  with_null_again.AppendExtend(null);
+  ASSERT_TRUE(mgp::Value(std::move(with_null)).Matches(mgp::Value(std::move(with_null_again))));
+
+  mgp::List longer{};
+  longer.AppendExtend(one);
+  longer.AppendExtend(two);
+  mgp::List shorter{};
+  shorter.AppendExtend(one);
+  ASSERT_FALSE(mgp::Value(std::move(longer)).Matches(mgp::Value(std::move(shorter))));
 }

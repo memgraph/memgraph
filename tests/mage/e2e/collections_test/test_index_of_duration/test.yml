@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.index_of([duration('P1D')], duration('P1D')) AS result;
+
+output:
+  - result: 0

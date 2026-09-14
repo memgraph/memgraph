@@ -1,0 +1,5 @@
+query: >
+  RETURN size(collections.to_set([{a: 1}, {a: 2}])) AS result;
+
+output:
+  - result: 2

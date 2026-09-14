@@ -10,6 +10,7 @@
   "apoc.coll.duplicates": "collections.duplicates",
   "apoc.coll.flatten": "collections.flatten",
   "apoc.coll.frequenciesAsMap": "collections.frequencies_as_map",
+  "apoc.coll.indexOf": "collections.index_of",
   "apoc.coll.intersection": "collections.intersection",
   "apoc.coll.max": "collections.max",
   "apoc.coll.min": "collections.min",
