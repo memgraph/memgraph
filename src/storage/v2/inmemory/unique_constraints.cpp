@@ -23,6 +23,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/counter.hpp"
@@ -45,6 +46,9 @@ auto DoValidate(const Vertex &vertex,
   }
   auto values = vertex.properties.ExtractPropertyValues(properties);
   if (!values) {
+    return {};
+  }
+  if (!EveryValueEqualsItself(*values)) {
     return {};
   }
 
@@ -346,7 +350,7 @@ void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vert
       // therefore the constraint is already registered/validated and we don't need to check status
       auto values = vertex->properties.ExtractPropertyValues(props);
 
-      if (!values) {
+      if (!values || !EveryValueEqualsItself(*values)) {
         continue;
       }
 
@@ -654,7 +658,7 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
       for (const auto &[properties, individual_constraint] : constraint->second) {
         auto value_array = vertex->properties.ExtractPropertyValues(properties);
 
-        if (!value_array) {
+        if (!value_array || !EveryValueEqualsItself(*value_array)) {
           continue;
         }
 
