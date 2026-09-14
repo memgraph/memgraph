@@ -1,7 +1,6 @@
 name: Runner Cache Warmup
 
 on:
-  push:  # TODO(matt): remove before merge
   workflow_dispatch:
     inputs:
       runner:
@@ -22,9 +21,9 @@ run-name: Runner Cache Warmup
 
 jobs:
   cache-warmup:
-    #if: ${{ inputs.name != "" }}
-    runs-on: [self-hosted, Linux, galactus]
-    timeout-minutes: 120
+    if: ${{ inputs.name != "" }}
+    runs-on: [self-hosted, Linux, '${{ inputs.name }}']
+    timeout-minutes: 180
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
