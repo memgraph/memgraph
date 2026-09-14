@@ -331,8 +331,8 @@ TEST(HotColdGatekeeper, TryExclusivelyNonBlockingFailsFast) {
 }
 
 // prepare_for_deletion() sets the advisory seal; access() still mints in HOT
-// regardless of the seal (advisory, not a hard gate); unseal() clears it.
-TEST(HotColdGatekeeper, SealIsAdvisoryAndUnsealClears) {
+// regardless of the seal (advisory, not a hard gate).
+TEST(HotColdGatekeeper, SealIsAdvisory) {
   auto gk = make_hot();
 
   EXPECT_EQ(gk.is_marked_for_deletion(), std::optional<bool>{false});
@@ -352,14 +352,4 @@ TEST(HotColdGatekeeper, SealIsAdvisoryAndUnsealClears) {
   auto b = gk.access();
   ASSERT_TRUE(b.has_value());
   EXPECT_FALSE(bool(*b));
-
-  a->reset();
-  b->reset();
-  gk.unseal();
-
-  EXPECT_EQ(gk.is_marked_for_deletion(), std::optional<bool>{false});
-
-  auto c = gk.access();
-  ASSERT_TRUE(c.has_value());
-  EXPECT_TRUE(bool(*c));
 }

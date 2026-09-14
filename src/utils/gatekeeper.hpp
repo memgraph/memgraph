@@ -399,16 +399,9 @@ struct Gatekeeper {
     return std::nullopt;
   }
 
-  // Rolls back a deletion seal: mark was set but ownership never transferred to the teardown
-  // worker. access() is intentionally ungated on this flag (checked via Accessor::operator bool).
-  void unseal() {
-    auto guard = std::unique_lock{pimpl_->mutex_};
-    pimpl_->is_marked_for_deletion = false;
-  }
-
-  // Sets the deletion seal WITHOUT an Accessor — symmetric counterpart to unseal(). Call only after
-  // all own Accessors are released and all fallible drop work has succeeded (the seal is the last,
-  // non-throwing step before ownership is handed to the teardown worker).
+  // Sets the deletion seal WITHOUT an Accessor — the drop path's last non-throwing step before
+  // ownership transfers to the teardown worker. Call only after all own Accessors are released and
+  // all fallible drop work has succeeded.
   void seal() {
     auto guard = std::unique_lock{pimpl_->mutex_};
     pimpl_->is_marked_for_deletion = true;
