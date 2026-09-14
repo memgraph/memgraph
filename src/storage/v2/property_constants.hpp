@@ -21,6 +21,11 @@ static const auto kSmallestBool = PropertyValue(false);
 // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
 static const auto kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
+// A NaN sorts above every other number and alongside every other NaN, so one of
+// them names the point a range over the numbers has to stop at: every
+// comparison against a NaN is false, and a range built from a comparison must
+// not reach one.
+static const auto kSmallestNaN = PropertyValue(std::numeric_limits<double>::quiet_NaN());
 static const auto kSmallestString = PropertyValue("");
 static const auto kSmallestList = PropertyValue(std::vector<PropertyValue>());
 static const auto kSmallestMap = PropertyValue(PropertyValue::map_t{});
