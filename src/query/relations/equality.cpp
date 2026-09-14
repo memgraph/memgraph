@@ -12,21 +12,44 @@
 #include "query/relations/equality.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace memgraph::query::relations::equality {
 
-bool HoldsANull(const TypedValue &value) {
+namespace {
+
+/// Whether any value held within this one, however deeply nested, answers the
+/// predicate. A container is walked; anything else is asked directly.
+///
+/// The walk is written once because the questions asked of it differ only in
+/// the leaf: a caller wanting two of them answered would otherwise walk the
+/// same value twice.
+bool AnyValueWithin(const TypedValue &value, auto const &holds) {
   switch (value.type()) {
-    case TypedValue::Type::Null:
-      return true;
     case TypedValue::Type::List:
-      return std::ranges::any_of(value.UnsafeValueList(), [](auto const &element) { return HoldsANull(element); });
+      return std::ranges::any_of(value.UnsafeValueList(),
+                                 [&](auto const &element) { return AnyValueWithin(element, holds); });
     case TypedValue::Type::Map:
-      return std::ranges::any_of(value.UnsafeValueMap(), [](auto const &entry) { return HoldsANull(entry.second); });
+      return std::ranges::any_of(value.UnsafeValueMap(),
+                                 [&](auto const &entry) { return AnyValueWithin(entry.second, holds); });
     default:
-      return false;
+      return holds(value);
   }
 }
+
+constexpr auto kIsNull = [](const TypedValue &value) { return value.IsNull(); };
+
+/// The two values equality does not hold equal to themselves, for its two
+/// reasons: a Null leaves the pair undecided, a NaN answers false.
+constexpr auto kIsUndecidable = [](const TypedValue &value) {
+  return value.IsNull() || (value.type() == TypedValue::Type::Double && std::isnan(value.UnsafeValueDouble()));
+};
+
+}  // namespace
+
+bool HoldsANull(const TypedValue &value) { return AnyValueWithin(value, kIsNull); }
+
+bool EqualsItself(const TypedValue &value) { return !AnyValueWithin(value, kIsUndecidable); }
 
 bool HoldsANull(const storage::PropertyValue &value) {
   switch (value.type()) {

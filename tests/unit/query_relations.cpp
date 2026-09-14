@@ -420,6 +420,31 @@ TEST(Equality, HoldsANullSeesThroughAContainer) {
   EXPECT_FALSE(equality::HoldsANull(TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1})})));
 }
 
+TEST(Equality, EqualsItselfIsFalseForTheValuesEqualityCannotDecide) {
+  auto const nan = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  // The two values equality does not hold equal to themselves, for its two
+  // different reasons: a Null leaves the pair undecided, a NaN answers false.
+  EXPECT_FALSE(equality::EqualsItself(TypedValue()));
+  EXPECT_FALSE(equality::EqualsItself(nan));
+  EXPECT_TRUE(equality::Equal(nan, nan).IsBool());
+  EXPECT_FALSE(equality::Equal(nan, nan).ValueBool());
+
+  // A container carrying either is undecidable for the same reason.
+  EXPECT_FALSE(equality::EqualsItself(TypedValue(std::vector<TypedValue>{TypedValue()})));
+  EXPECT_FALSE(equality::EqualsItself(TypedValue(std::vector<TypedValue>{TypedValue(1.0), nan})));
+  EXPECT_FALSE(equality::EqualsItself(TypedValue(std::vector<TypedValue>{TypedValue(std::vector<TypedValue>{nan})})));
+  EXPECT_FALSE(equality::EqualsItself(TypedValue(std::map<std::string, TypedValue>{{"a", nan}})));
+
+  // Every other value is equal to itself, which is what lets a container keyed
+  // by equivalence answer an equality at all.
+  EXPECT_TRUE(equality::EqualsItself(TypedValue(int64_t{1})));
+  EXPECT_TRUE(equality::EqualsItself(TypedValue(1.0)));
+  EXPECT_TRUE(equality::EqualsItself(TypedValue(std::numeric_limits<double>::infinity())));
+  EXPECT_TRUE(equality::EqualsItself(TypedValue("a")));
+  EXPECT_TRUE(equality::EqualsItself(TypedValue(std::vector<TypedValue>{TypedValue(1.0), TypedValue(2.0)})));
+}
+
 // Equivalence, the two-valued one a hash container is keyed by
 
 TEST(Equivalence, HoldsANullEquivalentToANull) {
