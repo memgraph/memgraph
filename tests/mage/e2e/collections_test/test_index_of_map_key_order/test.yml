@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.index_of([{a: 1, b: 2}], {b: 2, a: 1}) AS result;
+
+output:
+  - result: 0
