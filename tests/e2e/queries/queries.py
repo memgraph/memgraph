@@ -333,5 +333,40 @@ def test_an_index_over_a_column_holding_a_nan_answers_as_the_filter_does(memgrap
     assert without_index == [49, 50, 9, 103]
 
 
+def test_equality_against_a_nan_keeps_no_row_however_the_scan_is_planned(memgraph):
+    """A NaN is equal to nothing, itself included, so an equality against one
+    answers null for every row and a filter keeps none. An index orders two NaNs
+    alongside each other so that it can find an entry again, which is a different
+    question, and a scan reading that order for an answer would hand back rows no
+    filter keeps."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("UNWIND range(1, 50) AS i CREATE (:E {p: toFloat(i)});")
+    memgraph.execute("UNWIND range(1, 3) AS i CREATE (:E {p: sqrt(-1)});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    # Each paired with what it must answer. A NaN matches nothing; a number
+    # beside one still matches what it should, so the whole predicate is not
+    # being thrown away.
+    queries_and_answers = [
+        ("MATCH (n:E) WHERE n.p = sqrt(-1) RETURN count(n) AS c;", 0),
+        ("MATCH (n:E) WHERE n.p IN [sqrt(-1)] RETURN count(n) AS c;", 0),
+        ("MATCH (n:E) WHERE n.p IN [1.0, sqrt(-1)] RETURN count(n) AS c;", 1),
+        ("MATCH (a:E), (b:E) WHERE a.p = b.p AND a.p = sqrt(-1) RETURN count(*) AS c;", 0),
+        ("MATCH (n:E) WHERE n.p = 1.0 RETURN count(n) AS c;", 1),
+        ("MATCH (n:E) WHERE n.p IN [1.0, 2.0] RETURN count(n) AS c;", 2),
+    ]
+    expected = [answer for _, answer in queries_and_answers]
+
+    without_index = [count(q) for q, _ in queries_and_answers]
+    assert without_index == expected
+
+    memgraph.execute("CREATE INDEX ON :E(p);")
+
+    assert [count(q) for q, _ in queries_and_answers] == expected
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
