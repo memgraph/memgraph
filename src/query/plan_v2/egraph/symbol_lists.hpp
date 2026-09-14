@@ -57,7 +57,15 @@
   /* only the explicit exposed_sym children become visible to the outer scope. */      \
   X(Subquery)                                                                          \
   /* WHERE filter: 2 children [input, predicate_expr]; introduces no binding. */       \
-  X(Filter)
+  X(Filter)                                                                            \
+  /* DISTINCT: variadic [input, value_sym...]; dedup columns. See child_layout. */     \
+  X(Distinct)                                                                          \
+  /* SKIP: 2 children [input, count_expr]. */                                          \
+  X(Skip)                                                                              \
+  /* LIMIT: 2 children [input, count_expr]. */                                         \
+  X(Limit)                                                                             \
+  /* ORDER BY: variadic [input, sort_key..., value_sym...]. See child_layout. */       \
+  X(OrderBy)
 
 #define EGRAPH_ALL_SYMBOLS(X) \
   EGRAPH_LEAF_SYMBOLS(X)      \
@@ -77,7 +85,11 @@
   X(Output)                        \
   X(Unwind)                        \
   X(Subquery)                      \
-  X(Filter)
+  X(Filter)                        \
+  X(Distinct)                      \
+  X(Skip)                          \
+  X(Limit)                         \
+  X(OrderBy)
 
 // Symbol: e-class denotes a binding. Singleton by invariant.
 #define EGRAPH_SYMBOL_KIND_SYMBOLS(X) X(Symbol)

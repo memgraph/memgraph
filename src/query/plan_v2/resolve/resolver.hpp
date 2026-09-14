@@ -211,6 +211,55 @@ struct symbol_resolve_traits<symbol::Filter> {
   }
 };
 
+// The tail-clause row pipes (DISTINCT / SKIP / LIMIT / ORDER BY) bind nothing,
+// like Filter: the pipe introduces the chosen alt's full set and each reader
+// reads parent.in_scope plus that set. Readers after the input mix expressions
+// (counts, sort keys) and value Symbols; all thread uniformly through
+// ResolvePipeThenReaders.
+template <>
+struct symbol_resolve_traits<symbol::Distinct> {
+  static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
+                               VariableSet const &chosen_introduces, SymbolContext const & /*syms*/,
+                               planner::core::extract::ChildSink<ResolverKey> auto visit) {
+    using namespace child::distinct;
+    auto const &children = enode.children();
+    ResolvePipeThenReaders(children[input], children.subspan(first_value), parent_key, chosen_introduces, visit);
+  }
+};
+
+template <>
+struct symbol_resolve_traits<symbol::Skip> {
+  static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
+                               VariableSet const &chosen_introduces, SymbolContext const & /*syms*/,
+                               planner::core::extract::ChildSink<ResolverKey> auto visit) {
+    using namespace child::skip;
+    auto const &children = enode.children();
+    ResolvePipeThenReaders(children[input], children.subspan(count, 1), parent_key, chosen_introduces, visit);
+  }
+};
+
+template <>
+struct symbol_resolve_traits<symbol::Limit> {
+  static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
+                               VariableSet const &chosen_introduces, SymbolContext const & /*syms*/,
+                               planner::core::extract::ChildSink<ResolverKey> auto visit) {
+    using namespace child::limit;
+    auto const &children = enode.children();
+    ResolvePipeThenReaders(children[input], children.subspan(count, 1), parent_key, chosen_introduces, visit);
+  }
+};
+
+template <>
+struct symbol_resolve_traits<symbol::OrderBy> {
+  static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
+                               VariableSet const &chosen_introduces, SymbolContext const & /*syms*/,
+                               planner::core::extract::ChildSink<ResolverKey> auto visit) {
+    using namespace child::order_by;
+    auto const &children = enode.children();
+    ResolvePipeThenReaders(children[input], children.subspan(first_expr), parent_key, chosen_introduces, visit);
+  }
+};
+
 // Expression ops and structural leaves: uniform threading.
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #define MG_UNIFORM_RESOLVE(SYM) \

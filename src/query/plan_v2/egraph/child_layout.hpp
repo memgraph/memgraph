@@ -40,6 +40,31 @@ namespace filter {
 inline constexpr std::size_t input = 0, predicate = 1;
 }
 
+// DISTINCT: [input, value_sym...]. Dedup columns as bare Symbol e-classes (not
+// Identifier-wrapped) so the inline rewrite can't push their values past the
+// operator; the cost model demands them, forcing the projection to materialise
+// them. No binding.
+namespace distinct {
+inline constexpr std::size_t input = 0, first_value = 1;
+}
+
+// SKIP / LIMIT: [input, count expression]. count evaluated once.
+namespace skip {
+inline constexpr std::size_t input = 0, count = 1;
+}
+
+namespace limit {
+inline constexpr std::size_t input = 0, count = 1;
+}
+
+// ORDER BY: [input, sort_key..., value_sym...]. Sort keys first, then value syms
+// to remember through the sort (bare Symbols, materialised like DISTINCT). The
+// sort-key count is the interned orderings length (the disambiguator), so only
+// the build splits the tail; cost/resolve treat it uniformly. No binding.
+namespace order_by {
+inline constexpr std::size_t input = 0, first_expr = 1;
+}
+
 namespace identifier {
 inline constexpr std::size_t sym = 0;
 }

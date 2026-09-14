@@ -14,9 +14,11 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <vector>
 
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::query::plan::v2 {
 
@@ -145,6 +147,34 @@ auto egraph::MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass {
 
 auto egraph::MakeFilter(eclass input, eclass predicate) -> eclass {
   return from_core(pimpl_->graph.Make<Filter>(to_core(input), to_core(predicate)).eclass_id);
+}
+
+auto egraph::MakeDistinct(eclass input, std::span<eclass const> value_syms) -> eclass {
+  auto children = utils::small_vector<planner::core::EClassId>{};
+  children.reserve(1 + value_syms.size());
+  children.push_back(to_core(input));
+  for (auto e : value_syms) children.push_back(to_core(e));
+  return from_core(pimpl_->graph.Make<Distinct>(std::move(children)).eclass_id);
+}
+
+auto egraph::MakeSkip(eclass input, eclass count) -> eclass {
+  return from_core(pimpl_->graph.Make<Skip>(to_core(input), to_core(count)).eclass_id);
+}
+
+auto egraph::MakeLimit(eclass input, eclass count) -> eclass {
+  return from_core(pimpl_->graph.Make<Limit>(to_core(input), to_core(count)).eclass_id);
+}
+
+auto egraph::MakeOrderBy(eclass input, std::span<eclass const> sort_keys, std::span<Ordering const> orderings,
+                         std::span<eclass const> value_syms) -> eclass {
+  DMG_ASSERT(sort_keys.size() == orderings.size(), "OrderBy sort keys and orderings must be parallel");
+  auto children_after_input = utils::small_vector<planner::core::EClassId>{};
+  children_after_input.reserve(sort_keys.size() + value_syms.size());
+  for (auto e : sort_keys) children_after_input.push_back(to_core(e));
+  for (auto e : value_syms) children_after_input.push_back(to_core(e));
+  auto orderings_vec = std::vector<Ordering>(orderings.begin(), orderings.end());
+  return from_core(
+      pimpl_->graph.Make<OrderBy>(to_core(input), std::move(children_after_input), std::move(orderings_vec)).eclass_id);
 }
 
 auto egraph::MakeSubquery(eclass outer_input, eclass inner_root, std::span<eclass const> exposed_syms) -> eclass {
