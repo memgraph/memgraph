@@ -100,10 +100,10 @@ index 14017331..ce091cf9 100644
    version.cpp
  )
 diff --git a/src/ccache/argprocessing.cpp b/src/ccache/argprocessing.cpp
-index 12d804ca..4f0e5dec 100644
+index 12d804ca..91c51e35 100644
 --- a/src/ccache/argprocessing.cpp
 +++ b/src/ccache/argprocessing.cpp
-@@ -618,6 +618,20 @@ process_option_arg(const Context& ctx,
+@@ -618,6 +618,28 @@ process_option_arg(const Context& ctx,
      }
    }
  
@@ -118,6 +118,14 @@ index 12d804ca..4f0e5dec 100644
 +    }
 +    if (!val.empty()) {
 +      args_info.output_pcm = std::filesystem::path(std::string(val));
++      // The BMI records the absolute path of the module's source and of every
++      // file it read, resolved against the actual CWD, and nothing rewrites
++      // those strings when the BMI is replayed somewhere else. A consumer that
++      // needs one of them, to quote the source in a diagnostic, opens the
++      // producing directory's copy and fails where that directory is gone.
++      // Key the entry to the directory that produced it: two build trees at
++      // one path still share, which is the case base_dir exists to serve.
++      state.hash_actual_cwd = true;
 +    }
 +  }
 +
@@ -597,10 +605,10 @@ index ab3c3b9f..ad7f6ab1 100644
  addtest(depend)
 diff --git a/test/suites/cxx20_modules.bash b/test/suites/cxx20_modules.bash
 new file mode 100644
-index 00000000..bf3a6d7c
+index 00000000..8f03c598
 --- /dev/null
 +++ b/test/suites/cxx20_modules.bash
-@@ -0,0 +1,361 @@
+@@ -0,0 +1,401 @@
 +# Test C++20 named modules with sidecar-based cache coherence.
 +#
 +# Producer compiles emit a BMI/PCM specified via -fmodule-output=<path>.
@@ -961,4 +969,44 @@ index 00000000..bf3a6d7c
 +    # the result_key chain, the consumer might have hit on a stale .o.
 +    expect_stat direct_cache_hit 1
 +    expect_stat direct_cache_miss 6
++
++    # -------------------------------------------------------------------------
++    TEST "producer entry is not shared between build directories"
++
++    # base_dir together with an unhashed directory is how one checkout shares a
++    # cache with a checkout at another path: absolute paths are rewritten before
++    # hashing, so a compile hashes the same in both. That holds for an object
++    # file and fails for a BMI, which embeds the producing directory's paths.
++    # The second tree must compile its own rather than be handed the first's.
++    export CCACHE_NOHASHDIR=true
++
++    for tree in treeA treeB; do
++        mkdir -p $tree/src $tree/build
++        cp mod.cppm $tree/src/mod.cppm
++    done
++
++    build_in_tree() {
++        (cd "$1/build" && CCACHE_BASEDIR="$(cd .. && pwd)" $CCACHE_COMPILE \
++            -std=c++20 -x c++-module -fmodule-output=mod.pcm \
++            -c ../src/mod.cppm -o mod.cppm.o)
++    }
++
++    build_in_tree treeA
++    expect_stat direct_cache_miss 1
++
++    build_in_tree treeB
++    expect_stat direct_cache_miss 2
++    expect_stat direct_cache_hit 0
++
++    strings treeB/build/mod.pcm | grep -q treeA \
++        && test_failed "treeB's BMI names treeA's source"
++
++    # Rebuilding the directory that produced it still hits, so a clean rebuild
++    # of one tree keeps its cache.
++    rm -f treeA/build/mod.cppm.o treeA/build/mod.pcm
++    build_in_tree treeA
++    expect_stat direct_cache_hit 1
++    expect_exists treeA/build/mod.pcm
++
++    unset CCACHE_NOHASHDIR
 +}
