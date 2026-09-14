@@ -1156,7 +1156,7 @@ def test_automatic_databases_drop_multitenancy_replication(connection, test_name
 
     # 5/ A was force-dropped (async) and B dropped. Wait for main AND both replicas to converge
     # to the stable post-drop state; capturing main's SHOW DATABASES directly would freeze a
-    # transient ("A", "DROPPING", "ready") row that never matches the replicas once A finishes
+    # transient ("A", "DROPPING", "draining") row that never matches the replicas once A finishes
     # draining.
     expected_databases = [("memgraph", "HOT", "ready")]
     mg_sleep_and_assert(expected_databases, show_databases_func(main_cursor))

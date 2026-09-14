@@ -265,12 +265,15 @@ class Database {
 
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
-  // Cooperative stop signal for after-commit triggers. StopAllBackgroundTasks() stores TERMINATED
-  // here BEFORE joining after_commit_trigger_pool_, so a trigger already running on that pool observes
-  // it via StoppingContext::MustAbort() and aborts, letting the join complete promptly.
+  // One-way latch: transitions ACTIVE → TERMINATED exactly once (during force-drop teardown) and is
+  // never reset. After-commit triggers run on after_commit_trigger_pool_ outside the interpreter's
+  // transaction registry, so they cannot be aborted through the normal transaction-status path; this
+  // atomic is the cooperative abort signal. StopAllBackgroundTasks() stores TERMINATED here BEFORE
+  // joining the pool, so a running trigger observes the transition via StoppingContext::MustAbort()
+  // and exits promptly.
   // Declaration order matters: members destruct in reverse declaration order, so declaring this
-  // BEFORE after_commit_trigger_pool_ guarantees the atomic outlives the pool's worker thread join
-  // at destruction — the same store-before-join guarantee StopAllBackgroundTasks provides at runtime.
+  // BEFORE after_commit_trigger_pool_ guarantees the atomic outlives the pool's worker-thread join
+  // at destruction — mirroring the store-before-join guarantee provided at runtime.
   std::atomic<query::TransactionStatus> after_commit_trigger_status_{query::TransactionStatus::ACTIVE};
   utils::ThreadPool after_commit_trigger_pool_{1};   //!< Thread pool for after commit triggers
   std::unique_ptr<query::stream::Streams> streams_;  //!< Streams associated with the storage

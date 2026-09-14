@@ -343,8 +343,11 @@ void ReplicationStorageClient::RetireForSealedTenant(std::optional<ReplicaStream
   // error and re-enter MAYBE_BEHIND, from which the heartbeat loop re-establishes the stream.
   // This disruption is deliberate and bounded: MAYBE_BEHIND -> heartbeat -> re-stream.
   spdlog::warn(
-      "Retiring shared RPC connection to replica {} for sealed tenant drop; other tenants on this "
-      "replica will transiently enter MAYBE_BEHIND and self-heal via heartbeat.",
+      "Retiring shared RPC connection to replica {} for sealed tenant drop. All other tenants "
+      "sharing this connection will transiently enter MAYBE_BEHIND and self-heal within ~1 recheck "
+      "interval (replica_check_frequency_, default 1 s). On SYNC/STRICT_SYNC replicas any "
+      "in-flight commit from an unrelated tenant on this connection is interrupted and the client "
+      "will receive an error — no data loss; the client should retry.",
       client_.name_);
   AbortRpcClient();
   SetMaybeBehind();
