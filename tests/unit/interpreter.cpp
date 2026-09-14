@@ -567,19 +567,19 @@ class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemory
   }
 };
 
-// Tearing a stream down is arbitrary module code that may throw, and so is tearing down the input
-// below it. Both have to run, and a second throw while the first was unwinding would abort the
-// process instead of failing the query.
-TEST_F(ProcedureTeardownTest, ThrowingProcedureCleanupStillTearsDownWhatItFeedsOn) {
+// Two stacked procedures whose cleanups both throw: the query has to fail, and every stream still
+// has to be torn down. Teardown that ran a second cleanup from a destructor while the first was
+// unwinding aborted the process instead.
+TEST_F(ProcedureTeardownTest, ThrowingProcedureCleanupFailsTheQueryInsteadOfTheProcess) {
   BatchedProbe lower;
   BatchedProbe upper;
   lower.rows_per_stream = 4;
   upper.rows_per_stream = 4;
   RegisterProbes({{"lower", &lower}, {"upper", &upper}});
 
-  // `LIMIT 2` is reached with both streams still live, so the only teardown either one gets is the
-  // one `Shutdown` performs. Arming the throw between the two pulls keeps it out of everything that
-  // runs earlier, which would fail the query before it ever reaches `Shutdown`.
+  // `LIMIT 2` is reached with both streams still live, so `Shutdown` is what tears them down.
+  // Arming the throw between the two pulls keeps it out of everything that runs earlier, which
+  // would fail the query before it ever reaches `Shutdown`.
   auto [stream, qid] =
       Prepare("CALL probe_module.lower() YIELD num AS a CALL probe_module.upper() YIELD num AS b RETURN a, b LIMIT 2");
   Pull(&stream, 1);

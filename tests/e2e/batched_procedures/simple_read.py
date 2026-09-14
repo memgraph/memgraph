@@ -183,8 +183,8 @@ def test_batching_in_subquery_c(connection):
 
 
 def test_shutdown_reaches_below_a_procedure(connection):
-    # The probe is the lower of two procedure calls and LIMIT stops the query mid-stream, so only the
-    # shutdown arriving from the procedure above it can run its cleanup.
+    # The probe is the lower of two procedure calls and LIMIT stops the query mid-stream, so its
+    # cleanup can only come from the teardown the procedure above it starts.
     cursor = connection.cursor()
 
     execute_and_fetch_all(
