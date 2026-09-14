@@ -2357,11 +2357,16 @@ TYPED_TEST(FunctionTest, NullIf) {
   ASSERT_TRUE(this->EvaluateFunction("NULLIF", TypedValue(first), TypedValue(first)).IsNull());
   ASSERT_EQ(this->EvaluateFunction("NULLIF", TypedValue(first), TypedValue(second)).ValueVertex(), first);
 
-  // A pair no equality is defined over is an error here exactly as it is for `=`. A graph against
-  // some other type never reaches that comparison, since differing types are unequal first.
+  // A pair no equality is defined over is an error here exactly as it is for `=`, which means the
+  // same class of error: a query error the client is told is its own, and not one the driver may
+  // replay. A graph against some other type never reaches that comparison, since differing types
+  // are unequal first.
   auto graph = TypedValue(memgraph::query::Graph(memgraph::utils::NewDeleteResource()));
   auto other_graph = TypedValue(memgraph::query::Graph(memgraph::utils::NewDeleteResource()));
-  ASSERT_THROW(this->EvaluateFunction("NULLIF", graph, other_graph), TypedValueException);
+  auto const graph_pair = this->ExpressionsFromTypedValues({graph, other_graph});
+  ASSERT_THROW(this->Eval(this->storage.template Create<EqualOperator>(graph_pair[0], graph_pair[1])),
+               QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("NULLIF", graph, other_graph), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("NULLIF", graph, 1).IsGraph());
 }
 

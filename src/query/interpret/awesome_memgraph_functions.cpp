@@ -587,8 +587,15 @@ TypedValue NullIf(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Any, Any>("nullIf", args, nargs);
   // Equality, the three-valued relation `=` reads, and not equivalence: a comparison turning on a Null
   // decides nothing, so nullIf(1, null) answers 1 and nullIf([null], [null]) answers [null].
-  auto const equal = args[0] == args[1];
-  if (equal.IsBool() && equal.ValueBool()) return TypedValue(ctx.memory);
+  try {
+    auto const equal = args[0] == args[1];
+    if (equal.IsBool() && equal.ValueBool()) return TypedValue(ctx.memory);
+  } catch (const TypedValueException &) {
+    // A pair `=` defines no equality over reaches the client as the query error `=` itself raises.
+    // Letting the TypedValueException escape would instead reach it as a transient error, which a
+    // driver is entitled to replay even though the query can never answer.
+    throw QueryRuntimeException("Invalid types: {} and {} for 'nullIf'.", args[0].type(), args[1].type());
+  }
   return TypedValue(args[0], ctx.memory);
 }
 
