@@ -8730,6 +8730,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                         // sessions with a RUNNING transaction; IDLE sessions holding db_acc_ need this
                         // separate best-effort pass. Single pass — no loop/wait; the deferred worker +
                         // idle reaper give eventual convergence for still-active sessions.
+                        // Invariant: the enclosing system transaction holds System::mtx_ for this entire
+                        // closure — do NOT call any System API (e.g. TryCreateTransaction) here or it
+                        // self-deadlocks.
                         if (flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) {
                           for (auto *itr : interpreters) itr->TryReleaseDbAccessorForDrop(db_name);
                         }
@@ -11500,79 +11503,36 @@ void Interpreter::EnsureDbAccessForQuery() {
 }
 
 bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns) {
-  if (!reapable_) return false;
-  // Message-in-flight gate pre-check (Dekker StoreLoad, seq_cst). If a Bolt message is being handled,
-  // the session may touch db_acc_ at any moment — never reap. Cheap and catches the common case.
-  if (message_in_flight_.load(std::memory_order_seq_cst)) return false;
-  // No spin: a non-IDLE session is skipped; the reaper catches it on the next tick.
-  if (transaction_status_.load(std::memory_order_seq_cst) != TransactionStatus::IDLE) return false;
-  // Single CAS IDLE -> REAPING. On failure the session just became active (or a verifier ran) — skip.
-  // Success ordering is seq_cst so the CAS totally-orders against SetMessageInFlight's seq_cst store.
-  TransactionStatus expected = TransactionStatus::IDLE;
-  if (!transaction_status_.compare_exchange_strong(
-          expected, TransactionStatus::REAPING, std::memory_order_seq_cst, std::memory_order_acquire)) {
-    return false;
-  }
-  // Re-check closes the TOCTOU with SetMessageInFlight: seq_cst total order ensures one side yields —
-  // either we see message_in_flight_=true here and back out, or SetMessageInFlight sees REAPING and spins.
-  if (message_in_flight_.load(std::memory_order_seq_cst)) {
-    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
-    return false;
-  }
-  // We now own REAPING: the session cannot enter Prepare (it spin-waits on REAPING), so db_acc_ and
-  // in_explicit_transaction_ are stable. Decide whether to actually release, then always restore IDLE.
-  bool reaped = false;
-  // Belt-and-suspenders: never reap an explicit transaction (cannot occur from IDLE, but cheap).
-  // Only release a held accessor whose tenant is non-default and has been idle past the timeout.
-  if (!in_explicit_transaction_ && current_db_.db_acc_.has_value()) {
-    auto *db = current_db_.db_acc_->get();
-    const auto last_used_ns = last_activity_ns_.load(std::memory_order_relaxed);
-    if (db->name() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
-      // current_db_name_ is kept so the next query transparently re-acquires via EnsureDbAccessForQuery.
-      current_db_.ReleaseDbAccessor();
-      reaped = true;
+  return WithReapingLock([&] {
+    // Belt-and-suspenders: never reap an explicit transaction (cannot occur from IDLE, but cheap).
+    // Only release a held accessor whose tenant is non-default and has been idle past the timeout.
+    // current_db_name_ is kept so the next query transparently re-acquires via EnsureDbAccessForQuery.
+    if (!in_explicit_transaction_ && current_db_.db_acc_.has_value()) {
+      auto *db = current_db_.db_acc_->get();
+      const auto last_used_ns = last_activity_ns_.load(std::memory_order_relaxed);
+      if (db->name() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
+        current_db_.ReleaseDbAccessor();
+        return true;
+      }
     }
-  }
-  transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
-  return reaped;
+    return false;
+  });
 }
 
 bool Interpreter::TryReleaseDbAccessorForDrop(std::string_view dropped_db_name) {
-  if (!reapable_) return false;
-  // Message-in-flight gate pre-check (Dekker StoreLoad, seq_cst). If a Bolt message is being handled,
-  // the session may touch db_acc_ at any moment — never release. Cheap and catches the common case.
-  if (message_in_flight_.load(std::memory_order_seq_cst)) return false;
-  // No spin: a non-IDLE session is skipped; the FORCE drop already TerminateTransactions'd it, and the
-  // idle reaper gives eventual convergence once it parks back to IDLE.
-  if (transaction_status_.load(std::memory_order_seq_cst) != TransactionStatus::IDLE) return false;
-  // Single CAS IDLE -> REAPING. On failure the session just became active (or a verifier ran) — skip.
-  // Success ordering is seq_cst so the CAS totally-orders against SetMessageInFlight's seq_cst store.
-  TransactionStatus expected = TransactionStatus::IDLE;
-  if (!transaction_status_.compare_exchange_strong(
-          expected, TransactionStatus::REAPING, std::memory_order_seq_cst, std::memory_order_acquire)) {
-    return false;
-  }
-  // Re-check closes the TOCTOU with SetMessageInFlight: seq_cst total order ensures one side yields —
-  // either we see message_in_flight_=true here and back out, or SetMessageInFlight sees REAPING and spins.
-  if (message_in_flight_.load(std::memory_order_seq_cst)) {
-    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
-    return false;
-  }
-  // We now own REAPING: the session cannot enter Prepare (it spin-waits on REAPING), so db_acc_ and
-  // in_explicit_transaction_ are stable. Decide whether to actually release, then always restore IDLE.
-  bool released = false;
-  // Belt-and-suspenders: never release from an explicit transaction (cannot occur from IDLE, but cheap).
-  if (!in_explicit_transaction_ && current_db_.db_acc_.has_value()) {
-    auto *db = current_db_.db_acc_->get();
-    if (db->name() == dropped_db_name) {
-      // current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next query; the
-      // marked-for-deletion guard on the tenant then keeps the session db-less.
-      current_db_.ReleaseDbAccessor();
-      released = true;
+  return WithReapingLock([&] {
+    // Belt-and-suspenders: never release from an explicit transaction (cannot occur from IDLE, but cheap).
+    // current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next query; the
+    // marked-for-deletion guard on the tenant then keeps the session db-less.
+    if (!in_explicit_transaction_ && current_db_.db_acc_.has_value()) {
+      auto *db = current_db_.db_acc_->get();
+      if (db->name() == dropped_db_name) {
+        current_db_.ReleaseDbAccessor();
+        return true;
+      }
     }
-  }
-  transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
-  return released;
+    return false;
+  });
 }
 #endif
 

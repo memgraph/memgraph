@@ -1049,15 +1049,14 @@ int main(int argc, char **argv) {
   if (!is_coordinator_instance && dbms_handler.has_value() && FLAGS_session_idle_accessor_release_sec > 0 &&
       memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::IDLE_SESSION_REAPER)) {
     idle_reaper_scheduler.emplace();
-    // Sweep at half the idle timeout (bounded to at least 1s) so a newly-idle session is reaped within
-    // roughly one-and-a-half timeout windows.
+    // Sweep at half the idle timeout (floored at 1s), so a newly-idle session is reaped within
+    // about 1.5x the timeout in general — and up to 2x at the 1s floor.
     const auto sweep_sec = std::max<uint64_t>(1, FLAGS_session_idle_accessor_release_sec / 2);
     idle_reaper_scheduler->SetInterval(std::chrono::seconds(sweep_sec));
     idle_reaper_scheduler->Run("IdleReaper", [&interpreter_context_]() {
       if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
       const uint64_t timeout_ns = FLAGS_session_idle_accessor_release_sec * 1'000'000'000ULL;
-      // steady_clock pairs with the interpreter's steady-clock last_activity_ns_.
-      const auto now_ns = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+      const uint64_t now_ns = memgraph::query::Interpreter::SteadyNowNs();
       uint64_t reaped = 0;
       // Lock held for the full sweep: SessionHL's destructor erases under the same lock (SessionHL.cpp:755),
       // so it cannot destroy an interpreter while we iterate; each TryReapIdleDbAccessor call is non-blocking.

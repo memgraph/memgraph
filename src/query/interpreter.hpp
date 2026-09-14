@@ -736,6 +736,52 @@ class Interpreter final {
   plan::v2::QueryPlannerContext &query_planner_context() { return query_planner_context_; }
 
  private:
+#ifdef MG_ENTERPRISE
+  // Runs `action` while this session holds the exclusive REAPING state (the idle reaper's
+  // IDLE->REAPING Dekker handshake vs a concurrent Bolt message). Returns false without
+  // invoking `action` if the session is not a reapable, genuinely-parked (IDLE, no message
+  // in flight) session; otherwise returns action(). action() runs with db_acc_ and
+  // in_explicit_transaction_ stable and MUST NOT block. IDLE is always restored.
+  //
+  // Handshake steps (Dekker StoreLoad — all atomics seq_cst to pair with SetMessageInFlight):
+  //   1. Reapability guard: non-reapable sessions (streams, internal) are never touched.
+  //   2. message_in_flight_ pre-check: cheap fast-exit if a Bolt message is in flight.
+  //   3. transaction_status_ pre-check: skip non-IDLE sessions without spinning.
+  //   4. CAS IDLE->REAPING (success=seq_cst, failure=acquire): own the slot or abort.
+  //   5. message_in_flight_ re-check: closes the TOCTOU window with SetMessageInFlight —
+  //      seq_cst total order ensures exactly one side yields.
+  //   6. action() is invoked; db_acc_ and in_explicit_transaction_ are stable throughout.
+  //   7. transaction_status_ is unconditionally restored to IDLE (release) before returning.
+  template <typename F>
+  bool WithReapingLock(F &&action) noexcept {
+    if (!reapable_) return false;
+    // Message-in-flight gate pre-check (Dekker StoreLoad, seq_cst). If a Bolt message is being
+    // handled, the session may touch db_acc_ at any moment — bail out immediately.
+    if (message_in_flight_.load(std::memory_order_seq_cst)) return false;
+    // No spin: a non-IDLE session is skipped; the caller retries on the next tick if needed.
+    if (transaction_status_.load(std::memory_order_seq_cst) != TransactionStatus::IDLE) return false;
+    // Single CAS IDLE->REAPING. On failure the session just became active — skip.
+    // Success ordering is seq_cst so the CAS totally-orders against SetMessageInFlight's seq_cst store.
+    TransactionStatus expected = TransactionStatus::IDLE;
+    if (!transaction_status_.compare_exchange_strong(
+            expected, TransactionStatus::REAPING, std::memory_order_seq_cst, std::memory_order_acquire)) {
+      return false;
+    }
+    // Re-check closes the TOCTOU with SetMessageInFlight: seq_cst total order ensures one side
+    // yields — either we see message_in_flight_=true here and back out, or SetMessageInFlight
+    // sees REAPING and spins until we restore IDLE below.
+    if (message_in_flight_.load(std::memory_order_seq_cst)) {
+      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+      return false;
+    }
+    // We now own REAPING: the session cannot enter Prepare (it spin-waits on REAPING), so
+    // db_acc_ and in_explicit_transaction_ are stable. Always restore IDLE on exit.
+    bool result = std::forward<F>(action)();
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+    return result;
+  }
+#endif  // MG_ENTERPRISE
+
   void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
     // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.
     if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
