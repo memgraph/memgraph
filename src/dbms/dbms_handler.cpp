@@ -849,11 +849,11 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     db_uuid = db->get()->uuid();
     // No early seal here (late-seal model). The seal happens after all fallible work has succeeded so
     // that an exception leaves the gatekeeper fully HOT in items_ — the tenant is intact and no
-    // rollback (unseal) is ever needed.
+    // rollback of any kind is ever needed.
   }  // release our accessor so the worker can reach sole access
 
   // Fallible, point-of-no-return. If it throws, nothing is sealed and the gatekeeper is still HOT in
-  // items_ — the tenant is fully intact, no rollback needed (this is why unseal() is gone).
+  // items_ — the tenant is fully intact; because the seal has not happened yet, no rollback is needed.
   DetachProfileAndRetireDurabilityKey_(db_name);
 
   // Non-throwing suffix: advisory seal, then hand ownership to the deferred worker. The worker records

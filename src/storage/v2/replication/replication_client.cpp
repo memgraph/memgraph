@@ -338,6 +338,14 @@ void ReplicationStorageClient::LogRpcFailure() const {
 
 void ReplicationStorageClient::RetireForSealedTenant(std::optional<ReplicaStream> &stream) const {
   stream.reset();
+  // Aborting the RPC client severs the shared socket this replica connection uses across all
+  // tenants on the same replica. Any in-flight commits from other tenants will see a transient
+  // error and re-enter MAYBE_BEHIND, from which the heartbeat loop re-establishes the stream.
+  // This disruption is deliberate and bounded: MAYBE_BEHIND -> heartbeat -> re-stream.
+  spdlog::warn(
+      "Retiring shared RPC connection to replica {} for sealed tenant drop; other tenants on this "
+      "replica will transiently enter MAYBE_BEHIND and self-heal via heartbeat.",
+      client_.name_);
   AbortRpcClient();
   SetMaybeBehind();
 }
@@ -362,12 +370,12 @@ void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, 
 }
 
 void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseProtector const &protector) const {
-  spdlog::debug(
-      "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
   if (protector.sealed()) {
     SetMaybeBehind();
     return;
   }
+  spdlog::debug(
+      "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
     client_.maintenance_pool_.AddTask(

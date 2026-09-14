@@ -1017,10 +1017,11 @@ TEST(Handler, DeferDeleteDrainsOnHandlerDestruction) {
   EXPECT_EQ(post.load(std::memory_order_relaxed), 1) << "post_delete_step must run exactly once";
 }
 
-// Pins drop-observability registry behavior: a FORCE drop that is pinned by a held accessor must
-// appear in AllWithHotColdStatus() as a DROPPING row immediately after Delete() returns (recording
-// is synchronous inside Delete_ under lock_), and must disappear once the holder releases and the
-// background worker finishes reclaiming the tenant (ForgetDropping_ runs in post_delete_step).
+// Pins drop-observability behavior: a FORCE drop that is pinned by a held accessor must appear in
+// AllWithHotColdStatus() as a DROPPING row immediately after Delete() returns — Delete_ calls
+// DeferDelete(name, uuid, ...) synchronously, which stores a pending node that PendingItems()
+// surfaces. The row disappears once the holder releases and the deferred worker's Tick_ runs
+// post_delete_step, which removes the node from the pending list.
 TEST(DBMS_Handler, DroppingTenantIsVisibleInShowDatabases) {
   using namespace std::chrono_literals;
 
@@ -1038,8 +1039,9 @@ TEST(DBMS_Handler, DroppingTenantIsVisibleInShowDatabases) {
   auto del = dbms.Delete("dropping_visible", static_cast<memgraph::system::Transaction *>(nullptr));
   ASSERT_TRUE(del.has_value()) << "Delete() with a null transaction must succeed (deferred)";
 
-  // 3. The DROPPING row must be present immediately — RecordDropping_ inserts
-  //    into dropping_ synchronously inside Delete_ before it returns.
+  // 3. The DROPPING row must be present immediately — Delete_ calls DeferDelete(name, uuid, ...)
+  //    synchronously before it returns, storing a pending node that AllWithHotColdStatus() surfaces
+  //    via PendingItems().
   {
     const auto statuses = dbms.AllWithHotColdStatus();
     const bool found = std::any_of(statuses.begin(), statuses.end(), [](const auto &p) {
@@ -1052,8 +1054,8 @@ TEST(DBMS_Handler, DroppingTenantIsVisibleInShowDatabases) {
   // 4. Release the pin so the background worker can reach exclusive access and converge.
   pin->reset();
 
-  // 5. Poll until the DROPPING row disappears: ForgetDropping_ is called by the
-  //    worker's post_delete_step lambda once the tenant is fully reclaimed.
+  // 5. Poll until the DROPPING row disappears: the deferred worker's Tick_ runs post_delete_step,
+  //    which removes the node from the pending list, causing PendingItems() to stop surfacing it.
   ASSERT_TRUE(PollUntil(
       [&] {
         const auto statuses = dbms.AllWithHotColdStatus();

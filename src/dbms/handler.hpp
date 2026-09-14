@@ -462,8 +462,8 @@ class Handler {
 
   //!< Absorbs a transient accessor; limits per-node cost to ~10 ms. One tick's worst case is
   //!< N * kDeferTryTimeout for N pinned nodes (no starvation — every snapshotted node is still
-  //!< processed each tick; a freshly-enqueued unpinned drop waits at most one 50 ms cadence +
-  //!< N * kDeferTryTimeout).
+  //!< processed each tick; a freshly-enqueued unpinned drop is serviced on the next tick, which
+  //!< arrives within the 50 ms inter-tick cadence, plus N * kDeferTryTimeout).
   static constexpr auto kDeferTryTimeout = std::chrono::milliseconds{10};
   //!< Threshold for the one-shot stall warning per pending node.
   static constexpr auto kStuckWarnAfter = std::chrono::minutes{5};
