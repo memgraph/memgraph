@@ -249,6 +249,19 @@ TEST(HoldsANaN, FindsANaNWhereverAValueCarriesOne) {
   EXPECT_FALSE(HoldsANaN(kSmallestEnum));
 }
 
+TEST(TypeBands, PlaceAPackedListWhereABoxedListGoes) {
+  // The three packed representations are numbered above the points rather than
+  // beside the list, so nothing about the numbering says where they belong. Each
+  // holds what a boxed list holds, so a range over one has to read the band a
+  // list is kept in.
+  for (auto const type : {PropertyValueType::IntList, PropertyValueType::DoubleList, PropertyValueType::NumericList}) {
+    EXPECT_EQ(LowerBoundForType(type), LowerBoundForType(PropertyValueType::List))
+        << "packed type " << static_cast<unsigned>(type) << " starts somewhere a list does not";
+    EXPECT_EQ(UpperBoundForType(type), UpperBoundForType(PropertyValueType::List))
+        << "packed type " << static_cast<unsigned>(type) << " ends somewhere a list does not";
+  }
+}
+
 TEST(HoldsANull, FindsANullWhereverAValueCarriesOne) {
   EXPECT_TRUE(HoldsANull(PropertyValue()));
   EXPECT_TRUE(HoldsANull(PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue()})));
