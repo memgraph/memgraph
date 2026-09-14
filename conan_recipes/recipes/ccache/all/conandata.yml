@@ -9,8 +9,10 @@ patches:
         emit <pcm>.ccache-meta containing the producer's result_key plus a (size, mtime)
         snapshot; consumers fold result_key into their hash instead of hashing PCM
         bytes (which embed absolute paths and over-invalidate on path drift). Caches
-        the .pcm as a tracked secondary output, keyed to the directory that produced
-        it, since a BMI embeds that directory's paths and naming another tree's files
-        breaks any consumer that has to read one. Fail-closed if sidecar is missing or
-        stale: see Statistic::could_not_use_module_sidecar."
+        the .pcm as a tracked secondary output, stored under a key carrying the
+        producing directory, since a BMI embeds that directory's paths and naming
+        another tree's files breaks any consumer that has to read one. result_key
+        itself stays path-independent, so consumers still share one entry across
+        build trees. Fail-closed if sidecar is missing or stale: see
+        Statistic::could_not_use_module_sidecar."
       patch_type: "bugfix"
