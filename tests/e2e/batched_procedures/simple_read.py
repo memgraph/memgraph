@@ -201,8 +201,8 @@ def test_shutdown_reaches_below_a_procedure(connection):
 
 
 def test_one_cleanup_per_initializer(connection):
-    # A reset must not tear the stream down itself; the next pull already cleans up before its
-    # initializer. One init and one cleanup per row, plus the shutdown's -- five would mean a double.
+    # Every stream the procedure starts is torn down exactly once: by the next pull's cleanup, by the
+    # shutdown, or by the cursor's destructor. A reset must not tear it down a second time.
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "CALL batch_py_read.teardown_probe_reset_counts() YIELD ok RETURN ok")
 
@@ -216,7 +216,8 @@ def test_one_cleanup_per_initializer(connection):
     inits, cleanups = execute_and_fetch_all(
         cursor, "CALL batch_py_read.teardown_probe_counts() YIELD inits, cleanups RETURN inits, cleanups"
     )[0]
-    assert (inits, cleanups) == (2, 3)
+    assert inits == 2
+    assert cleanups == inits
 
 
 if __name__ == "__main__":

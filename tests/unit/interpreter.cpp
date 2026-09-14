@@ -34,6 +34,8 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
@@ -472,6 +474,123 @@ TYPED_TEST(InterpreterTest, WriteBelowProcedureInsideSubqueryRunsForEveryInputRo
   EXPECT_EQ(count_nodes("Proc"), 3);
 
   this->Interpret("MATCH (n) DETACH DELETE n");
+}
+
+namespace {
+
+namespace procedure = memgraph::query::procedure;
+
+class ProbeModule : public procedure::Module {
+ public:
+  bool Close() override { return true; }
+
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override { return &procedures; }
+
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
+
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override { return &functions; }
+
+  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
+
+  std::map<std::string, mgp_proc, std::less<>> procedures{};
+  std::map<std::string, mgp_trans, std::less<>> transformations{};
+  std::map<std::string, mgp_func, std::less<>> functions{};
+};
+
+// A batched procedure that counts its own lifecycle, so a test can assert on the teardown the plan
+// performed instead of on the plan's shape. Each initializer starts a stream of `rows_per_stream`
+// records; stopping the pull before that many leaves the stream live.
+struct BatchedProbe {
+  int inits{0};
+  int cleanups{0};
+  int rows_per_stream{2};
+  bool cleanup_throws{false};
+  int remaining{0};
+};
+
+void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe) {
+  auto *memory = memgraph::utils::NewDeleteResource();
+  mgp_type *int_type{nullptr};
+  MG_ASSERT(mgp_type_int(&int_type) == mgp_error::MGP_ERROR_NO_ERROR);
+
+  auto initializer = [probe](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_memory * /*memory*/) {
+    ++probe->inits;
+    probe->remaining = probe->rows_per_stream;
+  };
+  auto cleanup = [probe] {
+    ++probe->cleanups;
+    probe->remaining = 0;
+    if (probe->cleanup_throws) {
+      throw memgraph::utils::BasicException("the cleanup of a mock procedure failed");
+    }
+  };
+  auto callback = [probe](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *result_memory) {
+    if (probe->remaining == 0) return;
+    --probe->remaining;
+    mgp_result_record *record{nullptr};
+    MG_ASSERT(mgp_result_new_record(result, &record) == mgp_error::MGP_ERROR_NO_ERROR);
+    mgp_value *value{nullptr};
+    MG_ASSERT(mgp_value_make_int(probe->remaining, result_memory, &value) == mgp_error::MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_result_record_insert(record, "num", value) == mgp_error::MGP_ERROR_NO_ERROR);
+    mgp_value_destroy(value);
+  };
+
+  mgp_proc proc(name,
+                callback,
+                initializer,
+                cleanup,
+                memory,
+                {.graph_access = memgraph::query::GraphAccess::None, .is_batched = true});
+  proc.results.emplace(memgraph::utils::pmr::string{"num", memory}, std::make_pair(int_type->impl.get(), false));
+  module.procedures.emplace(name, std::move(proc));
+}
+
+}  // namespace
+
+// Registering a module is private to the registry, so the probes are set up from the fixture, which
+// the registry befriends.
+class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemoryStorage> {
+ protected:
+  void RegisterProbes(std::initializer_list<std::pair<const char *, BatchedProbe *>> probes) {
+    auto module = std::make_unique<ProbeModule>();
+    for (auto [name, probe] : probes) {
+      AddBatchedProbe(*module, name, probe);
+    }
+    procedure::gModuleRegistry.RegisterModule("probe_module", std::move(module));
+  }
+
+  void TearDown() override {
+    // A test that stops mid-query leaves the plan, and with it the module's shared_ptr, alive.
+    default_interpreter.Abort();
+    procedure::gModuleRegistry.UnloadAllModules();
+    InterpreterTest<memgraph::storage::InMemoryStorage>::TearDown();
+  }
+};
+
+// A query that ends in an exception never reaches `Shutdown`, so without a teardown of its own the
+// module keeps the stream's state long after the query that started it is gone.
+TEST_F(ProcedureTeardownTest, ProcedureStreamIsTornDownWhenTheQueryFails) {
+  BatchedProbe probe;
+  RegisterProbes({{"probe", &probe}});
+
+  // The division fails on the first row, with rows of the stream still unread.
+  EXPECT_THROW(Interpret("CALL probe_module.probe() YIELD num RETURN num / 0"), memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(probe.inits, 1);
+  EXPECT_EQ(probe.cleanups, 1);
+  // Only the cleanup clears what the initializer set up, so this is what the module was left holding.
+  EXPECT_EQ(probe.remaining, 0);
+}
+
+// One initializer, one cleanup: a reset defers the teardown to the next pull rather than doing it
+// itself, and no later teardown repeats it.
+TEST_F(ProcedureTeardownTest, ProcedureRunsOneCleanupPerInitializer) {
+  BatchedProbe probe;
+  RegisterProbes({{"probe", &probe}});
+
+  // The subquery restarts the procedure per input row, and its `LIMIT` leaves every stream live.
+  Interpret("UNWIND [1, 2, 3] AS x CALL (x) { CALL probe_module.probe() YIELD num RETURN num LIMIT 1 } RETURN x, num");
+  EXPECT_EQ(probe.inits, 3);
+  EXPECT_EQ(probe.cleanups, 3);
 }
 
 // Column headers from the accessor-free path must be byte-identical to the normal path's (clients

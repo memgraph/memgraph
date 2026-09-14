@@ -8961,6 +8961,8 @@ class CallProcedureCursor : public Cursor {
   bool stream_exhausted{true};
   bool call_initializer{false};
   std::optional<std::function<void()>> cleanup_{std::nullopt};
+  // Whether the module holds state for a stream this cursor started and has not torn down yet.
+  bool cleanup_pending_{false};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem,
@@ -9035,22 +9037,20 @@ class CallProcedureCursor : public Cursor {
       }
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
-          if (proc_->cleanup) {
-            const utils::MemoryTracker::RefusalHandledScope refusal_handled;
-            proc_->cleanup.value()();
-          }
+          RunCleanup();
           return false;
         }
         stream_exhausted = false;
         if (proc_->initializer) {
           call_initializer = true;
           MG_ASSERT(proc_->cleanup);
-          const utils::MemoryTracker::RefusalHandledScope refusal_handled;
-          proc_->cleanup.value()();
+          // A reset leaves the previous row's stream live; this is where it is torn down.
+          RunCleanup();
         }
       }
-      if (!cleanup_ && proc_->cleanup) [[unlikely]] {
-        cleanup_.emplace(*proc_->cleanup);
+      if (proc_->cleanup) [[unlikely]] {
+        if (!cleanup_) cleanup_.emplace(*proc_->cleanup);
+        cleanup_pending_ = true;
       }
       result_.rows.clear();
 
@@ -9125,7 +9125,7 @@ class CallProcedureCursor : public Cursor {
     result_.rows.clear();
     result_row_it_ = result_.rows.begin();
     // true == "no live stream, pull a fresh input row first". The interrupted stream is torn down by
-    // whichever comes first: the next Pull's cleanup, or `Shutdown`.
+    // whichever comes first: the next Pull's cleanup, `Shutdown`, or this cursor's destructor.
     stream_exhausted = true;
     call_initializer = false;
     input_cursor_->Reset();
@@ -9135,10 +9135,28 @@ class CallProcedureCursor : public Cursor {
     // `Shutdown` may throw and the cleanup is arbitrary module code, so shut the input down on the way
     // out -- otherwise one throwing module skips the teardown of everything below it.
     const utils::OnScopeExit shutdown_input{[this] { input_cursor_->Shutdown(); }};
-    if (cleanup_) {
-      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
-      cleanup_.value()();
+    RunCleanup();
+  }
+
+  // A query that ends in an exception never reaches `Shutdown`, so this is the only teardown an
+  // aborted stream gets. Destructors may not throw, and the module's cleanup is arbitrary code.
+  ~CallProcedureCursor() override {
+    try {
+      RunCleanup();
+    } catch (const std::exception &e) {
+      spdlog::warn("Ignoring an exception from the cleanup of '{}': {}", self_->procedure_name_, e.what());
+    } catch (...) {
+      spdlog::warn("Ignoring an unknown exception from the cleanup of '{}'", self_->procedure_name_);
     }
+  }
+
+ private:
+  // Runs the module's cleanup if a stream is live, at most once per stream.
+  void RunCleanup() {
+    if (!cleanup_pending_) return;
+    cleanup_pending_ = false;
+    const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    cleanup_.value()();
   }
 };
 
