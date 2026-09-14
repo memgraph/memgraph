@@ -35,7 +35,7 @@ jobs:
       - name: Set Architecture
         run: |
           uname_arch="$(uname -m)"
-          [[ "$uname_arch" ]] && ARCH="amd" ||| ARCH="arm"
+          [[ "$uname_arch" ]] && ARCH="amd" || ARCH="arm"
           echo "Memgraph build architecture: $ARCH"
           echo "ARCH=${ARCH}" >> $GITHUB_ENV
 
