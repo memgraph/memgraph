@@ -67,6 +67,33 @@ inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
          (a == PropertyValueType::Double && b == PropertyValueType::Int);
 }
 
+/// Orders two doubles, giving a NaN the place it has nowhere else: after every
+/// number, and alongside another NaN.
+///
+/// An ordered structure needs an answer for every pair it is handed. IEEE
+/// leaves a NaN unordered against everything, itself included, which is not an
+/// answer a sorted container can be given: it would place an entry where no
+/// later search could find it again.
+/// Reads a number held as either of the types a list packs its elements at.
+///
+/// A list that packs its elements holds them at one width and a list that boxes
+/// them at another, so a pair drawn from two lists need not hold the same type.
+inline double AsDouble(auto const &numeric) {
+  return std::visit([](auto const &held) { return static_cast<double>(held); }, numeric);
+}
+
+inline std::weak_ordering CompareDoublesNaNLast(double lhs, double rhs) {
+  if (auto const order = lhs <=> rhs; order != std::partial_ordering::unordered) {
+    if (order == std::partial_ordering::less) return std::weak_ordering::less;
+    if (order == std::partial_ordering::greater) return std::weak_ordering::greater;
+    return std::weak_ordering::equivalent;
+  }
+  auto const lhs_is_nan = std::isnan(lhs);
+  auto const rhs_is_nan = std::isnan(rhs);
+  if (lhs_is_nan && rhs_is_nan) return std::weak_ordering::equivalent;
+  return lhs_is_nan ? std::weak_ordering::greater : std::weak_ordering::less;
+}
+
 /// Orders two numbers, whichever numeric types the two variants hold.
 ///
 /// The two variants need not hold the same types. A list that boxes its
@@ -966,10 +993,7 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
                                        const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) {
   const size_t size1 = first.ListSize();
   const size_t size2 = second.ListSize();
-
-  if (size1 != size2) {
-    return size1 <=> size2;
-  }
+  const size_t common = std::min(size1, size2);
 
   auto extract_type = [](const std::optional<std::variant<int64_t, double>> &val,
                          const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
@@ -984,8 +1008,10 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
     return list.ValueList().at(index).type();
   };
 
-  // Compare elements element-wise
-  for (size_t i = 0; i < size1; ++i) {
+  // Element by element, and only then by length, which is how a list is ordered
+  // whichever representation holds it. Ordering by length first would place the
+  // same two lists differently depending on how each is stored.
+  for (size_t i = 0; i < common; ++i) {
     const auto val1 = GetNumericValueAt(first, i);
     const auto val2 = GetNumericValueAt(second, i);
 
@@ -995,19 +1021,19 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
       return val1_type <=> val2_type;
     }
 
-    const auto cmp_result = CompareNumericValues(*val1, *val2);
-    if (cmp_result != std::partial_ordering::equivalent) {
-      if (cmp_result == std::partial_ordering::less) {
-        return std::weak_ordering::less;
-      }
-      if (cmp_result == std::partial_ordering::greater) {
-        return std::weak_ordering::greater;
-      }
-      return std::weak_ordering::equivalent;  // unordered case
+    // Read through the exact comparison, which orders two integers by every bit
+    // they hold rather than by what a double can carry. Only a NaN comes back
+    // unordered, and it is placed as a NaN beside a list is.
+    auto const cmp_result = CompareNumericValues(*val1, *val2);
+    if (cmp_result == std::partial_ordering::unordered) {
+      return CompareDoublesNaNLast(AsDouble(*val1), AsDouble(*val2));
     }
+    if (cmp_result == std::partial_ordering::less) return std::weak_ordering::less;
+    if (cmp_result == std::partial_ordering::greater) return std::weak_ordering::greater;
   }
 
-  return std::weak_ordering::equivalent;
+  // One list is the start of the other, and the shorter comes first.
+  return size1 <=> size2;
 }
 
 // Note: this function is only used for backwards compatibility with the old list types
@@ -1032,6 +1058,10 @@ inline std::weak_ordering CompareIncompatibleTypes(
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+// Each accessor below throws when the value holds another type, and the switch selecting it is
+// what makes that unreachable. Only a pair of numbers reaches the variant, which holds arithmetic
+// types and so is never valueless.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
                         const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept
     -> std::weak_ordering {
@@ -1039,19 +1069,9 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
   auto are_lists = first.IsAnyList() && second.IsAnyList();
   if (!are_comparable && !are_lists) return CompareIncompatibleTypes(first, second);
 
-  auto to_weak_order = [](std::partial_ordering o) {
-    if (o == std::partial_ordering::equivalent) {
-      return std::weak_ordering::equivalent;
-    }
-    if (o == std::partial_ordering::less) {
-      return std::weak_ordering::less;
-    }
-    if (o == std::partial_ordering::greater) {
-      return std::weak_ordering::greater;
-    }
-    // DANGER: TODO: check is this possible and what it should mean
-    return std::weak_ordering::less;
-  };
+  // Every pair that could compare unordered is a number, and each reaches this ordering through
+  // `CompareDoublesNaNLast`, so what arrives here is already total.
+  auto to_weak_order = [](std::strong_ordering o) { return std::weak_ordering{o}; };
 
   switch (first.type()) {
     case PropertyValueType::Null:
@@ -1062,13 +1082,13 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       if (second.type() == PropertyValueType::Int) {
         return first.ValueInt() <=> second.ValueInt();
       } else {
-        return to_weak_order(first.ValueInt() <=> second.ValueDouble());
+        return CompareDoublesNaNLast(static_cast<double>(first.ValueInt()), second.ValueDouble());
       }
     case PropertyValueType::Double:
       if (second.type() == PropertyValueType::Double) {
-        return to_weak_order(first.ValueDouble() <=> second.ValueDouble());
+        return CompareDoublesNaNLast(first.ValueDouble(), second.ValueDouble());
       } else {
-        return to_weak_order(first.ValueDouble() <=> second.ValueInt());
+        return CompareDoublesNaNLast(first.ValueDouble(), static_cast<double>(second.ValueInt()));
       }
     case PropertyValueType::String:
       // using string_view for allocator agnostic compare
@@ -1097,7 +1117,8 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       if (second.type() == PropertyValueType::DoubleList) {
         auto const &l1 = first.ValueDoubleList();
         auto const &l2 = second.ValueDoubleList();
-        return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
+        return std::lexicographical_compare_three_way(
+            l1.begin(), l1.end(), l2.begin(), l2.end(), CompareDoublesNaNLast);
       }
       return CompareLists(first, second);
     }
@@ -1105,9 +1126,15 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       if (second.type() == PropertyValueType::NumericList) {
         auto const &l1 = first.ValueNumericList();
         auto const &l2 = second.ValueNumericList();
-        auto const numeric_three_way_cmp = [](auto const &v1, auto const &v2) { return CompareNumericValues(v1, v2); };
-        return to_weak_order(
-            std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), numeric_three_way_cmp));
+        auto const numeric_three_way_cmp = [](auto const &v1, auto const &v2) {
+          auto const order = CompareNumericValues(v1, v2);
+          if (order == std::partial_ordering::unordered) return CompareDoublesNaNLast(AsDouble(v1), AsDouble(v2));
+          if (order == std::partial_ordering::less) return std::weak_ordering::less;
+          if (order == std::partial_ordering::greater) return std::weak_ordering::greater;
+          return std::weak_ordering::equivalent;
+        };
+        return std::lexicographical_compare_three_way(
+            l1.begin(), l1.end(), l2.begin(), l2.end(), numeric_three_way_cmp);
       }
       return CompareLists(first, second);
     }
@@ -1138,9 +1165,11 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
     case PropertyValueType::VectorIndexId: {
       const auto &vector1 = first.ValueVectorIndexList();
       const auto &vector2 = second.ValueVectorIndexList();
+      // A coordinate is a float, which carries a NaN of its own, so each is read through the
+      // comparison that places one rather than leaving the pair unordered.
       return std::lexicographical_compare_three_way(
-          vector1.begin(), vector1.end(), vector2.begin(), vector2.end(), [&to_weak_order](float a, float b) {
-            return to_weak_order(a <=> b);
+          vector1.begin(), vector1.end(), vector2.begin(), vector2.end(), [](float a, float b) {
+            return CompareDoublesNaNLast(a, b);
           });
     }
   }
@@ -1763,6 +1792,18 @@ extern template std::weak_ordering CompareLists(
     PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
     PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
 
+/// The hash of a number, over the value rather than over the bits holding it.
+///
+/// Two NaNs are one value here, since the order places them alongside each other
+/// so that a sorted container can find an entry again. They do not have to be
+/// the same NaN to be that value, and a container keyed by the hash needs the
+/// two to agree or an entry goes in one bucket and is looked for in another.
+inline size_t HashOfDouble(double value) noexcept {
+  if (std::isnan(value)) [[unlikely]]
+    return std::hash<double>{}(std::numeric_limits<double>::quiet_NaN());
+  return std::hash<double>{}(value);
+}
+
 }  // namespace memgraph::storage
 
 export namespace std {
@@ -1790,9 +1831,9 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
       case Bool:
         return std::hash<bool>{}(value.ValueBool());
       case Int:
-        return std::hash<double>{}(static_cast<double>(value.ValueInt()));
+        return memgraph::storage::HashOfDouble(static_cast<double>(value.ValueInt()));
       case Double:
-        return std::hash<double>{}(value.ValueDouble());
+        return memgraph::storage::HashOfDouble(value.ValueDouble());
       case String:
         return std::hash<std::string_view>{}(value.ValueString());
       case List: {

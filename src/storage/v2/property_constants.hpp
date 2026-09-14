@@ -36,10 +36,16 @@ static const auto kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
 static const auto kSmallestVectorIndexId = PropertyValue(
     PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{}, .vector = utils::small_vector<float>{}});
+/// A value no stored value sorts above, used to fence a scan that has no upper
+/// bound of its own.
+///
+/// The coordinates are NaNs rather than infinities because a NaN is placed after
+/// every number, so a point holding one sorts above a point holding an infinity
+/// and would fall outside a fence built from the latter.
 static const auto kLargestProperty = PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d,
-                                                           std::numeric_limits<double>::infinity(),
-                                                           std::numeric_limits<double>::infinity(),
-                                                           std::numeric_limits<double>::infinity()});
+                                                           std::numeric_limits<double>::quiet_NaN(),
+                                                           std::numeric_limits<double>::quiet_NaN(),
+                                                           std::numeric_limits<double>::quiet_NaN()});
 
 // We statically verify that the ordering of the property values holds.
 static_assert(PropertyValue::Type::Null < PropertyValue::Type::Bool);

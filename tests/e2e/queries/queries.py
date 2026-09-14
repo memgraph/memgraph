@@ -295,5 +295,43 @@ def test_a_nan_bound_keeps_no_row_however_the_scan_is_planned(memgraph):
     assert without_index[len(bounded_by_nan) :] == [49, 50, 9]
 
 
+def test_an_index_over_a_column_holding_a_nan_answers_as_the_filter_does(memgraph):
+    """A sorted container needs an answer for every pair it is handed, and IEEE
+    leaves a NaN unordered against everything. An entry placed with no order
+    goes where no later search finds it, and it can put other entries out of
+    reach too, so a range over the column answers differently from the filter it
+    stands in for, and differently from one run to the next.
+
+    A NaN sits after every number and alongside another NaN, so the column holds
+    its NaN rows and an ordinary bound reaches past them to the numbers."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("UNWIND range(1, 100) AS i CREATE (:M {v: toFloat(i)});")
+    memgraph.execute("UNWIND range(1, 3) AS i CREATE (:M {v: sqrt(-1)});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    # An ordinary bound answers over a column holding a NaN, and keeps none of
+    # the NaN rows: no comparison against one is true.
+    bounded_by_a_number = [
+        "MATCH (n:M) WHERE n.v < 50.0 RETURN count(n) AS c;",
+        "MATCH (n:M) WHERE n.v > 50.0 RETURN count(n) AS c;",
+        "MATCH (n:M) WHERE n.v > 10.0 AND n.v < 20.0 RETURN count(n) AS c;",
+        "MATCH (n:M) WHERE n.v IS NOT NULL RETURN count(n) AS c;",
+    ]
+
+    without_index = [count(q) for q in bounded_by_a_number]
+
+    memgraph.execute("CREATE INDEX ON :M(v);")
+
+    assert [count(q) for q in bounded_by_a_number] == without_index
+
+    # Non-vacuous, and the last of the four is the one that fails when the index
+    # cannot hold a NaN: every row is still reachable, the three NaN rows among
+    # them, while no ordered bound returns one.
+    assert without_index == [49, 50, 9, 103]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
