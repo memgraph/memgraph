@@ -9048,10 +9048,10 @@ class CallProcedureCursor : public Cursor {
           call_initializer = true;
           MG_ASSERT(proc_->cleanup);
         }
-      }
-      if (proc_->cleanup) [[unlikely]] {
-        if (!cleanup_) cleanup_.emplace(*proc_->cleanup);
-        cleanup_pending_ = true;
+        if (proc_->cleanup) [[unlikely]] {
+          if (!cleanup_) cleanup_.emplace(*proc_->cleanup);
+          cleanup_pending_ = true;
+        }
       }
       result_.rows.clear();
 
@@ -9134,10 +9134,10 @@ class CallProcedureCursor : public Cursor {
 
   void Shutdown() override {
     // The input has to be shut down even when the module's cleanup throws, or one throwing module
-    // skips the teardown of everything below it. Doing that from a scope guard would run the input's
-    // shutdown from a destructor during unwinding, and a throw out of a destructor while an exception
-    // is already propagating aborts the process; sequencing the two here keeps both out of a
-    // destructor.
+    // skips the teardown of everything below it. Both calls are sequenced here rather than guarding
+    // the second with a scope guard, because a scope guard would run the input's shutdown from a
+    // destructor while the cleanup's exception was propagating, and a throw out of a destructor
+    // during unwinding aborts the process.
     std::exception_ptr cleanup_failure;
     try {
       RunCleanup();

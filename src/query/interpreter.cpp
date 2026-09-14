@@ -11390,7 +11390,6 @@ void Interpreter::Abort() {
   for (auto &qe : query_executions_) {
     if (qe) qe->CleanRuntimeData();
   }
-  // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);
   frame_change_collector_.reset();
 }
