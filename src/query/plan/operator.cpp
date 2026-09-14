@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
+#include <exception>
 #include <execution>
 #include <functional>
 #include <limits>
@@ -9132,10 +9133,18 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Shutdown() override {
-    // `Shutdown` may throw and the cleanup is arbitrary module code, so shut the input down on the way
-    // out -- otherwise one throwing module skips the teardown of everything below it.
-    const utils::OnScopeExit shutdown_input{[this] { input_cursor_->Shutdown(); }};
-    RunCleanup();
+    std::exception_ptr cleanup_failure;
+    try {
+      RunCleanup();
+    } catch (...) {
+      cleanup_failure = std::current_exception();
+    }
+    // The input has to be shut down even when the cleanup failed -- otherwise one throwing module
+    // skips the teardown of everything below it. Re-raising only once the input is down keeps the
+    // module's exception from being in flight while `Shutdown` runs more code that may throw, which
+    // would terminate the process rather than fail the query.
+    input_cursor_->Shutdown();
+    if (cleanup_failure) std::rethrow_exception(cleanup_failure);
   }
 
   // A query that ends in an exception never reaches `Shutdown`, so this is the only teardown an
