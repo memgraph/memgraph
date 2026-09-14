@@ -90,6 +90,13 @@ CONVERGENCE_POLL_S: float = 1.0
 # Interval between successive control-thread heartbeat queries.
 CONTROL_POLL_S: float = 0.2
 
+# Backoff between retries when a concurrent system query is rejected.
+SYSTEM_QUERY_RETRY_S: float = 0.05
+
+# Overall deadline for retrying a system query.  Prevents an infinite retry
+# loop if the system-query lock is genuinely wedged; the test still fails fast.
+SYSTEM_QUERY_RETRY_TIMEOUT_S: float = 30.0
+
 
 # ---------------------------------------------------------------------------
 # Driver / session helpers
@@ -125,6 +132,45 @@ def _run(session, query: str) -> list[dict]:
     data = result.data()
     result.consume()
     return data
+
+
+def _run_system_query(driver, query: str) -> float:
+    """Execute a system query, retrying only on concurrent-system-query rejection.
+
+    Memgraph serializes system queries (CREATE/DROP DATABASE) globally.  When
+    two workers collide, one receives ClientError "Multiple concurrent system
+    queries are not supported."  This helper treats that specific error as
+    retriable and backs off for SYSTEM_QUERY_RETRY_S between attempts.
+
+    Returns the wall-clock latency (seconds) of the single ACCEPTED attempt —
+    backoff sleep time is excluded so callers can assert on response time.
+
+    Any other ClientError or unexpected exception is re-raised immediately.
+    Raises RuntimeError if SYSTEM_QUERY_RETRY_TIMEOUT_S elapses without the
+    query being accepted.
+    """
+    deadline = time.monotonic() + SYSTEM_QUERY_RETRY_TIMEOUT_S
+    while True:
+        t0 = time.monotonic()
+        try:
+            with driver.session() as sess:
+                _run(sess, query)
+            return time.monotonic() - t0
+        except ClientError as exc:
+            if "multiple concurrent system queries" in str(exc).lower():
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"System query could not be accepted within "
+                        f"{SYSTEM_QUERY_RETRY_TIMEOUT_S}s (concurrent-query lock held): {query}"
+                    ) from exc
+                log.debug(
+                    "System query deferred (concurrent lock); retrying in %.2fs: %s",
+                    SYSTEM_QUERY_RETRY_S,
+                    query,
+                )
+                time.sleep(SYSTEM_QUERY_RETRY_S)
+            else:
+                raise
 
 
 # ---------------------------------------------------------------------------
@@ -222,17 +268,17 @@ def _worker_iteration(
     """
     name = f"tenant_{worker_id}_{rep}"
 
-    # Step 1: Create the tenant database.
-    with admin_drv.session() as sess:
-        try:
-            _run(sess, f"CREATE DATABASE {name}")
-        except (ClientError, Exception) as exc:
-            msg = str(exc).lower()
-            if "already exists" in msg or "duplicate" in msg:
-                # Left over from a previous interrupted run; tolerate it.
-                log.warning("[worker-%d rep-%d] %s already exists, continuing", worker_id, rep, name)
-            else:
-                raise
+    # Step 1: Create the tenant database.  _run_system_query retries the
+    # concurrent-system-query rejection for us; "already exists" / "duplicate"
+    # (left over from a previous interrupted run) are still tolerated here.
+    try:
+        _run_system_query(admin_drv, f"CREATE DATABASE {name}")
+    except (ClientError, Exception) as exc:
+        msg = str(exc).lower()
+        if "already exists" in msg or "duplicate" in msg:
+            log.warning("[worker-%d rep-%d] %s already exists, continuing", worker_id, rep, name)
+        else:
+            raise
     log.debug("[worker-%d rep-%d] created %s", worker_id, rep, name)
 
     # Step 2: Open a pinner session and keep it open (NOT inside a `with`
@@ -248,10 +294,10 @@ def _worker_iteration(
 
         # Step 3: Issue DROP FORCE while the pin is alive.  The command must
         # return promptly; blocking here would indicate a regression.
-        t0 = time.monotonic()
-        with admin_drv.session() as sess:
-            _run(sess, f"DROP DATABASE {name} FORCE")
-        drop_latency = time.monotonic() - t0
+        # _run_system_query retries concurrent-system-query rejections and
+        # returns only the latency of the single ACCEPTED attempt — backoff
+        # sleep time is excluded so the assertion below stays meaningful.
+        drop_latency = _run_system_query(admin_drv, f"DROP DATABASE {name} FORCE")
         log.debug(
             "[worker-%d rep-%d] DROP FORCE returned in %.3fs (pin still held)",
             worker_id,
