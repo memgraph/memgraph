@@ -9042,11 +9042,11 @@ class CallProcedureCursor : public Cursor {
           return false;
         }
         stream_exhausted = false;
+        // A reset leaves the previous row's stream live; starting a new one tears it down.
+        RunCleanup();
         if (proc_->initializer) {
           call_initializer = true;
           MG_ASSERT(proc_->cleanup);
-          // A reset leaves the previous row's stream live; this is where it is torn down.
-          RunCleanup();
         }
       }
       if (proc_->cleanup) [[unlikely]] {
@@ -9133,17 +9133,24 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Shutdown() override {
+    // The input has to be shut down even when the module's cleanup throws, or one throwing module
+    // skips the teardown of everything below it. Doing that from a scope guard would run the input's
+    // shutdown from a destructor during unwinding, and a throw out of a destructor while an exception
+    // is already propagating aborts the process; sequencing the two here keeps both out of a
+    // destructor.
     std::exception_ptr cleanup_failure;
     try {
       RunCleanup();
     } catch (...) {
       cleanup_failure = std::current_exception();
     }
-    // The input has to be shut down even when the cleanup failed -- otherwise one throwing module
-    // skips the teardown of everything below it. Re-raising only once the input is down keeps the
-    // module's exception from being in flight while `Shutdown` runs more code that may throw, which
-    // would terminate the process rather than fail the query.
-    input_cursor_->Shutdown();
+    try {
+      input_cursor_->Shutdown();
+    } catch (...) {
+      if (!cleanup_failure) throw;
+      // Only one can be reported. Keep the cleanup's, which is the one this cursor is responsible for.
+      spdlog::warn("Ignoring a shutdown failure below '{}', which failed to clean up itself", self_->procedure_name_);
+    }
     if (cleanup_failure) std::rethrow_exception(cleanup_failure);
   }
 
