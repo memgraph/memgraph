@@ -1154,10 +1154,23 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       return first.ValueZonedTemporalData() <=> second.ValueZonedTemporalData();
     case PropertyValueType::Enum:
       return first.ValueEnum() <=> second.ValueEnum();
-    case PropertyValueType::Point2d:
-      return to_weak_order(first.ValuePoint2d() <=> second.ValuePoint2d());
-    case PropertyValueType::Point3d:
-      return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
+    // A coordinate is a double, so each is read through the comparison that
+    // answers for a NaN rather than leaving the pair unordered.
+    case PropertyValueType::Point2d: {
+      auto const &p1 = first.ValuePoint2d();
+      auto const &p2 = second.ValuePoint2d();
+      if (auto const crs = p1.crs() <=> p2.crs(); crs != std::strong_ordering::equal) return to_weak_order(crs);
+      if (auto const x = CompareDoublesNaNLast(p1.x(), p2.x()); x != std::weak_ordering::equivalent) return x;
+      return CompareDoublesNaNLast(p1.y(), p2.y());
+    }
+    case PropertyValueType::Point3d: {
+      auto const &p1 = first.ValuePoint3d();
+      auto const &p2 = second.ValuePoint3d();
+      if (auto const crs = p1.crs() <=> p2.crs(); crs != std::strong_ordering::equal) return to_weak_order(crs);
+      if (auto const x = CompareDoublesNaNLast(p1.x(), p2.x()); x != std::weak_ordering::equivalent) return x;
+      if (auto const y = CompareDoublesNaNLast(p1.y(), p2.y()); y != std::weak_ordering::equivalent) return y;
+      return CompareDoublesNaNLast(p1.z(), p2.z());
+    }
     case PropertyValueType::VectorIndexId: {
       const auto &vector1 = first.ValueVectorIndexList();
       const auto &vector2 = second.ValueVectorIndexList();

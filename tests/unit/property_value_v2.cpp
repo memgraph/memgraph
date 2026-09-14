@@ -760,6 +760,25 @@ TEST(PropertyValue, ANaNIsOrderedAfterEveryNumberAndAlongsideAnotherNaN) {
   EXPECT_TRUE(nan == other_nan);
 }
 
+TEST(PropertyValue, APointHoldingANaNCoordinateIsOrderedAsANaNBesideOneIs) {
+  // A coordinate is a double, so a point holding a NaN is a pair the sorted
+  // container an index keeps still has to be given an answer for.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const with_nan = PropertyValue(Point2d{WGS84_2d, 1.0, nan});
+  auto const without = PropertyValue(Point2d{WGS84_2d, 1.0, 2.0});
+
+  EXPECT_TRUE(std::is_eq(with_nan <=> with_nan));
+  EXPECT_TRUE(with_nan == with_nan);
+  EXPECT_TRUE(std::is_gt(with_nan <=> without));
+  EXPECT_TRUE(std::is_lt(without <=> with_nan));
+
+  auto const with_nan_3d = PropertyValue(Point3d{WGS84_3d, 1.0, 2.0, nan});
+  auto const without_3d = PropertyValue(Point3d{WGS84_3d, 1.0, 2.0, 3.0});
+  EXPECT_TRUE(std::is_eq(with_nan_3d <=> with_nan_3d));
+  EXPECT_TRUE(std::is_gt(with_nan_3d <=> without_3d));
+  EXPECT_TRUE(std::is_lt(without_3d <=> with_nan_3d));
+}
+
 TEST(PropertyValue, AListIsOrderedByItsElementsBeforeItsLength) {
   // A shorter list only comes first when it is a prefix of the longer one; an
   // element that differs settles the pair whichever lengths the two have.
