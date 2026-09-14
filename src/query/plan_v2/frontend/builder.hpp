@@ -48,7 +48,7 @@ struct BuildState {
   // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::vector<storage::ExternalPropertyValue const *> const &literal_info;
   std::vector<std::string_view> const &named_output_info;
-  std::map<std::int32_t, std::string> const &symbol_store;
+  std::map<std::int32_t, SymbolInfo> const &symbol_store;
   std::vector<FunctionInfo> const &function_info;
   /// The e-graph, so a build body can read an e-class's analysis facts (e.g.
   /// dead Unwind reading its list's statically known length).
