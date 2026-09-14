@@ -23,8 +23,8 @@ run-name: Runner Cache Warmup
 jobs:
   cache-warmup:
     #if: ${{ inputs.name != "" }}
-    runs-on: [self-hosted, Linux, galactus]
-    timeout-minutes: 120
+    runs-on: [self-hosted, Linux, nebula]
+    timeout-minutes: 180
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
