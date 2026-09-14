@@ -145,6 +145,66 @@ TEST(ComparableBounds, HoldsNoNaNInTheStretchAroundANumber) {
   }
 }
 
+TEST(HoldsANaN, FindsANaNWhereverAValueCarriesOne) {
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+
+  EXPECT_TRUE(HoldsANaN(PropertyValue(nan)));
+  EXPECT_TRUE(HoldsANaN(PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(nan)})));
+  EXPECT_TRUE(HoldsANaN(PropertyValue{DoubleListTag{}, std::vector<PropertyValue>{PropertyValue(nan)}}));
+  EXPECT_TRUE(HoldsANaN(
+      PropertyValue{NumericListTag{}, std::vector<PropertyValue>{PropertyValue(int64_t{1}), PropertyValue(nan)}}));
+  EXPECT_TRUE(HoldsANaN(PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.0, nan})));
+  EXPECT_TRUE(HoldsANaN(PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, nan})));
+  // Nesting is walked rather than only the outermost value.
+  EXPECT_TRUE(HoldsANaN(
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(std::vector<PropertyValue>{PropertyValue(nan)})})));
+
+  EXPECT_FALSE(HoldsANaN(PropertyValue()));
+  EXPECT_FALSE(HoldsANaN(PropertyValue(1.0)));
+  EXPECT_FALSE(HoldsANaN(PropertyValue(std::numeric_limits<double>::infinity())));
+  EXPECT_FALSE(HoldsANaN(PropertyValue(int64_t{7})));
+  EXPECT_FALSE(HoldsANaN(PropertyValue("a")));
+  EXPECT_FALSE(HoldsANaN(PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)})));
+  EXPECT_FALSE(HoldsANaN(PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0})));
+  EXPECT_FALSE(HoldsANaN(kSmallestEnum));
+}
+
+TEST(HoldsANull, FindsANullWhereverAValueCarriesOne) {
+  EXPECT_TRUE(HoldsANull(PropertyValue()));
+  EXPECT_TRUE(HoldsANull(PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue()})));
+  EXPECT_TRUE(HoldsANull(PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue()}})));
+  // Nesting is walked rather than only the outermost value.
+  EXPECT_TRUE(HoldsANull(
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(std::vector<PropertyValue>{PropertyValue()})})));
+
+  EXPECT_FALSE(HoldsANull(PropertyValue(1.0)));
+  EXPECT_FALSE(HoldsANull(PropertyValue(int64_t{7})));
+  EXPECT_FALSE(HoldsANull(PropertyValue("a")));
+  EXPECT_FALSE(HoldsANull(PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)})));
+  EXPECT_FALSE(HoldsANull(kSmallestEnum));
+}
+
+TEST(EqualsItself, HoldsOfEveryValueButTheTwoEqualityCannotDecide) {
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+
+  EXPECT_FALSE(EqualsItself(PropertyValue()));
+  EXPECT_FALSE(EqualsItself(PropertyValue(nan)));
+  EXPECT_FALSE(EqualsItself(PropertyValue(std::vector<PropertyValue>{PropertyValue(1), PropertyValue()})));
+  EXPECT_FALSE(EqualsItself(PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(nan)})));
+
+  EXPECT_TRUE(EqualsItself(PropertyValue(1.0)));
+  EXPECT_TRUE(EqualsItself(PropertyValue(std::numeric_limits<double>::infinity())));
+  EXPECT_TRUE(EqualsItself(PropertyValue("a")));
+  EXPECT_TRUE(EqualsItself(PropertyValue(std::vector<PropertyValue>{PropertyValue(1), PropertyValue(2)})));
+
+  // The vector helper reads the whole array, at any position.
+  EXPECT_FALSE(EveryValueEqualsItself({PropertyValue(1.0), PropertyValue(nan)}));
+  EXPECT_FALSE(EveryValueEqualsItself({PropertyValue(nan), PropertyValue(1.0)}));
+  EXPECT_FALSE(EveryValueEqualsItself({PropertyValue(1.0), PropertyValue()}));
+  EXPECT_TRUE(EveryValueEqualsItself({PropertyValue(1.0), PropertyValue(2.0)}));
+  EXPECT_TRUE(EveryValueEqualsItself({}));
+}
+
 TEST(ComparableBounds, AreComparableTellsTheTemporalKindsApart) {
   for (auto const a : kEveryTemporalKind) {
     for (auto const b : kEveryTemporalKind) {
