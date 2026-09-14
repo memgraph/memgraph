@@ -10331,9 +10331,15 @@ auto Interpreter::Route(std::optional<std::string> const &db) -> RouteResult {
 // Before Prepare or during Prepare, but single-threaded.
 // TODO: Is there any cleanup?
 void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
-  // Can throw
-  // do we lock here?
-  current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
+  // Get() throws UnknownDatabaseException if the tenant is absent, suspended, or draining.
+  auto db_acc = interpreter_context_->dbms_handler->Get(db_name);
+  // A tenant marked for deletion is still HOT in the gatekeeper map (Get() succeeds without error),
+  // but pinning it here would stall DROP ... FORCE teardown. Treat a being-dropped tenant as gone for
+  // an explicit USE DATABASE so the caller sees a clean error rather than attaching to a dying tenant.
+  if (db_acc.is_marked_for_deletion()) {
+    throw dbms::UnknownDatabaseException("Database '{}' is being dropped and is no longer available.", db_name);
+  }
+  current_db_.SetCurrentDB(std::move(db_acc), in_explicit_db);
 }
 #else
 // Default database only

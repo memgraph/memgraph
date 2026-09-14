@@ -410,6 +410,46 @@ TEST_F(IdleSessionReaperTest, DoesNotRepinMarkedForDeletionTenant) {
       << "session must fall back to db-less after the marked-for-deletion detection";
 }
 
+// NF2: USE DATABASE on a being-dropped tenant must throw, not re-pin. SetCurrentDB(name, true) is
+// the code path exercised by a Bolt USE DATABASE message. Before the fix, Get() succeeded (tenant
+// still HOT in the map) and the accessor was pinned without checking is_marked_for_deletion(),
+// stalling DROP ... FORCE teardown. The guard throws UnknownDatabaseException BEFORE calling
+// current_db_.SetCurrentDB(), so the session remains on its CURRENT database unchanged — mirroring
+// how a normal failed USE (nonexistent DB) behaves.
+TEST_F(IdleSessionReaperTest, UseDatabaseRefusesMarkedForDeletionTenant) {
+  const std::string db_name = "reap_use_marked";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+
+  // The interpreter starts on the default DB (passed by NewInterpreter via dbms.Get()).
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "session must start on the default database before the USE attempt";
+  const std::string original_db_name = interpreter.interpreter.current_db_.db_acc_->get()->name();
+  EXPECT_EQ(original_db_name, std::string{memgraph::dbms::kDefaultDB});
+
+  // Mark the in-map gatekeeper for deletion (same simulation as R11): prepare_for_deletion() sets
+  // the shared pimpl flag; the gatekeeper stays HOT in the map so Get() still grants an accessor.
+  {
+    auto dying_acc = DBMS().Get(db_name);
+    dying_acc.prepare_for_deletion();
+    // dying_acc released here; is_marked_for_deletion persists on the shared pimpl.
+  }
+
+  // SetCurrentDB with in_explicit_db=true mirrors the USE DATABASE Bolt path. It must throw
+  // UnknownDatabaseException before touching current_db_ — the guard fires before the swap.
+  EXPECT_THROW(interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/true),
+               memgraph::dbms::UnknownDatabaseException);
+
+  // A failed USE must leave the session on its current database, not switch to — or be evicted by —
+  // the dying tenant. current_db_ is unchanged because the throw precedes current_db_.SetCurrentDB().
+  EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "a failed USE DATABASE must not drop the session's current accessor";
+  EXPECT_EQ(interpreter.interpreter.current_db_.db_acc_->get()->name(), original_db_name)
+      << "session must remain on '" << original_db_name << "', not switch to the dying tenant";
+}
+
 // R7: a background reaper sweep thread races a session that is continuously running queries on the
 // same interpreter (autocommit + explicit BEGIN/COMMIT). This drives the real sync protocol: the
 // reaper CAS-es IDLE->REAPING and resets db_acc_ in the gaps between queries, while the session
