@@ -1885,3 +1885,49 @@ TYPED_TEST(CppApiTestFixture, TestMapHash) {
   values.insert(mgp::Value(SingleKeyMap("a", one)));
   ASSERT_EQ(values.size(), 3);
 }
+
+TYPED_TEST(CppApiTestFixture, TestValueMatches) {
+  const auto one = mgp::Value(int64_t{1});
+  const auto two = mgp::Value(int64_t{2});
+
+  // Away from a null, matching answers exactly as equivalence does.
+  ASSERT_TRUE(one.Matches(mgp::Value(int64_t{1})));
+  ASSERT_TRUE(one.Matches(mgp::Value(1.0)));
+  ASSERT_FALSE(one.Matches(two));
+  ASSERT_FALSE(one.Matches(mgp::Value("1")));
+  ASSERT_TRUE(mgp::Value(TwoKeyMap()).Matches(mgp::Value(TwoKeyMap(true))));
+
+  // Two nulls match, unlike under equality, so a list holding one matches itself.
+  const auto null = mgp::Value();
+  ASSERT_TRUE(null.Matches(mgp::Value()));
+  ASSERT_FALSE(null.Matches(one));
+  ASSERT_FALSE(one.Matches(null));
+
+  // The direction: a key the subject holds null matches one the other side simply lacks, and the
+  // reverse does not. This is the whole of what separates contains from index_of.
+  const auto null_valued = mgp::Value(SingleKeyMap("a", mgp::Value()));
+  const auto other_keyed = mgp::Value(SingleKeyMap("b", two));
+  ASSERT_TRUE(null_valued.Matches(other_keyed));
+  ASSERT_FALSE(other_keyed.Matches(null_valued));
+  // Equivalence stays symmetric, which is what the hash agrees with.
+  ASSERT_NE(null_valued, other_keyed);
+
+  // Equal sizes keep a map from matching a larger one just by holding nulls.
+  mgp::Map two_keys{};
+  two_keys.Insert("a", mgp::Value());
+  two_keys.Insert("b", mgp::Value());
+  ASSERT_FALSE(mgp::Value(std::move(two_keys)).Matches(other_keyed));
+
+  mgp::List with_null{};
+  with_null.AppendExtend(null);
+  mgp::List with_null_again{};
+  with_null_again.AppendExtend(null);
+  ASSERT_TRUE(mgp::Value(std::move(with_null)).Matches(mgp::Value(std::move(with_null_again))));
+
+  mgp::List longer{};
+  longer.AppendExtend(one);
+  longer.AppendExtend(two);
+  mgp::List shorter{};
+  shorter.AppendExtend(one);
+  ASSERT_FALSE(mgp::Value(std::move(longer)).Matches(mgp::Value(std::move(shorter))));
+}

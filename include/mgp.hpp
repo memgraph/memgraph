@@ -1650,12 +1650,21 @@ class Value {
   /// @brief Returns whether the value is an @ref Enum object.
   bool IsEnum() const;
 
-  /// @brief Whether the two values are equivalent, treating any two nulls as the same value. This is what
-  /// DISTINCT and grouping do, and what std::hash<Value> agrees with, so it is the relation to dedupe by.
+  /// @brief Equivalence: what DISTINCT and grouping read, and what std::hash<Value> agrees with, so the
+  /// relation to dedupe and to key a hash container by. Any two nulls are the same value. Symmetric, as
+  /// a hash container needs. For membership use Matches instead, which is not.
   /// @exception std::runtime_error Unknown value type.
   bool operator==(const Value &other) const;
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
+
+  /// @brief Membership: whether `other` answers every key this value holds, which is the relation
+  /// `collections.contains` and `collections.index_of` search by.
+  ///
+  /// Directional, and deliberately so - a key `other` lacks reads as null, so a null this value holds
+  /// matches a key that is simply absent. `{a: null}.Matches({b: 2})` is true and the reverse is false.
+  /// Away from a null it agrees with operator==.
+  bool Matches(const Value &other) const;
 
   bool operator<(const Value &other) const;
 
@@ -2094,12 +2103,17 @@ TDest MemcpyCast(TSrc src) {
   return dest;
 }
 
-/// @brief Returns whether two MGP API values are equivalent: any two nulls count as the same value,
-/// whether directly or nested in a list or map. This is the relation DISTINCT and grouping use, so it is
-/// the one to hash and dedupe by.
+/// @brief Equivalence: the relation DISTINCT and grouping read, and the one a hash container is keyed
+/// by. A Null it holds equivalent to a Null, directly or nested in a list or map. Symmetric, which is
+/// what lets std::hash<mgp::Value> agree with it. Use it to dedupe and to hash by.
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2);
 
-/// @brief Returns whether two MGP API lists are equivalent, treating any two nulls as the same value.
+/// @brief Membership: whether `subject` is matched by `against`, the relation list membership searches
+/// by. Asymmetric - see MapsMatch for the rule and why. Away from a null it agrees with ValuesEqual, so
+/// it is never the one to hash by.
+inline bool ValuesMatch(mgp_value *subject, mgp_value *against);
+
+/// @brief Returns whether two MGP API lists are equivalent, holding a null equivalent to a null.
 inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   if (list1 == list2) {
     return true;
@@ -2116,7 +2130,7 @@ inline bool ListsEqual(mgp_list *list1, mgp_list *list2) {
   return true;
 }
 
-/// @brief Returns whether two MGP API maps are equivalent, treating any two nulls as the same value.
+/// @brief Returns whether two MGP API maps are equivalent, holding a null equivalent to a null.
 inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   if (map1 == map2) {
     return true;
@@ -2138,6 +2152,51 @@ inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   }
   mgp::map_items_iterator_destroy(items_it);
   return equal;
+}
+
+/// @brief Returns whether `subject`'s elements are matched, in order, by `against`'s. Positional, so
+/// unlike MapsMatch there is nothing directional about it beyond what its elements decide.
+inline bool ListsMatch(mgp_list *subject, mgp_list *against) {
+  const size_t len = mgp::list_size(subject);
+  if (len != mgp::list_size(against)) {
+    return false;
+  }
+  for (size_t i = 0; i < len; ++i) {
+    if (!util::ValuesMatch(mgp::list_at(subject, i), mgp::list_at(against, i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// @brief Returns whether `against` answers every key `subject` holds, the two being the same size.
+///
+/// Asymmetric: a key `against` lacks reads as null, so a null in `subject` matches an absent key, while
+/// a value in `subject` does not. `{a: null}` matches `{b: 2}`; `{b: 2}` does not match `{a: null}`.
+/// Equal sizes keep that from making a map match a larger one.
+///
+/// This is the relation list membership searches by, and the direction is what tells `contains` from
+/// `index_of`: `contains` asks whether the searched-for value matches an element, `index_of` whether an
+/// element matches the searched-for value. Do not dedupe or hash by it - use ValuesEqual, which is
+/// symmetric.
+inline bool MapsMatch(mgp_map *subject, mgp_map *against) {
+  const size_t size = mgp::map_size(subject);
+  if (size != mgp::map_size(against)) {
+    return false;
+  }
+  if (size == 0) {
+    return true;
+  }
+  auto *items_it = mgp::MemHandlerCallback(map_iter_items, subject);
+  bool matched = true;
+  for (auto *item = mgp::map_items_iterator_get(items_it); item != nullptr && matched;
+       item = mgp::map_items_iterator_next(items_it)) {
+    auto *value = mgp::map_item_value(item);
+    auto *other = mgp::map_at(against, mgp::map_item_key(item));
+    matched = other == nullptr ? mgp::value_is_null(value) : util::ValuesMatch(value, other);
+  }
+  mgp::map_items_iterator_destroy(items_it);
+  return matched;
 }
 
 /// @brief Returns whether two MGP API nodes are equal.
@@ -2268,6 +2327,21 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
       return util::EnumsEqual(mgp::value_get_enum(value1), mgp::value_get_enum(value2));
   }
   throw ValueException("Invalid value; does not match any Memgraph type.");
+}
+
+inline bool ValuesMatch(mgp_value *subject, mgp_value *against) {
+  // Only a list or a map can carry the missing-key reading down, so every other type - a null included -
+  // answers exactly as equivalence does.
+  switch (mgp::value_get_type(subject)) {
+    case MGP_VALUE_TYPE_LIST:
+      return mgp::value_get_type(against) == MGP_VALUE_TYPE_LIST &&
+             util::ListsMatch(mgp::value_get_list(subject), mgp::value_get_list(against));
+    case MGP_VALUE_TYPE_MAP:
+      return mgp::value_get_type(against) == MGP_VALUE_TYPE_MAP &&
+             util::MapsMatch(mgp::value_get_map(subject), mgp::value_get_map(against));
+    default:
+      return util::ValuesEqual(subject, against);
+  }
 }
 
 /// @brief Converts C++ API types to their MGP API equivalents.
@@ -4670,6 +4744,8 @@ inline bool Value::IsEnum() const { return mgp::value_is_enum(this->ptr()); }
 inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(this->ptr(), other.ptr()); }
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
+
+inline bool Value::Matches(const Value &other) const { return util::ValuesMatch(this->ptr(), other.ptr()); }
 
 inline bool Value::operator<(const Value &other) const {
   const mgp::Type &type = Type();
