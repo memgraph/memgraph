@@ -14,7 +14,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <limits>
+#include <vector>
 
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
@@ -142,6 +144,62 @@ TEST(ComparableBounds, HoldsNoNaNInTheStretchAroundANumber) {
                             PropertyValue(std::numeric_limits<double>::infinity()),
                             PropertyValue(std::numeric_limits<int64_t>::max())}) {
     EXPECT_TRUE(WithinStretchOf(value, PropertyValue(0.0)));
+  }
+}
+
+/// Every stored type, with the smallest value each one holds.
+///
+/// Listed rather than derived so that a type added to the value has to be given
+/// a place here before these properties can be checked of it.
+struct TypeAndSmallest {
+  PropertyValueType type;
+  PropertyValue smallest;
+};
+
+std::vector<TypeAndSmallest> EveryTypeAndItsSmallest() {
+  return {
+      {PropertyValueType::Bool, kSmallestBool},
+      {PropertyValueType::Int, kSmallestNumber},
+      {PropertyValueType::Double, kSmallestNumber},
+      {PropertyValueType::String, kSmallestString},
+      {PropertyValueType::List, kSmallestList},
+      {PropertyValueType::Map, kSmallestMap},
+      {PropertyValueType::TemporalData, kSmallestTemporalData},
+      {PropertyValueType::ZonedTemporalData, kSmallestZonedTemporalData},
+      {PropertyValueType::Enum, kSmallestEnum},
+      {PropertyValueType::Point2d, kSmallestPoint2d},
+      {PropertyValueType::Point3d, kSmallestPoint3d},
+  };
+}
+
+TEST(TypeBands, HoldTheSmallestValueOfTheirOwnType) {
+  // The band a range is fenced to has to hold every value of that type. The
+  // smallest is the one a bound is most likely to fall the wrong side of.
+  for (auto const &[type, smallest] : EveryTypeAndItsSmallest()) {
+    EXPECT_TRUE(IsValueIncludedByLowerBound(smallest, LowerBoundForType(type)))
+        << "type " << static_cast<unsigned>(type) << " excludes its own smallest value";
+    EXPECT_TRUE(IsValueIncludedByUpperBound(smallest, UpperBoundForType(type)))
+        << "type " << static_cast<unsigned>(type);
+  }
+}
+
+TEST(TypeBands, RunOneAfterAnotherWithNoGapAndNoOverlap) {
+  // Each band ends where the next begins, so every value falls in exactly one.
+  // Written as a property rather than a table because the table is the thing
+  // under test.
+  auto const every = EveryTypeAndItsSmallest();
+  for (auto const &[type, smallest] : every) {
+    for (auto const &[other_type, other_smallest] : every) {
+      if (type == other_type) continue;
+      // Int and Double share one band, being ordered against each other.
+      auto const numbers = std::array{PropertyValueType::Int, PropertyValueType::Double};
+      if (std::ranges::contains(numbers, type) && std::ranges::contains(numbers, other_type)) continue;
+
+      auto const within = IsValueIncludedByLowerBound(other_smallest, LowerBoundForType(type)) &&
+                          IsValueIncludedByUpperBound(other_smallest, UpperBoundForType(type));
+      EXPECT_FALSE(within) << "the band for type " << static_cast<unsigned>(type) << " holds the smallest value of "
+                           << static_cast<unsigned>(other_type);
+    }
   }
 }
 
