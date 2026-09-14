@@ -124,6 +124,27 @@ TEST(TypeBands, FenceAScanAboveEveryValueItCouldHold) {
   EXPECT_TRUE(kSmallestPoint3d < kLargestProperty);
 }
 
+TEST(ComparableBounds, HoldsNoNaNInTheStretchAroundANumber) {
+  // A NaN is placed above every number so a sorted container can hold one, and
+  // that puts it inside the stretch a comparison against a number would read.
+  // Every comparison against a NaN is false, so a scan fenced to that stretch
+  // has to stop below it.
+  auto const nan = PropertyValue(std::numeric_limits<double>::quiet_NaN());
+
+  EXPECT_FALSE(WithinStretchOf(nan, PropertyValue(0.0)));
+  EXPECT_FALSE(WithinStretchOf(nan, PropertyValue(int64_t{7})));
+  EXPECT_FALSE(WithinStretchOf(nan, kSmallestNumber));
+
+  // Every number the stretch did hold, it still holds.
+  for (auto const &value : {PropertyValue(0.0),
+                            PropertyValue(int64_t{7}),
+                            kSmallestNumber,
+                            PropertyValue(std::numeric_limits<double>::infinity()),
+                            PropertyValue(std::numeric_limits<int64_t>::max())}) {
+    EXPECT_TRUE(WithinStretchOf(value, PropertyValue(0.0)));
+  }
+}
+
 TEST(ComparableBounds, AreComparableTellsTheTemporalKindsApart) {
   for (auto const a : kEveryTemporalKind) {
     for (auto const b : kEveryTemporalKind) {

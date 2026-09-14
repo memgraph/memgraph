@@ -24,8 +24,10 @@ auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
     case PropertyValue::Type::Int:
     case PropertyValue::Type::Double:
       // Both integers and doubles are treated as the same type in
-      // `PropertyValue` and they are interleaved when sorted.
-      return utils::MakeBoundExclusive(kSmallestString);
+      // `PropertyValue` and they are interleaved when sorted. The stretch stops
+      // below the NaNs, which sort above every number and answer false to every
+      // comparison a range could be built from.
+      return utils::MakeBoundExclusive(kSmallestNaN);
     case PropertyValue::Type::String:
       return utils::MakeBoundExclusive(kSmallestList);
     case PropertyValue::Type::List:
