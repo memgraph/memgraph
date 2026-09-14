@@ -251,6 +251,11 @@ class ReplicationStorageClient {
    */
   void LogRpcFailure() const;
 
+  // Retires the RPC connection for a tenant that is being dropped: resets the stream so ~StreamHandler
+  // does not leave the socket mid-read, aborts the RPC client to close the socket (framing correctness),
+  // and marks the replica MAYBE_BEHIND. Each call site still returns its own std::unexpected.
+  void RetireForSealedTenant(std::optional<ReplicaStream> &stream) const;
+
   /**
    * @brief Synchronously try to check the replica state and start a recovery thread if necessary
    *

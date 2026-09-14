@@ -18,6 +18,7 @@
 #include <list>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -214,10 +215,12 @@ class Handler {
    * @brief Defer teardown of the context associated with @p name to a shared background worker.
    *
    * @param name           Name of the item to tear down (erased from items_ unconditionally).
+   * @param id             Opaque caller tag (e.g. UUID string) stored on the node and surfaced
+   *                       by PendingItems(). Generic — no tenant vocabulary assumed.
    * @param stop_step      One-time stop work (e.g. StopAllBackgroundTasks). Receives a T& ref.
    * @param post_delete_step  Cleanup after value destruction (e.g. remove_all(dir)).
    */
-  void DeferDelete(std::string_view name, std::move_only_function<void(T &)> stop_step,
+  void DeferDelete(std::string_view name, std::string id, std::move_only_function<void(T &)> stop_step,
                    std::move_only_function<void()> post_delete_step) {
     auto itr = items_.find(name);
     if (itr == items_.end()) return;
@@ -231,14 +234,18 @@ class Handler {
     items_.erase(itr);
 
     // splice is noexcept, so the transfer to pending_ cannot fail once the node is built.
-    // On emplace_back bad_alloc, gk is still valid — fall through to inline teardown.
+    // On emplace_back bad_alloc, list-node allocation fails before any args are moved — gk
+    // and id are still valid, so the fallback stack-local node can use them.
     std::list<PendingDeletion> node;
     try {
-      node.emplace_back(std::move(gk), std::move(stop_step), std::move(post_delete_step));
+      node.emplace_back(
+          std::move(gk), std::string{name}, std::move(id), std::move(stop_step), std::move(post_delete_step));
     } catch (...) {
-      // emplace_back failed (OOM); gk was not moved. Run teardown via a stack-local node
-      // so the sequence is identical to the normal path.
-      PendingDeletion fallback{std::move(gk), std::move(stop_step), std::move(post_delete_step)};
+      // emplace_back failed (OOM); list-node allocation threw before construction — gk and id
+      // are intact. Run teardown via a stack-local node so the sequence is identical to the
+      // normal path.
+      PendingDeletion fallback{
+          std::move(gk), std::string{name}, std::move(id), std::move(stop_step), std::move(post_delete_step)};
       TeardownNode_(fallback);
       return;
     }
@@ -266,6 +273,15 @@ class Handler {
           "DeferDelete: background teardown worker could not start (thread creation failed). "
           "Teardown will be retried on the next deferred drop or completed at shutdown.");
     }
+  }
+
+  // Snapshot of (name, id) for every pending (draining) item. Generic — id is an opaque caller tag.
+  std::vector<std::pair<std::string, std::string>> PendingItems() const {
+    auto lock = std::unique_lock{pending_mutex_};
+    std::vector<std::pair<std::string, std::string>> out;
+    out.reserve(pending_.size());
+    for (auto const &node : pending_) out.emplace_back(node.name, node.id);
+    return out;
   }
 
   /**
@@ -318,18 +334,22 @@ class Handler {
   [[nodiscard]] bool empty() const noexcept { return items_.empty(); }
 
  private:
-  // Explicit constructor: lets std::list::emplace_back forward the three args directly.
+  // Explicit constructor: lets std::list::emplace_back forward the five args directly.
   struct PendingDeletion {
     utils::Gatekeeper<T> gk;
+    std::string name;  // opaque caller tag — no tenant vocabulary
+    std::string id;    // opaque caller tag (e.g. UUID string) — used by PendingItems()
     std::move_only_function<void(T &)> stop_step;
     std::move_only_function<void()> post_delete_step;
     bool stopped = false;
     std::chrono::steady_clock::time_point enqueued_at;
     bool warned = false;
 
-    PendingDeletion(utils::Gatekeeper<T> gk_, std::move_only_function<void(T &)> stop_step_,
-                    std::move_only_function<void()> post_delete_step_)
+    PendingDeletion(utils::Gatekeeper<T> gk_, std::string name_, std::string id_,
+                    std::move_only_function<void(T &)> stop_step_, std::move_only_function<void()> post_delete_step_)
         : gk{std::move(gk_)},
+          name{std::move(name_)},
+          id{std::move(id_)},
           stop_step{std::move(stop_step_)},
           post_delete_step{std::move(post_delete_step_)},
           enqueued_at{std::chrono::steady_clock::now()} {}
@@ -454,7 +474,8 @@ class Handler {
 
   // pending_mutex_ guards structural changes to pending_ (splice/erase) AND destroying_.
   // Node contents (stopped, stop_step) are mutated by the single worker thread only.
-  std::mutex pending_mutex_;
+  // mutable: PendingItems() is const but must acquire this lock.
+  mutable std::mutex pending_mutex_;
   bool destroying_ = false;  //!< set by ~Handler before Stop(); blocks late worker starts
   std::list<PendingDeletion> pending_;
   utils::Scheduler defer_worker_;  //!< ~50 ms cadence background worker

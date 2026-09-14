@@ -336,6 +336,12 @@ void ReplicationStorageClient::LogRpcFailure() const {
       utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
 }
 
+void ReplicationStorageClient::RetireForSealedTenant(std::optional<ReplicaStream> &stream) const {
+  stream.reset();
+  AbortRpcClient();
+  SetMaybeBehind();
+}
+
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
   if (protector.sealed()) {
     SetMaybeBehind();
@@ -602,16 +608,11 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   // called from a one thread stands)
   metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.finalize_txn_replication_seconds};
 
-  // Tenant is being dropped; stay MAYBE_BEHIND and do not issue the finalize RPC. Reset the stream
-  // (matching the sibling bail-outs below) and abort the RPC client: ~StreamHandler releases the RPC
-  // lock but does NOT close the socket, so without this the next RPC on this connection (e.g.
-  // DropDatabaseRpc) reuses a stream the replica is still mid-read on and corrupts framing. A sealed
-  // tenant is going away, so retiring the connection is correct (unlike the recovery-races-txn siblings
-  // that keep it for reuse).
+  // Tenant is being dropped: retire the RPC connection (framing correctness — ~StreamHandler releases
+  // the lock but does NOT close the socket; the next RPC would reuse a stream the replica is still
+  // mid-read on and corrupt framing) and stop replicating to a tenant that is going away.
   if (protector.sealed()) {
-    replica_stream.reset();
-    AbortRpcClient();
-    SetMaybeBehind();
+    RetireForSealedTenant(replica_stream);
     return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
   }
 
@@ -652,9 +653,11 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
                commit_num_committed_txns,
                is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
-    // Tenant may have been sealed between AddTask and this task running; do not issue the finalize RPC.
+    // Tenant was sealed between AddTask and this task executing: retire the RPC connection (framing
+    // correctness — the stream is still open on the replica's side; a subsequent RPC would read stale
+    // bytes from it) and stop replicating to a tenant that is going away.
     if (protector->sealed()) {
-      this->SetMaybeBehind();
+      this->RetireForSealedTenant(replica_stream_obj);
       return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
     }
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
@@ -795,11 +798,6 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
 
   for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
     try {
-      if (protector.sealed()) {
-        spdlog::info("Tenant for replica {} is being dropped; stopping recovery.", client_.name_);
-        replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-        return;
-      }
       spdlog::trace("Replica: {}, db: {}. Recovering in step: {}. Current local replica commit: {}.",
                     client_.name_,
                     main_db_name,

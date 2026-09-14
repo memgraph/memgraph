@@ -847,45 +847,34 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
       return std::unexpected{DeleteError::NON_EXISTENT};
     }
     db_uuid = db->get()->uuid();
-    // Advisory seal only (microseconds). The heavy stop work (StopAllBackgroundTasks + streams DropAll)
-    // is deferred to the background teardown worker below, so we do NOT stall other tenants under lock_.
-    db->prepare_for_deletion();
+    // No early seal here (late-seal model). The seal happens after all fallible work has succeeded so
+    // that an exception leaves the gatekeeper fully HOT in items_ — the tenant is intact and no
+    // rollback (unseal) is ever needed.
   }  // release our accessor so the worker can reach sole access
 
-  // Roll back the seal on any throw before DeferDelete transfers ownership: a stranded
-  // present+sealed tenant suppresses recovery (replication_client.cpp:74) until restart.
-  // Guard spans durability-key retirement, the dropping_ registry insert, and the DeferDelete
-  // handoff; any throw before DeferDelete moves the gatekeeper leaves it still present in
-  // items_ so GetGatekeeper returns a valid pointer for unseal().
-  try {
-    DetachProfileAndRetireDurabilityKey_(db_name);
-    // Record the in-flight drop in the dropping_ registry so SHOW DATABASES can surface it as a
-    // DROPPING row for the duration of the deferred teardown. Runs under lock_ (all Delete_ callers
-    // hold lock_ exclusively). Lock order: lock_ (already held) -> dropping_ (SpinLock, taken here);
-    // the only other lock order is ForgetDropping_ taking ONLY dropping_ — no inversion.
-    dropping_.WithLock([&](auto &map) { map.insert_or_assign(std::string{*db_uuid}, std::string{db_name}); });
-    db_handler_.DeferDelete(
-        db_name,
-        /*stop_step=*/
-        [](Database &db) {
-          db.StopAllBackgroundTasks();
-          db.streams()->DropAll();
-        },
-        /*post_delete_step=*/
-        // Captures `this` (safe: dropping_ outlives db_handler_'s drain due to declaration order)
-        // and db_uuid to erase the DROPPING registry entry once teardown is complete.
-        [this, db_uuid = *db_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
-          std::error_code ec;
-          (void)std::filesystem::remove_all(storage_path, ec);
-          if (ec) {
-            spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
-          }
-          ForgetDropping_(db_uuid);
-        });
-  } catch (...) {
-    if (auto *gk = db_handler_.GetGatekeeper(db_name)) gk->unseal();
-    throw;
-  }
+  // Fallible, point-of-no-return. If it throws, nothing is sealed and the gatekeeper is still HOT in
+  // items_ — the tenant is fully intact, no rollback needed (this is why unseal() is gone).
+  DetachProfileAndRetireDurabilityKey_(db_name);
+
+  // Non-throwing suffix: advisory seal, then hand ownership to the deferred worker. The worker records
+  // the husk (name + uuid) — surfaced as the DROPPING row in SHOW DATABASES — and tears down off lock_.
+  if (auto *gk = db_handler_.GetGatekeeper(db_name)) gk->seal();
+  db_handler_.DeferDelete(
+      db_name,
+      std::string{*db_uuid},
+      /*stop_step=*/
+      [](Database &db) {
+        db.StopAllBackgroundTasks();
+        db.streams()->DropAll();
+      },
+      /*post_delete_step=*/
+      [storage_path = *storage_path, db_name = std::string{db_name}]() {
+        std::error_code ec;
+        (void)std::filesystem::remove_all(storage_path, ec);
+        if (ec) {
+          spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
+        }
+      });
 
   // Announce the retired uuid so uuid-keyed stores (e.g. database-scoped parameters) discard its rows.
   // Placed after the seal + DeferDelete handoff (the drop's point of no return): any earlier failure
