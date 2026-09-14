@@ -92,6 +92,38 @@ TEST(ComparableBounds, LeavesEveryOtherTypeOneStretch) {
   }
 }
 
+TEST(TypeBands, FenceAScanAboveEveryValueItCouldHold) {
+  // A scan with no upper bound of its own is fenced at kLargestProperty, so a
+  // value sorting above it is handed back by no such scan. A NaN is placed after
+  // every number, which a point's coordinates are, so a point holding one is the
+  // value most likely to escape the fence.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+
+  for (auto const &value : {kSmallestProperty,
+                            kSmallestBool,
+                            kSmallestNumber,
+                            kSmallestString,
+                            kSmallestList,
+                            kSmallestMap,
+                            kSmallestTemporalData,
+                            kSmallestZonedTemporalData,
+                            kSmallestEnum,
+                            kSmallestPoint2d,
+                            kSmallestPoint3d,
+                            PropertyValue(std::numeric_limits<double>::infinity()),
+                            PropertyValue(nan),
+                            PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, nan, nan}),
+                            PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, nan, nan, nan}),
+                            PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, nan, 2.0})}) {
+    EXPECT_FALSE(kLargestProperty < value) << "a value sorts above the fence a bounded scan stops at";
+  }
+
+  // And the fence is above rather than equal to an ordinary value, so it does
+  // not exclude one.
+  EXPECT_TRUE(kSmallestProperty < kLargestProperty);
+  EXPECT_TRUE(kSmallestPoint3d < kLargestProperty);
+}
+
 TEST(ComparableBounds, AreComparableTellsTheTemporalKindsApart) {
   for (auto const a : kEveryTemporalKind) {
     for (auto const b : kEveryTemporalKind) {
