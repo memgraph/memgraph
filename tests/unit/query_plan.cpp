@@ -3432,7 +3432,65 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInReturnDrivesLabelPropert
     ASSERT_NE(seek, nullptr) << "seek key is not a PropertyLookup";
     auto *seek_on = memgraph::utils::Downcast<memgraph::query::Identifier>(seek->expression_);
     ASSERT_NE(seek_on, nullptr);
-    EXPECT_EQ(seek_on->name_, "m");
+    auto *outer_scan = memgraph::utils::Downcast<ScanAll>(rollup->input().get());
+    ASSERT_NE(outer_scan, nullptr);
+    EXPECT_EQ(symbol_table.at(*seek_on), outer_scan->output_symbol_);
+  }
+}
+
+// The edge rewriter needs the same inherited row, or the branch seeks a node property and still scans
+// every edge of the type.
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInReturnDrivesEdgeTypePropertyIndex) {
+  FakeDbAccessor dba;
+  auto edge_type = dba.EdgeType("indexed_edgetype");
+  auto property = PROPERTY_PAIR(dba, "indexed_property");
+  auto outer = PROPERTY_PAIR(dba, "outer");
+
+  // MATCH (m) RETURN [(a)-[r:indexed_edgetype]->(b) WHERE r.indexed_property = m.outer | r] AS alias
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))),
+      RETURN(NEXPR(
+          "alias",
+          PATTERN_COMPREHENSION(nullptr,
+                                PATTERN(NODE("a", std::nullopt, false),
+                                        EDGE("r", EdgeAtom::Direction::OUT, {"indexed_edgetype"}, false),
+                                        NODE("b", std::nullopt, false)),
+                                WHERE(EQ(PROPERTY_LOOKUP(dba, "r", property.second), PROPERTY_LOOKUP(dba, "m", outer))),
+                                IDENT("r"))))));
+  {
+    // Without the index the branch must stay a type scan plus a filter.
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> input{new ExpectScanAll()};
+    std::list<BaseOpChecker *> branch{new ExpectScanAll(), new ExpectExpand(), new ExpectFilter(), new ExpectProduce()};
+    CheckPlan(planner.plan(), symbol_table, ExpectRollUpApply(input, branch), ExpectProduce());
+    DeleteListContent(&input);
+    DeleteListContent(&branch);
+  }
+  {
+    dba.SetIndexCount(edge_type, property.second, 1);
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *fake_lookup = PROPERTY_LOOKUP(dba, "fake", outer);
+    std::list<BaseOpChecker *> input{new ExpectScanAll()};
+    std::list<BaseOpChecker *> branch{new ExpectScanAllByEdgeTypePropertyValue(edge_type, property, fake_lookup),
+                                      new ExpectProduce()};
+    CheckPlan(planner.plan(), symbol_table, ExpectRollUpApply(input, branch), ExpectProduce());
+    DeleteListContent(&input);
+    DeleteListContent(&branch);
+
+    // The checker compares expressions by type hash, so pin the seek key: it must read the outer row.
+    auto *rollup = FindOpOfType<RollUpApply>(&planner.plan());
+    ASSERT_NE(rollup, nullptr);
+    auto *scan = FindOpOfType<ScanAllByEdgeTypePropertyValue>(rollup->list_collection_branch_.get());
+    ASSERT_NE(scan, nullptr);
+    auto *seek = memgraph::utils::Downcast<memgraph::query::PropertyLookup>(scan->expression_);
+    ASSERT_NE(seek, nullptr) << "seek key is not a PropertyLookup";
+    auto *seek_on = memgraph::utils::Downcast<memgraph::query::Identifier>(seek->expression_);
+    ASSERT_NE(seek_on, nullptr);
+    auto *outer_scan = memgraph::utils::Downcast<ScanAll>(rollup->input().get());
+    ASSERT_NE(outer_scan, nullptr);
+    EXPECT_EQ(symbol_table.at(*seek_on), outer_scan->output_symbol_);
   }
 }
 
