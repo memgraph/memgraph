@@ -209,6 +209,12 @@ def test_a_range_bound_is_read_once_however_the_scan_is_planned(memgraph):
 
     assert count(ranged) == 5
 
+    # The row count above settles on the first answer whether the bound was read
+    # once or twice, so it cannot tell the two apart. Reading the counter after
+    # the scan can: a scan that asked once leaves it at one.
+    asked = "MATCH (n:C) WHERE n.p > counter('asked', 0) WITH count(n) AS c RETURN counter('asked', 0) AS after;"
+    assert list(memgraph.execute_and_fetch(asked))[0]["after"] == 1
+
 
 def test_a_temporal_range_answers_for_its_own_kind_however_the_scan_is_planned(memgraph):
     """A date, a local time, a local date time and a duration are four types no

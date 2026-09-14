@@ -278,6 +278,19 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
 auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
     -> storage::PropertyValueRange::ValuePredicate {
   if (!lower_) return nullptr;
+
+  // Only a search term yields a predicate, and the bound has already been read to build the
+  // range. Reading it again for a range that will not use one would repeat whatever the
+  // expression does.
+  switch (type_) {
+    case Type::CONTAINS:
+    case Type::ENDS_WITH:
+    case Type::REGEX_MATCH:
+      break;
+    default:
+      return nullptr;
+  }
+
   auto const typed_value = lower_->value()->Accept(evaluator);
   if (!typed_value.IsString()) return nullptr;
   auto const &search_term = typed_value.ValueString();
