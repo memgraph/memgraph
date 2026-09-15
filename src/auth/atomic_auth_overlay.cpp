@@ -29,6 +29,12 @@ std::optional<std::string> AtomicAuthOverlay::Get(std::string_view key) const {
   return read_set_.at(key_str);
 }
 
+void AtomicAuthOverlay::ScanDependsOnEmptinessOnly(std::string const &prefix) const {
+  if (auto it = scanned_prefixes_.find(prefix); it != scanned_prefixes_.end()) {
+    it->second.kind = ScanDependency::Kind::kEmptiness;
+  }
+}
+
 void AtomicAuthOverlay::RecordScanned(std::string const &key, std::string const &value) const {
   read_set_.emplace(key, value);  // First read wins: a later one would record a value this transaction already saw
 }
@@ -89,8 +95,15 @@ bool AtomicAuthOverlay::Flush() {
 
   // A scan saw every key under its prefix, so a key appearing there invalidates whatever it concluded. Keys the
   // scan did see are in the read-set already, which covers their modification and removal.
-  for (auto const &prefix : scanned_prefixes_) {
-    for (auto it = base_.begin(prefix), e = base_.end(prefix); it != e; ++it) {
+  for (auto const &[prefix, dependency] : scanned_prefixes_) {
+    auto it = base_.begin(prefix);
+    auto const e = base_.end(prefix);
+    if (dependency.kind == ScanDependency::Kind::kEmptiness) {
+      // The scan concluded only whether anything was there, so only that flipping invalidates it.
+      if ((it == e) != dependency.was_empty) return false;
+      continue;
+    }
+    for (; it != e; ++it) {
       if (!read_set_.contains(it->first)) return false;
     }
   }
@@ -125,7 +138,13 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const *overlay, std::str
       base_end_(overlay->base_.end(prefix_)),
       at_end_(at_end) {
   if (!at_end_) {
-    overlay_->scanned_prefixes_.insert(prefix_);
+    // Emptiness is read from base before any Advance, since Advance consumes the first entry. A scan is assumed to
+    // depend on the whole key set; a caller that stopped early narrows it afterwards.
+    auto [entry, inserted] = overlay_->scanned_prefixes_.try_emplace(
+        prefix_, ScanDependency{ScanDependency::Kind::kKeySet, base_it_ == base_end_});
+    // A fresh scan starts out depending on the key set, whatever an earlier short-circuiting one settled for. Only
+    // the caller that stops early narrows it again, so the strictest scan of a prefix is what survives.
+    if (!inserted) entry->second.kind = ScanDependency::Kind::kKeySet;
     write_it_ = overlay_->write_set_.lower_bound(prefix_);
     write_end_ = overlay_->write_set_.end();
     Advance();

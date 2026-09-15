@@ -142,8 +142,18 @@ class Repository {
         target_);
   }
 
+  /// Whether anything exists under `prefix`. Stops at the first key, so inside a transaction this depends only on
+  /// the prefix being inhabited; saying so keeps the conflict check from holding the scan to keys it never read.
   bool HasAny(std::string_view prefix) const {
-    return AnyOf(prefix, [](auto const &) { return true; });
+    auto const found = AnyOf(prefix, [](auto const &) { return true; });
+    std::visit(
+        [&prefix](auto *target) {
+          if constexpr (std::is_same_v<std::remove_pointer_t<decltype(target)>, AtomicAuthOverlay>) {
+            target->ScanDependsOnEmptinessOnly(std::string{prefix});
+          }
+        },
+        target_);
+    return found;
   }
 
   /// The overlay's mutating operations return void where KVStore returns bool; they cannot fail, since a write only
