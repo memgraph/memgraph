@@ -659,6 +659,10 @@ class Interpreter final {
 
   memgraph::auth::AuthTransaction *auth_transaction_ptr() { return auth_transaction_ ? &*auth_transaction_ : nullptr; }
 
+  void EnsureAuthTransaction() {
+    if (!auth_transaction_) auth_transaction_.emplace();
+  }
+
   memgraph::system::Transaction *system_transaction_ptr() {
     return system_transaction_ ? &*system_transaction_ : nullptr;
   }
