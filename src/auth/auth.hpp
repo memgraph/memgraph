@@ -524,14 +524,27 @@ class Auth final {
    */
   bool NameRegexMatch(const std::string &user_or_role) const;
 
-  // Durability updated -> new epoch, invalidating every session's cached permissions.
-  void UpdateEpoch() { ++epoch_; }
+  // Durability updated -> new epoch, invalidating every session's cached permissions. A transactional repository
+  // means nothing is durable yet, so the epoch must not move: bumping it would invalidate every session's cache
+  // against uncommitted state, and spend the invalidation that Commit owes them once the flush lands.
+  void UpdateEpoch() {
+    if (!storage_.IsTransactional()) ++epoch_;
+  }
 
-  // `make` runs only when there is a transaction to consume the action, so no caller pays to build one that would
-  // be dropped.
+  // Inside an auth transaction the action is held until COMMIT drains it, so the system mutex is taken for the
+  // flush rather than the transaction's whole life. Outside one it goes straight to the statement's system
+  // transaction. With neither, the action is dropped: that is how a replica applying a delta, and a password hash
+  // upgrade during login, write without replicating.
+  //
+  // `make` runs only when there is somewhere to put the result, so no caller pays to build one that would be
+  // dropped.
   template <typename Make>
   void AddAuthAction(system::Transaction *system_tx, Make &&make) {
-    if (system_tx) AddSystemAction(*system_tx, std::forward<Make>(make)());
+    if (sink_) {
+      sink_->emplace_back(std::forward<Make>(make)());
+    } else if (system_tx) {
+      AddSystemAction(*system_tx, std::forward<Make>(make)());
+    }
   }
 
   // system::Transaction is only forward-declared here, so the push itself lives in the .cpp.
@@ -544,9 +557,19 @@ class Auth final {
 
   Repository &storage() { return storage_; }
 
-  kvstore::KVStore &durability() { return durability_; }
+  PendingActions *&sink() { return sink_; }
 
-  Epoch &epoch() { return epoch_; }
+#ifdef MG_ENTERPRISE
+  std::vector<std::string> *&dropped_users() { return dropped_users_; }
+
+  // Releases the live limits a dropped user was holding. Deferred to COMMIT, because ResourceMonitoring is shared
+  // with every session and has no rollback of its own.
+  void ReleaseUserResources(std::string const &username) {
+    if (user_resources_) user_resources_->RemoveUser(username);
+  }
+#endif
+
+  kvstore::KVStore &durability() { return durability_; }
 
   // Storage access. `storage_` routes to the durable KVStore or to a transaction's overlay; Auth cannot tell which.
   std::optional<std::string> StorageGet(std::string_view key) const { return storage_.Get(key); }
@@ -602,6 +625,16 @@ class Auth final {
   // Everything below reaches storage through this handle, never `durability_` directly, so an auth transaction can
   // point it at an overlay instead. Auth itself has no idea which it holds.
   Repository storage_{durability_};
+
+  // Where replication actions accumulate while an auth transaction is live, bound alongside `storage_` and null
+  // outside one. Read and written only under the exclusive lock that installs it.
+  PendingActions *sink_ = nullptr;
+
+#ifdef MG_ENTERPRISE
+  // Users whose resource limits are released at COMMIT rather than immediately. Bound and null on the same terms
+  // as `sink_`.
+  std::vector<std::string> *dropped_users_ = nullptr;
+#endif
 #ifdef MG_ENTERPRISE
   UserProfiles user_profiles_{storage_};
   utils::ResourceMonitoring *user_resources_;

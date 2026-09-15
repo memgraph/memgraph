@@ -14,8 +14,10 @@
 #include <list>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "auth/atomic_auth_overlay.hpp"
 #include "auth/auth.hpp"
@@ -37,11 +39,20 @@ class AuthTransaction {
 
   PendingActions &pending_actions() { return pending_actions_; }
 
+#ifdef MG_ENTERPRISE
+  std::vector<std::string> const &dropped_users() const { return dropped_users_; }
+#endif
+
  private:
   friend class AuthLayer;
 
   std::optional<AtomicAuthOverlay> overlay_;
   PendingActions pending_actions_;
+#ifdef MG_ENTERPRISE
+  // Users whose live resource limits are released at COMMIT. ResourceMonitoring is process-wide and has no
+  // rollback, so dropping them while the transaction is still open would outlive an abort.
+  std::vector<std::string> dropped_users_;
+#endif
 };
 
 /// Owns the transaction concept that sits above Auth.
@@ -60,20 +71,25 @@ class AuthLayer {
   /// transaction. Holds the lock either way, so the swap is never visible to another session.
   class ScopedOverlay {
    public:
-    ScopedOverlay(LockedAuth locked, AtomicAuthOverlay *overlay) : locked_{std::move(locked)} {
+    ScopedOverlay(LockedAuth locked, AtomicAuthOverlay *overlay, PendingActions *sink,
+                  std::vector<std::string> *dropped_users)
+        : locked_{std::move(locked)} {
       if (!overlay) return;
-      epoch_.emplace(locked_->epoch());
       previous_.emplace(locked_->storage());
       locked_->storage() = Repository{*overlay};
+      locked_->sink() = sink;
+#ifdef MG_ENTERPRISE
+      locked_->dropped_users() = dropped_users;
+#endif
     }
 
-    /// Restores both the storage and the epoch. Nothing this call wrote is durable yet, so the epoch must not move:
-    /// bumping it would invalidate every session's permission cache against uncommitted state, and spend the
-    /// invalidation that Commit owes them once the flush lands.
     ~ScopedOverlay() {
       if (!previous_) return;
       locked_->storage() = *previous_;
-      locked_->epoch() = *epoch_;
+      locked_->sink() = nullptr;
+#ifdef MG_ENTERPRISE
+      locked_->dropped_users() = nullptr;
+#endif
     }
 
     ScopedOverlay(ScopedOverlay const &) = delete;
@@ -89,7 +105,6 @@ class AuthLayer {
     // Mutable because Synchronized::LockedPtr's own accessors are non-const. Const here means the guard is not
     // being modified, not that the Auth behind it is read-only.
     mutable LockedAuth locked_;
-    std::optional<Auth::Epoch> epoch_;
     std::optional<Repository> previous_;
   };
 
@@ -119,9 +134,13 @@ class AuthLayer {
   /// so no other session can ever observe the buffered storage.
   ScopedOverlay Lock(AuthTransaction *tx = nullptr) {
     auto locked = auth_->Lock();
-    if (!tx) return ScopedOverlay{std::move(locked), nullptr};
+    if (!tx) return ScopedOverlay{std::move(locked), nullptr, nullptr, nullptr};
     if (!tx->overlay_) tx->overlay_.emplace(locked->durability());
-    return ScopedOverlay{std::move(locked), &*tx->overlay_};
+#ifdef MG_ENTERPRISE
+    return ScopedOverlay{std::move(locked), &*tx->overlay_, &tx->pending_actions_, &tx->dropped_users_};
+#else
+    return ScopedOverlay{std::move(locked), &*tx->overlay_, &tx->pending_actions_, nullptr};
+#endif
   }
 
   /// Read access: shared outside a transaction, exclusive through the overlay inside one.
@@ -136,6 +155,10 @@ class AuthLayer {
     auto locked = auth_->Lock();
     if (tx.overlay_ && !tx.overlay_->Flush()) return false;
     locked->UpdateEpoch();
+#ifdef MG_ENTERPRISE
+    for (auto const &username : tx.dropped_users_) locked->ReleaseUserResources(username);
+    tx.dropped_users_.clear();
+#endif
     return true;
   }
 
