@@ -52,14 +52,7 @@ class AllTypesFixture : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
-  void SetUp() override {
-    // These tests check that a copy is the same value as the original, and no
-    // relation decides that of a value holding a NaN: equality answers Null and
-    // equivalence answers false.
-    for (auto &&value : memgraph::test::shapes::EveryTypedValueShape(&dba)) {
-      if (!memgraph::test::shapes::HoldsANaN(value)) values_.emplace_back(std::move(value));
-    }
-  }
+  void SetUp() override { values_ = memgraph::test::shapes::EveryTypedValueShape(&dba); }
 
   void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
@@ -868,21 +861,19 @@ TYPED_TEST(TypedValueLogicTest, LogicalXor) {
 TYPED_TEST(AllTypesFixture, CopyConstruction) {
   for (auto const &value : this->values_) {
     auto cpy = value;
-    if (value.IsNull()) {
-      EXPECT_PROP_ISNULL(cpy);
-    } else if (value.IsGraph()) {
-      // not comparable
-    } else if (value.IsList() || value.IsMap()) {
-      // Equivalence decides that the copy is the same value whatever the
-      // container holds, and it is the relation that has to, since a hash
-      // container is keyed by it. Equality leaves the question open for a
-      // container holding a Null, answering Null rather than true.
-      EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value));
-      if (memgraph::query::relations::equality::HoldsANull(value)) {
-        EXPECT_PROP_ISNULL(cpy == value);
-      } else {
-        EXPECT_PROP_EQ(cpy, value);
-      }
+    if (value.IsGraph()) continue;  // A graph is not compared.
+
+    // Equivalence decides that the copy is the same value whatever it holds, and
+    // it is the relation that has to, since a hash container is keyed by it.
+    EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value)) << "a copy of " << value << " is not equivalent to it";
+
+    // Equality answers each of its three ways here, and which one it gives says
+    // what the value holds: a NaN settles the question false wherever it sits,
+    // a Null with no NaN beside it leaves the question open.
+    if (memgraph::test::shapes::HoldsANaN(value)) {
+      EXPECT_PROP_FALSE(cpy == value);
+    } else if (memgraph::query::relations::equality::HoldsANull(value)) {
+      EXPECT_PROP_ISNULL(cpy == value);
     } else {
       EXPECT_PROP_EQ(cpy, value);
     }
