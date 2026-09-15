@@ -78,11 +78,17 @@ inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
 ///
 /// A list that packs its elements holds them at one width and a list that boxes
 /// them at another, so a pair drawn from two lists need not hold the same type.
-inline double AsDouble(auto const &numeric) {
-  return std::visit([](auto const &held) { return static_cast<double>(held); }, numeric);
+/// Read through a pointer rather than by visiting: a visit is allowed to raise for a variant
+/// holding nothing, which these never are, and this is reached from a comparison declared not to
+/// raise.
+template <typename Int, typename Double>
+inline double AsDouble(std::variant<Int, Double> const &numeric) noexcept {
+  if (auto const *as_int = std::get_if<Int>(&numeric)) return static_cast<double>(*as_int);
+  if (auto const *as_double = std::get_if<Double>(&numeric)) return static_cast<double>(*as_double);
+  std::unreachable();
 }
 
-inline std::weak_ordering CompareDoublesNaNLast(double lhs, double rhs) {
+inline std::weak_ordering CompareDoublesNaNLast(double lhs, double rhs) noexcept {
   if (auto const order = lhs <=> rhs; order != std::partial_ordering::unordered) {
     if (order == std::partial_ordering::less) return std::weak_ordering::less;
     if (order == std::partial_ordering::greater) return std::weak_ordering::greater;
@@ -99,10 +105,19 @@ inline std::weak_ordering CompareDoublesNaNLast(double lhs, double rhs) {
 /// The two variants need not hold the same types. A list that boxes its
 /// elements stores an integer wider than one that packs them, so comparing the
 /// two means reading each at the width it is stored at.
-template <typename... Lhs, typename... Rhs>
-inline std::partial_ordering CompareNumericValues(const std::variant<Lhs...> &a, const std::variant<Rhs...> &b) {
-  return std::visit(
-      [](const auto &val_a, const auto &val_b) -> std::partial_ordering { return val_a <=> val_b; }, a, b);
+/// Each side is read through a pointer rather than by visiting, for the reason `AsDouble` gives.
+template <typename LhsInt, typename LhsDouble, typename RhsInt, typename RhsDouble>
+inline std::partial_ordering CompareNumericValues(std::variant<LhsInt, LhsDouble> const &a,
+                                                  std::variant<RhsInt, RhsDouble> const &b) noexcept {
+  auto const *a_int = std::get_if<LhsInt>(&a);
+  auto const *b_int = std::get_if<RhsInt>(&b);
+  if (a_int) {
+    if (b_int) return *a_int <=> *b_int;
+    return *a_int <=> *std::get_if<RhsDouble>(&b);
+  }
+  auto const *a_double = std::get_if<LhsDouble>(&a);
+  if (b_int) return *a_double <=> *b_int;
+  return *a_double <=> *std::get_if<RhsDouble>(&b);
 }
 
 class PropertyValueException : public utils::BasicException {
@@ -654,6 +669,22 @@ class PropertyValueImpl {
     }
   }
 
+  /// @pre `IsAnyList()`. See the unchecked getters below for why.
+  size_t ListSizeUnchecked() const noexcept {
+    switch (type_) {
+      case Type::List:
+        return list_v.val_.size();
+      case Type::IntList:
+        return int_list_v.val_.size();
+      case Type::DoubleList:
+        return double_list_v.val_.size();
+      case Type::NumericList:
+        return numeric_list_v.val_.size();
+      default:
+        std::unreachable();
+    }
+  }
+
   // value getters for primitive types
   /// @throw PropertyValueException if value isn't of correct type.
   bool ValueBool() const {
@@ -781,6 +812,49 @@ class PropertyValueImpl {
       throw PropertyValueException("The value isn't a map!");
     }
     return map_v.val_;
+  }
+
+  /// The getters below read the value without checking what it holds.
+  ///
+  /// @pre `type()` is the type named by the getter. Reading any other one is
+  /// undefined, so a caller has to have settled the type already, which is what
+  /// a switch over `type()` does.
+  ///
+  /// The ordering and the hash are declared not to raise, and every getter above
+  /// raises when asked for the wrong type. A raise from either would terminate
+  /// rather than propagate, so neither can reach one.
+  auto ValueBoolUnchecked() const noexcept -> bool { return bool_v.val_; }
+
+  auto ValueIntUnchecked() const noexcept -> int64_t { return int_v.val_; }
+
+  auto ValueDoubleUnchecked() const noexcept -> double { return double_v.val_; }
+
+  auto ValueTemporalDataUnchecked() const noexcept -> TemporalData { return temporal_data_v.val_; }
+
+  auto ValueZonedTemporalDataUnchecked() const noexcept -> ZonedTemporalData const & {
+    return zoned_temporal_data_v.val_;
+  }
+
+  auto ValueEnumUnchecked() const noexcept -> Enum { return enum_data_v.val_; }
+
+  auto ValuePoint2dUnchecked() const noexcept -> Point2d { return point2d_data_v.val_; }
+
+  auto ValuePoint3dUnchecked() const noexcept -> Point3d { return point3d_data_v.val_; }
+
+  auto ValueStringUnchecked() const noexcept -> string_t const & { return string_v.val_; }
+
+  auto ValueListUnchecked() const noexcept -> list_t const & { return list_v.val_; }
+
+  auto ValueMapUnchecked() const noexcept -> map_t const & { return map_v.val_; }
+
+  auto ValueIntListUnchecked() const noexcept -> int_list_t const & { return int_list_v.val_; }
+
+  auto ValueDoubleListUnchecked() const noexcept -> double_list_t const & { return double_list_v.val_; }
+
+  auto ValueNumericListUnchecked() const noexcept -> numeric_list_t const & { return numeric_list_v.val_; }
+
+  auto ValueVectorIndexListUnchecked() const noexcept -> utils::small_vector<float> const & {
+    return vector_index_id_v.val_.vector;
   }
 
   // reference value getters for non-primitive types
@@ -946,24 +1020,24 @@ using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byt
 /// would compare equal.
 template <typename Alloc, typename KeyType, typename VectorIndexIdType>
 inline std::optional<std::variant<int64_t, double>> GetNumericValueAt(
-    const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list, size_t index) {
+    const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list, size_t index) noexcept {
   switch (list.type()) {
     case PropertyValueType::List: {
-      auto const &list_val = list.ValueList();
+      auto const &list_val = list.ValueListUnchecked();
       if (list_val[index].IsInt()) {
-        return list_val[index].ValueInt();
+        return list_val[index].ValueIntUnchecked();
       }
       if (list_val[index].IsDouble()) {
-        return list_val[index].ValueDouble();
+        return list_val[index].ValueDoubleUnchecked();
       }
       return std::nullopt;
     }
     case PropertyValueType::IntList: {
-      auto const &list_val = list.ValueIntList();
+      auto const &list_val = list.ValueIntListUnchecked();
       return list_val[index];
     }
     case PropertyValueType::DoubleList: {
-      auto const &list_val = list.ValueDoubleList();
+      auto const &list_val = list.ValueDoubleListUnchecked();
       return list_val[index];
     }
     case PropertyValueType::NumericList: {
@@ -973,7 +1047,7 @@ inline std::optional<std::variant<int64_t, double>> GetNumericValueAt(
       // Read through a pointer rather than by value: the accessor that returns
       // the value raises when asked for the alternative the element does not
       // hold, and this comparison is reached from one declared not to raise.
-      auto const &packed = list.ValueNumericList()[index];
+      auto const &packed = list.ValueNumericListUnchecked()[index];
       if (auto const *as_int = std::get_if<int>(&packed)) {
         return static_cast<int64_t>(*as_int);
       }
@@ -983,16 +1057,17 @@ inline std::optional<std::variant<int64_t, double>> GetNumericValueAt(
       std::unreachable();
     }
     default:
-      throw PropertyValueException("Invalid list type");
+      // Reached only for a value that is a list, which the caller has settled.
+      std::unreachable();
   }
 }
 
 /// Helper function to compare two lists of different types
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
-                                       const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) {
-  const size_t size1 = first.ListSize();
-  const size_t size2 = second.ListSize();
+                                       const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
+  const size_t size1 = first.ListSizeUnchecked();
+  const size_t size2 = second.ListSizeUnchecked();
   const size_t common = std::min(size1, size2);
 
   auto extract_type = [](const std::optional<std::variant<int64_t, double>> &val,
@@ -1005,7 +1080,7 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
       }
       return PropertyValueType::Double;
     }
-    return list.ValueList().at(index).type();
+    return list.ValueListUnchecked()[index].type();
   };
 
   // Element by element, and only then by length, which is how a list is ordered
@@ -1041,7 +1116,7 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 inline std::weak_ordering CompareIncompatibleTypes(
     const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
-    const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) {
+    const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
   auto first_is_list = first.IsAnyList();
   auto second_is_list = second.IsAnyList();
   if (first_is_list || second_is_list) {
@@ -1058,9 +1133,9 @@ inline std::weak_ordering CompareIncompatibleTypes(
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
-// Each accessor below throws when the value holds another type, and the switch selecting it is
-// what makes that unreachable. Only a pair of numbers reaches the variant, which holds arithmetic
-// types and so is never valueless.
+// Everything reached from here is declared not to raise. What is left is the standard algorithm
+// this walks a list with, which is not declared either way and is handed a comparison that does
+// not raise.
 // NOLINTNEXTLINE(bugprone-exception-escape)
 inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
                         const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept
@@ -1077,26 +1152,26 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
     case PropertyValueType::Null:
       return std::weak_ordering::equivalent;
     case PropertyValueType::Bool:
-      return first.ValueBool() <=> second.ValueBool();
+      return first.ValueBoolUnchecked() <=> second.ValueBoolUnchecked();
     case PropertyValueType::Int:
       if (second.type() == PropertyValueType::Int) {
-        return first.ValueInt() <=> second.ValueInt();
+        return first.ValueIntUnchecked() <=> second.ValueIntUnchecked();
       } else {
-        return CompareDoublesNaNLast(static_cast<double>(first.ValueInt()), second.ValueDouble());
+        return CompareDoublesNaNLast(static_cast<double>(first.ValueIntUnchecked()), second.ValueDoubleUnchecked());
       }
     case PropertyValueType::Double:
       if (second.type() == PropertyValueType::Double) {
-        return CompareDoublesNaNLast(first.ValueDouble(), second.ValueDouble());
+        return CompareDoublesNaNLast(first.ValueDoubleUnchecked(), second.ValueDoubleUnchecked());
       } else {
-        return CompareDoublesNaNLast(first.ValueDouble(), static_cast<double>(second.ValueInt()));
+        return CompareDoublesNaNLast(first.ValueDoubleUnchecked(), static_cast<double>(second.ValueIntUnchecked()));
       }
     case PropertyValueType::String:
       // using string_view for allocator agnostic compare
-      return std::string_view{first.ValueString()} <=> second.ValueString();
+      return std::string_view{first.ValueStringUnchecked()} <=> second.ValueStringUnchecked();
     case PropertyValueType::List: {
       if (second.type() == PropertyValueType::List) {
-        auto const &l1 = first.ValueList();
-        auto const &l2 = second.ValueList();
+        auto const &l1 = first.ValueListUnchecked();
+        auto const &l2 = second.ValueListUnchecked();
         auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> const &v1,
                                       PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> const &v2) {
           return v1 <=> v2;
@@ -1107,16 +1182,16 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
     }
     case PropertyValueType::IntList: {
       if (second.type() == PropertyValueType::IntList) {
-        auto const &l1 = first.ValueIntList();
-        auto const &l2 = second.ValueIntList();
+        auto const &l1 = first.ValueIntListUnchecked();
+        auto const &l2 = second.ValueIntListUnchecked();
         return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
       }
       return CompareLists(first, second);
     }
     case PropertyValueType::DoubleList: {
       if (second.type() == PropertyValueType::DoubleList) {
-        auto const &l1 = first.ValueDoubleList();
-        auto const &l2 = second.ValueDoubleList();
+        auto const &l1 = first.ValueDoubleListUnchecked();
+        auto const &l2 = second.ValueDoubleListUnchecked();
         return std::lexicographical_compare_three_way(
             l1.begin(), l1.end(), l2.begin(), l2.end(), CompareDoublesNaNLast);
       }
@@ -1124,8 +1199,8 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
     }
     case PropertyValueType::NumericList: {
       if (second.type() == PropertyValueType::NumericList) {
-        auto const &l1 = first.ValueNumericList();
-        auto const &l2 = second.ValueNumericList();
+        auto const &l1 = first.ValueNumericListUnchecked();
+        auto const &l2 = second.ValueNumericListUnchecked();
         auto const numeric_three_way_cmp = [](auto const &v1, auto const &v2) {
           auto const order = CompareNumericValues(v1, v2);
           if (order == std::partial_ordering::unordered) return CompareDoublesNaNLast(AsDouble(v1), AsDouble(v2));
@@ -1139,8 +1214,8 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       return CompareLists(first, second);
     }
     case PropertyValueType::Map: {
-      auto const &m1 = first.ValueMap();
-      auto const &m2 = second.ValueMap();
+      auto const &m1 = first.ValueMapUnchecked();
+      auto const &m2 = second.ValueMapUnchecked();
       if (m1.size() != m2.size()) return m1.size() <=> m2.size();
       auto it1 = m1.begin();
       auto it2 = m2.begin();
@@ -1153,31 +1228,31 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       return std::weak_ordering::equivalent;
     }
     case PropertyValueType::TemporalData:
-      return first.ValueTemporalData() <=> second.ValueTemporalData();
+      return first.ValueTemporalDataUnchecked() <=> second.ValueTemporalDataUnchecked();
     case PropertyValueType::ZonedTemporalData:
-      return first.ValueZonedTemporalData() <=> second.ValueZonedTemporalData();
+      return first.ValueZonedTemporalDataUnchecked() <=> second.ValueZonedTemporalDataUnchecked();
     case PropertyValueType::Enum:
-      return first.ValueEnum() <=> second.ValueEnum();
+      return first.ValueEnumUnchecked() <=> second.ValueEnumUnchecked();
     // A coordinate is a double, so each is read through the comparison that
     // answers for a NaN rather than leaving the pair unordered.
     case PropertyValueType::Point2d: {
-      auto const &p1 = first.ValuePoint2d();
-      auto const &p2 = second.ValuePoint2d();
+      auto const &p1 = first.ValuePoint2dUnchecked();
+      auto const &p2 = second.ValuePoint2dUnchecked();
       if (auto const crs = p1.crs() <=> p2.crs(); crs != std::strong_ordering::equal) return to_weak_order(crs);
       if (auto const x = CompareDoublesNaNLast(p1.x(), p2.x()); x != std::weak_ordering::equivalent) return x;
       return CompareDoublesNaNLast(p1.y(), p2.y());
     }
     case PropertyValueType::Point3d: {
-      auto const &p1 = first.ValuePoint3d();
-      auto const &p2 = second.ValuePoint3d();
+      auto const &p1 = first.ValuePoint3dUnchecked();
+      auto const &p2 = second.ValuePoint3dUnchecked();
       if (auto const crs = p1.crs() <=> p2.crs(); crs != std::strong_ordering::equal) return to_weak_order(crs);
       if (auto const x = CompareDoublesNaNLast(p1.x(), p2.x()); x != std::weak_ordering::equivalent) return x;
       if (auto const y = CompareDoublesNaNLast(p1.y(), p2.y()); y != std::weak_ordering::equivalent) return y;
       return CompareDoublesNaNLast(p1.z(), p2.z());
     }
     case PropertyValueType::VectorIndexId: {
-      const auto &vector1 = first.ValueVectorIndexList();
-      const auto &vector2 = second.ValueVectorIndexList();
+      const auto &vector1 = first.ValueVectorIndexListUnchecked();
+      const auto &vector2 = second.ValueVectorIndexListUnchecked();
       // A coordinate is a float, which carries a NaN of its own, so each is read through the
       // comparison that places one rather than leaving the pair unordered.
       return std::lexicographical_compare_three_way(
@@ -1831,6 +1906,9 @@ struct hash<memgraph::storage::ExtendedPropertyType> {
   }
 };
 
+// Specialising this for a type of our own is what the standard provides for, and is how a value
+// becomes a key of an unordered container.
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
 template <typename Alloc, typename KeyType, typename VectorIndexIdType>
 struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>> {
   size_t operator()(
