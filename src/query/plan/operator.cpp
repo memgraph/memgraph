@@ -278,6 +278,19 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
 auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
     -> storage::PropertyValueRange::ValuePredicate {
   if (!lower_) return nullptr;
+
+  // Only a search term yields a predicate, and the bound has already been read to build the
+  // range. Reading it again for a range that will not use one would repeat whatever the
+  // expression does.
+  switch (type_) {
+    case Type::CONTAINS:
+    case Type::ENDS_WITH:
+    case Type::REGEX_MATCH:
+      break;
+    default:
+      return nullptr;
+  }
+
   auto const typed_value = lower_->value()->Accept(evaluator);
   if (!typed_value.IsString()) return nullptr;
   auto const &search_term = typed_value.ValueString();
@@ -10892,7 +10905,9 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                                           metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_label_properties_operator.Increment();
 #ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+  // The predicates outlive the row they were built from; see ExpressionRange::MakeValuePredicate.
+  auto get_chunks = [this, value_predicates = std::vector<storage::PropertyValueRange::ValuePredicate>{}](
+                        Frame &frame, ExecutionContext &context) mutable {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
@@ -10901,6 +10916,19 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
       return db->ChunkedVertices(
           view_, label_, properties_, std::vector<storage::PropertyValueRange>{}, 0, index_order_);
     }
+
+    // Carried on the range exactly as the serial scan carries it. Without it every value in the
+    // band is handed to the filter above, which is most of the column for a search term.
+    if (value_predicates.size() != expression_ranges_.size()) {
+      value_predicates = expression_ranges_ | rv::transform([&](ExpressionRange const &expression_range) {
+                           return expression_range.MakeValuePredicate(evaluator);
+                         }) |
+                         ranges::to_vector;
+    }
+    for (auto &&[range, predicate] : rv::zip(*maybe_prop_value_ranges, value_predicates)) {
+      range.SetValuePredicate(predicate);
+    }
+
     return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_, index_order_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
