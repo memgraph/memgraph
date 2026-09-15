@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "utils/temporal.hpp"
 
@@ -32,15 +33,48 @@ bool EquivalentOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b) {
   });
 }
 
-bool EquivalentOfContainersHoldingANull(const TypedValue &a, const TypedValue &b) {
-  DMG_ASSERT(a.type() == b.type(), "Equality answers Null only over a pair holding the same type");
+namespace {
+
+/// Whether two coordinates are the same coordinate, counting two NaNs as one.
+bool SameCoordinate(double a, double b) { return (std::isnan(a) && std::isnan(b)) || a == b; }
+
+/// A coordinate with every NaN replaced by one value, so that a pair of points
+/// this relation holds alike hashes alike. Any double would do; this one is the
+/// smallest, so a point carrying it hashes as some real point does, which costs
+/// a collision and no correctness.
+double WithoutANaN(double coordinate) {
+  return std::isnan(coordinate) ? std::numeric_limits<double>::lowest() : coordinate;
+}
+
+}  // namespace
+
+bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b) {
+  if (a.type() != b.type()) return false;
+
+  if (a.type() == TypedValue::Type::Point2d) {
+    auto const &left = a.UnsafeValuePoint2d();
+    auto const &right = b.UnsafeValuePoint2d();
+    return left.crs() == right.crs() && SameCoordinate(left.x(), right.x()) && SameCoordinate(left.y(), right.y());
+  }
+
+  auto const &left = a.UnsafeValuePoint3d();
+  auto const &right = b.UnsafeValuePoint3d();
+  return left.crs() == right.crs() && SameCoordinate(left.x(), right.x()) && SameCoordinate(left.y(), right.y()) &&
+         SameCoordinate(left.z(), right.z());
+}
+
+bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
+  // A container is equivalent only to a container of its own kind, so a pair of
+  // unlike types is settled without walking either.
+  if (a.type() != b.type()) return false;
+
   switch (a.type()) {
     case TypedValue::Type::List:
       return EquivalentOfLists(a.UnsafeValueList(), b.UnsafeValueList());
     case TypedValue::Type::Map:
       return EquivalentOfMaps(a.UnsafeValueMap(), b.UnsafeValueMap());
     default:
-      LOG_FATAL("Equality answered Null for a pair holding no Null");
+      LOG_FATAL("Asked of a pair that is not a pair of containers");
   }
 }
 
@@ -53,6 +87,11 @@ size_t Hash(const TypedValue &value) {
     case TypedValue::Type::Int:
       return std::hash<int64_t>{}(value.ValueInt());
     case TypedValue::Type::Double: {
+      // Every NaN is equivalent to every other, and more than one bit pattern
+      // spells one, so a hash over the bits would send two of them to different
+      // buckets and the lookup would never reach the comparison.
+      if (std::isnan(value.ValueDouble())) return 1'214'729'715;
+
       // Store whole number doubles as int hashes to be consistent with
       // TypedValue equality in which (2.0 == 2) returns true
       const double double_value = std::trunc(value.ValueDouble());
@@ -101,10 +140,19 @@ size_t Hash(const TypedValue &value) {
       return utils::DurationHash{}(value.ValueDuration());
     case TypedValue::Type::Enum:
       return std::hash<storage::Enum>{}(value.ValueEnum());
-    case TypedValue::Type::Point2d:
-      return std::hash<storage::Point2d>{}(value.ValuePoint2d());
-    case TypedValue::Type::Point3d:
-      return std::hash<storage::Point3d>{}(value.ValuePoint3d());
+    case TypedValue::Type::Point2d: {
+      // A NaN coordinate is replaced rather than hashed, for the reason a NaN
+      // itself is: more than one bit pattern spells one, and this relation holds
+      // them alike.
+      auto const &point = value.ValuePoint2d();
+      return std::hash<storage::Point2d>{}(
+          storage::Point2d{point.crs(), WithoutANaN(point.x()), WithoutANaN(point.y())});
+    }
+    case TypedValue::Type::Point3d: {
+      auto const &point = value.ValuePoint3d();
+      return std::hash<storage::Point3d>{}(
+          storage::Point3d{point.crs(), WithoutANaN(point.x()), WithoutANaN(point.y()), WithoutANaN(point.z())});
+    }
     case TypedValue::Type::Function:
       throw TypedValueException("Unsupported hash function for Function");
     case TypedValue::Type::Graph:

@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -475,14 +476,78 @@ TEST(Equivalence, HoldsEveryValueEquivalentToItself) {
   }
 }
 
-TEST(Equivalence, HoldsNoNaNEquivalentToItself) {
-  // The one value the property above does not reach. A double is equivalent as a double
-  // compares, which leaves each NaN its own group under DISTINCT and its own key in a hash
-  // container. Two of them still hash alike, so the lookup reaches the comparison and fails it.
+TEST(Equivalence, HoldsANaNEquivalentToItself) {
+  // The one value the property above does not reach through a pair. Equality answers false for a
+  // NaN against itself, and taking that answer would leave each NaN its own group under DISTINCT
+  // and a key a hash container could never find again.
   auto const nan = TypedValue(std::nan(""));
-  EXPECT_FALSE(equivalence::Equivalent(nan, nan));
-  EXPECT_FALSE(equivalence::Equivalent(ListOf({nan}), ListOf({nan})));
-  EXPECT_EQ(equivalence::Hash(nan), equivalence::Hash(nan));
+  EXPECT_TRUE(equivalence::Equivalent(nan, nan));
+  EXPECT_TRUE(equivalence::Equivalent(ListOf({nan}), ListOf({nan})));
+  EXPECT_TRUE(equivalence::Equivalent(MapOf({{"a", nan}}), MapOf({{"a", nan}})));
+  EXPECT_TRUE(equivalence::Equivalent(ListOf({ListOf({nan})}), ListOf({ListOf({nan})})));
+}
+
+TEST(Equivalence, HoldsAPointHoldingANaNEquivalentToItself) {
+  // A point holds its coordinates as doubles and compares them together, so one
+  // holding a NaN is no more equal to itself than the NaN is. Storage reads a
+  // point when it asks whether a value equals itself, and the two layers spell
+  // that question separately, so each has to answer it the same way.
+  auto const nan = std::nan("");
+  auto const flat = TypedValue(Point2d{Cartesian_2d, 1.0, nan});
+  auto const solid = TypedValue(Point3d{Cartesian_3d, 1.0, 2.0, nan});
+
+  EXPECT_FALSE(equality::EqualsItself(flat));
+  EXPECT_FALSE(equality::EqualsItself(solid));
+
+  EXPECT_TRUE(equivalence::Equivalent(flat, flat));
+  EXPECT_TRUE(equivalence::Equivalent(solid, solid));
+  EXPECT_TRUE(equivalence::Equivalent(ListOf({flat}), ListOf({flat})));
+  EXPECT_EQ(equivalence::Hash(flat), equivalence::Hash(TypedValue(Point2d{Cartesian_2d, 1.0, -nan})));
+}
+
+TEST(Equivalence, HoldsAPointHoldingANaNEquivalentToNoOther) {
+  auto const nan = std::nan("");
+  auto const flat = TypedValue(Point2d{Cartesian_2d, 1.0, nan});
+
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{Cartesian_2d, 1.0, 2.0})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{Cartesian_2d, 2.0, nan})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{WGS84_2d, 1.0, nan})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point3d{Cartesian_3d, 1.0, nan, 3.0})));
+}
+
+TEST(Equivalence, HoldsANaNEquivalentToNoOtherNumber) {
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_FALSE(equivalence::Equivalent(nan, TypedValue(1.0)));
+  EXPECT_FALSE(equivalence::Equivalent(TypedValue(1.0), nan));
+  EXPECT_FALSE(equivalence::Equivalent(nan, Int(1)));
+  EXPECT_FALSE(equivalence::Equivalent(nan, TypedValue()));
+  EXPECT_FALSE(equivalence::Equivalent(ListOf({nan}), ListOf({TypedValue(1.0)})));
+  EXPECT_FALSE(equivalence::Equivalent(ListOf({TypedValue(1.0)}), ListOf({nan})));
+}
+
+TEST(Equivalence, HashesTwoNaNsAlikeWhateverBitsEachCarries) {
+  // A NaN is written in more than one bit pattern, and a hash over the bits tells them apart.
+  // Equivalence holds them alike, so the hash has to as well or the lookup never reaches the
+  // comparison.
+  auto const nan = TypedValue(std::nan(""));
+  auto const negated = TypedValue(-std::nan(""));
+  auto const computed = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  ASSERT_TRUE(equivalence::Equivalent(nan, negated));
+  ASSERT_TRUE(equivalence::Equivalent(nan, computed));
+  EXPECT_EQ(equivalence::Hash(nan), equivalence::Hash(negated));
+  EXPECT_EQ(equivalence::Hash(nan), equivalence::Hash(computed));
+  EXPECT_EQ(equivalence::Hash(ListOf({nan})), equivalence::Hash(ListOf({negated})));
+}
+
+TEST(Equivalence, LeavesEqualityAnsweringAsItDidOverANaN) {
+  // Equivalence holding two NaNs alike is not equality doing so: `=` still answers false, which
+  // is what a NaN being equal to nothing means.
+  auto const nan = TypedValue(std::nan(""));
+  auto const equality_result = equality::Equal(nan, nan);
+  ASSERT_EQ(equality_result.type(), TypedValue::Type::Bool);
+  EXPECT_FALSE(equality_result.ValueBool());
+  EXPECT_FALSE(equality::EqualsItself(nan));
 }
 
 TEST(Equivalence, HashesEquivalentValuesAlike) {

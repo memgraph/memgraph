@@ -256,6 +256,17 @@ void Equivalence(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
+// The probe that does not find its key. Equality deciding a pair unequal is the answer equivalence
+// wants only where the left value holds no Null and no NaN, so this is the path that pays for
+// establishing that, and the one a hash set reaches on a collision.
+template <typename Shape>
+void EquivalenceOfUnalike(benchmark::State &state) {
+  auto const [lhs, rhs] = Shape::Make();
+  auto const equal = TypedValue::BoolEqual{};
+  for (auto _ : state) benchmark::DoNotOptimize(equal(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
 // Orderability, the relation ORDER BY is answered by. A sort calls it once per comparison, which is
 // the granularity that decides where it may be defined.
 template <typename Shape>
@@ -320,6 +331,7 @@ FOR_EACH_TYPE(ConstructDestroy)
 FOR_EACH_TYPE(Equality)
 FOR_EACH_TYPE(EqualityByName)
 FOR_EACH_TYPE(Equivalence)
+FOR_EACH_TYPE(EquivalenceOfUnalike)
 FOR_EACH_TYPE(Orderability)
 
 // Only the types these four answer for. A pair they refuse throws out of the loop, which would
