@@ -33,6 +33,10 @@ add_library(value_shapes value_shapes.cpp)
 target_link_libraries(value_shapes mg::storage)
 target_include_directories(value_shapes PUBLIC ${CMAKE_SOURCE_DIR})
 
+add_library(typed_value_shapes typed_value_shapes.cpp)
+target_link_libraries(typed_value_shapes mg-query value_shapes)
+target_include_directories(typed_value_shapes PUBLIC ${CMAKE_SOURCE_DIR})
+
 # Header-only helpers shared across storage test files
 # (parameterized DDL abort/ghost/restore tests).
 add_library(ddl_abort_helpers INTERFACE)
@@ -942,6 +946,11 @@ add_unit_test(storage_v2_name_id_mapper
 add_unit_test(value_shapes_coverage
     SOURCES value_shapes_coverage.cpp
     LINK_TARGETS mg::storage value_shapes
+)
+
+add_unit_test(typed_value_shapes_coverage
+    SOURCES typed_value_shapes_coverage.cpp
+    LINK_TARGETS mg-query mg-glue typed_value_shapes
 )
 
 add_unit_test(storage_v2_property_store
