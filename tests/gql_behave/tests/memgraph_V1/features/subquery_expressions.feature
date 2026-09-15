@@ -2371,6 +2371,160 @@ Feature: Subquery expressions
           | 'Bob'   | 1 |
           | 'Carol' | 0 |
 
+  # The MATCH a bare body omits is synthesised, so the body takes everything a MATCH's pattern list takes: a
+  # variable it declares itself, a trailing WHERE, a named path, a comma-separated list, and a lone node.
+  Scenario: Test COUNT subquery with a bare pattern that declares its own variable
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { (p)-[:KNOWS]->(f:Friend) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 2 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+
+  Scenario: Test COUNT subquery with a bare pattern and a trailing WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { (p)-[:KNOWS]->(f:Friend) WHERE f.name = 'F2' } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 1 |
+          | 'Bob'   | 0 |
+          | 'Carol' | 0 |
+
+  Scenario: Test COUNT subquery with a bare pattern that names its path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { path = (p)-[:KNOWS]->(f:Friend) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 2 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+
+  # Two patterns in one body, so relationship uniqueness applies across them: Alice's two edges make two ordered
+  # pairs, Bob's single edge makes none.
+  Scenario: Test COUNT subquery with a bare comma-separated pattern list
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { (p)-[:KNOWS]->(f:Friend), (p)-[:KNOWS]->(g:Friend) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 2 |
+          | 'Bob'   | 0 |
+          | 'Carol' | 0 |
+
+  Scenario: Test EXISTS subquery with a bare pattern holding only a node
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { (p) } AS e
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | e    |
+          | 'Alice' | true |
+          | 'Bob'   | true |
+
+  # The five above are all projections, so they only ever reach the forced fold. These two put a bare body in a
+  # WHERE, which is the deferred fold - a different operator, and the one a bare pattern is most often written in.
+  Scenario: Test a bare pattern with a trailing WHERE in a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE EXISTS { (p)-[:KNOWS]->(f:Friend) WHERE f.name = 'F2' }
+          RETURN p.name AS name
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Alice' |
+
+  # Only Alice has two distinct edges to satisfy both patterns, since relationship uniqueness spans the body.
+  Scenario: Test a bare comma-separated pattern list in a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE EXISTS { (p)-[:KNOWS]->(f:Friend), (p)-[:KNOWS]->(g:Friend) }
+          RETURN p.name AS name
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Alice' |
+
   # COUNT takes the same positions as EXISTS, through the same gate. A MATCH's WHERE is the deferred fold, so a
   # disjunct the evaluator never reaches skips the branch's whole drain; everything else is the forced fold.
 
@@ -2906,3 +3060,77 @@ Feature: Subquery expressions
       Then the result should be:
           | r        |
           | ['Ozzy'] |
+
+  # A body of one already-bound node has no pattern of its own to match, so it reads the value bound to the
+  # name. A null, which is what an OPTIONAL MATCH leaves behind, matches nothing.
+  Scenario: Test EXISTS and COUNT with a body of one bound node holding null
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'has_friend'})-[:KNOWS]->(:Person {name: 'lonely'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          OPTIONAL MATCH (p)-[:KNOWS]->(f)
+          RETURN p.name AS name, EXISTS { MATCH (f) } AS e, COUNT { MATCH (f) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name         | e     | c |
+          | 'has_friend' | true  | 1 |
+          | 'lonely'     | false | 0 |
+
+  # The path a body names over one already-bound node has no relationship to expand, so it is the node on its own.
+  Scenario: Test COUNT with a body naming a path over one bound node
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Alice'}), (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH path = (p) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 1 |
+          | 'Bob'   | 1 |
+
+  # A node atom in a body reads the name from outside it, so a pattern name that reuses one would mean the
+  # caller's value in one place and the body's own path in another.
+  Scenario: Test COUNT with a body naming a path after a name from outside it
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:A)-[:R]->(:B)-[:R]->(:C)
+          """
+      When executing query:
+          """
+          MATCH p = (:A)-[]->()-[]->()
+          RETURN COUNT { MATCH p = (:A)-[]->(x) } AS n, size(p) AS len;
+          """
+      Then an error should be raised
+
+  # Two patterns in one body are matched separately, so a filter naming the caller's variable together with a
+  # variable of one pattern has to be applied once both are known.
+  Scenario: Test COUNT with a body of two patterns and a filter reaching outside
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'a', age: 5}), (:Person {name: 'b', age: 1})
+          CREATE (:X {name: 'a'})-[:R]->(:Y {name: 'a'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          RETURN a.name AS name,
+                 COUNT { MATCH (a), (x)-[:R]->(y) WHERE y.name = a.name AND a.age > 3 } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name | c |
+          | 'a'  | 1 |
+          | 'b'  | 0 |

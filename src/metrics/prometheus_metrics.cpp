@@ -1094,6 +1094,21 @@ void PrometheusMetrics::Registration::Release() noexcept {
   handles_ = {};
 }
 
+void PrometheusMetrics::Registration::Rebind(utils::UUID const &new_uuid) {
+  if (registry_ == nullptr) return;
+  registry_->RebindRegistration(entry_id_, new_uuid);
+}
+
+void PrometheusMetrics::RebindRegistration(uint64_t entry_id, utils::UUID const &new_uuid) {
+  std::scoped_lock const lock{databases_.mutex};
+  auto it = r::find_if(databases_.entries, [entry_id](auto const &e) { return e.id == entry_id; });
+  if (it == databases_.entries.end() || it->uuid == new_uuid) return;
+  if (default_db_uuid_ && *default_db_uuid_ == it->uuid) {
+    default_db_uuid_ = new_uuid;
+  }
+  it->uuid = new_uuid;
+}
+
 void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
   std::lock_guard const lock{databases_.mutex};
   auto it = r::find_if(databases_.entries, [entry_id](auto const &e) { return e.id == entry_id; });

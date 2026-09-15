@@ -430,7 +430,9 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType };
+  /// @c Node tests only that a symbol holds a node. Kept apart from @c Label because no index can answer it,
+  /// and because it must not collect the labels another test states about the same symbol.
+  enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType, Node };
 
   // FilterInfo is tricky because SubqueryMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded

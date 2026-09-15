@@ -1,0 +1,35 @@
+--- a/src/timer.c
++++ b/src/timer.c
+@@ -17,9 +17,17 @@
+ #include <sys/queue.h>
+ #include <unistd.h>
+ 
++#include <time.h>
++
+ #include <librdtsc/common.h>
+ #include <librdtsc/cycles.h>
+ #include <librdtsc/common_timer.h>
++
++/* FreeBSD and other non-Linux platforms have no CLOCK_MONOTONIC_RAW. Their
++   CLOCK_MONOTONIC is already the un-adjusted reading this code wants. */
++#ifndef CLOCK_MONOTONIC_RAW
++#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
++#endif
+ // #include <rdtsc_debug.h>
+ // #include <rdtsc_eal.h>
+ // #include <rdtsc_lcore.h>
+--- a/src/common_timer.c
++++ b/src/common_timer.c
+@@ -14,6 +14,12 @@
+ // #include <rdtsc_compat.h>
+ #include <librdtsc/cycles.h>
+ #include <librdtsc/common_timer.h>
++
++/* FreeBSD and other non-Linux platforms have no CLOCK_MONOTONIC_RAW. Their
++   CLOCK_MONOTONIC is already the un-adjusted reading this code wants. */
++#ifndef CLOCK_MONOTONIC_RAW
++#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
++#endif
+ // #include "eal_memcfg.h"
+ // #include "eal_private.h"
+ 

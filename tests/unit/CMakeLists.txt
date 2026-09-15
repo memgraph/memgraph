@@ -561,9 +561,13 @@ add_unit_test(utils_pointer_pack
     LINK_TARGETS mg-utils
 )
 
+# A writer that is never granted the exclusive lock blocks in the acquisition with nothing
+# asserting on it, so a broken lock wedges rather than fails. TIMEOUT stops that from running to
+# the job's own cancellation with nothing naming this test.
 add_unit_test(utils_rwlock
     SOURCES utils_rwlock.cpp
     LINK_TARGETS mg-utils
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 add_unit_test(utils_scheduler
@@ -1125,9 +1129,12 @@ add_unit_test(rpc_file_framing
 )
 
 # Test replication-rpc-progress
+# One test asserts that a request type with no configured timeout waits for its response
+# indefinitely, so a response that never comes hangs the run. TIMEOUT is what bounds it.
 add_unit_test(replication_rpc_progress
     SOURCES replication_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 # Test snapshot-rpc-progress

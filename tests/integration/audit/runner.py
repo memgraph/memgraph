@@ -25,6 +25,10 @@ DEFAULT_DB = "memgraph"
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 QUERIES = [
     ("MATCH (n) DELETE n", {}),
@@ -96,13 +100,14 @@ def execute_test(memgraph_binary, tester_binary):
         "--log-file=memgraph.log",
         "--log-level=TRACE",
         "--metrics-format=OpenMetrics",
+        *PORT_ARGS,
     ]
 
     # Start the memgraph binary
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
 
     # Register cleanup function
     @atexit.register
@@ -118,7 +123,17 @@ def execute_test(memgraph_binary, tester_binary):
     def execute_queries(queries, username=None, imp_user=None):
         for db, query, params in queries:
             print(query, params)
-            args = [tester_binary, "--query", query, "--use-db", db, "--params-json", json.dumps(params)]
+            args = [
+                tester_binary,
+                "--port",
+                str(BOLT_PORT),
+                "--query",
+                query,
+                "--use-db",
+                db,
+                "--params-json",
+                json.dumps(params),
+            ]
             if username is not None:
                 args.append("--username")
                 args.append(username)

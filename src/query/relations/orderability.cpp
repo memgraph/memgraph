@@ -15,13 +15,9 @@
 
 namespace memgraph::query::relations::orderability {
 
-std::partial_ordering CompareOfLists(TypedValue const &a, TypedValue const &b) {
-  auto const &list_a = a.UnsafeValueList();
-  auto const &list_b = b.UnsafeValueList();
+std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b) {
   return std::lexicographical_compare_three_way(
-      list_a.begin(), list_a.end(), list_b.begin(), list_b.end(), [](TypedValue const &x, TypedValue const &y) {
-        return Compare(x, y);
-      });
+      a.begin(), a.end(), b.begin(), b.end(), [](TypedValue const &x, TypedValue const &y) { return Compare(x, y); });
 }
 
 }  // namespace memgraph::query::relations::orderability

@@ -203,6 +203,9 @@ class PrometheusMetrics {
 
     DatabaseMetricHandles &handles() { return handles_; }
 
+    /// Points this entry at `new_uuid`. The metric objects and the handles into them stay put.
+    void Rebind(utils::UUID const &new_uuid);
+
    private:
     friend class PrometheusMetrics;
 
@@ -269,6 +272,8 @@ class PrometheusMetrics {
 
   /// Drops one registration of the entry, and the metrics with the last of them.
   void ReleaseRegistration(uint64_t entry_id);
+
+  void RebindRegistration(uint64_t entry_id, utils::UUID const &new_uuid);
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 

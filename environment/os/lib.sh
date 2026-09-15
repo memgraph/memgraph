@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Shared machinery for the per-distro dependency scripts in this directory.
 #
 # A distro script is package data plus optional hooks:
@@ -42,6 +42,7 @@ _package_manager() {
     case "$OS" in
         debian-*|ubuntu-*) echo apt ;;
         centos-*|fedora-*|rocky-*) echo dnf ;;
+        freebsd-*) echo pkg ;;
         *)
             echo "lib.sh: cannot derive package manager from OS '$OS'" >&2
             exit 1
@@ -120,13 +121,21 @@ install() {
 
     # Bootstrap the tools the machinery itself needs: python3 for
     # check-packages.py, wget/git for the custom-* installers.
-    if [[ "$(_package_manager)" == "apt" ]]; then
-        export DEBIAN_FRONTEND=noninteractive
-        apt update -y
-        apt install -y python3 wget git
-    else
-        dnf install -y wget git python3 python3-pip
-    fi
+    case "$(_package_manager)" in
+        apt)
+            export DEBIAN_FRONTEND=noninteractive
+            apt update -y
+            apt install -y python3 wget git
+            ;;
+        pkg)
+            # python3 is the meta port here; the sqlite3 module the tooling needs is
+            # packaged separately and belongs in the adapter's own list.
+            pkg install -y python3 wget git
+            ;;
+        *)
+            dnf install -y wget git python3 python3-pip
+            ;;
+    esac
 
     if declare -F setup_repos >/dev/null; then
         setup_repos
@@ -166,7 +175,8 @@ main() {
     skip_check=$(parse_skip_check_flag "$@")
     if [[ "$skip_check" == "false" ]]; then
         check_operating_system "$OS"
-        check_architecture "x86_64" "arm64" "aarch64"
+        # amd64 and arm64 are what the BSDs call x86_64 and aarch64.
+        check_architecture "x86_64" "amd64" "arm64" "aarch64"
     else
         echo "Skipping checks for $OS"
     fi

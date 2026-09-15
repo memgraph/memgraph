@@ -32,7 +32,10 @@ namespace memgraph::query::relations::orderability {
 ///
 /// Out of line so that Compare does not call itself. A compiler will not inline
 /// a function that recurses, and every sort reaches Compare through the caller.
-std::partial_ordering CompareOfLists(TypedValue const &a, TypedValue const &b);
+///
+/// Takes what it walks rather than the values holding it, so that it cannot be
+/// handed a pair of unlike things.
+std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
 /// Where `a` falls relative to `b`.
 ///
@@ -68,7 +71,7 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case TypedValue::Type::Point3d:
         return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
       case TypedValue::Type::List:
-        return CompareOfLists(a, b);
+        return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
       case TypedValue::Type::Edge:

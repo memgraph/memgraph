@@ -3937,7 +3937,6 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
   auto *subquery = storage_->Create<SubqueryExpression>();
-  // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
     subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
     if (subquery->GetPattern()->identifier_) {
@@ -3964,16 +3963,22 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
   auto const construct = SubqueryExpression::FoldName(fold);
   auto *subquery = storage_->Create<SubqueryExpression>();
   subquery->fold_ = fold;
-  // Pattern form: ( ... ) or { ... } with forcePatternPart
-  if (ctx->forcePatternPart()) {
+  // A bare body is built into the MATCH it omits, so every brace body reaches downstream as a query.
+  if (ctx->pattern()) {
     // A bare pattern names no column, and the list fold has to collect one - so this shape can never work for it.
     if (fold == SubqueryExpression::Fold::kList) {
       throw SyntaxException("{} needs a body returning a single column, and a bare pattern returns none.", construct);
     }
-    subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (subquery->GetPattern()->identifier_) {
-      throw SyntaxException("Identifiers are not supported in a {} pattern.", construct);
+    auto *match = storage_->Create<Match>();
+    if (ctx->where()) {
+      match->where_ = std::any_cast<Where *>(ctx->where()->accept(this));
     }
+    match->patterns_ = std::any_cast<std::vector<Pattern *>>(ctx->pattern()->accept(this));
+    auto *single_query = storage_->Create<SingleQuery>();
+    single_query->clauses_.push_back(match);
+    auto *cypher_query = storage_->Create<CypherQuery>();
+    cypher_query->single_query_ = single_query;
+    subquery->content_ = cypher_query;
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }
     auto old_flag = parsing_subquery_body_;
@@ -3985,8 +3990,8 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     parsing_subquery_body_ = old_flag;
     subquery->content_ = cypher_query;
 
-    // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
-    // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
+    // Per branch, because a UNION's further branches are each their own SingleQuery and a clause forbidden in
+    // the first is not legal in them.
     auto validate_branch = [construct, fold](const SingleQuery *single_query) {
       if (!single_query || single_query->clauses_.empty()) {
         throw SyntaxException("{} subquery must contain at least one clause.", construct);
@@ -3998,9 +4003,8 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
           throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
         }
       }
-      // 5. The list fold collects one column per branch row, so the body has to name exactly one, and `RETURN *`
-      // names an unknown number. Caught here, so a multi-column body is a syntax error rather than the operator's
-      // "must be of size 1".
+      // The list fold collects one column per branch row, and `RETURN *` names an unknown number. Caught here so
+      // that a multi-column body is a syntax error rather than a failure once the operator runs.
       if (fold != SubqueryExpression::Fold::kList) {
         return;
       }
@@ -4014,24 +4018,23 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
       validate_branch(cypher_union->single_query_);
     }
 
-    // 3. No query memory limit
     if (cypher_query->memory_limit_ != nullptr) {
       throw SyntaxException("{} subqueries cannot have a query memory limit.", construct);
     }
 
-    // 4. No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
-    // but it would run, finalizing the caller's transaction from inside an expression.
+    // The body's rows are only counted, so a commit point inside it has nothing to commit, but it would still
+    // run, finalizing the caller's transaction from inside an expression.
     if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
       throw SyntaxException("{} subqueries cannot have a periodic commit.", construct);
     }
 
-    // 5. No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
-    // and the body is a sub-plan re-executed per outer row, which the parallel cursors' Reset() mishandles.
+    // Only the enclosing query's directives are read, so the body's would be silently dropped, and the body is
+    // a sub-plan re-executed per outer row, which the parallel cursors' Reset() mishandles.
     if (cypher_query->pre_query_directives_.parallel_execution_) {
       throw SyntaxException("{} subqueries cannot use parallel execution.", construct);
     }
   } else {
-    throw SyntaxException("{} supports only a single relation or a subquery as its input.", construct);
+    throw SyntaxException("{} supports only a pattern or a subquery as its input.", construct);
   }
 
   // Ensure only one of pattern_ or subquery_ is set

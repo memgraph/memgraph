@@ -24,6 +24,10 @@ from typing import List
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 
 def wait_for_server(port: int, delay: float = 0.1) -> float:
@@ -43,7 +47,7 @@ def execute_tester(
     check_failure=True,
     connection_should_fail=False,
 ):
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:
@@ -57,7 +61,7 @@ def execute_tester(
 
 
 def execute_query(binary: str, queries: List[str], username: str = "", password: str = "") -> None:
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     args.extend(queries)
     subprocess.run(args).check_returncode()
 
@@ -73,7 +77,7 @@ def start_memgraph(memgraph_args: List[any]) -> subprocess:
     )
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
     # Make the stdout and stderr pipes non-blocking
     make_non_blocking(memgraph.stdout.fileno())
     make_non_blocking(memgraph.stderr.fileno())
@@ -81,12 +85,12 @@ def start_memgraph(memgraph_args: List[any]) -> subprocess:
 
 
 def check_flag(tester_binary: str, flag: str, value: str) -> None:
-    args = [tester_binary, "--field", flag, "--value", value]
+    args = [tester_binary, "--port", str(BOLT_PORT), "--field", flag, "--value", value]
     subprocess.run(args).check_returncode()
 
 
 def check_config(tester_binary: str, flag: str, value: str) -> None:
-    args = [tester_binary, "--config", flag, "--value", value]
+    args = [tester_binary, "--port", str(BOLT_PORT), "--config", flag, "--value", value]
     subprocess.run(args).check_returncode()
 
 
@@ -220,7 +224,13 @@ def execute_test(
     memgraph_binary: str, tester_binary: str, flag_tester_binary: str, executor_binary: str, test_config_binary: str
 ) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--metrics-format=OpenMetrics",
+        *PORT_ARGS,
+    ]
 
     print("\033[1;36m~~ Starting run-time settings check test ~~\033[0m")
 

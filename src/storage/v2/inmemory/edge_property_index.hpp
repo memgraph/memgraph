@@ -285,7 +285,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
  private:
   auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;
 
-  void CleanupAllIndicies();
+  void CleanupAllIndices();
 
   metrics::GaugeHandle gauge_{};
 

@@ -114,5 +114,30 @@ def test_cartesian_with_nested_property_join(memgraph):
     assert expected_explain == actual_explain
 
 
+def test_indexed_join_for_cross_pattern_range_after_with(memgraph):
+    # A range bound built from the other pattern's property only holds if that pattern is
+    # already bound, so the branches must be joined rather than left independent.
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+
+    expected_explain = [
+        " * Produce {n1, n2}",
+        " * Produce {n1, n2}",
+        " * IndexedJoin",
+        " |\\ ",
+        " | * ScanAllByLabelProperties (n2 :Node {id})",
+        " | * Once",
+        " * ScanAllByLabel (n1 :Node)",
+        " * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n1:Node), (n2:Node) WITH * WHERE n1.id < n2.id RETURN *;")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

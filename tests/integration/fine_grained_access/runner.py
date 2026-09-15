@@ -25,6 +25,10 @@ PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
 UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\. This issue comes from the user having not enough role-based access privileges to execute this query\. If you want this issue to be resolved\, ask your database administrator to grant you a specific privilege for query execution\."
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 
 def wait_for_server(port, delay=0.1):
@@ -37,7 +41,7 @@ def wait_for_server(port, delay=0.1):
 def execute_tester(
     binary, queries, should_fail=False, failure_message="", username="", password="", check_failure=True
 ):
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:
@@ -51,7 +55,7 @@ def execute_tester(
 def execute_filtering(
     binary: str, queries: List[str], expected: int, username: str = "", password: str = "", db: str = "memgraph"
 ) -> None:
-    args = [binary, "--username", username, "--password", password, "--use-db", db]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password, "--use-db", db]
 
     args.extend(queries)
     args.append(str(expected))
@@ -61,7 +65,13 @@ def execute_filtering(
 
 def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--metrics-format=OpenMetrics",
+        *PORT_ARGS,
+    ]
 
     def execute_admin_queries(queries):
         return execute_tester(
@@ -75,7 +85,7 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
 
     # Register cleanup function
     @atexit.register

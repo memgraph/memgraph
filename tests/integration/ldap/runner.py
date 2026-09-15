@@ -25,6 +25,11 @@ PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
 SIGNAL_SIGTERM = 15
 
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
+
 CONFIG_TEMPLATE = """
 server:
   host: "127.0.0.1"
@@ -57,7 +62,7 @@ def wait_for_server(port, delay=0.1):
 def execute_tester(binary, queries, username="", password="", auth_should_fail=False, query_should_fail=False):
     if password == "":
         password = username
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if auth_should_fail:
         args.append("--auth-should-fail")
     if query_should_fail:
@@ -113,6 +118,7 @@ class Memgraph:
             "--data-directory",
             self._storage_directory.name,
             "--metrics-format=OpenMetrics",
+            *PORT_ARGS,
         ]
         module_path = kwargs.pop("module_executable", self._auth_module)
         if module_path:
@@ -127,7 +133,7 @@ class Memgraph:
         self._process = subprocess.Popen(args)
         time.sleep(0.1)
         assert self._process.poll() is None, "Memgraph process died prematurely!"
-        wait_for_server(7687)
+        wait_for_server(BOLT_PORT)
 
     def stop(self, check=True):
         if self._process is None:

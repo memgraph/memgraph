@@ -471,6 +471,163 @@ TYPED_TEST(ExpressionEvaluatorTest, GreaterOperatorIncompatibleOperands) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
+  // A membership test asks equality of each element, so it inherits equality's
+  // answer: undecided against anything holding a Null that it does not
+  // otherwise differ from. The set the operator caches the list in answers by
+  // equivalence, which cannot say that, so these read the list element by
+  // element instead.
+  auto const list_of = [this](std::vector<Expression *> elements) {
+    return this->storage.template Create<ListLiteral>(std::move(elements));
+  };
+  auto const null_literal = [this] {
+    return this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue());
+  };
+  auto const in = [this](Expression *probe, Expression *list) {
+    return this->storage.template Create<InListOperator>(probe, list);
+  };
+
+  {
+    // The probe and the only element are the same shape and hold a Null.
+    auto value = this->Eval(in(list_of({null_literal()}), list_of({list_of({null_literal()})})));
+    EXPECT_TRUE(value.IsNull());
+  }
+  auto *probe_without_a_null =
+      in(list_of({this->storage.template Create<PrimitiveLiteral>(1)}),
+         list_of({list_of({null_literal()}), list_of({this->storage.template Create<PrimitiveLiteral>(2)})}));
+  {
+    // The probe holds no Null, but an element it does not otherwise differ from
+    // does.
+    EXPECT_TRUE(this->Eval(probe_without_a_null).IsNull());
+  }
+  // The operator caches the list only when the query tracks the key, which the
+  // evaluator above does not do. These read the same expressions through an
+  // evaluator that does, so the answer cannot depend on whether the list was
+  // cached.
+  auto const eval_with_the_list_cached = [this](InListOperator *op) {
+    FrameChangeCollector collector;
+    collector.AddInListKey(memgraph::utils::GetFrameChangeId(*op));
+    ExpressionEvaluator caching{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+    return op->Accept(caching);
+  };
+
+  {
+    // The same, with the list cached. A lookup would report the probe absent,
+    // because no element is equivalent to it.
+    EXPECT_TRUE(eval_with_the_list_cached(probe_without_a_null).IsNull());
+  }
+  {
+    // The list holds no Null, so it is cached, and the probe holds one. A
+    // lookup reports the probe absent where equality cannot decide it.
+    auto *op = in(list_of({null_literal()}),
+                  list_of({list_of({this->storage.template Create<PrimitiveLiteral>(1)}),
+                           list_of({this->storage.template Create<PrimitiveLiteral>(2)})}));
+    EXPECT_TRUE(this->Eval(op).IsNull());
+    EXPECT_TRUE(eval_with_the_list_cached(op).IsNull());
+  }
+  {
+    // The same, but no element is even the same length, so the Null decides
+    // nothing and the answer is settled.
+    auto *op = in(list_of({null_literal()}),
+                  list_of({list_of({this->storage.template Create<PrimitiveLiteral>(1),
+                                    this->storage.template Create<PrimitiveLiteral>(2)})}));
+    EXPECT_EQ(this->Eval(op).ValueBool(), false);
+    EXPECT_EQ(eval_with_the_list_cached(op).ValueBool(), false);
+  }
+  {
+    // An element holding a Null below its top level costs the set its exactness, so the list is
+    // read element by element however the key is tracked.
+    auto *op = in(list_of({null_literal()}), list_of({list_of({null_literal()})}));
+    EXPECT_TRUE(this->Eval(op).IsNull());
+    EXPECT_TRUE(eval_with_the_list_cached(op).IsNull());
+  }
+  {
+    // Nothing holds a Null, so the answer is decided and the set may be read.
+    auto value = this->Eval(in(list_of({this->storage.template Create<PrimitiveLiteral>(1)}),
+                               list_of({list_of({this->storage.template Create<PrimitiveLiteral>(1)}),
+                                        list_of({this->storage.template Create<PrimitiveLiteral>(2)})})));
+    EXPECT_EQ(value.ValueBool(), true);
+  }
+  {
+    auto value = this->Eval(in(list_of({this->storage.template Create<PrimitiveLiteral>(3)}),
+                               list_of({list_of({this->storage.template Create<PrimitiveLiteral>(1)}),
+                                        list_of({this->storage.template Create<PrimitiveLiteral>(2)})})));
+    EXPECT_EQ(value.ValueBool(), false);
+  }
+
+  // Every row after the first reads a set that is already populated, which is a different path
+  // through the operator than the row that fills it. These take both.
+  auto const eval_twice_through_one_collector = [this](InListOperator *op) {
+    FrameChangeCollector collector;
+    collector.AddInListKey(memgraph::utils::GetFrameChangeId(*op));
+    ExpressionEvaluator caching{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+    auto const filling_the_set = op->Accept(caching);
+    auto const reading_it = op->Accept(caching);
+    EXPECT_EQ(filling_the_set.type(), reading_it.type());
+    return reading_it;
+  };
+  auto const literal = [this](int value) { return this->storage.template Create<PrimitiveLiteral>(value); };
+
+  {
+    // A top-level Null element keeps the set exact: the explicit lookup for a Null answers it, so
+    // the sought value the list does hold is still found by one lookup.
+    auto *op = in(literal(1), list_of({literal(1), null_literal()}));
+    EXPECT_EQ(this->Eval(op).ValueBool(), true);
+    EXPECT_EQ(eval_twice_through_one_collector(op).ValueBool(), true);
+  }
+  {
+    // And one the list does not hold is left undecided by that Null rather than answered absent.
+    auto *op = in(literal(3), list_of({literal(1), null_literal()}));
+    EXPECT_TRUE(this->Eval(op).IsNull());
+    EXPECT_TRUE(eval_twice_through_one_collector(op).IsNull());
+  }
+  {
+    // With no Null anywhere the set decides both answers on its own.
+    auto *present = in(literal(2), list_of({literal(1), literal(2)}));
+    EXPECT_EQ(eval_twice_through_one_collector(present).ValueBool(), true);
+    auto *absent = in(literal(3), list_of({literal(1), literal(2)}));
+    EXPECT_EQ(eval_twice_through_one_collector(absent).ValueBool(), false);
+  }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorWhereTheSoughtValueIsNullOnALaterRow) {
+  // A filter reads one membership test over every row, so a row whose sought
+  // value is Null arrives after rows that filled the set. That row takes the
+  // path that reads the set rather than the one that fills it, and a lookup
+  // there can only report present or absent. Membership of a Null in a list
+  // holding anything is undecided, and `NOT` of it stays undecided, so a row no
+  // filter can judge is kept by neither.
+  auto *sought = this->storage.template Create<Identifier>("v", true);
+  auto const sought_symbol = this->symbol_table.CreateSymbol("v", true);
+  sought->MapTo(sought_symbol);
+  auto const bind = [this, sought_symbol](TypedValue value) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(sought_symbol, value);
+  };
+
+  auto *op = this->storage.template Create<InListOperator>(
+      sought,
+      this->storage.template Create<ListLiteral>(
+          std::vector<Expression *>{this->storage.template Create<PrimitiveLiteral>(10)}));
+  auto *negated = this->storage.template Create<NotOperator>(op);
+
+  FrameChangeCollector collector;
+  collector.AddInListKey(memgraph::utils::GetFrameChangeId(*op));
+  ExpressionEvaluator caching{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+
+  bind(TypedValue(10));
+  EXPECT_EQ(op->Accept(caching).ValueBool(), true);
+  EXPECT_EQ(negated->Accept(caching).ValueBool(), false);
+
+  bind(TypedValue());
+  EXPECT_TRUE(op->Accept(caching).IsNull());
+  EXPECT_TRUE(negated->Accept(caching).IsNull());
+
+  bind(TypedValue(11));
+  EXPECT_EQ(op->Accept(caching).ValueBool(), false);
+  EXPECT_EQ(negated->Accept(caching).ValueBool(), true);
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, InListOperator) {
   auto *list_literal = this->storage.template Create<ListLiteral>(
       std::vector<Expression *>{this->storage.template Create<PrimitiveLiteral>(1),

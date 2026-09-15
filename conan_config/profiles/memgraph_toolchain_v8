@@ -1,30 +1,12 @@
+include(memgraph_linux_base)
+
 {% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT", "/opt/toolchain-v8") %}
-{% set target_arch = {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
-
-[settings]
-# Every thread goes through the interposed allocator, so a debug build of it makes allocation the
-# limit in anything allocation-heavy: its assertions and lock-order checking read as lock
-# contention rather than as work the code being debugged is doing, and it asserts on arena indices
-# the CPU topology can legitimately produce. Nothing memgraph debugs is inside it.
-#
-# This is the build the release configurations already resolve to, so naming it here leaves their
-# package unchanged and costs them no rebuild. The allocator's own assertions are compiled out for
-# anything other than a debug build, which is all that is being asked for.
-jemalloc/*:build_type=RelWithDebInfo
-arch={{ target_arch }}
-compiler=clang
-compiler.cppstd=gnu23
-compiler.libcxx=libstdc++11
-compiler.version=22
-os=Linux
-
 {% set sysroot_path = os.path.join(toolchain_path, "sysroot") %}
 
+[settings]
+compiler.version=22
+
 [conf]
-# NOTE: for cross-compilation, set tools.gnu:host_triplet (e.g. aarch64-unknown-linux-gnu).
-# The vendored Boost recipe passes it as <triple> to b2 for correct --target resolution.
-m4/*:tools.build:cflags=["-std=gnu17"]
-tools.cmake.cmaketoolchain:generator=Ninja
 tools.cmake.cmaketoolchain:user_toolchain=["{{ os.path.join(os.getcwd(), 'environment', 'toolchain', 'v8', 'toolchain.cmake') }}"]
 tools.build:compiler_executables={"c": "{{ os.path.join(toolchain_path, "bin/clang") }}", "cpp": "{{ os.path.join(toolchain_path, "bin/clang++") }}"}
 # --sysroot keeps every conan build (cmake- or autotools-based) compiling

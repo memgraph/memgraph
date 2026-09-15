@@ -107,6 +107,30 @@ def item_sort_key(obj):
     return obj["timestamp"]
 
 
+def drop_resends(storage):
+    """Collapse each event to the first copy of it that arrived.
+
+    A client keeps an event until the server acknowledges it, so an acknowledgement that
+    is lost or arrives too late leaves the event to be sent again. Delivery is therefore
+    at least once, and the checks below, which read an event's position as its number,
+    need one copy of each.
+
+    A repeat is built from the payload recorded when the event happened, so it must equal
+    the copy already held. One that differs is a defect rather than a repeat, and fails
+    here instead of being collapsed away.
+    """
+    first_by_event = {}
+    unique = []
+    for item in storage:
+        key = (item["run_id"], repr(item["event"]))
+        if key in first_by_event:
+            assert item == first_by_event[key], f"event {item['event']} arrived twice with different content"
+            continue
+        first_by_event[key] = item
+        unique.append(item)
+    return unique
+
+
 def verify_storage(storage, args):
     rid = storage[0]["run_id"]
     version = storage[0]["version"]
@@ -219,6 +243,8 @@ if __name__ == "__main__":
 
     # Order the received data.
     storage.sort(key=item_sort_key)
+
+    storage = drop_resends(storage)
 
     # Split the data into individual startups.
     startups = [[storage[0]]]

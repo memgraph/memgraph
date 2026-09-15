@@ -26,6 +26,10 @@ class Memgraph(ConanFile):
         # CMake with MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON. Used by
         # `./build.sh --mage only`.
         "mage_only": [True, False],
+        # Build against the toolchain produced by environment/toolchain and ship its
+        # C++ runtime. Hosts that build with their own compiler turn this off, and the
+        # profile that describes such a host is where it belongs.
+        "bundled_toolchain": [True, False],
     }
 
     exports_sources = (
@@ -45,6 +49,7 @@ class Memgraph(ConanFile):
 
     default_options = {
         "mage_only": False,
+        "bundled_toolchain": True,
         "aws-sdk-cpp/*:config": True,
         "aws-sdk-cpp/*:s3": True,
         "aws-sdk-cpp/*:monitoring": False,
@@ -118,7 +123,12 @@ class Memgraph(ConanFile):
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.14.2")
         self.requires("librdtsc/0.3-memgraph")
-        self.requires("libseccomp/2.6.0", options={"shared": True})
+        if self.settings.os == "Linux":
+            # seccomp is a Linux kernel interface and its recipe only supports Linux, so the
+            # dependency cannot be resolved elsewhere. src/auth still calls into it
+            # unconditionally, so a non-Linux build gets as far as compiling and then fails
+            # there; making that optional is separate work.
+            self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.8.0")
         self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
@@ -161,9 +171,10 @@ class Memgraph(ConanFile):
 
     def validate(self):
         """Validate configuration before generation"""
-        # Memgraph only supports Linux
-        if self.settings.os != "Linux":
-            raise ConanInvalidConfiguration("Memgraph only supports Linux")
+        if self.settings.os not in ("Linux", "FreeBSD"):
+            raise ConanInvalidConfiguration(
+                f"Unsupported OS: {self.settings.os}. Only Linux and FreeBSD are supported."
+            )
 
         user_toolchain = self.conf.get("tools.cmake.cmaketoolchain:user_toolchain")
         if user_toolchain:
@@ -213,6 +224,8 @@ class Memgraph(ConanFile):
         if self.options.mage_only:
             tc.cache_variables["MG_BUILD_MEMGRAPH"] = "OFF"
             tc.cache_variables["MG_BUILD_MAGE"] = "ON"
+
+        tc.cache_variables["MG_BUNDLED_TOOLCHAIN"] = "ON" if self.options.bundled_toolchain else "OFF"
 
         tc.generate()
 

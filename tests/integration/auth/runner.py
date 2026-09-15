@@ -22,6 +22,10 @@ import time
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 # When you create a new permission just add a testcase to this list (a tuple
 # of query, touple of required permissions) and the test will automatically
@@ -112,7 +116,7 @@ def execute_tester(
     check_failure=True,
     connection_should_fail=False,
 ):
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:
@@ -126,7 +130,7 @@ def execute_tester(
 
 
 def execute_checker(binary, grants):
-    args = [binary] + grants
+    args = [binary, "--port", str(BOLT_PORT)] + grants
     subprocess.run(args).check_returncode()
 
 
@@ -146,7 +150,14 @@ def check_permissions(query_perms, user_perms):
 
 def execute_test(memgraph_binary, tester_binary, checker_binary):
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--metrics-format=OpenMetrics",
+        "--password-encryption-algorithm=sha256",
+        *PORT_ARGS,
+    ]
 
     def execute_admin_queries(queries, should_fail=False):
         return execute_tester(
@@ -176,7 +187,7 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
 
     # Register cleanup function
     @atexit.register

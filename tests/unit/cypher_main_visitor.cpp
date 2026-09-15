@@ -8152,17 +8152,54 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
                                                "EXISTS supports only a single relation or a subquery as its input.");
 }
 
-TEST_P(CypherMainVisitorTest, SubqueryPatternRefusesAnIdentifierByConstruct) {
+TEST_P(CypherMainVisitorTest, SubqueryBarePatternTakesTheShapesAMatchTakes) {
   auto &ast_generator = *GetParam();
 
-  // The brace forms share one refusal, so it has to name the construct the user wrote - and neither of them is the
-  // `exists(...)` function whose own message ExistsThrow pins above.
-  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE EXISTS { p = (n)-[]->() } RETURN n;",
-                                               ast_generator,
-                                               "Identifiers are not supported in a EXISTS pattern.");
-  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) RETURN COUNT { p = (n)-[]->() } AS c;",
-                                               ast_generator,
-                                               "Identifiers are not supported in a COUNT pattern.");
+  // The brace form desugars to a MATCH, so it accepts everything a MATCH's pattern list accepts. The
+  // parenthesised `exists(...)` accepts none of them.
+  auto const body_of = [&ast_generator](std::string const &query) -> SingleQuery * {
+    auto *cypher = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_THAT(cypher, NotNull());
+    auto *match = dynamic_cast<Match *>(cypher->single_query_->clauses_[0]);
+    EXPECT_THAT(match, NotNull());
+    auto *subquery = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
+    EXPECT_THAT(subquery, NotNull());
+    EXPECT_EQ(subquery->GetPattern(), nullptr) << "a brace body is a query, never a bare pattern";
+    EXPECT_THAT(subquery->GetSubquery(), NotNull());
+    return subquery->GetSubquery()->single_query_;
+  };
+
+  {  // a named path
+    auto *body = body_of("MATCH (n) WHERE EXISTS { p = (n)-[]->() } RETURN n;");
+    ASSERT_EQ(body->clauses_.size(), 1);
+    auto const *match = dynamic_cast<Match *>(body->clauses_[0]);
+    ASSERT_THAT(match, NotNull());
+    ASSERT_EQ(match->patterns_.size(), 1);
+    ASSERT_THAT(match->patterns_[0]->identifier_, NotNull());
+    EXPECT_EQ(match->patterns_[0]->identifier_->name_, "p");
+  }
+
+  {  // a trailing WHERE, which the bare Pattern had nowhere to put
+    auto *body = body_of("MATCH (n) WHERE EXISTS { (n)-[]->(m) WHERE m.x = 1 } RETURN n;");
+    auto const *match = dynamic_cast<Match *>(body->clauses_[0]);
+    ASSERT_THAT(match, NotNull());
+    EXPECT_THAT(match->where_, NotNull());
+  }
+
+  {  // a comma-separated list, not just one pattern
+    auto *body = body_of("MATCH (n) WHERE EXISTS { (n)-[]->(a), (n)-[]->(b) } RETURN n;");
+    auto const *match = dynamic_cast<Match *>(body->clauses_[0]);
+    ASSERT_THAT(match, NotNull());
+    EXPECT_EQ(match->patterns_.size(), 2);
+  }
+
+  {  // a lone node, with no relationship at all
+    auto *body = body_of("MATCH (n) WHERE EXISTS { (n) } RETURN n;");
+    auto const *match = dynamic_cast<Match *>(body->clauses_[0]);
+    ASSERT_THAT(match, NotNull());
+    ASSERT_EQ(match->patterns_.size(), 1);
+    EXPECT_EQ(match->patterns_[0]->atoms_.size(), 1);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, CollectSubqueryNeedsExactlyOneReturnColumn) {
@@ -8191,11 +8228,17 @@ TEST_P(CypherMainVisitorTest, CollectSubqueryNeedsExactlyOneReturnColumn) {
   // Every UNION branch is checked, not only the first: a branch is its own SingleQuery with its own RETURN.
   TestInvalidQueryWithMessage<SyntaxException>(
       "RETURN COLLECT { MATCH (n) RETURN n AS v UNION MATCH (m) RETURN m AS v, m AS w } AS r;", ast_generator, message);
-  // A bare pattern has no column at all, so the list fold can never take one - the other two folds still can.
-  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { (n)-[]->(m) } AS r;",
-                                               ast_generator,
-                                               "COLLECT needs a body returning a single column, and a bare pattern "
-                                               "returns none.");
+  // A bare pattern has no column at all, so the list fold can never take one - the other two folds still can. The
+  // refusal is keyed off the alternative, not the pattern's content, so every shape a body now admits hits it.
+  const auto *const bare = "COLLECT needs a body returning a single column, and a bare pattern returns none.";
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { (n)-[]->(m) } AS r;", ast_generator, bare);
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { (n) } AS r;", ast_generator, bare);
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { p = (n)-[]->(m) } AS r;", ast_generator, bare);
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { (n)-[]->(m), (n)-[]->(o) } AS r;", ast_generator, bare);
+  // The WHERE is visited only after the fold check, so it cannot pre-empt the message with a parse error.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { (n)-[]->(m) WHERE m.x = 1 } AS r;", ast_generator, bare);
 }
 
 TEST_P(CypherMainVisitorTest, CollectSubqueryCarriesTheListFold) {
@@ -9390,12 +9433,18 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->GetPattern();
-    ASSERT_NE(pattern, nullptr);
+    // The MATCH the body omitted is synthesised, so the brace form carries a query like every other brace form.
+    ASSERT_EQ(exists->GetPattern(), nullptr);
     const auto *subquery = exists->GetSubquery();
-    ASSERT_EQ(subquery, nullptr);
+    ASSERT_NE(subquery, nullptr);
 
-    const auto *exists_pattern = exists->GetPattern();
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 1);
+    const auto *exists_match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_NE(exists_match, nullptr);
+    ASSERT_EQ(exists_match->where_, nullptr);
+    ASSERT_EQ(exists_match->patterns_.size(), 1);
+
+    const auto *exists_pattern = exists_match->patterns_[0];
     ASSERT_TRUE(exists_pattern->atoms_.size() == 3);
 
     const auto *node1 = dynamic_cast<NodeAtom *>(exists_pattern->atoms_[0]);

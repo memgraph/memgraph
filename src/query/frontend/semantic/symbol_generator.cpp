@@ -507,8 +507,14 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }
   } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
-    // If we are in the pattern, and outside of a node or an edge, the
-    // identifier is the pattern name. Shadowed: declare here, as for node and edge atoms below.
+    // Outside a node or an edge, the identifier is the pattern name. A pattern name declares, where a node atom
+    // in the same body correlates to the name outside it, so one name would mean two things in one expression.
+    if (scope.in_subquery_body && name_in_scope) {
+      throw SemanticException("Cannot name a pattern '{}' in {}, because that variable is already declared outside it.",
+                              ident.name_,
+                              SubqueryExpression::FoldName(scope.subquery_fold));
+    }
+    // Shadowed: declare here, as for node and edge atoms below.
     symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH)
                                 : GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
   } else if (scope.in_pattern && scope.in_pattern_atom_identifier) {
@@ -887,9 +893,9 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   auto &scope = scopes_.back();
-  auto check_node_semantic = [&node_atom, &scope, this](const bool props_or_labels) {
+  auto check_node_semantic = [&node_atom, &scope, this]() {
     const auto &node_name = node_atom.identifier_->name_;
-    if ((scope.in_create || scope.in_merge) && props_or_labels && HasSymbol(node_name)) {
+    if ((scope.in_create || scope.in_merge) && node_atom.HasLabelsOrProperties() && HasSymbol(node_name)) {
       throw SemanticException("Cannot create node '" + node_name +
                               "' with labels or properties, because it is already declared.");
     }
@@ -911,21 +917,16 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
     throw SemanticException("You can use expressions with labels only with CREATE!");
   }
 
-  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
-    bool props_or_labels = !properties->empty() || !node_atom.labels_.empty();
+  check_node_semantic();
 
-    check_node_semantic(props_or_labels);
+  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
     for (auto kv : *properties) {
       kv.second->Accept(*this);
     }
 
     return false;
   }
-  auto &properties_parameter = std::get<ParameterLookup *>(node_atom.properties_);
-  bool props_or_labels = !properties_parameter || !node_atom.labels_.empty();
-
-  check_node_semantic(props_or_labels);
-  properties_parameter->Accept(*this);
+  std::get<ParameterLookup *>(node_atom.properties_)->Accept(*this);
   return false;
 }
 

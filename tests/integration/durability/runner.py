@@ -36,6 +36,9 @@ DUMP_SNAPSHOT_FILE_NAME = "expected_snapshot.cypher"
 DUMP_WAL_FILE_NAME = "expected_wal.cypher"
 
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -55,7 +58,7 @@ def list_to_string(data):
 
 
 def dump_database(output_file):
-    connection = mgclient.connect(host="localhost", port=7687, sslmode=mgclient.MG_SSLMODE_DISABLE)
+    connection = mgclient.connect(host="localhost", port=BOLT_PORT, sslmode=mgclient.MG_SSLMODE_DISABLE)
     cursor = connection.cursor()
     cursor.execute("DUMP DATABASE")
     rows = cursor.fetchall()
@@ -85,14 +88,18 @@ def execute_test(memgraph_binary: Path, test_directory, test_type, write_expecte
         os.makedirs(wal_dir)
         shutil.copy(os.path.join(test_directory, WAL_FILE_NAME), wal_dir)
 
-    extra_args = ["--data-recovery-on-startup"]
+    extra_args = [
+        "--data-recovery-on-startup",
+        f"--monitoring-port={MONITORING_PORT}",
+        f"--metrics-port={METRICS_PORT}",
+    ]
     if light_edge:
         # Recover heavy-written durability fixtures into a light-edge instance
         # (the heavy->light interop regression, e.g. the v34 "Invalid edge with
         # gid N!" bug). Light edges require properties-on-edges, which
         # memgraph_server already passes by default.
         extra_args.append("--storage-light-edge")
-    with memgraph_server(memgraph_binary, Path(working_data_directory.name), 7687, logger, extra_args):
+    with memgraph_server(memgraph_binary, Path(working_data_directory.name), BOLT_PORT, logger, extra_args):
         # Execute `database dump`
         dump_output_file = tempfile.NamedTemporaryFile()
         dump_database(dump_output_file.name)

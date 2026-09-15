@@ -9,7 +9,9 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import glob
 import os
+import shutil
 import sys
 
 import interactive_mg_runner
@@ -34,6 +36,32 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "data_directory": "show_metrics/recovery/main",
         "setup_queries": [],
     }
+}
+
+# Two instances so one can recover from the other's snapshot, which carries a different database uuid.
+FOREIGN_SNAPSHOT_DESCRIPTION = {
+    "first": {
+        "args": [
+            "--bolt-port",
+            "7687",
+            "--log-level=TRACE",
+            "--storage-snapshot-on-exit=true",
+        ],
+        "log_file": "show_metrics/foreign/first.log",
+        "data_directory": "show_metrics/foreign/first",
+        "setup_queries": [],
+    },
+    "second": {
+        "args": [
+            "--bolt-port",
+            "7688",
+            "--log-level=TRACE",
+            "--storage-snapshot-on-exit=true",
+        ],
+        "log_file": "show_metrics/foreign/second.log",
+        "data_directory": "show_metrics/foreign/second",
+        "setup_queries": [],
+    },
 }
 
 
@@ -73,6 +101,52 @@ def test_index_and_constraint_gauges_correct_after_recovery():
     assert get_metric_value(instance, "ActiveExistenceConstraints") == 1
     assert get_metric_value(instance, "ActiveUniqueConstraints") == 1
     assert get_metric_value(instance, "SnapshotRecoveryLatency_us_50p") > 0
+
+
+def database_uuid(instance):
+    for row in instance.query("SHOW STORAGE INFO ON CURRENT DATABASE"):
+        if row[0] == "database_uuid":
+            return row[1]
+    return None
+
+
+def data_dir(name):
+    return os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", "show_metrics", "foreign", name)
+
+
+def test_metrics_available_after_recovering_a_foreign_snapshot():
+    """A snapshot carries the uuid of the database that wrote it, and recovery adopts it. Metrics are
+    registered before recovery runs, so they must follow that uuid or SHOW METRICS INFO cannot find the
+    database. Recovering a data directory holding a snapshot written elsewhere, such as a restored
+    backup, is the route into this state."""
+    for name in FOREIGN_SNAPSHOT_DESCRIPTION:
+        shutil.rmtree(data_dir(name), ignore_errors=True)
+
+    interactive_mg_runner.start_all(FOREIGN_SNAPSHOT_DESCRIPTION)
+    first = interactive_mg_runner.MEMGRAPH_INSTANCES["first"]
+    second = interactive_mg_runner.MEMGRAPH_INSTANCES["second"]
+
+    first.query("CREATE (:Node);")
+    second.query("CREATE (:Node);")
+    second.query("CREATE (:Node);")
+    foreign_uuid = database_uuid(second)
+    assert database_uuid(first) != foreign_uuid
+
+    interactive_mg_runner.stop(FOREIGN_SNAPSHOT_DESCRIPTION, "first")
+    interactive_mg_runner.stop(FOREIGN_SNAPSHOT_DESCRIPTION, "second")
+
+    for stale in glob.glob(os.path.join(data_dir("first"), "snapshots", "*")) + glob.glob(
+        os.path.join(data_dir("first"), "wal", "*")
+    ):
+        os.remove(stale)
+    for snapshot in glob.glob(os.path.join(data_dir("second"), "snapshots", "*")):
+        shutil.copy(snapshot, os.path.join(data_dir("first"), "snapshots"))
+
+    interactive_mg_runner.start(FOREIGN_SNAPSHOT_DESCRIPTION, "first")
+    first = interactive_mg_runner.MEMGRAPH_INSTANCES["first"]
+
+    assert database_uuid(first) == foreign_uuid
+    assert get_metric_value(first, "VertexCount") == 2
 
 
 if __name__ == "__main__":

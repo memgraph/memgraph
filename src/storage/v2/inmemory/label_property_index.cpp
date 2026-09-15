@@ -1495,6 +1495,8 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
   abort_from(index_container_->desc_indices_);
 }
 
+// Not the shared CleanupAllIndices: this holds two vectors behind ForEach, and the refcount sits
+// behind a variant rather than a plain member.
 void InMemoryLabelPropertyIndex::CleanupAllIndices() {
   auto const cleanup = [](auto &indices) {
     auto keep_condition = [](auto const &entry) {
