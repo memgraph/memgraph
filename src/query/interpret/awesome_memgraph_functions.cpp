@@ -153,7 +153,7 @@ struct Point3d {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
-  if constexpr (std::is_same_v<ArgType, Any>) {
+  if constexpr (std::is_same_v<ArgType, Any> || std::is_same_v<ArgType, void>) {
     return true;
   } else if constexpr (std::is_same_v<ArgType, Null>) {
     return arg.IsNull();
@@ -201,8 +201,6 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsPoint2d();
   } else if constexpr (std::is_same_v<ArgType, Point3d>) {
     return arg.IsPoint3d();
-  } else if constexpr (std::is_same_v<ArgType, void>) {
-    return true;
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -596,7 +594,7 @@ TypedValue NullIf(const TypedValue *args, int64_t nargs, const FunctionContext &
     // driver is entitled to replay even though the query can never answer.
     throw QueryRuntimeException("Invalid types: {} and {} for 'nullIf'.", args[0].type(), args[1].type());
   }
-  return TypedValue(args[0], ctx.memory);
+  return {args[0], ctx.memory};
 }
 
 namespace {
