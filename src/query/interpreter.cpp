@@ -11355,6 +11355,9 @@ void Interpreter::Abort() {
   // TODO Implement system transaction scope and the ability to abort
   system_transaction_.reset();
 
+  // Auth tx: nothing it wrote is durable, so dropping the overlay is the rollback.
+  auth_transaction_.reset();
+
   // Data tx
   // CAS ACTIVE → STARTED_ROLLBACK. Also accept TERMINATED and IDLE (already dead/cleaned up).
   // Use CAS (not unconditional store) for TERMINATED/IDLE to avoid racing with ShowTransactions
@@ -11567,6 +11570,25 @@ void Interpreter::Commit() {
   // We should document clearly that all results should be pulled to complete
   // a query.
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
+    // An auth transaction buffered its writes and its replication actions instead of applying them per statement.
+    // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
+    // the whole time the user held the transaction open.
+    if (auth_transaction_) {
+      utils::OnScopeExit const clear_auth_tx([this]() { auth_transaction_.reset(); });
+      if (!system_transaction_) {
+        system_transaction_ =
+            interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
+        if (!system_transaction_) {
+          throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
+        }
+      }
+      if (!interpreter_context_->auth->CommitTransaction(*auth_transaction_, &*system_transaction_)) {
+        system_transaction_->Abort();
+        system_transaction_.reset();
+        throw QueryException("Auth transaction conflicted with a concurrent change; nothing was committed.");
+      }
+    }
+
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) {
       current_transaction_.reset();
