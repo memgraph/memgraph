@@ -8961,6 +8961,13 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
             res = "Already using " + db_name;
           } else {
             auto tmp = db_handler->Get(db_name);
+            // A tenant marked for deletion is still HOT in the gatekeeper map (Get() succeeds), but
+            // pinning it here stalls DROP ... FORCE teardown. Treat as gone so the session sees a clean
+            // error rather than attaching to a dying tenant. Mirrors Interpreter::SetCurrentDB's guard.
+            if (tmp.is_marked_for_deletion()) {
+              throw dbms::UnknownDatabaseException("Database '{}' is being dropped and is no longer available.",
+                                                   db_name);
+            }
             if (on_change) (*on_change)(db_name);  // Will trow if cb fails
             current_db.SetCurrentDB(std::move(tmp), false);
             res = "Using " + db_name;
@@ -11513,7 +11520,11 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
     // Belt-and-suspenders: never reap an explicit transaction (cannot occur from IDLE, but cheap).
     // Only release a held accessor whose tenant is non-default and has been idle past the timeout.
     // current_db_name_ is kept so the next query transparently re-acquires via EnsureDbAccessForQuery.
-    if (!in_explicit_transaction_ && current_db_.db_acc_.has_value()) {
+    // Do not release while a storage transaction is live: dropping the last accessor lets the deferred
+    // ~Gatekeeper destroy the storage (and its main_lock_) out from under the ResourceLockGuard still
+    // held by db_transactional_accessor_ or execution_db_accessor_ -> UAF. Mirrors ReleaseDbIfMarked.
+    if (!in_explicit_transaction_ && !current_db_.db_transactional_accessor_ && !current_db_.execution_db_accessor_ &&
+        current_db_.db_acc_.has_value()) {
       auto *db = current_db_.db_acc_->get();
       const auto last_used_ns = last_activity_ns_.load(std::memory_order_relaxed);
       if (db->name() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
@@ -11530,7 +11541,11 @@ bool Interpreter::TryReleaseDbAccessorForDrop(std::string_view dropped_db_name) 
     // Belt-and-suspenders: never release from an explicit transaction (cannot occur from IDLE, but cheap).
     // current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next query; the
     // marked-for-deletion guard on the tenant then keeps the session db-less.
-    if (!in_explicit_transaction_ && current_db_.db_acc_.has_value()) {
+    // Do not release while a storage transaction is live: dropping the last accessor lets the deferred
+    // ~Gatekeeper destroy the storage (and its main_lock_) out from under the ResourceLockGuard still
+    // held by db_transactional_accessor_ or execution_db_accessor_ -> UAF. Mirrors ReleaseDbIfMarked.
+    if (!in_explicit_transaction_ && !current_db_.db_transactional_accessor_ && !current_db_.execution_db_accessor_ &&
+        current_db_.db_acc_.has_value()) {
       auto *db = current_db_.db_acc_->get();
       if (db->name() == dropped_db_name) {
         current_db_.ReleaseDbAccessor();

@@ -636,6 +636,96 @@ TEST_F(IdleSessionReaperTest, ReleaseDbIfMarkedKeepsAccessorWhileTransactionLive
   // db_transactional_accessor_, then db_acc_ is released safely in ~CurrentDB.
 }
 
+// B1: TryReapIdleDbAccessor and TryReleaseDbAccessorForDrop must NOT release db_acc_ while a storage
+// transaction (db_transactional_accessor_ / execution_db_accessor_) is live, even when the
+// IDLE->REAPING CAS would otherwise succeed.
+//
+// The Commit-cleanup-gap: the commit path stores TransactionStatus::IDLE before
+// db_transactional_accessor_ is cleaned up. Without the B1 guard, the CAS would succeed and
+// db_acc_ would be dropped out from under the ResourceLockGuard that db_transactional_accessor_
+// still holds — a UAF on main_lock_. The fix mirrors ReleaseDbIfMarked's guard.
+//
+// White-box: we force transaction_status_ to IDLE after Prepare opens db_transactional_accessor_,
+// precisely reproducing the window that B1 closes.
+TEST_F(IdleSessionReaperTest, ReaperKeepsAccessorWhileStorageTransactionLive) {
+  const std::string db_name = "reap_b1_live_txn";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  interpreter.interpreter.MarkReapable();
+  interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
+
+  // Open a storage transaction via the real Prepare path (SetupDatabaseTransaction is called inside
+  // Prepare for autocommit data queries). Intentionally do NOT pull: the storage transaction stays live.
+  auto [stream, qid] = interpreter.Prepare("MATCH (n) RETURN count(n)");
+
+  // Precondition: db_transactional_accessor_ must be set by Prepare.
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_transactional_accessor_)
+      << "precondition: Prepare must have opened db_transactional_accessor_";
+
+  // Simulate the Commit-cleanup-gap: force transaction_status_ to IDLE even though
+  // db_transactional_accessor_ is still live. This is the exact window B1 targets.
+  interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
+                                                    std::memory_order_seq_cst);
+
+  // B1 guard fires inside WithReapingLock: db_transactional_accessor_ is non-null, so neither
+  // path releases db_acc_.
+  EXPECT_FALSE(interpreter.interpreter.TryReapIdleDbAccessor(kHugeNs, /*idle_timeout_ns=*/0))
+      << "must not reap while db_transactional_accessor_ is live";
+  EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "db_acc_ must remain held while the storage transaction is live";
+
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_name))
+      << "must not force-drop while db_transactional_accessor_ is live";
+  EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "db_acc_ must remain held when TryReleaseDbAccessorForDrop sees a live storage transaction";
+
+  // ~InterpreterFaker -> ~Interpreter -> Abort() -> CleanupDBTransaction aborts and resets
+  // db_transactional_accessor_, then db_acc_ is released safely in ~CurrentDB.
+}
+
+// NB1: Cypher USE DATABASE must throw when the target tenant is marked for deletion.
+// This exercises PrepareUseDatabaseQuery's is_marked_for_deletion() guard (the NB1 fix site),
+// NOT Interpreter::SetCurrentDB — the Bolt USE path exercised by UseDatabaseRefusesMarkedForDeletionTenant.
+// The throw happens at Pull time (inside the query_handler lambda), not at Prepare time.
+// UnknownDatabaseException derives from utils::BasicException; the handler's catch rewraps it as
+// QueryRuntimeException, which is what propagates out of Pull.
+TEST_F(IdleSessionReaperTest, CypherUseDatabaseRefusesMarkedForDeletionTenant) {
+  const std::string db_name = "reap_nb1_use_cypher";
+  CreateAndPopulate(db_name, 2);
+
+  auto interpreter = min_mg->NewInterpreter();
+  // The interpreter starts on the default DB (passed by NewInterpreter via dbms.Get()).
+  ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "session must start on the default database before the USE attempt";
+  const std::string original_db_name = interpreter.interpreter.current_db_.db_acc_->get()->name();
+  EXPECT_EQ(original_db_name, std::string{memgraph::dbms::kDefaultDB});
+
+  // Mark the in-map gatekeeper for deletion (same simulation as R11/NF2): prepare_for_deletion()
+  // sets the shared pimpl flag; the gatekeeper stays HOT in the map so Get() still grants an
+  // accessor, but is_marked_for_deletion() returns true on that accessor.
+  {
+    auto dying_acc = DBMS().Get(db_name);
+    dying_acc.prepare_for_deletion();
+    // dying_acc released here; is_marked_for_deletion persists on the shared pimpl.
+  }
+
+  // Drive the Cypher USE path: Prepare assembles the handler without executing it (the
+  // is_marked_for_deletion() check is inside the handler lambda). Pull invokes the handler, which
+  // detects is_marked_for_deletion() and throws UnknownDatabaseException; the handler's catch
+  // (const utils::BasicException &) rewraps it as QueryRuntimeException.
+  auto [stream, qid] = interpreter.Prepare("USE DATABASE " + db_name);
+  ASSERT_THROW(interpreter.Pull(&stream), memgraph::query::QueryRuntimeException);
+
+  // The throw occurred before current_db_.SetCurrentDB() was reached: the session must remain on
+  // its current database, not switch to — or be evicted by — the dying tenant.
+  EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
+      << "a failed Cypher USE must not drop the session's current accessor";
+  EXPECT_EQ(interpreter.interpreter.current_db_.db_acc_->get()->name(), original_db_name)
+      << "session must remain on '" << original_db_name << "' after the failed Cypher USE";
+}
+
 // NF1 (control): the same marked-for-deletion tenant with NO live storage transaction IS released
 // by ReleaseDbIfMarked(). This proves that the guard in the positive test (above) is what makes the
 // difference — not that ReleaseDbIfMarked() simply never releases.
