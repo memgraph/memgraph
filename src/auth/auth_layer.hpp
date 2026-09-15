@@ -94,7 +94,13 @@ class AuthLayer {
 
     ScopedOverlay(ScopedOverlay const &) = delete;
     ScopedOverlay &operator=(ScopedOverlay const &) = delete;
-    ScopedOverlay(ScopedOverlay &&) = default;
+
+    /// Moving transfers the restore duty. A defaulted move would leave the source's `previous_` engaged, since
+    /// moving an optional leaves it so, and the source's destructor would then restore the durable storage while
+    /// the moved-to guard is still using the overlay.
+    ScopedOverlay(ScopedOverlay &&other) noexcept
+        : locked_{std::move(other.locked_)}, previous_{std::exchange(other.previous_, std::nullopt)} {}
+
     ScopedOverlay &operator=(ScopedOverlay &&) = delete;
 
     Auth *operator->() const { return &*locked_; }
