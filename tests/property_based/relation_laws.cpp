@@ -22,14 +22,17 @@
 #include <rapidcheck/gtest.h>
 
 #include <cmath>
+#include <compare>
 #include <cstdint>
 #include <limits>
 #include <map>
 #include <string>
 #include <vector>
 
+#include "query/exceptions.hpp"
 #include "query/relations/equality.hpp"
 #include "query/relations/equivalence.hpp"
+#include "query/relations/orderability.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point.hpp"
 #include "tests/property_based/typed_value_generators.hpp"
@@ -38,6 +41,7 @@ using memgraph::query::TypedValue;
 
 namespace equality = memgraph::query::relations::equality;
 namespace equivalence = memgraph::query::relations::equivalence;
+namespace orderability = memgraph::query::relations::orderability;
 namespace generators = memgraph::test::generators;
 
 namespace {
@@ -123,6 +127,55 @@ RC_GTEST_PROP(Equivalence, SendsAPairBuiltTwoWaysToOneHash, ()) {
 
   RC_ASSERT(equivalence::Equivalent(value, other));
   RC_ASSERT(equivalence::Hash(value) == equivalence::Hash(other));
+}
+
+RC_GTEST_PROP(Orderability, PlacesEveryPairItDoesNotRefuse, ()) {
+  // A sort needs a total order over what it is handed. Answering "unordered"
+  // leaves a pair in neither position, and a sort reading that as neither less
+  // nor greater treats the two as interchangeable, which is not a strict weak
+  // ordering and leaves the sort undefined rather than merely oddly arranged.
+  //
+  // Drawing both sides freely covers breadth and little depth: a type is one of
+  // fifteen, so the pair of doubles this law is really about turns up in well
+  // under one draw in a hundred. The property below draws that pair every time.
+  auto const left = *generators::AnyTypedValue();
+  auto const right = *generators::AnyTypedValue();
+
+  try {
+    auto const placed = orderability::Compare(left, right);
+    RC_ASSERT(placed != std::partial_ordering::unordered);
+  } catch (memgraph::query::QueryRuntimeException const &) {
+    // Refusing the pair outright is the other allowed answer.
+  }
+}
+
+RC_GTEST_PROP(Orderability, PlacesEveryPairOfNumbers, ()) {
+  // Every draw is a double, and the shapes make a NaN a common one, so this
+  // reaches the pair with no IEEE order on most cases rather than on none.
+  auto const left = *generators::TypedValueOfType(TypedValue::Type::Double, 0);
+  auto const right = *generators::TypedValueOfType(TypedValue::Type::Double, 0);
+
+  RC_ASSERT(orderability::Compare(left, right) != std::partial_ordering::unordered);
+}
+
+RC_GTEST_PROP(Orderability, GivesOnePositionToWhateverEquivalenceHoldsAlike, ()) {
+  // The rule tying the two relations together: two values are equivalent
+  // exactly where they share a position under orderability. Were they to
+  // disagree, a sort keyed by one would not agree with a grouping keyed by the
+  // other over the same column.
+  //
+  // The pair is built equivalent rather than drawn and filtered, for the reason
+  // the hash law above gives.
+  auto const value = *generators::AnyTypedValue();
+  auto const other = BuiltAnotherWay(value);
+  RC_ASSERT(equivalence::Equivalent(value, other));
+
+  try {
+    RC_ASSERT(std::is_eq(orderability::Compare(value, other)));
+  } catch (memgraph::query::QueryRuntimeException const &) {
+    // This relation refuses some types outright, and says so rather than
+    // placing them.
+  }
 }
 
 RC_GTEST_PROP(Equality, IsSymmetricInAllThreeAnswers, ()) {
