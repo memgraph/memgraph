@@ -34,6 +34,8 @@
 #include <vector>
 
 #include "query/common.hpp"
+#include "query/relations/comparability.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 
@@ -232,6 +234,17 @@ void Equality(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
+// The same relation, reached by name rather than through the operator. The operator is defined in
+// the value's own translation unit and is a call everywhere else, so the gap between the two is
+// what that call costs.
+template <typename Shape>
+void EqualityByName(benchmark::State &state) {
+  auto const lhs = Shape::Make().first;
+  auto const rhs = TypedValue{lhs, Mem()};
+  for (auto _ : state) benchmark::DoNotOptimize(memgraph::query::relations::equality::Equal(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
 // Equivalence, the relation DISTINCT and grouping are answered by, and the hottest of the four: a
 // hash set of query values calls it on every probe that reaches a populated bucket.
 template <typename Shape>
@@ -272,6 +285,24 @@ void SortColumn(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(source.size()));
 }
 
+// A sort over a column of one type, where the payload comparison is the larger part of the work
+// rather than telling the types apart. A per-comparison figure on such a type reads high next to a
+// number without saying what a sort of one pays.
+void SortStringColumn(benchmark::State &state) {
+  auto source = std::vector<TypedValue>{};
+  for (int i = 0; i != 12; ++i) {
+    source.emplace_back(std::string("row-") + static_cast<char>('a' + (11 - i)), Mem());
+  }
+  auto const compare = OrderedTypedValueCompare{Ordering::ASC};
+  for (auto _ : state) {
+    auto values = source;
+    std::ranges::sort(values,
+                      [&compare](TypedValue const &a, TypedValue const &b) { return std::is_lt(compare(a, b)); });
+    benchmark::DoNotOptimize(values);
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(source.size()));
+}
+
 // The label comes from the same token that selects the shape, so the two cannot disagree.
 #define SHAPE(bench, shape) BENCHMARK_TEMPLATE(bench, shape)->Name(#bench "/" #shape)->Unit(benchmark::kNanosecond)
 
@@ -287,6 +318,7 @@ FOR_EACH_TYPE(CopyConstruct)
 FOR_EACH_TYPE(MoveAssign)
 FOR_EACH_TYPE(ConstructDestroy)
 FOR_EACH_TYPE(Equality)
+FOR_EACH_TYPE(EqualityByName)
 FOR_EACH_TYPE(Equivalence)
 FOR_EACH_TYPE(Orderability)
 
@@ -313,11 +345,13 @@ FOR_EACH_COMPARABLE_TYPE(GreaterEqual)
   SHAPE(bench, NestedList);
 
 FOR_EACH_CONTAINER(Equality)
+FOR_EACH_CONTAINER(EqualityByName)
 FOR_EACH_CONTAINER(Equivalence)
 
 SHAPE(Orderability, NaN);
 SHAPE(Orderability, IntAgainstDouble);
 BENCHMARK(SortColumn)->Unit(benchmark::kNanosecond);
+BENCHMARK(SortStringColumn)->Unit(benchmark::kNanosecond);
 
 #undef FOR_EACH_TYPE
 #undef FOR_EACH_COMPARABLE_TYPE
