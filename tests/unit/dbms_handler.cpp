@@ -946,7 +946,8 @@ TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
   using namespace std::chrono_literals;
 
   std::atomic<int> stop{0}, dtor{0}, post{0};
-  memgraph::dbms::Handler<Tracked> h;
+  memgraph::dbms::Handler<Tracked> h{
+      std::chrono::milliseconds{50}};  // fast retry cadence so the timing bounds below stay tight
 
   // After the move, exactly one external accessor (holder) is live; count stays 1.
   auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
@@ -1142,6 +1143,54 @@ TEST(DBMS_Handler, DroppingHuskIsDisambiguatedByUuidWhenNameRetaken) {
   fresh->reset();
   auto cleanup = dbms.TryDelete("d");
   EXPECT_TRUE(cleanup.has_value()) << "cleanup TryDelete of 'd' must succeed after releasing the fresh accessor";
+}
+
+// Pins the husk_name_count > 1 branch of AllWithHotColdStatus(): same name dropped twice, both husks
+// still draining (each pinned), no live tenant — both must be UUID-qualified; no plain "t" row under any state.
+TEST(DBMS_Handler, DroppingHusksDisambiguatedByUuidWhenSameNameDrainsTwice) {
+  using namespace std::chrono_literals;
+  auto &dbms = *TestEnvironment::get();
+
+  auto pin1 = dbms.New("t");
+  ASSERT_TRUE(pin1.has_value());
+  const std::string uuid1{(*pin1)->uuid()};
+  auto del1 = dbms.Delete("t", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del1.has_value());
+
+  // Name is free in items_ immediately: DeferDelete erases from items_ before splicing to pending_.
+  auto pin2 = dbms.New("t");
+  ASSERT_TRUE(pin2.has_value());
+  const std::string uuid2{(*pin2)->uuid()};
+  ASSERT_NE(uuid1, uuid2) << "the recreated tenant must have a distinct UUID";
+  auto del2 = dbms.Delete("t", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del2.has_value());
+
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    const std::string q1 = "t (" + uuid1 + ")";
+    const std::string q2 = "t (" + uuid2 + ")";
+    EXPECT_TRUE(std::any_of(
+        statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == q1 && p.second == "DROPPING"; }))
+        << "husk1 must appear under \"" << q1 << "\"";
+    EXPECT_TRUE(std::any_of(
+        statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == q2 && p.second == "DROPPING"; }))
+        << "husk2 must appear under \"" << q2 << "\"";
+    EXPECT_FALSE(std::any_of(statuses.begin(), statuses.end(), [](const auto &p) { return p.first == "t"; }))
+        << "with two draining husks and no live tenant, no plain \"t\" row may appear under any state";
+  }
+
+  pin1->reset();
+  pin2->reset();
+  ASSERT_TRUE(PollUntil(
+      [&] {
+        const auto statuses = dbms.AllWithHotColdStatus();
+        const std::string q1 = "t (" + uuid1 + ")";
+        const std::string q2 = "t (" + uuid2 + ")";
+        return std::none_of(
+            statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == q1 || p.first == q2; });
+      },
+      30s))
+      << "both DROPPING husks must disappear within 30 s after releasing their pins";
 }
 
 int main(int argc, char *argv[]) {
