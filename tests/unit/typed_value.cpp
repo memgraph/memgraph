@@ -865,7 +865,8 @@ TYPED_TEST(AllTypesFixture, CopyConstruction) {
 
     // Equivalence decides that the copy is the same value whatever it holds, and
     // it is the relation that has to, since a hash container is keyed by it.
-    EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value)) << "a copy of " << value << " is not equivalent to it";
+    EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value))
+        << "a copy of a value of type " << static_cast<unsigned>(value.type()) << " is not equivalent to it";
 
     // Equality answers each of its three ways here, and which one it gives says
     // what the value holds: a NaN settles the question false wherever it sits,
