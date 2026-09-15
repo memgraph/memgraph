@@ -846,8 +846,13 @@ bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *sys
 
 // User profiles
 #ifdef MG_ENTERPRISE
-  // Profile data is now managed by UserProfiles class
-  if (user_resources_) user_resources_->RemoveUser(username);
+  // Profile data is now managed by UserProfiles class. ResourceMonitoring is process-wide and cannot be rolled
+  // back, so inside a transaction the release waits for COMMIT.
+  if (dropped_users_) {
+    dropped_users_->emplace_back(username);
+  } else if (user_resources_) {
+    user_resources_->RemoveUser(username);
+  }
 #endif
 
   if (!StorageDeleteMultiple(keys)) {
