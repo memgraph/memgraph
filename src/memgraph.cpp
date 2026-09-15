@@ -1060,6 +1060,9 @@ int main(int argc, char **argv) {
       // consumer (SessionHL registration, SHOW TRANSACTIONS, TerminateTransactions). See NB2.
       std::vector<memgraph::dbms::DatabaseAccess> reaped_accessors;
       ic->interpreters.WithLock([&](auto &interpreters) {
+        // reserve up-front: a reallocating push_back could throw bad_alloc and destruct a released Accessor under this
+        // SpinLock — ~Accessor blocks on GKInternals::mutex_
+        reaped_accessors.reserve(interpreters.size());
         for (auto *interpreter : interpreters) {
           std::optional<memgraph::dbms::DatabaseAccess> released;
           interpreter->TryReleaseDbAccessorForDrop(dropped_uuid, &released);

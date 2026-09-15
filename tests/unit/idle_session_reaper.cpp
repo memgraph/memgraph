@@ -131,9 +131,12 @@ TEST_F(IdleSessionReaperTest, ReapsIdleSessionAndTenantBecomesSuspendable) {
   EXPECT_FALSE(DBMS().Suspend(db_name).has_value());
 
   // Drop-driven release: releases db_acc_ for the matching UUID.
-  EXPECT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid));
+  std::optional<memgraph::dbms::DatabaseAccess> released_r1;
+  EXPECT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_r1));
   EXPECT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value())
       << "reaper must release the idle session's accessor";
+  // Destroy the collected accessor outside the reaping span so the tenant has zero holders.
+  released_r1.reset();
 
   // Tenant now has zero holders -> suspendable.
   EXPECT_TRUE(DBMS().Suspend(db_name).has_value()) << "tenant must be suspendable after its sessions are reaped";
@@ -149,7 +152,9 @@ TEST_F(IdleSessionReaperTest, ReapedSessionReacquiresOnNextQuery) {
   interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
   const auto db_uuid = interpreter.interpreter.current_db_.db_acc_->get()->uuid();
 
-  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid));
+  std::optional<memgraph::dbms::DatabaseAccess> released_r2;
+  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_r2));
+  released_r2.reset();  // destroy outside the interpreter before re-acquiring
   ASSERT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value());
 
   {
@@ -172,7 +177,8 @@ TEST_F(IdleSessionReaperTest, DoesNotReapNonReapableInterpreter) {
   ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
   const auto db_uuid = interpreter.interpreter.current_db_.db_acc_->get()->uuid();
 
-  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid))
+  std::optional<memgraph::dbms::DatabaseAccess> released_r4;
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_r4))
       << "non-reapable interpreters must never be reaped";
   EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
 }
@@ -192,7 +198,8 @@ TEST_F(IdleSessionReaperTest, DoesNotReapMidExplicitTransaction) {
     interpreter.Pull(&stream);
   }
   // Inside an explicit transaction transaction_status_ is ACTIVE, so the reaper's IDLE pre-check fails.
-  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid))
+  std::optional<memgraph::dbms::DatabaseAccess> released_r5;
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_r5))
       << "must not reap a session that is in an explicit transaction";
   EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
 
@@ -215,7 +222,9 @@ TEST_F(IdleSessionReaperTest, ReapedSessionReacquiresOnBoltBegin) {
   const auto db_uuid = interpreter.interpreter.current_db_.db_acc_->get()->uuid();
 
   // Release the accessor, leaving the session db-less while the tenant stays HOT.
-  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid));
+  std::optional<memgraph::dbms::DatabaseAccess> released_r10;
+  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_r10));
+  released_r10.reset();  // destroy outside the reaping span before re-acquiring
   ASSERT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value());
 
   // Native Bolt BEGIN (the B3 fix path): must not throw even with a null db_acc_.
@@ -259,7 +268,9 @@ TEST_F(IdleSessionReaperTest, ReacquireFallsBackToDbLessWhenTenantRecycled) {
   const auto db_uuid = interpreter.interpreter.current_db_.db_acc_->get()->uuid();
 
   // Drop-driven release: release the idle accessor (current_db_name_ + current_db_uuid_ are kept).
-  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid));
+  std::optional<memgraph::dbms::DatabaseAccess> released_r8;
+  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_r8));
+  released_r8.reset();  // destroy outside the reaping span so DBMS().Delete succeeds (zero holders)
   ASSERT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value());
 
   // Recycle the NAME: drop it (no holders after the reap) and recreate a different tenant under it.
@@ -300,7 +311,9 @@ TEST_F(IdleSessionReaperTest, ReacquireFallsBackToDbLessWhenTenantDropped) {
   interpreter.interpreter.MarkReapable();
   interpreter.interpreter.SetCurrentDB(db_name, /*in_explicit_db=*/false);
   const auto db_uuid = interpreter.interpreter.current_db_.db_acc_->get()->uuid();
-  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid));  // release the accessor
+  std::optional<memgraph::dbms::DatabaseAccess> released_r9;
+  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_r9));  // release the accessor
+  released_r9.reset();  // destroy outside the reaping span so DBMS().Delete succeeds (zero holders)
   ASSERT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value());
 
   ASSERT_TRUE(DBMS().Delete(db_name).has_value());  // drop it: the tenant is gone
@@ -348,7 +361,9 @@ TEST_F(IdleSessionReaperTest, DoesNotRepinMarkedForDeletionTenant) {
   const auto db_uuid = interpreter.interpreter.current_db_.db_acc_->get()->uuid();
 
   // Release the accessor: keeps current_db_name_ + current_db_uuid_ so the next query re-acquires.
-  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid));
+  std::optional<memgraph::dbms::DatabaseAccess> released_r11;
+  ASSERT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_r11));
+  released_r11.reset();  // destroy outside the reaping span before the marked-for-deletion check
   ASSERT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value());
 
   // Mark the in-map gatekeeper for deletion without DeferDelete (simulates Delete_()'s critical
@@ -439,7 +454,9 @@ TEST_F(IdleSessionReaperTest, ConcurrentReaperVsSessionQueries) {
   std::thread reaper([&] {
     while (!stop.load(std::memory_order_acquire)) {
       // Drop-driven release: matched by UUID; any IDLE window with a held accessor is released.
-      if (interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid)) {
+      // The local collector destructs at end of iteration, outside the reaping span.
+      std::optional<memgraph::dbms::DatabaseAccess> released;
+      if (interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released)) {
         reaps.fetch_add(1, std::memory_order_relaxed);
       }
     }
@@ -499,7 +516,8 @@ TEST_F(IdleSessionReaperTest, ForceDropReleasesIdleAccessorForMatchingDb) {
   ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
   const auto db_uuid = interpreter.interpreter.current_db_.db_acc_->get()->uuid();
 
-  EXPECT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid));
+  std::optional<memgraph::dbms::DatabaseAccess> released_f1;
+  EXPECT_TRUE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_f1));
   EXPECT_FALSE(interpreter.interpreter.current_db_.db_acc_.has_value())
       << "accessor must be released when the dropped UUID matches the session's current DB";
 
@@ -523,7 +541,8 @@ TEST_F(IdleSessionReaperTest, ForceDropDoesNotReleaseAccessorForDifferentDb) {
   ASSERT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value());
 
   const memgraph::utils::UUID other_uuid{};  // fresh random UUID, guaranteed != the session's UUID
-  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(other_uuid))
+  std::optional<memgraph::dbms::DatabaseAccess> released_f2;
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(other_uuid, &released_f2))
       << "must not release an accessor when the dropped UUID does not match the session's current DB UUID";
   EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
       << "accessor must remain held when the dropped UUID differs from the session's DB UUID";
@@ -546,7 +565,8 @@ TEST_F(IdleSessionReaperTest, ForceDropDoesNotReleaseAccessorMidExplicitTransact
     interpreter.Pull(&stream);
   }
   // Inside an explicit transaction transaction_status_ is ACTIVE, so the IDLE->REAPING CAS fails.
-  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid))
+  std::optional<memgraph::dbms::DatabaseAccess> released_f3;
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_f3))
       << "must not release from a session that is in an explicit transaction";
   EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
       << "accessor must remain held for an in-flight explicit transaction";
@@ -582,9 +602,11 @@ TEST_F(IdleSessionReaperTest, ForceDropReleasesByUuidNotName) {
   ASSERT_NE(std::string{uuid_a}, std::string{uuid_b});
 
   // Reaping the OLD uuid releases A but must leave B (same name, new uuid) pinned.
-  EXPECT_TRUE(session_a.interpreter.TryReleaseDbAccessorForDrop(uuid_a));
+  std::optional<memgraph::dbms::DatabaseAccess> released_f4_a;
+  EXPECT_TRUE(session_a.interpreter.TryReleaseDbAccessorForDrop(uuid_a, &released_f4_a));
   EXPECT_FALSE(session_a.interpreter.current_db_.db_acc_.has_value());
-  EXPECT_FALSE(session_b.interpreter.TryReleaseDbAccessorForDrop(uuid_a))
+  std::optional<memgraph::dbms::DatabaseAccess> released_f4_b;
+  EXPECT_FALSE(session_b.interpreter.TryReleaseDbAccessorForDrop(uuid_a, &released_f4_b))
       << "the recreated same-name tenant's session must NOT be released by the old husk's uuid";
   EXPECT_TRUE(session_b.interpreter.current_db_.db_acc_.has_value());
 }
@@ -674,12 +696,14 @@ TEST_F(IdleSessionReaperTest, ReaperKeepsAccessorWhileStorageTransactionLive) {
 
   // B1 guard fires inside WithReapingLock: db_transactional_accessor_ is non-null, so the
   // drop-driven release path cannot release db_acc_.
-  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid))
+  std::optional<memgraph::dbms::DatabaseAccess> released_b1_a;
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_b1_a))
       << "must not reap while db_transactional_accessor_ is live";
   EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
       << "db_acc_ must remain held while the storage transaction is live";
 
-  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid))
+  std::optional<memgraph::dbms::DatabaseAccess> released_b1_b;
+  EXPECT_FALSE(interpreter.interpreter.TryReleaseDbAccessorForDrop(db_uuid, &released_b1_b))
       << "must not force-drop while db_transactional_accessor_ is live";
   EXPECT_TRUE(interpreter.interpreter.current_db_.db_acc_.has_value())
       << "db_acc_ must remain held when TryReleaseDbAccessorForDrop sees a live storage transaction";

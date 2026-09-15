@@ -994,11 +994,14 @@ TEST(Handler, DrainHookReleasesPinAndDrains) {
   using namespace std::chrono_literals;
 
   std::atomic<int> stop{0}, dtor{0}, post{0};
+  // Declared before h so that h (and its worker join) is destroyed first; the drain hook captures
+  // &holder, and if PollUntil times out the worker could still be ticking — holder must outlive h.
+  std::optional<memgraph::utils::Gatekeeper<Tracked>::Accessor> holder;
   memgraph::dbms::Handler<Tracked> h{std::chrono::milliseconds{50}};  // fast cadence for the test
 
   auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
   ASSERT_TRUE(result.has_value());
-  auto holder = std::move(*result);  // external pin (count stays 1 -> try_delete cannot complete)
+  holder = std::move(*result);  // external pin (count stays 1 -> try_delete cannot complete)
 
   std::atomic<int> hook_calls{0};
   // Release the external holder on the 2nd hook call, so the first tick's try_delete fails and a later one

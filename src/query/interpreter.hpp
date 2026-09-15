@@ -649,7 +649,7 @@ class Interpreter final {
   // current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next query; the
   // marked-for-deletion guard then keeps the session db-less. Returns true iff it released.
   bool TryReleaseDbAccessorForDrop(utils::UUID const &dropped_uuid,
-                                   std::optional<memgraph::dbms::DatabaseAccess> *released_out = nullptr);
+                                   std::optional<memgraph::dbms::DatabaseAccess> *released_out);
 
   // Re-acquire db_acc_ if the reaper released it while parked. No-op if held or db-less; on a
   // recycled/dropped tenant falls back to a db-less session.

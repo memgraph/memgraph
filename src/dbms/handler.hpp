@@ -265,7 +265,8 @@ class Handler {
   // node's opaque id) at the start of each tick, BEFORE try_delete. Supplied by a higher layer (kept
   // type-erased so this generic handler has no dependency on it). The hook must release AND destroy any
   // external accessors pinning the husk before returning, so the gatekeeper's count is up to date when
-  // try_delete runs. Must not block and must not re-enter this Handler.
+  // try_delete runs. Invoked outside any Handler lock (pending_mutex_ is released before the call), so
+  // it MAY block; blocking only delays this tick. Must not re-enter this Handler.
   void SetDrainHook(std::function<void(std::string_view id)> hook) {
     auto lock = std::unique_lock{pending_mutex_};
     drain_hook_ = std::move(hook);
