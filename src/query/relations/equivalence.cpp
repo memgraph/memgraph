@@ -32,15 +32,18 @@ bool EquivalentOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b) {
   });
 }
 
-bool EquivalentOfContainersHoldingANull(const TypedValue &a, const TypedValue &b) {
-  DMG_ASSERT(a.type() == b.type(), "Equality answers Null only over a pair holding the same type");
+bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
+  // A container is equivalent only to a container of its own kind, so a pair of
+  // unlike types is settled without walking either.
+  if (a.type() != b.type()) return false;
+
   switch (a.type()) {
     case TypedValue::Type::List:
       return EquivalentOfLists(a.UnsafeValueList(), b.UnsafeValueList());
     case TypedValue::Type::Map:
       return EquivalentOfMaps(a.UnsafeValueMap(), b.UnsafeValueMap());
     default:
-      LOG_FATAL("Equality answered Null for a pair holding no Null");
+      LOG_FATAL("Asked of a pair that is not a pair of containers");
   }
 }
 
@@ -53,6 +56,11 @@ size_t Hash(const TypedValue &value) {
     case TypedValue::Type::Int:
       return std::hash<int64_t>{}(value.ValueInt());
     case TypedValue::Type::Double: {
+      // Every NaN is equivalent to every other, and more than one bit pattern
+      // spells one, so a hash over the bits would send two of them to different
+      // buckets and the lookup would never reach the comparison.
+      if (std::isnan(value.ValueDouble())) return 1'214'729'715;
+
       // Store whole number doubles as int hashes to be consistent with
       // TypedValue equality in which (2.0 == 2) returns true
       const double double_value = std::trunc(value.ValueDouble());
