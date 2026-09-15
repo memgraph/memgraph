@@ -27,6 +27,7 @@
 #include <ranges>
 #include <set>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <type_traits>
 #include <unordered_map>
@@ -378,6 +379,13 @@ class DbmsHandler {
    *        running/stopped state. Triggers are NOT restored here (suspend never stops them). Default empty.
    */
   void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
+
+  void SetDrainHook(std::function<void(std::string_view id)> hook) { db_handler_.SetDrainHook(std::move(hook)); }
+
+  void ClearDrainHook() { db_handler_.ClearDrainHook(); }
+
+  /// Idempotent. Call during shutdown before the InterpreterContext the drain hook closes over is destroyed.
+  void StopDeferredWorker() { db_handler_.StopDeferredWorker(); }
 
   /**
    * @brief Resume (move COLD -> HOT) the named tenant, recovering its in-memory storage inline.

@@ -141,6 +141,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline bool Execute() { return Execute_(*this); }
 
+  // Idle-session-reaper message-in-flight exclusion gate. Forwarded from the Bolt Execute_ pump so the
+  // gate is held for the whole span of a Bolt message. Flag-off: both are no-ops.
+  void SetMessageInFlight() { interpreter_.SetMessageInFlight(); }
+
+  void ClearMessageInFlight() { interpreter_.ClearMessageInFlight(); }
+
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 
   metrics::DatabaseMetricHandles *GetMetricHandles() {

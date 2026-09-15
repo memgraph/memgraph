@@ -743,6 +743,8 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
     auto &user_or_role = interpreter_.user_or_role_;
     MultiDatabaseAuth(user_or_role.get(), db_name);
   });
+  // Must precede the WithLock registration below — that mutex acquire is the publish fence to the reaper.
+  interpreter_.MarkReapable();
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
 }

@@ -53,6 +53,14 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   // No trace stream needed; nullptr opts out of the per-message guard.
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return nullptr; }
 
+  // Idle-session-reaper gate hooks; counters let tests assert set+clear balance per cycle.
+  void SetMessageInFlight() { ++set_in_flight_count_; }
+
+  void ClearMessageInFlight() { ++clear_in_flight_count_; }
+
+  int set_in_flight_count_ = 0;
+  int clear_in_flight_count_ = 0;
+
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
@@ -1436,6 +1444,45 @@ TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
   EXPECT_EQ(messages[1][1], 0x71);  // RECORD
   ASSERT_GE(messages[2].size(), 2u);
   EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
+
+TEST(BoltSession, ErrorStateClearsMessageInFlight) {
+  // Regression: a Bolt message cycle ending in State::Error must call ClearMessageInFlight() so the
+  // idle-session reaper can evict the session. Before the fix, Execute_() omitted State::Error from the clear
+  // condition.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+  output.clear();
+
+  // Capture baselines after init; the HELLO message itself raises+clears the gate once (Init→Idle).
+  const int set_base = session.set_in_flight_count_;
+  const int clear_base = session.clear_in_flight_count_;
+  ASSERT_EQ(set_base, clear_base) << "gate must be balanced after init";
+
+  // Idle→Error: gate must raise on entry and clear on exit even when the cycle ends in Error.
+  WriteRunRequest(input_stream, kInvalidQuery, true);
+  session.Execute();
+  ASSERT_EQ(session.state_, State::Error);
+  CheckFailureMessage(output);  // clears output
+
+  EXPECT_EQ(session.set_in_flight_count_, set_base + 1) << "SetMessageInFlight must fire on RUN entry";
+  EXPECT_EQ(session.clear_in_flight_count_, clear_base + 1)
+      << "ClearMessageInFlight must fire when cycle ends in Error (regression fix)";
+
+  // Error→Error (IGNORED): same fix — gate must still raise and clear for messages in Error state.
+  ExecuteCommand(input_stream, session, init_req, sizeof(init_req));
+  ASSERT_EQ(session.state_, State::Error);
+  {
+    auto to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, ignored_resp, sizeof(ignored_resp));
+  }
+
+  EXPECT_EQ(session.set_in_flight_count_, set_base + 2) << "SetMessageInFlight must fire on Error-state message entry";
+  EXPECT_EQ(session.clear_in_flight_count_, clear_base + 2)
+      << "ClearMessageInFlight must fire when Error-state message cycle ends in Error (regression fix)";
 }
 
 TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {

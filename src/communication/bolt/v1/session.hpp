@@ -130,14 +130,19 @@ class Session {
 
       switch (state_) {
         case State::Init:
+          // Reaper gate: HELLO/LOGON writes db_acc_ via TryDefaultDB; without this the reaper can release it
+          // concurrently.
+          impl.SetMessageInFlight();
           state_ = StateInitRun(impl);
           break;
         case State::Idle:
         case State::Result:
           at_least_one_run_ = true;
+          impl.SetMessageInFlight();
           state_ = StateExecutingRun(impl, state_);
           break;
         case State::Error:
+          impl.SetMessageInFlight();
           state_ = StateErrorRun(impl, state_);
           break;
         default:
@@ -155,6 +160,12 @@ class Session {
         // Try to not break from Prepare till the end of the execution as this will lead to worse performance.
         // Last pull will set the state to State::Idle
         return true;  // more data to process
+      }
+
+      if (state_ == State::Idle || state_ == State::Close || state_ == State::Error) {
+        // Gate was raised before decode in every branch, so the reaper cannot race db_acc_ mid-message (seq_cst
+        // Dekker). Error-state is safe: the next incoming message re-raises before re-entering StateErrorRun.
+        impl.ClearMessageInFlight();
       }
 
       if (state_ == State::Close) [[unlikely]] {

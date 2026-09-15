@@ -467,6 +467,14 @@ add_unit_test(hot_cold_resume
     LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
 )
 
+if (MG_ENTERPRISE)
+# Hot/cold tenants: idle session accessor reaper (interpreter-level)
+add_unit_test(idle_session_reaper
+    SOURCES idle_session_reaper.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+endif ()
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
