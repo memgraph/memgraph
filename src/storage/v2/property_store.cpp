@@ -1125,7 +1125,16 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
     if (!reader_val || !value_val) {
       return false;
     }
-    if (CompareNumericValues(*reader_val, *value_val) != std::partial_ordering::equivalent) return false;
+    // A NaN element is held alike by the decoded comparison, so reading it as
+    // IEEE equality here would refuse a list this store does hold.
+    auto const order = CompareNumericValues(*reader_val, *value_val);
+    if (order == std::partial_ordering::unordered) {
+      if (CompareDoublesNaNLast(AsDouble(*reader_val), AsDouble(*value_val)) != std::weak_ordering::equivalent) {
+        return false;
+      }
+      continue;
+    }
+    if (order != std::partial_ordering::equivalent) return false;
   }
   return true;
 }
@@ -1606,10 +1615,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto double_v = ReadDoubleAs(reader, payload_size);
       if (!double_v) return false;
-      if (value.IsDouble()) {
-        return value.ValueDouble() == double_v;
-      }
-      return value.ValueInt() == double_v;
+      // Read through the one comparison the decoded values use, so this answers
+      // as `operator==` does. IEEE equality would part from it over a NaN, which
+      // it holds equal to nothing and an index holds alike.
+      auto const lhs = value.IsDouble() ? value.ValueDouble() : static_cast<double>(value.ValueInt());
+      return CompareDoublesNaNLast(lhs, *double_v) == std::weak_ordering::equivalent;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;
@@ -1679,13 +1689,20 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       if (!x_opt) return false;
       auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
       if (!y_opt) return false;
+      // A coordinate is a double, so it is read through the comparison a double
+      // beside a point is read through, which answers for a NaN.
+      auto const alike = [](double lhs, double rhs) {
+        return CompareDoublesNaNLast(lhs, rhs) == std::weak_ordering::equivalent;
+      };
       if (valid2d(crs) && value.IsPoint2d()) {
-        return value.ValuePoint2d() == Point2d{crs, *x_opt, *y_opt};
+        auto const &point = value.ValuePoint2d();
+        return point.crs() == crs && alike(point.x(), *x_opt) && alike(point.y(), *y_opt);
       }
       if (valid3d(crs) && value.IsPoint3d()) {
         auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
         if (!z_opt) return false;
-        return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
+        auto const &point = value.ValuePoint3d();
+        return point.crs() == crs && alike(point.x(), *x_opt) && alike(point.y(), *y_opt) && alike(point.z(), *z_opt);
       }
       return false;
     }

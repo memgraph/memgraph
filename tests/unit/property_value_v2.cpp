@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <limits>
 #include <memory_resource>
 #include <sstream>
@@ -739,6 +740,99 @@ TEST(PropertyValue, AListIsOrderedByEveryBitOfTheIntegersItHolds) {
   EXPECT_FALSE(boxed({huge}) == packed({1}));
 }
 
+TEST(PropertyValue, ANaNIsOrderedAfterEveryNumberAndAlongsideAnotherNaN) {
+  // An ordered container needs an answer for every pair it is handed, and IEEE
+  // gives none for a NaN. Left unordered, an entry is placed where no later
+  // search reaches it.
+  auto const nan = PropertyValue(std::numeric_limits<double>::quiet_NaN());
+  auto const other_nan = PropertyValue(-std::numeric_limits<double>::quiet_NaN());
+
+  for (auto const &number : {PropertyValue(0.0),
+                             PropertyValue(int64_t{7}),
+                             PropertyValue(std::numeric_limits<double>::infinity()),
+                             PropertyValue(-std::numeric_limits<double>::infinity())}) {
+    EXPECT_TRUE(std::is_gt(nan <=> number));
+    EXPECT_TRUE(std::is_lt(number <=> nan));
+  }
+
+  EXPECT_TRUE(std::is_eq(nan <=> nan));
+  EXPECT_TRUE(std::is_eq(nan <=> other_nan));
+  EXPECT_TRUE(nan == other_nan);
+}
+
+TEST(PropertyValue, APointHoldingANaNCoordinateIsOrderedAsANaNBesideOneIs) {
+  // A coordinate is a double, so a point holding a NaN is a pair the sorted
+  // container an index keeps still has to be given an answer for.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const with_nan = PropertyValue(Point2d{WGS84_2d, 1.0, nan});
+  auto const without = PropertyValue(Point2d{WGS84_2d, 1.0, 2.0});
+
+  EXPECT_TRUE(std::is_eq(with_nan <=> with_nan));
+  EXPECT_TRUE(with_nan == with_nan);
+  EXPECT_TRUE(std::is_gt(with_nan <=> without));
+  EXPECT_TRUE(std::is_lt(without <=> with_nan));
+
+  auto const with_nan_3d = PropertyValue(Point3d{WGS84_3d, 1.0, 2.0, nan});
+  auto const without_3d = PropertyValue(Point3d{WGS84_3d, 1.0, 2.0, 3.0});
+  EXPECT_TRUE(std::is_eq(with_nan_3d <=> with_nan_3d));
+  EXPECT_TRUE(std::is_gt(with_nan_3d <=> without_3d));
+  EXPECT_TRUE(std::is_lt(without_3d <=> with_nan_3d));
+}
+
+TEST(PropertyValue, AListIsOrderedByItsElementsBeforeItsLength) {
+  // A shorter list only comes first when it is a prefix of the longer one; an
+  // element that differs settles the pair whichever lengths the two have.
+  auto const list = [](std::vector<int64_t> const &numbers) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const number : numbers) elements.emplace_back(number);
+    return PropertyValue{elements};
+  };
+
+  auto const packed = [](std::vector<int64_t> const &numbers) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const number : numbers) elements.emplace_back(number);
+    return PropertyValue{IntListTag{}, elements};
+  };
+
+  EXPECT_TRUE(std::is_lt(list({0, 9, 9}) <=> list({1})));
+  EXPECT_TRUE(std::is_gt(list({1}) <=> list({0, 9, 9})));
+  EXPECT_TRUE(std::is_lt(list({1, 2, 3}) <=> list({2})));
+
+  // Length settles only a pair where one list is the start of the other.
+  EXPECT_TRUE(std::is_lt(list({1, 2}) <=> list({1, 2, 3})));
+  EXPECT_TRUE(std::is_lt(list({}) <=> list({1})));
+
+  // The same pairs, with one side held in the representation that packs its
+  // elements. Which representation holds a list is not part of its value, so
+  // the answer may not turn on it.
+  EXPECT_TRUE(std::is_lt(packed({0, 9, 9}) <=> list({1})));
+  EXPECT_TRUE(std::is_gt(list({1}) <=> packed({0, 9, 9})));
+  EXPECT_TRUE(std::is_lt(packed({1, 2, 3}) <=> list({2})));
+  EXPECT_TRUE(std::is_lt(packed({1, 2}) <=> list({1, 2, 3})));
+  EXPECT_TRUE(std::is_eq(packed({1, 2}) <=> list({1, 2})));
+}
+
+TEST(PropertyValue, AListHoldingANaNIsOrderedWhicheverRepresentationHoldsIt) {
+  // A packed list and a boxed one holding the same elements are one value, so a
+  // NaN inside either is placed where a NaN beside one is.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const boxed = [](std::vector<double> const &numbers) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const number : numbers) elements.emplace_back(number);
+    return PropertyValue{elements};
+  };
+  auto const packed = [](std::vector<double> const &numbers) {
+    auto elements = std::vector<PropertyValue>{};
+    for (auto const number : numbers) elements.emplace_back(number);
+    return PropertyValue{DoubleListTag{}, elements};
+  };
+
+  EXPECT_TRUE(std::is_eq(boxed({1.0, nan}) <=> packed({1.0, nan})));
+  EXPECT_TRUE(boxed({1.0, nan}) == packed({1.0, nan}));
+  EXPECT_TRUE(std::is_gt(boxed({1.0, nan}) <=> packed({1.0, 2.0})));
+  EXPECT_TRUE(std::is_lt(packed({1.0, 2.0}) <=> boxed({1.0, nan})));
+}
+
 TEST(PropertyValue, EqualMap) {
   auto a = PropertyValue(PropertyValue::map_t());
   auto b = PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}});
@@ -1083,4 +1177,53 @@ TEST(PropertyValue, ExternalPropertyValueToPropertyValue) {
         break;
     }
   }
+}
+
+TEST(PropertyValue, PlaceAVectorCoordinateThatIsANaN) {
+  // A vector holds its coordinates as floats, which carry a NaN of their own, so a pair of them is
+  // one the sorted container an index keeps still has to be given an answer for.
+  auto const nan = std::numeric_limits<float>::quiet_NaN();
+  auto const vector_of = [](std::initializer_list<float> coordinates) {
+    memgraph::utils::small_vector<float> data(coordinates.begin(), coordinates.end());
+    PropertyValue::vector_index_id_t ids{1UL};
+    return PropertyValue{PropertyValue::VectorIndexIdData{ids, std::move(data)}};
+  };
+
+  auto const with_nan = vector_of({1.0f, nan, 3.0f});
+  auto const plain = vector_of({1.0f, 2.0f, 3.0f});
+
+  EXPECT_EQ(with_nan, with_nan) << "a vector holding a NaN is not equivalent to itself";
+  EXPECT_TRUE(with_nan > plain) << "a NaN coordinate sorts after every number, as a NaN does alone";
+  EXPECT_TRUE(plain < with_nan);
+
+  // Non-vacuous: the ordering still reads the coordinates it can, at the position they differ.
+  EXPECT_TRUE(vector_of({1.0f, 2.0f, 3.0f}) < vector_of({1.0f, 2.5f, 3.0f}));
+}
+
+TEST(PropertyValue, EqualValuesHashAlike) {
+  // A container keyed by the hash puts an entry in one bucket and looks for it
+  // in another when two values compare equal and hash apart. The order holds two
+  // NaNs alongside each other so that a sorted container can find an entry
+  // again, and they need not be the same NaN to be that value.
+  auto const quiet = std::numeric_limits<double>::quiet_NaN();
+  auto const signalling = std::numeric_limits<double>::signaling_NaN();
+  auto const payloaded = std::bit_cast<double>(std::bit_cast<uint64_t>(quiet) | 0x7);
+
+  auto const hash = std::hash<PropertyValue>{};
+
+  for (auto const &other : {quiet, signalling, payloaded, -quiet}) {
+    ASSERT_EQ(PropertyValue(quiet), PropertyValue(other)) << "two NaNs are one value to the order";
+    EXPECT_EQ(hash(PropertyValue(quiet)), hash(PropertyValue(other)))
+        << "two values that compare equal hash apart, so a container loses one";
+  }
+
+  // The same, reached through a list, which hashes its elements.
+  auto const list_of = [](double d) { return PropertyValue(std::vector<PropertyValue>{PropertyValue(d)}); };
+  ASSERT_EQ(list_of(quiet), list_of(payloaded));
+  EXPECT_EQ(hash(list_of(quiet)), hash(list_of(payloaded)));
+
+  // Non-vacuous: values that differ still hash apart, so the canonicalisation
+  // has not collapsed everything to one bucket.
+  EXPECT_NE(hash(PropertyValue(1.0)), hash(PropertyValue(quiet)));
+  EXPECT_NE(hash(PropertyValue(1.0)), hash(PropertyValue(2.0)));
 }

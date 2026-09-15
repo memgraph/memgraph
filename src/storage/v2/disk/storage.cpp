@@ -1777,8 +1777,13 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
     std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
     PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
     if (std::ranges::contains(labels, label) && property_store.HasAllProperties(properties)) {
-      if (auto target_property_values = property_store.ExtractPropertyValues(properties);
-          target_property_values.has_value() && !unique_storage.contains(*target_property_values)) {
+      auto target_property_values = property_store.ExtractPropertyValues(properties);
+      // A value that is not equal to itself duplicates nothing, so it is kept
+      // out of the storage compared against.
+      if (target_property_values.has_value() && !EveryValueEqualsItself(*target_property_values)) {
+        continue;
+      }
+      if (target_property_values.has_value() && !unique_storage.contains(*target_property_values)) {
         unique_storage.insert(*target_property_values);
         vertices_for_constraints.emplace_back(
             utils::SerializeVertexAsKeyForUniqueConstraint(label, properties, utils::ExtractGidFromKey(key_str)),

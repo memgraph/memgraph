@@ -185,16 +185,11 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::IN: {
       if (!lower_) return storage::PropertyValueRange::Bounded(std::nullopt, std::nullopt);
       auto const typed_value = lower_->value()->Accept(evaluator);
-      // Equality against a value holding a Null answers Null for every row, so a filter keeps
-      // none of them. The scan has to agree, or the same query answers differently once an index
-      // exists. The Null is read before the value is converted, because a value holding one need
-      // not be storable at all: converting `[null, <a node>]` raises where the filter this scan
-      // stands in for raises nothing.
-      //
-      // A value no property can hold is settled the same way and for the same reason: nothing
-      // stored equals a graph element, so the filter keeps no row and never asks for the value as a
-      // property. Converting it first would make the query raise only once an index existed.
-      if (relations::equality::HoldsANull(typed_value) || !typed_value.IsPropertyValue()) {
+      // Both keep no row, so this scan must keep none either, or the same query answers
+      // differently once an index exists. Asked before the value is converted: a value holding a
+      // Null need not be storable, and converting `[null, <a node>]` would raise where the filter
+      // this scan stands in for raises nothing.
+      if (!relations::equality::EqualsItself(typed_value) || !typed_value.IsPropertyValue()) {
         return storage::PropertyValueRange::Empty();
       }
       auto bounded_property_value = bound_from(typed_value, lower_->type());
