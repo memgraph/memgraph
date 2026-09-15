@@ -278,6 +278,13 @@ class Handler {
     drain_hook_ = nullptr;
   }
 
+  // Stops the deferred-teardown background worker (utils::Scheduler::Stop() requests stop + joins the
+  // in-flight Tick_). Idempotent: ~Handler also calls defer_worker_.Stop(), so an earlier call is a
+  // safe no-op afterward. Called at shutdown to quiesce the worker BEFORE a drain-hook closure's
+  // captured context (the InterpreterContext) is destroyed — otherwise an in-flight tick could invoke
+  // the hook on a destroyed context (UAF).
+  void StopDeferredWorker() { defer_worker_.Stop(); }
+
   std::vector<std::pair<std::string, std::string>> PendingItems() const {
     auto lock = std::unique_lock{pending_mutex_};
     std::vector<std::pair<std::string, std::string>> out;

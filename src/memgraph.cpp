@@ -1074,7 +1074,13 @@ int main(int argc, char **argv) {
     // OnScopeExit is declared after interpreter_context_lifetime_control, so it runs first, while
     // dbms_handler (declared even earlier) is still alive.
     clear_drain_hook_guard.emplace([&dbms_handler]() {
-      if (dbms_handler.has_value()) dbms_handler->ClearDrainHook();
+      if (dbms_handler.has_value()) {
+        // Join the defer worker so no in-flight Tick_ can invoke the drain hook after the InterpreterContext
+        // (captured by the hook) is destroyed on this scope exit (B1 UAF fix). Stop() is idempotent — ~Handler
+        // calls it again harmlessly.
+        dbms_handler->StopDeferredWorker();
+        dbms_handler->ClearDrainHook();
+      }
     });
   }
 #endif

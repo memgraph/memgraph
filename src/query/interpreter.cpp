@@ -54,7 +54,6 @@
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -10367,8 +10366,9 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   const bool is_begin = trimmed_query == "BEGIN";
 
   // db_acc_ may be null here after a prior idle reap (Parse runs before EnsureDbAccessForQuery
-  // re-acquires); read the reaper-stable current_db_name_, never the live accessor.
-  const std::string log_db_name = current_db_.current_db_name_ ? *current_db_.current_db_name_ : current_db_.name();
+  // re-acquires). name() prefers the live accessor (accurate after RENAME) and falls back to the
+  // cached name when the reaper released the accessor.
+  const std::string log_db_name = current_db_.name();
   // Explicit transactions define the metadata at the beginning and reuse it
   spdlog::debug("{}",
                 QueryLogWrapper{.query = query_string,
@@ -11457,6 +11457,7 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
 }
 
 void Interpreter::SetMessageInFlight() noexcept {
+#ifdef MG_ENTERPRISE
   message_in_flight_.store(true, std::memory_order_seq_cst);
   // Dekker StoreLoad: seq_cst store/load pairs with TryReleaseDbAccessorForDrop's
   // CAS(REAPING)+load(message_in_flight_). If the drop worker already owns REAPING, spin; it restores IDLE and its
@@ -11464,12 +11465,15 @@ void Interpreter::SetMessageInFlight() noexcept {
   while (transaction_status_.load(std::memory_order_seq_cst) == TransactionStatus::REAPING) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
+#endif
 }
 
 void Interpreter::ClearMessageInFlight() noexcept {
+#ifdef MG_ENTERPRISE
   // seq_cst store pairs with the drop worker's CAS(REAPING)+load(message_in_flight_) Dekker StoreLoad:
   // a worker that observes message_in_flight_==false knows this session is parked and safe to release.
   message_in_flight_.store(false, std::memory_order_seq_cst);
+#endif
 }
 
 #ifdef MG_ENTERPRISE
@@ -11510,7 +11514,7 @@ void Interpreter::EnsureDbAccessForQuery() {
 
 bool Interpreter::TryReleaseDbAccessorForDrop(utils::UUID const &dropped_uuid,
                                               std::optional<memgraph::dbms::DatabaseAccess> *released_out) {
-  return WithReapingLock([&] {
+  return WithReapingLock([&]() noexcept {
     // Belt-and-suspenders: never release from an explicit transaction (cannot occur from IDLE, but cheap).
     // current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next query; the
     // marked-for-deletion guard on the tenant then keeps the session db-less.

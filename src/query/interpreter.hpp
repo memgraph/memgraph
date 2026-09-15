@@ -732,7 +732,8 @@ class Interpreter final {
   // in flight) session; otherwise returns action(). action() runs with db_acc_ and
   // in_explicit_transaction_ stable and MUST NOT block. IDLE is always restored.
   //
-  // Handshake steps (Dekker StoreLoad — all atomics seq_cst to pair with SetMessageInFlight):
+  // Handshake steps (Dekker StoreLoad — the store/load/CAS-success edges are seq_cst (they carry
+  //   the exclusion); CAS failure is acquire and IDLE restore is release (see the numbered steps)):
   //   1. Reapability guard: non-reapable sessions (streams, internal) are never touched.
   //   2. message_in_flight_ pre-check: cheap fast-exit if a Bolt message is in flight.
   //   3. transaction_status_ pre-check: skip non-IDLE sessions without spinning.
@@ -765,6 +766,9 @@ class Interpreter final {
     }
     // We now own REAPING: the session cannot enter Prepare (it spin-waits on REAPING), so
     // db_acc_ and in_explicit_transaction_ are stable. Always restore IDLE on exit.
+    static_assert(
+        noexcept(std::forward<F>(action)()),
+        "WithReapingLock action must be noexcept: it runs inside a noexcept wrapper that must always restore IDLE");
     bool result = std::forward<F>(action)();
     transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
     return result;

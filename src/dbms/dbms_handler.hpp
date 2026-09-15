@@ -387,6 +387,10 @@ class DbmsHandler {
   /// Clear the drain hook. MUST be called during shutdown before whatever the hook closes over is destroyed.
   void ClearDrainHook() { db_handler_.ClearDrainHook(); }
 
+  /// Stop the deferred-drop worker (forwarded to the DatabaseHandler). Idempotent. Called during shutdown
+  /// before the InterpreterContext that the drain hook closes over is destroyed — see Handler::StopDeferredWorker.
+  void StopDeferredWorker() { db_handler_.StopDeferredWorker(); }
+
   /**
    * @brief Resume (move COLD -> HOT) the named tenant, recovering its in-memory storage inline.
    *
