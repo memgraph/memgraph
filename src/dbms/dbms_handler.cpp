@@ -829,6 +829,9 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   const auto storage_path = StorageDir_(db_name);
   if (!storage_path) return std::unexpected{DeleteError::NON_EXISTENT};
 
+  // Capture the tenant's UUID inside the accessor scope (before the accessor is released).
+  // Database::uuid() is const and does not re-acquire lock_ — safe to call while lock_ is held.
+  std::optional<utils::UUID> db_uuid;
   {
     auto db = db_handler_.Get(db_name);
     if (!db) {
@@ -839,28 +842,35 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
       if (gk && gk->state() != utils::GatekeeperState::HOT) return std::unexpected{DeleteError::USING};
       return std::unexpected{DeleteError::NON_EXISTENT};
     }
-    // TODO: ATM we assume REPLICA won't have streams,
-    //       this is a best effort approach just in case they do
-    //       there is still subtle data race we stream manipulation
-    //       can occur while we are dropping the database
-    db->prepare_for_deletion();
-    auto &database = *db->get();
-    database.StopAllBackgroundTasks();
-    database.streams()->DropAll();
-  }
+    db_uuid = db->get()->uuid();
+    // No early seal here (late-seal model). The seal happens after all fallible work has succeeded so
+    // that an exception leaves the gatekeeper fully HOT in items_ — the tenant is intact and no
+    // rollback of any kind is ever needed.
+  }  // release our accessor so the worker can reach sole access
 
+  // Fallible, point-of-no-return. If it throws, nothing is sealed and the gatekeeper is still HOT in
+  // items_ — the tenant is fully intact; because the seal has not happened yet, no rollback is needed.
   DetachProfileAndRetireDurabilityKey_(db_name);
 
-  // Check if db exists
-  // Low level handlers
-  db_handler_.DeferDelete(db_name, [storage_path = *storage_path, db_name = std::string{db_name}]() {
-    // Delete disk storage
-    std::error_code ec;
-    (void)std::filesystem::remove_all(storage_path, ec);
-    if (ec) {
-      spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
-    }
-  });
+  // Non-throwing suffix: advisory seal, then hand ownership to the deferred worker. The worker records
+  // the husk (name + uuid) — surfaced as the DROPPING row in SHOW DATABASES — and tears down off lock_.
+  if (auto *gk = db_handler_.GetGatekeeper(db_name)) gk->seal();
+  db_handler_.DeferDelete(
+      db_name,
+      std::string{*db_uuid},
+      /*stop_step=*/
+      [](Database &db) {
+        db.StopAllBackgroundTasks();
+        db.streams()->DropAll();
+      },
+      /*post_delete_step=*/
+      [storage_path = *storage_path, db_name = std::string{db_name}]() {
+        std::error_code ec;
+        (void)std::filesystem::remove_all(storage_path, ec);
+        if (ec) {
+          spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
+        }
+      });
 
   return {};  // Success
 }

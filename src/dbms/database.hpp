@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -19,6 +20,7 @@
 
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/context.hpp"
 #include "query/plan_cache.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
@@ -168,6 +170,9 @@ class Database {
    */
   utils::ThreadPool *thread_pool() { return &after_commit_trigger_pool_; }
 
+  // See after_commit_trigger_status_.
+  std::atomic<query::TransactionStatus> *after_commit_trigger_status() { return &after_commit_trigger_status_; }
+
   /**
    * @brief Add task to the after commit trigger thread pool.
    *
@@ -260,9 +265,19 @@ class Database {
 
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
-  utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
-  std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
-  query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+  // One-way latch: transitions ACTIVE → TERMINATED exactly once (during force-drop teardown) and is
+  // never reset. After-commit triggers run on after_commit_trigger_pool_ outside the interpreter's
+  // transaction registry, so they cannot be aborted through the normal transaction-status path; this
+  // atomic is the cooperative abort signal. StopAllBackgroundTasks() stores TERMINATED here BEFORE
+  // joining the pool, so a running trigger observes the transition via StoppingContext::MustAbort()
+  // and exits promptly.
+  // Declaration order matters: members destruct in reverse declaration order, so declaring this
+  // BEFORE after_commit_trigger_pool_ guarantees the atomic outlives the pool's worker-thread join
+  // at destruction — mirroring the store-before-join guarantee provided at runtime.
+  std::atomic<query::TransactionStatus> after_commit_trigger_status_{query::TransactionStatus::ACTIVE};
+  utils::ThreadPool after_commit_trigger_pool_{1};   //!< Thread pool for after commit triggers
+  std::unique_ptr<query::stream::Streams> streams_;  //!< Streams associated with the storage
+  query::PlanCacheLRU plan_cache_;                   //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms

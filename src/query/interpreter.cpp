@@ -9022,8 +9022,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // SHOW DATABASES carries a "state" column (HOT/COLD) and a "health" column (ready/broken), and lists
-  // COLD tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
+  // SHOW DATABASES carries a "state" column (HOT/COLD, or DROPPING for a tenant whose FORCE drop is still
+  // draining and has no live same-name replacement) and a "health" column (ready/broken), and lists COLD
+  // tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
   callback.header = std::vector<std::string>{"Name", "State", "Health"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
@@ -9034,7 +9035,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
     // (AllWithHotColdStatus de-dups: suspended_ wins).
     std::vector<std::string> all_names;
-    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD"
+    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD" | "DROPPING"
     for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
       all_names.push_back(name);
       status_of.emplace(std::move(name), std::move(st));
@@ -9061,9 +9062,12 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
         // status_of carries the HOT/COLD string. A granted name not in the
         // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
         auto it = status_of.find(ns);
-        status.push_back({TypedValue(ns),
-                          TypedValue(it != status_of.end() ? it->second : std::string{"HOT"}),
-                          TypedValue(health_of(ns))});
+        const std::string state = (it != status_of.end()) ? it->second : std::string{"HOT"};
+        // A DROPPING husk has already been erased from items_ by DeferDelete; calling health_of
+        // would throw UnknownDatabaseException and fall back to "ready" — misleading.  Report
+        // "draining" directly, matching the semantic implied by the DROPPING state.
+        const std::string health = (state == "DROPPING") ? std::string{"draining"} : health_of(ns);
+        status.push_back({TypedValue(ns), TypedValue(state), TypedValue(health)});
       }
 
       std::erase_if(status, [&](auto const &row) {
@@ -11443,7 +11447,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       execution_memory.resource(),
                       flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down,
-                      /* transaction_status = */ nullptr,
+                      /* transaction_status = */ db_acc->after_commit_trigger_status(),
                       trigger_context,
                       is_main,
                       triggering_user,

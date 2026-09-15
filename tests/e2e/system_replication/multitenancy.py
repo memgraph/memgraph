@@ -1154,14 +1154,18 @@ def test_automatic_databases_drop_multitenancy_replication(connection, test_name
     execute_and_fetch_all(main_cursor, "DROP DATABASE A FORCE;")
     drop_database_with_retry(main_cursor, "B")
 
-    # 5/
-    databases_on_main = show_databases_func(main_cursor)()
+    # 5/ A was force-dropped (async) and B dropped. Wait for main AND both replicas to converge
+    # to the stable post-drop state; capturing main's SHOW DATABASES directly would freeze a
+    # transient ("A", "DROPPING", "draining") row that never matches the replicas once A finishes
+    # draining.
+    expected_databases = [("memgraph", "HOT", "ready")]
+    mg_sleep_and_assert(expected_databases, show_databases_func(main_cursor))
 
     replica_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
-    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    mg_sleep_and_assert(expected_databases, show_databases_func(replica_cursor))
 
     replica_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
-    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    mg_sleep_and_assert(expected_databases, show_databases_func(replica_cursor))
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])

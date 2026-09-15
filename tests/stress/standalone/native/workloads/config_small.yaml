@@ -19,6 +19,11 @@ dataset:
         - "--worker-count=4"
         - "--repetition-count=100"
       timeout_min: 5
+    - name: drop_force.py
+      test_args:
+        - "--worker-count=4"
+        - "--repetition-count=10"
+      timeout_min: 5
     - name: memory_tracker.py
       test_args:
         - "--worker-count=5"

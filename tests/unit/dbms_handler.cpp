@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <system_error>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -902,6 +903,294 @@ TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
   EXPECT_TRUE(fs::exists(TenantDataDir(sr, seeded.uuid))) << "the tenant's data directory must be untouched by RENAME";
 
   fs::remove_all(sr.root);
+}
+
+// Handler<T> unit tests — no DbmsHandler, no filesystem, no kvstore;
+// only the Gatekeeper<T> counting semantics matter here.
+
+namespace {
+
+// Minimal type tracking stop and dtor call counts; no GatekeeperGuard or gatekeeper_label needed.
+struct Tracked {
+  std::atomic<int> *stop_calls;
+  std::atomic<int> *dtor_calls;
+
+  explicit Tracked(std::atomic<int> *s, std::atomic<int> *d) noexcept : stop_calls{s}, dtor_calls{d} {}
+
+  ~Tracked() {
+    if (dtor_calls) dtor_calls->fetch_add(1, std::memory_order_relaxed);
+  }
+
+  Tracked(const Tracked &) = delete;
+  Tracked(Tracked &&) = delete;
+  Tracked &operator=(const Tracked &) = delete;
+  Tracked &operator=(Tracked &&) = delete;
+};
+
+template <typename Pred>
+bool PollUntil(Pred &&pred, std::chrono::steady_clock::duration timeout) {
+  using clk = std::chrono::steady_clock;
+  auto const deadline = clk::now() + timeout;
+  while (!std::forward<Pred>(pred)()) {
+    if (clk::now() >= deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  return true;
+}
+
+}  // namespace
+
+// While the holder is alive the worker's own accessor bumps count to 2, so try_delete(0ms)
+// skips deletion; once the holder resets (count→0), the next tick finds count==1 and completes teardown.
+TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
+  using namespace std::chrono_literals;
+
+  std::atomic<int> stop{0}, dtor{0}, post{0};
+  memgraph::dbms::Handler<Tracked> h{
+      std::chrono::milliseconds{50}};  // fast retry cadence so the timing bounds below stay tight
+
+  // After the move, exactly one external accessor (holder) is live; count stays 1.
+  auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
+  ASSERT_TRUE(result.has_value());
+  auto holder = std::move(*result);
+
+  h.DeferDelete(
+      "db",
+      std::string{"db"},
+      [](Tracked &t) { t.stop_calls->fetch_add(1, std::memory_order_relaxed); },
+      [&post] { post.fetch_add(1, std::memory_order_relaxed); });
+
+  // DeferDelete moves the gatekeeper out of items_ before returning, so the
+  // name is logically absent immediately — no waiting needed here.
+  ASSERT_FALSE(h.Has("db"));
+
+  // stop_step runs on the first tick even while holder is alive: worker accessor bumps count 1→2,
+  // stop_step runs, then try_delete(0ms) sees count==2 and skips deletion.
+  ASSERT_TRUE(PollUntil([&] { return stop.load(std::memory_order_relaxed) >= 1; }, 500ms))
+      << "stop_step must run within 500 ms of DeferDelete (worker cadence ~50 ms)";
+
+  EXPECT_EQ(stop.load(std::memory_order_relaxed), 1)
+      << "stop_step is latched (node.stopped=true after first run) and must not repeat";
+
+  ASSERT_EQ(dtor.load(std::memory_order_relaxed), 0) << "value must not be destroyed while holder is live";
+  ASSERT_EQ(post.load(std::memory_order_relaxed), 0) << "post_delete_step must not run while holder is live";
+
+  // Release: count drops 1→0.  The next tick opens its accessor (count 0→1),
+  // finds count==1 in try_delete(0ms), destroys the value, and runs post_delete_step.
+  holder.reset();
+
+  ASSERT_TRUE(PollUntil([&] { return post.load(std::memory_order_relaxed) >= 1; }, 2s))
+      << "post_delete_step must run within 2 s after holder.reset()";
+
+  EXPECT_EQ(dtor.load(std::memory_order_relaxed), 1) << "value must be destroyed exactly once";
+  EXPECT_EQ(stop.load(std::memory_order_relaxed), 1) << "stop_step must still be exactly 1 (latched)";
+  EXPECT_EQ(post.load(std::memory_order_relaxed), 1) << "post_delete_step must run exactly once";
+}
+
+// Tests ~Handler's drain: Stop() joins the worker jthread, then pending nodes are torn down
+// synchronously (stop_step + try_delete(0ms) + ~Gatekeeper + post_delete_step) with no external holder.
+TEST(Handler, DeferDeleteDrainsOnHandlerDestruction) {
+  std::atomic<int> stop{0}, dtor{0}, post{0};
+
+  {
+    memgraph::dbms::Handler<Tracked> h;
+
+    {
+      // Release immediately: no external holder is live when DeferDelete is called.
+      auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
+      ASSERT_TRUE(result.has_value());
+      (*result).reset();
+    }
+
+    h.DeferDelete(
+        "db",
+        std::string{"db"},
+        [](Tracked &t) { t.stop_calls->fetch_add(1, std::memory_order_relaxed); },
+        [&post] { post.fetch_add(1, std::memory_order_relaxed); });
+
+    // Both outcomes are deterministic: (A) worker ticked before Stop — drain is a no-op;
+    // (B) Stop quiesces first — drain completes teardown inline. Either way counters are stable.
+  }
+
+  EXPECT_GE(stop.load(std::memory_order_relaxed), 1)
+      << "stop_step must have run at least once (via a worker tick or the ~Handler drain)";
+  EXPECT_EQ(dtor.load(std::memory_order_relaxed), 1) << "value must be destroyed exactly once";
+  EXPECT_EQ(post.load(std::memory_order_relaxed), 1) << "post_delete_step must run exactly once";
+}
+
+// Pins drop-observability behavior: a FORCE drop that is pinned by a held accessor must appear in
+// AllWithHotColdStatus() as a DROPPING row immediately after Delete() returns — Delete_ calls
+// DeferDelete(name, uuid, ...) synchronously, which stores a pending node that PendingItems()
+// surfaces. The row disappears once the holder releases and the deferred worker's Tick_ runs
+// post_delete_step, which removes the node from the pending list.
+TEST(DBMS_Handler, DroppingTenantIsVisibleInShowDatabases) {
+  using namespace std::chrono_literals;
+
+  auto &dbms = *TestEnvironment::get();
+
+  // 1. Create the tenant. New() returns a live accessor that itself pins the
+  //    Gatekeeper — keep this single accessor held so the deferred-drop worker
+  //    cannot reach exclusive access (and converge) until we release it. (Do NOT
+  //    also Get() a second accessor, or the count never drops to 1.)
+  auto pin = dbms.New("dropping_visible");
+  ASSERT_TRUE(pin.has_value()) << "New() must succeed for a fresh name";
+
+  // 2. Issue the FORCE delete (null transaction → deferred teardown path).
+  //    Delete() must accept a pinned tenant and hand teardown off to the worker.
+  auto del = dbms.Delete("dropping_visible", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << "Delete() with a null transaction must succeed (deferred)";
+
+  // 3. The DROPPING row must be present immediately — Delete_ calls DeferDelete(name, uuid, ...)
+  //    synchronously before it returns, storing a pending node that AllWithHotColdStatus() surfaces
+  //    via PendingItems().
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    const bool found = std::any_of(statuses.begin(), statuses.end(), [](const auto &p) {
+      return p.first == "dropping_visible" && p.second == "DROPPING";
+    });
+    EXPECT_TRUE(found) << "a pinned FORCE-dropped tenant must appear as DROPPING in AllWithHotColdStatus() "
+                          "while the pinning accessor is still held";
+  }
+
+  // 4. Release the pin so the background worker can reach exclusive access and converge.
+  pin->reset();
+
+  // 5. Poll until the DROPPING row disappears: the deferred worker's Tick_ runs post_delete_step,
+  //    which removes the node from the pending list, causing PendingItems() to stop surfacing it.
+  ASSERT_TRUE(PollUntil(
+      [&] {
+        const auto statuses = dbms.AllWithHotColdStatus();
+        return std::none_of(
+            statuses.begin(), statuses.end(), [](const auto &p) { return p.first == "dropping_visible"; });
+      },
+      30s))
+      << "the DROPPING entry must disappear from AllWithHotColdStatus() within 30 s after the "
+         "pinning accessor is released";
+}
+
+// Pins the UUID-disambiguation branch of AllWithHotColdStatus(): when a live tenant retakes a name
+// while the old husk is still DROPPING (pinned by an external accessor), the husk must appear under
+// "name (<uuid>)" not the plain name, so SHOW DATABASES is unambiguous. The implementation gates on
+// live_names.contains(name) (dbms_handler.hpp AllWithHotColdStatus, the `fmt::format("{} ({})", name,
+// uuid)` branch), which this test drives by holding the pin while a fresh HOT "d" is live.
+TEST(DBMS_Handler, DroppingHuskIsDisambiguatedByUuidWhenNameRetaken) {
+  using namespace std::chrono_literals;
+
+  auto &dbms = *TestEnvironment::get();
+
+  // 1. Create "d" and keep the returned accessor alive to pin the gatekeeper so
+  //    the deferred-drop worker cannot converge until we explicitly release it.
+  auto pin = dbms.New("d");
+  ASSERT_TRUE(pin.has_value()) << "New() must succeed for a fresh name";
+
+  // Capture the UUID before issuing the drop: once Delete_() retires the durability
+  // key the live accessor is the only convenient handle, and after DeferDelete() moves
+  // the gatekeeper out of items_ the accessor is the last owner of that UUID.
+  const memgraph::utils::UUID husk_uuid = (*pin)->uuid();
+  const std::string husk_uuid_str{husk_uuid};
+
+  // 2. FORCE-drop "d" (null transaction -> deferred teardown path). The husk
+  //    remains DROPPING in the pending list while *pin is alive.
+  auto del = dbms.Delete("d", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << "Delete() with a null transaction must succeed (deferred)";
+
+  // 3. Re-create "d" — a fresh HOT tenant with a different UUID. The name is
+  //    immediately available because DeferDelete moves the gatekeeper out of items_
+  //    synchronously before returning.
+  auto fresh = dbms.New("d");
+  ASSERT_TRUE(fresh.has_value()) << "New() must succeed once the old 'd' is logically absent from items_";
+
+  // 4. While the husk is still pinned, verify the disambiguation invariants.
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+
+    // The fresh tenant must appear under the plain name as HOT.
+    const bool has_hot = std::any_of(
+        statuses.begin(), statuses.end(), [](const auto &p) { return p.first == "d" && p.second == "HOT"; });
+    EXPECT_TRUE(has_hot) << "the fresh 'd' tenant must appear as HOT in AllWithHotColdStatus()";
+
+    // The DROPPING husk must appear under the UUID-qualified key: "d (<uuid>)".
+    const std::string disambig = "d (" + husk_uuid_str + ")";
+    const bool has_dropping_disambig = std::any_of(
+        statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == disambig && p.second == "DROPPING"; });
+    EXPECT_TRUE(has_dropping_disambig) << "the pinned DROPPING husk must appear under its UUID-qualified name \""
+                                       << disambig << "\"";
+
+    // The plain "d" / "DROPPING" pairing must NOT exist — that form is reserved for the
+    // unambiguous case (no live tenant has retaken the name, and exactly one husk is pending).
+    const bool plain_dropping = std::any_of(
+        statuses.begin(), statuses.end(), [](const auto &p) { return p.first == "d" && p.second == "DROPPING"; });
+    EXPECT_FALSE(plain_dropping)
+        << "when the name has been retaken by a live HOT tenant the DROPPING husk must NOT appear "
+           "under the plain name -- only under the UUID-qualified form";
+  }
+
+  // 5. Release the husk pin so the background worker can reach exclusive access.
+  pin->reset();
+
+  // 6. Poll until the UUID-qualified DROPPING entry is gone.  The deferred worker's Tick_
+  //    finishes teardown, removes the node from pending_, and PendingItems() stops surfacing it.
+  const std::string disambig_key = "d (" + husk_uuid_str + ")";
+  ASSERT_TRUE(PollUntil(
+      [&] {
+        const auto statuses = dbms.AllWithHotColdStatus();
+        return std::none_of(statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == disambig_key; });
+      },
+      30s))
+      << "the DROPPING entry \"" << disambig_key << "\" must disappear within 30 s after pin release";
+
+  // 7. Clean up the fresh "d" tenant so subsequent tests see a clean handler state.
+  fresh->reset();
+  auto cleanup = dbms.TryDelete("d");
+  EXPECT_TRUE(cleanup.has_value()) << "cleanup TryDelete of 'd' must succeed after releasing the fresh accessor";
+}
+
+// Pins the husk_name_count > 1 branch of AllWithHotColdStatus(): same name dropped twice, both husks
+// still draining (each pinned), no live tenant — both must be UUID-qualified; no plain "t" row under any state.
+TEST(DBMS_Handler, DroppingHusksDisambiguatedByUuidWhenSameNameDrainsTwice) {
+  using namespace std::chrono_literals;
+  auto &dbms = *TestEnvironment::get();
+
+  auto pin1 = dbms.New("t");
+  ASSERT_TRUE(pin1.has_value());
+  const std::string uuid1{(*pin1)->uuid()};
+  auto del1 = dbms.Delete("t", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del1.has_value());
+
+  // Name is free in items_ immediately: DeferDelete erases from items_ before splicing to pending_.
+  auto pin2 = dbms.New("t");
+  ASSERT_TRUE(pin2.has_value());
+  const std::string uuid2{(*pin2)->uuid()};
+  ASSERT_NE(uuid1, uuid2) << "the recreated tenant must have a distinct UUID";
+  auto del2 = dbms.Delete("t", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del2.has_value());
+
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    const std::string q1 = "t (" + uuid1 + ")";
+    const std::string q2 = "t (" + uuid2 + ")";
+    EXPECT_TRUE(std::any_of(
+        statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == q1 && p.second == "DROPPING"; }))
+        << "husk1 must appear under \"" << q1 << "\"";
+    EXPECT_TRUE(std::any_of(
+        statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == q2 && p.second == "DROPPING"; }))
+        << "husk2 must appear under \"" << q2 << "\"";
+    EXPECT_FALSE(std::any_of(statuses.begin(), statuses.end(), [](const auto &p) { return p.first == "t"; }))
+        << "with two draining husks and no live tenant, no plain \"t\" row may appear under any state";
+  }
+
+  pin1->reset();
+  pin2->reset();
+  ASSERT_TRUE(PollUntil(
+      [&] {
+        const auto statuses = dbms.AllWithHotColdStatus();
+        const std::string q1 = "t (" + uuid1 + ")";
+        const std::string q2 = "t (" + uuid2 + ")";
+        return std::none_of(
+            statuses.begin(), statuses.end(), [&](const auto &p) { return p.first == q1 || p.first == q2; });
+      },
+      30s))
+      << "both DROPPING husks must disappear within 30 s after releasing their pins";
 }
 
 int main(int argc, char *argv[]) {

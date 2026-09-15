@@ -137,6 +137,17 @@ auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::
                                      replica_stream);
   // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
   if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+    // Tenant is being dropped; skip the 2PC finalize RPC (data is about to be deleted).
+    if (db_acc.sealed()) {
+      // Tenant is being dropped. Reset the stream so FinalizeTransaction does not schedule a
+      // FinalizeCommitRpc on this unfinalized PrepareCommit stream, and abort the RPC client so the
+      // socket (which ~StreamHandler releases the lock on but does NOT close) is retired — otherwise the
+      // next RPC on this connection (e.g. DropDatabaseRpc) reuses a stream the replica is still mid-read
+      // on and corrupts framing. Unlike the recovery-races-txn sibling bail-outs (which keep the
+      // connection for reuse), a sealed tenant is going away, so retiring the socket is correct.
+      raw_client->RetireForSealedTenant(replica_stream);
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+    }
     return raw_client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp);
   }
   // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
