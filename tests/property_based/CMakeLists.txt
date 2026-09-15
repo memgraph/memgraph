@@ -21,3 +21,11 @@ endfunction(add_property_based_test)
 
 add_property_based_test(random_graph.cpp)
 target_link_libraries(${test_prefix}random_graph mg::storage)
+
+# Draws values in the terms the enumerated shapes are written in
+add_library(value_generators value_generators.cpp)
+target_link_libraries(value_generators mg::storage value_shapes rapidcheck)
+target_include_directories(value_generators PUBLIC ${CMAKE_SOURCE_DIR})
+
+add_property_based_test(value_generator_coverage.cpp)
+target_link_libraries(${test_prefix}value_generator_coverage mg::storage value_shapes value_generators)
