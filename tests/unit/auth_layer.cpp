@@ -19,6 +19,7 @@
 #include "auth/auth_layer.hpp"
 #include "license/license.hpp"
 #include "utils/file.hpp"
+#include "utils/resource_monitoring.hpp"
 
 namespace fs = std::filesystem;
 using memgraph::auth::Auth;
@@ -30,7 +31,11 @@ class AuthLayerTest : public ::testing::Test {
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
     memgraph::license::global_license_checker.EnableTesting();
+#ifdef MG_ENTERPRISE
+    auth_.emplace(test_folder_ / "auth", Auth::Config{}, &resources_);
+#else
     auth_.emplace(test_folder_ / "auth", Auth::Config{});
+#endif
     layer_.emplace(*auth_);
   }
 
@@ -41,6 +46,9 @@ class AuthLayerTest : public ::testing::Test {
   }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth_layer"};
+#ifdef MG_ENTERPRISE
+  memgraph::utils::ResourceMonitoring resources_;
+#endif
   std::optional<SynchedAuth> auth_;
   std::optional<AuthLayer> layer_;
 };
@@ -140,3 +148,76 @@ TEST_F(AuthLayerTest, TransactionalWritesDoNotMoveTheEpochUntilCommit) {
   ASSERT_TRUE(layer_->Commit(tx));
   EXPECT_FALSE(layer_->Lock()->UpToDate(seen));
 }
+
+TEST_F(AuthLayerTest, TransactionalWritesCollectActionsInsteadOfReplicatingImmediately) {
+  // Without a transaction there is nowhere to put the action and no system transaction to take it, so it is
+  // dropped. Inside one it is held until COMMIT drains it.
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+
+  memgraph::auth::AuthTransaction tx;
+  EXPECT_TRUE(tx.pending_actions().empty());
+
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+  }
+  EXPECT_EQ(tx.pending_actions().size(), 1);
+
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("carol").has_value());
+  }
+  EXPECT_EQ(tx.pending_actions().size(), 2);
+}
+
+TEST_F(AuthLayerTest, TheSinkIsUnboundOutsideTheTransactionsOwnCalls) {
+  // A write on another session while a transaction is open must not land in that transaction's list.
+  memgraph::auth::AuthTransaction tx;
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+  }
+  ASSERT_EQ(tx.pending_actions().size(), 1);
+
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+  EXPECT_EQ(tx.pending_actions().size(), 1);
+}
+
+#ifdef MG_ENTERPRISE
+TEST_F(AuthLayerTest, DroppingAUserInATransactionHoldsItsResourcesUntilCommit) {
+  // ResourceMonitoring is process-wide and has no rollback, so the release waits for the flush. GetUser creates on
+  // miss, so presence is observed through the map's own reference rather than by looking the user up again.
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+  auto held = resources_.GetUser("alice");
+  ASSERT_EQ(held.use_count(), 2);  // ours, and the map's
+
+  memgraph::auth::AuthTransaction tx;
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->RemoveUser("alice"));
+  }
+  EXPECT_EQ(held.use_count(), 2) << "resources released before COMMIT";
+  EXPECT_EQ(tx.dropped_users().size(), 1);
+
+  ASSERT_TRUE(layer_->Commit(tx));
+  EXPECT_EQ(held.use_count(), 1) << "resources still held after COMMIT";
+}
+
+TEST_F(AuthLayerTest, AbandoningATransactionLeavesDroppedUsersResourcesIntact) {
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+  auto held = resources_.GetUser("alice");
+  ASSERT_EQ(held.use_count(), 2);
+
+  {
+    memgraph::auth::AuthTransaction tx;
+    ASSERT_TRUE(layer_->Lock(&tx)->RemoveUser("alice"));
+  }  // never committed
+
+  EXPECT_EQ(held.use_count(), 2);
+  EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
+}
+#endif
