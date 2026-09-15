@@ -261,29 +261,23 @@ class Handler {
     }
   }
 
-  // Optional per-tick hook: the background worker invokes it for each draining husk node (passing the
-  // node's opaque id) at the start of each tick, BEFORE try_delete. Supplied by a higher layer (kept
-  // type-erased so this generic handler has no dependency on it). The hook must release AND destroy any
-  // external accessors pinning the husk before returning, so the gatekeeper's count is up to date when
-  // try_delete runs. Invoked outside any Handler lock (pending_mutex_ is released before the call), so
-  // it MAY block; blocking only delays this tick. Must not re-enter this Handler.
+  // Invoked by the background worker for each draining husk (passing its id) BEFORE try_delete, outside
+  // any Handler lock (pending_mutex_ is released first), so it MAY block. The hook must release and
+  // destroy all external accessors pinning the husk before returning. Must not re-enter this Handler.
   void SetDrainHook(std::function<void(std::string_view id)> hook) {
     auto lock = std::unique_lock{pending_mutex_};
     drain_hook_ = std::move(hook);
   }
 
-  // Clears the hook. MUST be called during shutdown before whatever the hook closes over is destroyed,
+  // MUST be called during shutdown before whatever the hook closes over is destroyed —
   // otherwise a late tick would invoke a dangling closure (use-after-free).
   void ClearDrainHook() {
     auto lock = std::unique_lock{pending_mutex_};
     drain_hook_ = nullptr;
   }
 
-  // Stops the deferred-teardown background worker (utils::Scheduler::Stop() requests stop + joins the
-  // in-flight Tick_). Idempotent: ~Handler also calls defer_worker_.Stop(), so an earlier call is a
-  // safe no-op afterward. Called at shutdown to quiesce the worker BEFORE a drain-hook closure's
-  // captured context (the InterpreterContext) is destroyed — otherwise an in-flight tick could invoke
-  // the hook on a destroyed context (UAF).
+  // Idempotent: ~Handler also calls defer_worker_.Stop(). Call before destroying whatever the
+  // drain-hook closes over — an in-flight tick would otherwise invoke the hook on a dead context (UAF).
   void StopDeferredWorker() { defer_worker_.Stop(); }
 
   std::vector<std::pair<std::string, std::string>> PendingItems() const {
@@ -394,7 +388,7 @@ class Handler {
       {
         auto lock = std::unique_lock{pending_mutex_};
         for (auto it = pending_.begin(); it != pending_.end(); ++it) its.push_back(it);
-        hook = drain_hook_;  // copy while holding lock; called below WITHOUT the lock to avoid lock inversion
+        hook = drain_hook_;  // called below WITHOUT the lock — hook may call back into Handler
       }
 
       for (auto it : its) {
@@ -422,7 +416,7 @@ class Handler {
             node.stopped = true;
           }
 
-          if (hook) hook(node.id);  // release external pins for this husk before attempting teardown
+          if (hook) hook(node.id);  // release external pins before try_delete
 
           if (acc->try_delete(kDeferTryTimeout)) {
             acc.reset();
@@ -471,7 +465,7 @@ class Handler {
   mutable std::mutex pending_mutex_;
   bool shutting_down_ = false;  //!< set by ~Handler before Stop(); guards the DeferDelete/drain race
   std::list<PendingDeletion> pending_;
-  std::function<void(std::string_view id)> drain_hook_;  //!< guarded by pending_mutex_; see SetDrainHook
+  std::function<void(std::string_view id)> drain_hook_;  //!< guarded by pending_mutex_
   utils::Scheduler defer_worker_;  //!< background teardown worker; cadence default 10 s, injectable via constructor
 };
 

@@ -8724,9 +8724,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                             InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
                             interpreter->user_or_role_.get(),
                             privilege_checker);
-                        // Invariant: the enclosing system transaction holds System::mtx_ for this entire
-                        // closure — do NOT call any System API (e.g. TryCreateTransaction) here or it
-                        // self-deadlocks.
+                        // Invariant: the enclosing system transaction holds System::mtx_ — do NOT call
+                        // any System API (e.g. TryCreateTransaction) inside this closure or it self-deadlocks.
                       });
                   // Idle-pinned accessor release is driven continuously by the deferred-drop worker
                   // (TryReleaseDbAccessorForDrop per session per tick); no synchronous eviction loop needed here.
@@ -8955,8 +8954,7 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
           } else {
             auto tmp = db_handler->Get(db_name);
             // A tenant marked for deletion is still HOT in the gatekeeper map (Get() succeeds), but
-            // pinning it here stalls DROP ... FORCE teardown. Treat as gone so the session sees a clean
-            // error rather than attaching to a dying tenant. Mirrors Interpreter::SetCurrentDB's guard.
+            // pinning it stalls DROP...FORCE teardown — throw so the session doesn't attach to a dying tenant.
             if (tmp.is_marked_for_deletion()) {
               throw dbms::UnknownDatabaseException("Database '{}' is being dropped and is no longer available.",
                                                    db_name);
@@ -10337,9 +10335,8 @@ auto Interpreter::Route(std::optional<std::string> const &db) -> RouteResult {
 void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
   // Get() throws UnknownDatabaseException if the tenant is absent, suspended, or draining.
   auto db_acc = interpreter_context_->dbms_handler->Get(db_name);
-  // A tenant marked for deletion is still HOT in the gatekeeper map (Get() succeeds without error),
-  // but pinning it here would stall DROP ... FORCE teardown. Treat a being-dropped tenant as gone for
-  // an explicit USE DATABASE so the caller sees a clean error rather than attaching to a dying tenant.
+  // A tenant marked for deletion is still HOT (Get() succeeds), but pinning it stalls DROP...FORCE
+  // teardown — throw so the caller doesn't attach to a dying tenant.
   if (db_acc.is_marked_for_deletion()) {
     throw dbms::UnknownDatabaseException("Database '{}' is being dropped and is no longer available.", db_name);
   }
@@ -10365,9 +10362,8 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   const auto trimmed_query = utils::Trim(upper_case_query);
   const bool is_begin = trimmed_query == "BEGIN";
 
-  // db_acc_ may be null here after a prior idle reap (Parse runs before EnsureDbAccessForQuery
-  // re-acquires). name() prefers the live accessor (accurate after RENAME) and falls back to the
-  // cached name when the reaper released the accessor.
+  // db_acc_ may be null after an idle reap; name() returns the live accessor's name when held, or
+  // the cached name when released — capture before the log call.
   const std::string log_db_name = current_db_.name();
   // Explicit transactions define the metadata at the beginning and reuse it
   spdlog::debug("{}",
@@ -11459,9 +11455,8 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
 void Interpreter::SetMessageInFlight() noexcept {
 #ifdef MG_ENTERPRISE
   message_in_flight_.store(true, std::memory_order_seq_cst);
-  // Dekker StoreLoad: seq_cst store/load pairs with TryReleaseDbAccessorForDrop's
-  // CAS(REAPING)+load(message_in_flight_). If the drop worker already owns REAPING, spin; it restores IDLE and its
-  // re-check will see our gate and back out.
+  // Dekker StoreLoad against WithReapingLock's CAS(REAPING)+load(message_in_flight_): if the drop
+  // worker already owns REAPING it restores IDLE before returning, and its re-check then backs out.
   while (transaction_status_.load(std::memory_order_seq_cst) == TransactionStatus::REAPING) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -11479,24 +11474,19 @@ void Interpreter::ClearMessageInFlight() noexcept {
 #ifdef MG_ENTERPRISE
 void Interpreter::EnsureDbAccessForQuery() {
   if (current_db_.db_acc_) {
-    // Connection-scoped: the accessor is already held (acquired at connect / USE / SetCurrentDB).
     return;
   }
-  // A session DB name is set but the accessor was released (reaper, or DB marked for deletion). Re-acquire
-  // via the gatekeeper; Get throws UnknownDatabaseException if the tenant is gone / suspended / draining.
   if (!current_db_.current_db_name_) return;  // already db-less
   try {
     auto reacquired = interpreter_context_->dbms_handler->Get(*current_db_.current_db_name_);
-    // The tenant is being dropped (HOT but marked for deletion — the gatekeeper still grants its
-    // accessor). Do not re-pin it; go db-less so the drop can complete.
+    // HOT-but-marked: Get() still succeeds but re-pinning blocks FORCE teardown — go db-less.
     if (reacquired.is_marked_for_deletion()) {
       spdlog::trace("Session database '{}' is being dropped; falling back to a db-less session.",
                     *current_db_.current_db_name_);
       current_db_.ResetDB();
       return;
     }
-    // Recycle guard: the tenant name may have been recycled (dropped+recreated under the same name);
-    // UUID mismatch means we would attach to the wrong tenant — fall back to db-less instead.
+    // Recycle guard: same name, new UUID → wrong tenant; fall back to db-less.
     if (current_db_.current_db_uuid_ && reacquired->uuid() != *current_db_.current_db_uuid_) {
       spdlog::trace("Session database '{}' was recreated; falling back to a db-less session.",
                     *current_db_.current_db_name_);
@@ -11515,22 +11505,15 @@ void Interpreter::EnsureDbAccessForQuery() {
 bool Interpreter::TryReleaseDbAccessorForDrop(utils::UUID const &dropped_uuid,
                                               std::optional<memgraph::dbms::DatabaseAccess> *released_out) {
   return WithReapingLock([&]() noexcept {
-    // Belt-and-suspenders: never release from an explicit transaction (cannot occur from IDLE, but cheap).
-    // current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next query; the
-    // marked-for-deletion guard on the tenant then keeps the session db-less.
-    // Do not release while a storage transaction is live: dropping the last accessor lets the deferred
-    // ~Gatekeeper destroy the storage (and its main_lock_) out from under the ResourceLockGuard still
-    // held by db_transactional_accessor_ or execution_db_accessor_ -> UAF. Mirrors ReleaseDbIfMarked.
+    // Do not release while a storage transaction is live: the last accessor's dtor destroys the storage
+    // under the ResourceLockGuard held by db_transactional_accessor_/execution_db_accessor_ — UAF.
     if (!in_explicit_transaction_ && !current_db_.db_transactional_accessor_ && !current_db_.execution_db_accessor_ &&
         current_db_.db_acc_.has_value()) {
       auto *db = current_db_.db_acc_->get();
-      // UUID comparison is non-allocating and safe inside the noexcept WithReapingLock predicate
-      // (bad_alloc there would std::terminate). UUID keying avoids matching a same-name tenant
-      // that was recreated after the drop.
+      // UUID (non-allocating array compare) avoids matching a same-name tenant recreated after the drop.
       if (db->uuid() == dropped_uuid) {
         auto rel = current_db_.ReleaseDbAccessor();  // swapped out, NOT yet destroyed
         if (released_out) *released_out = std::move(rel);
-        // else `rel` destructs at end of this scope (no collector -> same as before for unit tests)
         return true;
       }
     }

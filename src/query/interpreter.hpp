@@ -264,7 +264,6 @@ struct CurrentDB {
   // No lock needed: db_acc_ is set via the member-init list, before this CurrentDB becomes reachable
   // (e.g. via InterpreterContext::interpreters), so no other thread can observe it mid-construction.
   explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {
-    // Stash identity so it survives an idle-reaper release.
     current_db_name_ = db_acc_->get()->name();
     current_db_uuid_ = db_acc_->get()->uuid();
   }
@@ -313,11 +312,8 @@ struct CurrentDB {
   // an atomic_bool (no GKInternals::mutex_), so it's safe to call under db_acc_mutex_; the swapped-out
   // Accessor itself is destructed after the lock is released (see db_acc_mutex_).
   void ReleaseDbIfMarked() {
-    // Do not release the gatekeeper accessor while a storage transaction is live: dropping the last
-    // accessor lets the deferred ~Gatekeeper destroy the storage (and its main_lock_) out from under the
-    // ResourceLockGuard that db_transactional_accessor_ still holds -> UAF. The stale transaction is aborted
-    // right after ResetInterpreter (Prepare), and CleanupDBTransaction clears both accessors, so the next
-    // ReleaseDbIfMarked call releases db_acc_ safely.
+    // Do not release while a storage transaction is live: dropping the last accessor lets ~Gatekeeper
+    // destroy storage out from under the ResourceLockGuard still held by db_transactional_accessor_ -> UAF.
     if (db_transactional_accessor_ || execution_db_accessor_) return;
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
@@ -334,10 +330,8 @@ struct CurrentDB {
     }
   }
 
-  // Swap db_acc_ out under db_acc_mutex_ and RETURN it; the CALLER owns destruction and MUST destroy it
-  // OUTSIDE the interpreters SpinLock (the Accessor dtor can block on GKInternals::mutex_ during a concurrent
-  // suspend/teardown; destroying under the session-table spinlock would stall every WithLock consumer).
-  // Identity cache (current_db_name_/uuid) is kept so the session re-acquires by name.
+  // Returns db_acc_ under db_acc_mutex_; CALLER MUST destroy outside the session-table SpinLock —
+  // Accessor dtor can block on GKInternals::mutex_ (concurrent suspend/teardown). Identity cache kept for re-acquire.
   [[nodiscard]] std::optional<memgraph::dbms::DatabaseAccess> ReleaseDbAccessor() {
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
@@ -636,18 +630,12 @@ class Interpreter final {
   std::optional<TxVerifier> TryAcquireForVerification();
 
 #ifdef MG_ENTERPRISE
-  // Mark this a reapable Bolt session. Set once by SessionHL BEFORE registration in
-  // InterpreterContext::interpreters (that lock publishes it); stream/internal interpreters stay false
-  // so the reaper never touches them.
+  // Set once by SessionHL before InterpreterContext::interpreters registration (that lock publishes it);
+  // stream/internal interpreters stay false so the reaper never touches them.
   void MarkReapable() noexcept { reapable_ = true; }
 
-  // Releases this session's DB accessor if it is pinned to the tenant identified by `dropped_uuid`,
-  // regardless of idle time. Called by the deferred-drop worker each tick (not by a synchronous sweep).
-  // Uses the same IDLE->REAPING handshake (tear-safe vs a concurrent Bolt message); an ACTIVE session
-  // fails the CAS and is skipped (it is separately TerminateTransactions'd, then caught once idle).
-  // UUID keying avoids evicting a live same-name tenant that recycled the dropped database's name.
-  // current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next query; the
-  // marked-for-deletion guard then keeps the session db-less. Returns true iff it released.
+  // Releases db_acc_ if pinned to `dropped_uuid` (IDLE->REAPING handshake, safe under concurrent Bolt);
+  // active sessions fail the CAS and are skipped. Identity cache kept; marked-for-deletion guard prevents re-pin.
   bool TryReleaseDbAccessorForDrop(utils::UUID const &dropped_uuid,
                                    std::optional<memgraph::dbms::DatabaseAccess> *released_out);
 
@@ -658,7 +646,6 @@ class Interpreter final {
 
   // Held for the whole span of a Bolt message so the drop worker only releases a genuinely parked session.
   // Pairs with transaction_status_ via a Dekker StoreLoad (both seq_cst) against TryReleaseDbAccessorForDrop.
-  // Flag-off: both are no-ops and the drop worker never calls in, so existing code paths are behaviourally unchanged.
   void SetMessageInFlight() noexcept;
   void ClearMessageInFlight() noexcept;
 
@@ -726,40 +713,23 @@ class Interpreter final {
 
  private:
 #ifdef MG_ENTERPRISE
-  // Runs `action` while this session holds the exclusive REAPING state (the idle reaper's
-  // IDLE->REAPING Dekker handshake vs a concurrent Bolt message). Returns false without
-  // invoking `action` if the session is not a reapable, genuinely-parked (IDLE, no message
-  // in flight) session; otherwise returns action(). action() runs with db_acc_ and
-  // in_explicit_transaction_ stable and MUST NOT block. IDLE is always restored.
-  //
-  // Handshake steps (Dekker StoreLoad — the store/load/CAS-success edges are seq_cst (they carry
-  //   the exclusion); CAS failure is acquire and IDLE restore is release (see the numbered steps)):
-  //   1. Reapability guard: non-reapable sessions (streams, internal) are never touched.
-  //   2. message_in_flight_ pre-check: cheap fast-exit if a Bolt message is in flight.
-  //   3. transaction_status_ pre-check: skip non-IDLE sessions without spinning.
-  //   4. CAS IDLE->REAPING (success=seq_cst, failure=acquire): own the slot or abort.
-  //   5. message_in_flight_ re-check: closes the TOCTOU window with SetMessageInFlight —
-  //      seq_cst total order ensures exactly one side yields.
-  //   6. action() is invoked; db_acc_ and in_explicit_transaction_ are stable throughout.
-  //   7. transaction_status_ is unconditionally restored to IDLE (release) before returning.
+  // CAS IDLE->REAPING (seq_cst) then invokes action(); Dekker StoreLoad with message_in_flight_
+  // (both seq_cst) ensures mutual exclusion with SetMessageInFlight. Returns false without invoking
+  // action() if not reapable/parked. action() MUST be noexcept; IDLE is always restored on exit.
   template <typename F>
   bool WithReapingLock(F &&action) noexcept {
     if (!reapable_) return false;
-    // Message-in-flight gate pre-check (Dekker StoreLoad, seq_cst). If a Bolt message is being
-    // handled, the session may touch db_acc_ at any moment — bail out immediately.
     if (message_in_flight_.load(std::memory_order_seq_cst)) return false;
     // No spin: a non-IDLE session is skipped; the caller retries on the next tick if needed.
     if (transaction_status_.load(std::memory_order_seq_cst) != TransactionStatus::IDLE) return false;
-    // Single CAS IDLE->REAPING. On failure the session just became active — skip.
-    // Success ordering is seq_cst so the CAS totally-orders against SetMessageInFlight's seq_cst store.
+    // seq_cst success totally-orders this CAS against SetMessageInFlight's seq_cst store.
     TransactionStatus expected = TransactionStatus::IDLE;
     if (!transaction_status_.compare_exchange_strong(
             expected, TransactionStatus::REAPING, std::memory_order_seq_cst, std::memory_order_acquire)) {
       return false;
     }
     // Re-check closes the TOCTOU with SetMessageInFlight: seq_cst total order ensures one side
-    // yields — either we see message_in_flight_=true here and back out, or SetMessageInFlight
-    // sees REAPING and spins until we restore IDLE below.
+    // yields — we back out on true, or SetMessageInFlight sees REAPING and spins until we restore IDLE.
     if (message_in_flight_.load(std::memory_order_seq_cst)) {
       transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
       return false;

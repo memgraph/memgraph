@@ -987,9 +987,8 @@ TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
   EXPECT_EQ(post.load(std::memory_order_relaxed), 1) << "post_delete_step must run exactly once";
 }
 
-// The defer worker calls the drain hook each tick before try_delete. Here the hook itself releases the
-// external holder on a later tick; the husk must not drain until the hook lets go, proving the worker
-// drives reaping through the hook.
+// Worker invokes the drain hook each tick before try_delete; the hook releases the external pin
+// on the 2nd call so the first try_delete fails and a later tick drains — multi-tick retry path.
 TEST(Handler, DrainHookReleasesPinAndDrains) {
   using namespace std::chrono_literals;
 
@@ -997,11 +996,11 @@ TEST(Handler, DrainHookReleasesPinAndDrains) {
   // Declared before h so that h (and its worker join) is destroyed first; the drain hook captures
   // &holder, and if PollUntil times out the worker could still be ticking — holder must outlive h.
   std::optional<memgraph::utils::Gatekeeper<Tracked>::Accessor> holder;
-  memgraph::dbms::Handler<Tracked> h{std::chrono::milliseconds{50}};  // fast cadence for the test
+  memgraph::dbms::Handler<Tracked> h{std::chrono::milliseconds{50}};
 
   auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
   ASSERT_TRUE(result.has_value());
-  holder = std::move(*result);  // external pin (count stays 1 -> try_delete cannot complete)
+  holder = std::move(*result);
 
   std::atomic<int> hook_calls{0};
   // Release the external holder on the 2nd hook call, so the first tick's try_delete fails and a later one
@@ -1046,7 +1045,7 @@ TEST(Handler, ClearDrainHookStopsInvocations) {
   ASSERT_TRUE(PollUntil([&] { return hook_calls.load(std::memory_order_relaxed) >= 1; }, 2s));
   h.ClearDrainHook();
   const int after_clear = hook_calls.load(std::memory_order_relaxed);
-  std::this_thread::sleep_for(300ms);  // several 50ms ticks
+  std::this_thread::sleep_for(300ms);
   EXPECT_LE(hook_calls.load(std::memory_order_relaxed) - after_clear, 1)
       << "at most one in-flight tick may land after ClearDrainHook; no sustained invocation";
 

@@ -380,15 +380,11 @@ class DbmsHandler {
    */
   void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
 
-  /// Register the deferred-drop worker's per-tick drain hook (forwarded to the DatabaseHandler). The hook
-  /// is invoked for each draining husk on each worker tick, before try_delete; see Handler::SetDrainHook.
   void SetDrainHook(std::function<void(std::string_view id)> hook) { db_handler_.SetDrainHook(std::move(hook)); }
 
-  /// Clear the drain hook. MUST be called during shutdown before whatever the hook closes over is destroyed.
   void ClearDrainHook() { db_handler_.ClearDrainHook(); }
 
-  /// Stop the deferred-drop worker (forwarded to the DatabaseHandler). Idempotent. Called during shutdown
-  /// before the InterpreterContext that the drain hook closes over is destroyed — see Handler::StopDeferredWorker.
+  /// Idempotent. Call during shutdown before the InterpreterContext the drain hook closes over is destroyed.
   void StopDeferredWorker() { db_handler_.StopDeferredWorker(); }
 
   /**

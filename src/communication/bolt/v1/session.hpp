@@ -130,16 +130,14 @@ class Session {
 
       switch (state_) {
         case State::Init:
-          // Reaper exclusion: HELLO/LOGON authentication writes db_acc_ via TryDefaultDB; without this gate
-          // the reaper can concurrently release the same accessor. No-op when flag off; cleared below.
+          // Reaper gate: HELLO/LOGON writes db_acc_ via TryDefaultDB; without this the reaper can release it
+          // concurrently.
           impl.SetMessageInFlight();
           state_ = StateInitRun(impl);
           break;
         case State::Idle:
         case State::Result:
           at_least_one_run_ = true;
-          // idle-session reaper: hold the reaper-exclusion gate for the whole handler span (no-op when
-          // the flag is off). Cleared below once the session parks back to Idle (or closes).
           impl.SetMessageInFlight();
           state_ = StateExecutingRun(impl, state_);
           break;
@@ -165,11 +163,8 @@ class Session {
       }
 
       if (state_ == State::Idle || state_ == State::Close || state_ == State::Error) {
-        // The Bolt message span is over: the session has parked back to Idle, Error, or Close.
-        // An Error-state session between messages is genuinely parked — the next incoming message
-        // re-raises the gate (SetMessageInFlight) before re-entering StateErrorRun, so clearing
-        // here leaves no db_acc_-touching work unguarded. Release the reaper-exclusion gate so
-        // the session becomes reapable / evictable again (no-op when the flag is off).
+        // Gate was raised before decode in every branch, so the reaper cannot race db_acc_ mid-message (seq_cst
+        // Dekker). Error-state is safe: the next incoming message re-raises before re-entering StateErrorRun.
         impl.ClearMessageInFlight();
       }
 

@@ -1043,10 +1043,8 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef MG_ENTERPRISE
-  // Drop-driven idle reaping (enterprise-only, guarded by the enclosing #ifdef): the deferred-drop worker
-  // invokes this hook once per draining husk on each tick (before its try_delete), releasing the DB accessor
-  // of any idle session still pinned to that tenant so the husk can drain. Cleared before InterpreterContext
-  // teardown via the OnScopeExit guard below.
+  // Drain hook: called per draining husk on each deferred-drop worker tick (before try_delete) to release
+  // DB accessors of idle sessions pinned to that tenant, allowing the husk to drain completely.
   if (!is_coordinator_instance && dbms_handler.has_value()) {
     dbms_handler->SetDrainHook([ic = &interpreter_context_](std::string_view husk_id) {
       if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
@@ -1054,14 +1052,12 @@ int main(int argc, char **argv) {
       // (uuid.set() can throw; UUID== is non-allocating and safe inside it).
       memgraph::utils::UUID dropped_uuid;
       dropped_uuid.set(std::string{husk_id});
-      // Collect released accessors and destroy them AFTER releasing the interpreters lock, i.e. before this
-      // hook returns (and thus before the worker's try_delete): an Accessor dtor can block on
-      // GKInternals::mutex_, and destroying it under the session-table spinlock would stall every WithLock
-      // consumer (SessionHL registration, SHOW TRANSACTIONS, TerminateTransactions). See NB2.
+      // Collect released accessors to destroy OUTSIDE the interpreters SpinLock: ~Accessor can block on
+      // GKInternals::mutex_ (stalling SessionHL registration, SHOW TRANSACTIONS, TerminateTransactions).
       std::vector<memgraph::dbms::DatabaseAccess> reaped_accessors;
       ic->interpreters.WithLock([&](auto &interpreters) {
-        // reserve up-front: a reallocating push_back could throw bad_alloc and destruct a released Accessor under this
-        // SpinLock — ~Accessor blocks on GKInternals::mutex_
+        // reserve up-front so push_back never reallocates: a reallocation bad_alloc would destruct a
+        // released Accessor under this SpinLock, which blocks on GKInternals::mutex_.
         reaped_accessors.reserve(interpreters.size());
         for (auto *interpreter : interpreters) {
           std::optional<memgraph::dbms::DatabaseAccess> released;
@@ -1069,18 +1065,13 @@ int main(int argc, char **argv) {
           if (released) reaped_accessors.push_back(std::move(*released));
         }
       });
-      // reaped_accessors destructs here — outside the interpreters SpinLock, before the hook returns.
     });
-    // The hook closes over interpreter_context_. The defer worker lives in dbms_handler, which under
-    // reverse-order destruction outlives interpreter_context_lifetime_control (declared earlier). Clear the
-    // hook on EVERY exit path (including early returns) before the InterpreterContext is destroyed: this
-    // OnScopeExit is declared after interpreter_context_lifetime_control, so it runs first, while
-    // dbms_handler (declared even earlier) is still alive.
+    // The hook captures interpreter_context_. This guard fires before interpreter_context_lifetime_control
+    // is destroyed (RAII reverse order) — clear on every exit path, including early returns.
     clear_drain_hook_guard.emplace([&dbms_handler]() {
       if (dbms_handler.has_value()) {
-        // Join the defer worker so no in-flight Tick_ can invoke the drain hook after the InterpreterContext
-        // (captured by the hook) is destroyed on this scope exit (B1 UAF fix). Stop() is idempotent — ~Handler
-        // calls it again harmlessly.
+        // Join the deferred worker first: an in-flight Tick_ could invoke the hook after InterpreterContext
+        // is destroyed. Stop() is idempotent — ~Handler calls it again harmlessly.
         dbms_handler->StopDeferredWorker();
         dbms_handler->ClearDrainHook();
       }
