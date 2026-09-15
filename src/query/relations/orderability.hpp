@@ -18,6 +18,7 @@
 /// type are placed rather than reported as unknown.
 #pragma once
 
+#include <cmath>
 #include <compare>
 
 #include "query/exceptions.hpp"
@@ -26,6 +27,43 @@
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::relations::orderability {
+
+/// Places two doubles, giving a NaN the position IEEE gives it nowhere: after
+/// every number, and alongside another NaN.
+///
+/// Comparability reads the same pair and answers that it has no order for it,
+/// which is why the payload order the two relations share leaves a NaN
+/// unplaced and this relation places it here instead. A sort handed a pair with
+/// no position treats the two as interchangeable, which would make a NaN
+/// interchangeable with every number while no two numbers are with each other.
+inline std::partial_ordering PlaceDoubles(double a, double b) {
+  auto const order = a <=> b;
+  if (order != std::partial_ordering::unordered) [[likely]]
+    return order;
+
+  if (std::isnan(a) && std::isnan(b)) return std::partial_ordering::equivalent;
+  return std::isnan(a) ? std::partial_ordering::greater : std::partial_ordering::less;
+}
+
+/// Places two points, coordinate by coordinate, in the order the point's own
+/// comparison reads them.
+///
+/// A point carries its coordinates as doubles, so one holding a NaN has no
+/// position for the reason a NaN has none, and it is given one here for the same
+/// reason: two values are equivalent exactly where they share a position under
+/// this relation, and equivalence holds two such points alike.
+template <typename Point>
+std::partial_ordering PlacePoints(Point const &a, Point const &b) {
+  if (auto const system = a.crs() <=> b.crs(); system != 0) return system;
+  if (auto const x = PlaceDoubles(a.x(), b.x()); !std::is_eq(x)) return x;
+  if (auto const y = PlaceDoubles(a.y(), b.y()); !std::is_eq(y)) return y;
+
+  if constexpr (requires { a.z(); }) {
+    return PlaceDoubles(a.z(), b.z());
+  } else {
+    return std::partial_ordering::equivalent;
+  }
+}
 
 /// Orders two lists element by element, the shorter one first where they agree.
 ///
@@ -49,7 +87,7 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case Int:
         return ComparePayloadOf<Int>(a, b);
       case Double:
-        return ComparePayloadOf<Double>(a, b);
+        return PlaceDoubles(a.UnsafeValueDouble(), b.UnsafeValueDouble());
       case String:
         return ComparePayloadOf<String>(a, b);
       case Date:
@@ -65,9 +103,9 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case Enum:
         return ComparePayloadOf<Enum>(a, b);
       case Point2d:
-        return ComparePayloadOf<Point2d>(a, b);
+        return PlacePoints(a.UnsafeValuePoint2d(), b.UnsafeValuePoint2d());
       case Point3d:
-        return ComparePayloadOf<Point3d>(a, b);
+        return PlacePoints(a.UnsafeValuePoint3d(), b.UnsafeValuePoint3d());
 
       // The two this relation places that carry no order of their own: a null
       // is the same position as any other null, and a list is ordered by what
@@ -97,7 +135,14 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
     // One Int against one Double is the only unlike pair left that is ordered.
     if (!AreMixedNumbers(a.type(), b.type())) [[unlikely]]
       throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
-    return ComparePayloadOfMixedNumbers(a, b);
+
+    auto const order = ComparePayloadOfMixedNumbers(a, b);
+    if (order != std::partial_ordering::unordered) [[likely]]
+      return order;
+
+    // An integer is never a NaN, so the pair is unplaced only where the double
+    // is one, and a NaN goes after every number.
+    return a.type() == TypedValue::Type::Double ? std::partial_ordering::greater : std::partial_ordering::less;
   }
 }
 
