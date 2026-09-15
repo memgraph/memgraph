@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage_v2_gc_metrics_fixture.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -120,6 +121,15 @@ class StorageV2GcIndexSweepCountTest : public StorageV2GcMetricsTest {
     return count;
   }
 
+  // A constraint holds one entry per vertex it covers. Anything beyond that is an obsolete entry,
+  // which only a sweep of that constraint removes.
+  uint64_t ConstraintEntryCount(std::string_view label, std::string_view property) {
+    auto *constraints = static_cast<ms::InMemoryUniqueConstraints *>(storage->constraints_.unique_constraints_.get());
+    auto const count = constraints->EntryCount(storage->NameToLabel(label), {storage->NameToProperty(property)});
+    EXPECT_TRUE(count.has_value());
+    return count.value_or(0);
+  }
+
   uint64_t IndexedCount(std::string_view label, std::string_view property) {
     auto acc = storage->Access(ms::READ);
     auto const count = acc->ApproximateVertexCount(storage->NameToLabel(label),
@@ -214,6 +224,77 @@ TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysConstraintIsSwept)
     ASSERT_NO_ERROR(other.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
     EXPECT_FALSE(TryCommit(acc));
   }
+}
+
+// A commit may only add an entry to a constraint a sweep will come back for. Since a sweep visits
+// a constraint only when a write named its label or one of its properties, an entry added to a
+// constraint the write named neither of is never collected, and repeating the write accumulates
+// them without bound.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintTheWriteDidNotNameGainsNoEntry) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("L", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("L", "b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("L", "b"), 1);
+
+  // Ten writes naming "a" only, each followed by the collection it arms. The value of "b" is the
+  // same throughout, so the constraint on it covers the one vertex it covered to begin with.
+  for (auto value = 2; value != 12; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{value}));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("L", "b"), 1);
+}
+
+// The same rule across the labels of one vertex: a write reaching a constraint on one of them says
+// nothing about a constraint on another, which is left unswept and so must be left unwritten.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintOnAnotherOfTheVertexsLabelsGainsNoEntry) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("L", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("M", "c"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("M")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("c"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("M", "c"), 1);
+
+  for (auto value = 2; value != 12; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{value}));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("M", "c"), 1);
 }
 
 // An index keyed on a property alone is swept by a callee of its own, and is armed by that
