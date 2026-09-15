@@ -3904,7 +3904,10 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
+        // An auth transaction releases the accessor BEGIN opened, so there is no database to count against.
+        if (current_db_.db_acc_) {
+          (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
+        }
 
         Abort();
         expect_rollback_ = false;
@@ -5888,11 +5891,19 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                                InterpreterContext *interpreter_context, Interpreter &interpreter,
                                std::optional<memgraph::dbms::DatabaseAccess> db_acc,
                                std::vector<Notification> *notifications) {
-  if (in_explicit_transaction) {
-    throw UserModificationInMulticommandTxException();
-  }
-
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
+
+  // The transaction is created here, on the first auth statement, rather than at BEGIN: a transaction is only known
+  // to be an auth one once a statement has classified it, and one that only ever runs data queries must not pay for
+  // auth machinery it never uses.
+  //
+  // BEGIN opened a data accessor speculatively. An auth transaction will never use it, and leaving it open would
+  // make COMMIT take the data path instead of flushing the auth overlay, so release it here. TxMode::Auth then
+  // rejects any later data query in this transaction, so nothing can want it back.
+  if (in_explicit_transaction) {
+    interpreter.EnsureAuthTransaction();
+    interpreter.current_db_.CleanupDBTransaction(true);
+  }
 
   // Special case for auth queries that don't require any privileges (those that work on the current user only)
   auto target_db = std::string{dbms::kSystemDB};
@@ -9893,6 +9904,12 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
         license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "user-profiles"));
+  }
+
+  // User profiles are out of scope for transactional auth: UserProfiles answers reads from an in-memory cache
+  // rather than the store, so the overlay cannot isolate them, roll them back, or detect a conflict.
+  if (interpreter->auth_transaction_ptr()) {
+    throw UserModificationInMulticommandTxException();
   }
 
   auto *query = utils::Downcast<UserProfileQuery>(parsed_query.query);
