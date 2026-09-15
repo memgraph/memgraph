@@ -18,6 +18,8 @@
 #include "auth/auth.hpp"
 #include "auth/auth_layer.hpp"
 #include "license/license.hpp"
+#include "system/system.hpp"
+#include "system/transaction.hpp"
 #include "utils/file.hpp"
 #include "utils/resource_monitoring.hpp"
 
@@ -69,7 +71,7 @@ TEST_F(AuthLayerTest, TransactionalWritesAreInvisibleUntilCommit) {
   // A separate, non-transactional read must not see the buffered user.
   EXPECT_FALSE(layer_->Lock()->HasUser("alice"));
 
-  ASSERT_TRUE(layer_->Commit(tx));
+  ASSERT_TRUE(layer_->Commit(tx, nullptr));
   EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
 }
 
@@ -101,7 +103,7 @@ TEST_F(AuthLayerTest, StorageIsRestoredAfterEachTransactionalCall) {
   }
   EXPECT_TRUE(layer_->Lock()->HasUser("bob"));
 
-  ASSERT_TRUE(layer_->Commit(tx));
+  ASSERT_TRUE(layer_->Commit(tx, nullptr));
   EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
 }
 
@@ -126,7 +128,7 @@ TEST_F(AuthLayerTest, ConflictingCommitLeavesStorageUntouched) {
     ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
   }
 
-  EXPECT_FALSE(layer_->Commit(tx));
+  EXPECT_FALSE(layer_->Commit(tx, nullptr));
   EXPECT_FALSE(layer_->Lock()->HasUser("bob"));
 }
 
@@ -145,7 +147,7 @@ TEST_F(AuthLayerTest, TransactionalWritesDoNotMoveTheEpochUntilCommit) {
   }
   EXPECT_TRUE(layer_->Lock()->UpToDate(seen));
 
-  ASSERT_TRUE(layer_->Commit(tx));
+  ASSERT_TRUE(layer_->Commit(tx, nullptr));
   EXPECT_FALSE(layer_->Lock()->UpToDate(seen));
 }
 
@@ -201,7 +203,7 @@ TEST_F(AuthLayerTest, DroppingAUserInATransactionHoldsItsResourcesUntilCommit) {
   EXPECT_EQ(held.use_count(), 2) << "resources released before COMMIT";
   EXPECT_EQ(tx.dropped_users().size(), 1);
 
-  ASSERT_TRUE(layer_->Commit(tx));
+  ASSERT_TRUE(layer_->Commit(tx, nullptr));
   EXPECT_EQ(held.use_count(), 1) << "resources still held after COMMIT";
 }
 
@@ -221,3 +223,70 @@ TEST_F(AuthLayerTest, AbandoningATransactionLeavesDroppedUsersResourcesIntact) {
   EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
 }
 #endif
+
+TEST_F(AuthLayerTest, CommitMovesCollectedActionsIntoTheSystemTransaction) {
+  memgraph::system::System system;
+  auto system_tx = system.TryCreateTransaction();
+  ASSERT_TRUE(system_tx);
+
+  memgraph::auth::AuthTransaction tx;
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+  }
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+  }
+  ASSERT_EQ(tx.pending_actions().size(), 2);
+
+  ASSERT_TRUE(layer_->Commit(tx, &*system_tx));
+  EXPECT_TRUE(tx.pending_actions().empty()) << "actions left behind after the drain";
+
+  // Commit reports AllCommitsConfirmed and aborts when it holds nothing, so a transaction that received the
+  // actions is distinguishable from one that did not.
+  struct NoopHandler {
+    memgraph::system::AllSyncReplicaStatus ApplyAction(memgraph::system::ISystemAction const & /*action*/,
+                                                       memgraph::system::Transaction const & /*txn*/) {
+      ++applied;
+      return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
+    }
+
+    memgraph::system::AllSyncReplicaStatus FinalizeTransaction(memgraph::system::Transaction const & /*txn*/) {
+      return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
+    }
+
+    int &applied;
+  };
+
+  int applied = 0;
+  system_tx->Commit(NoopHandler{applied});
+  EXPECT_EQ(applied, 2);
+}
+
+TEST_F(AuthLayerTest, AConflictingCommitLeavesTheSystemTransactionEmpty) {
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+
+  memgraph::auth::AuthTransaction tx;
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->GetUser("alice").has_value());
+  }
+  {
+    auto locked = layer_->Lock();
+    auto user = locked->GetUser("alice");
+    ASSERT_TRUE(user);
+    locked->UpdatePassword(*user, "changed");
+    locked->SaveUser(*user);
+  }
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+  }
+  ASSERT_FALSE(tx.pending_actions().empty());
+
+  memgraph::system::System system;
+  auto system_tx = system.TryCreateTransaction();
+  ASSERT_TRUE(system_tx);
+
+  EXPECT_FALSE(layer_->Commit(tx, &*system_tx));
+  EXPECT_FALSE(tx.pending_actions().empty()) << "a conflicted transaction must keep its actions undrained";
+}
