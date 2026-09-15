@@ -203,6 +203,28 @@ TEST(TypeBands, RunOneAfterAnotherWithNoGapAndNoOverlap) {
   }
 }
 
+TEST(WholeStretchMarker, IsTheBoundPairTheStretchFunctionsHandBack) {
+  // A range covering one whole stretch is written as that stretch's own bounds,
+  // whose two ends are of different types by construction. Telling that pair
+  // apart from a user-written range that merely reaches the same value is what
+  // lets a scan keep one and reject the other.
+  for (auto const &[type, smallest] : EveryTypeAndItsSmallest()) {
+    auto const lower = LowerBoundComparableWith(smallest);
+    auto const upper = UpperBoundComparableWith(smallest);
+    ASSERT_TRUE(lower.has_value()) << "type " << static_cast<unsigned>(type);
+    ASSERT_TRUE(upper.has_value()) << "type " << static_cast<unsigned>(type);
+    EXPECT_TRUE(BoundsMarkAWholeStretch(*lower, *upper)) << "type " << static_cast<unsigned>(type);
+
+    // The same two values, written the way a user's range would be, are not it.
+    EXPECT_FALSE(BoundsMarkAWholeStretch(memgraph::utils::MakeBoundExclusive(lower->value()), *upper));
+    EXPECT_FALSE(BoundsMarkAWholeStretch(*lower, memgraph::utils::MakeBoundInclusive(upper->value())));
+  }
+
+  // An ordinary range within one type is not the marker either.
+  EXPECT_FALSE(BoundsMarkAWholeStretch(memgraph::utils::MakeBoundInclusive(PropertyValue(int64_t{1})),
+                                       memgraph::utils::MakeBoundExclusive(PropertyValue(int64_t{9}))));
+}
+
 TEST(HoldsANaN, FindsANaNWhereverAValueCarriesOne) {
   auto const nan = std::numeric_limits<double>::quiet_NaN();
 
@@ -225,6 +247,19 @@ TEST(HoldsANaN, FindsANaNWhereverAValueCarriesOne) {
   EXPECT_FALSE(HoldsANaN(PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)})));
   EXPECT_FALSE(HoldsANaN(PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0})));
   EXPECT_FALSE(HoldsANaN(kSmallestEnum));
+}
+
+TEST(TypeBands, PlaceAPackedListWhereABoxedListGoes) {
+  // The three packed representations are numbered above the points rather than
+  // beside the list, so nothing about the numbering says where they belong. Each
+  // holds what a boxed list holds, so a range over one has to read the band a
+  // list is kept in.
+  for (auto const type : {PropertyValueType::IntList, PropertyValueType::DoubleList, PropertyValueType::NumericList}) {
+    EXPECT_EQ(LowerBoundForType(type), LowerBoundForType(PropertyValueType::List))
+        << "packed type " << static_cast<unsigned>(type) << " starts somewhere a list does not";
+    EXPECT_EQ(UpperBoundForType(type), UpperBoundForType(PropertyValueType::List))
+        << "packed type " << static_cast<unsigned>(type) << " ends somewhere a list does not";
+  }
 }
 
 TEST(HoldsANull, FindsANullWhereverAValueCarriesOne) {

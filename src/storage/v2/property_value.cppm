@@ -1129,9 +1129,13 @@ inline std::weak_ordering CompareIncompatibleTypes(
   return first.type() <=> second.type();
 }
 
-// NOTE: The logic in this function *MUST* be equal to the logic in
-// `PropertyStore::ComparePropertyValue`. If you change this operator make sure
-// to change the function so that they have identical functionality.
+/// Orders two values, which is the order an index holds its entries in.
+///
+/// A stored value is also compared without being decoded, by a reader with a
+/// case per type of its own, and equivalence is read off both. The two are
+/// asked the same question over every pair of shapes by a test, so a change
+/// made here need not be mirrored by hand, but one that parts from the other
+/// reading will be caught rather than found by a lookup answering wrongly.
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 // Everything reached from here is declared not to raise. What is left is the standard algorithm
 // this walks a list with, which is not declared either way and is handed a comparison that does
