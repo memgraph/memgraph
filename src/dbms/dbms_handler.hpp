@@ -27,6 +27,7 @@
 #include <ranges>
 #include <set>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <type_traits>
 #include <unordered_map>
@@ -378,6 +379,13 @@ class DbmsHandler {
    *        running/stopped state. Triggers are NOT restored here (suspend never stops them). Default empty.
    */
   void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
+
+  /// Register the deferred-drop worker's per-tick drain hook (forwarded to the DatabaseHandler). The hook
+  /// is invoked for each draining husk on each worker tick, before try_delete; see Handler::SetDrainHook.
+  void SetDrainHook(std::function<void(std::string_view id)> hook) { db_handler_.SetDrainHook(std::move(hook)); }
+
+  /// Clear the drain hook. MUST be called during shutdown before whatever the hook closes over is destroyed.
+  void ClearDrainHook() { db_handler_.ClearDrainHook(); }
 
   /**
    * @brief Resume (move COLD -> HOT) the named tenant, recovering its in-memory storage inline.

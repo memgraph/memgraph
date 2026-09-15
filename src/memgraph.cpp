@@ -971,6 +971,11 @@ int main(int argc, char **argv) {
       worker_pool_ ? &*worker_pool_ : nullptr);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
+#ifdef MG_ENTERPRISE
+  // Fires before interpreter_context_lifetime_control is destroyed (reverse-order destruction), clearing
+  // the defer worker's drain hook so a late tick cannot dereference a destroyed InterpreterContext.
+  std::optional<memgraph::utils::OnScopeExit<std::function<void()>>> clear_drain_hook_guard{std::nullopt};
+#endif
   if (!is_coordinator_instance) {
     MG_ASSERT(db_acc.has_value(), "Failed to access the main database");
 
@@ -1033,6 +1038,43 @@ int main(int argc, char **argv) {
         const auto locked_repl_state = repl_state->ReadLock();
         return locked_repl_state->IsMainWriteable();
       });
+    });
+  }
+#endif
+
+#ifdef MG_ENTERPRISE
+  // Drop-driven idle reaping (enterprise-only, guarded by the enclosing #ifdef): the deferred-drop worker
+  // invokes this hook once per draining husk on each tick (before its try_delete), releasing the DB accessor
+  // of any idle session still pinned to that tenant so the husk can drain. Cleared before InterpreterContext
+  // teardown via the OnScopeExit guard below.
+  if (!is_coordinator_instance && dbms_handler.has_value()) {
+    dbms_handler->SetDrainHook([ic = &interpreter_context_](std::string_view husk_id) {
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
+      // Parse the husk's opaque id into a UUID once, OUTSIDE the per-session noexcept handshake predicate
+      // (uuid.set() can throw; UUID== is non-allocating and safe inside it).
+      memgraph::utils::UUID dropped_uuid;
+      dropped_uuid.set(std::string{husk_id});
+      // Collect released accessors and destroy them AFTER releasing the interpreters lock, i.e. before this
+      // hook returns (and thus before the worker's try_delete): an Accessor dtor can block on
+      // GKInternals::mutex_, and destroying it under the session-table spinlock would stall every WithLock
+      // consumer (SessionHL registration, SHOW TRANSACTIONS, TerminateTransactions). See NB2.
+      std::vector<memgraph::dbms::DatabaseAccess> reaped_accessors;
+      ic->interpreters.WithLock([&](auto &interpreters) {
+        for (auto *interpreter : interpreters) {
+          std::optional<memgraph::dbms::DatabaseAccess> released;
+          interpreter->TryReleaseDbAccessorForDrop(dropped_uuid, &released);
+          if (released) reaped_accessors.push_back(std::move(*released));
+        }
+      });
+      // reaped_accessors destructs here — outside the interpreters SpinLock, before the hook returns.
+    });
+    // The hook closes over interpreter_context_. The defer worker lives in dbms_handler, which under
+    // reverse-order destruction outlives interpreter_context_lifetime_control (declared earlier). Clear the
+    // hook on EVERY exit path (including early returns) before the InterpreterContext is destroyed: this
+    // OnScopeExit is declared after interpreter_context_lifetime_control, so it runs first, while
+    // dbms_handler (declared even earlier) is still alive.
+    clear_drain_hook_guard.emplace([&dbms_handler]() {
+      if (dbms_handler.has_value()) dbms_handler->ClearDrainHook();
     });
   }
 #endif

@@ -261,6 +261,23 @@ class Handler {
     }
   }
 
+  // Optional per-tick hook: the background worker invokes it for each draining husk node (passing the
+  // node's opaque id) at the start of each tick, BEFORE try_delete. Supplied by a higher layer (kept
+  // type-erased so this generic handler has no dependency on it). The hook must release AND destroy any
+  // external accessors pinning the husk before returning, so the gatekeeper's count is up to date when
+  // try_delete runs. Must not block and must not re-enter this Handler.
+  void SetDrainHook(std::function<void(std::string_view id)> hook) {
+    auto lock = std::unique_lock{pending_mutex_};
+    drain_hook_ = std::move(hook);
+  }
+
+  // Clears the hook. MUST be called during shutdown before whatever the hook closes over is destroyed,
+  // otherwise a late tick would invoke a dangling closure (use-after-free).
+  void ClearDrainHook() {
+    auto lock = std::unique_lock{pending_mutex_};
+    drain_hook_ = nullptr;
+  }
+
   std::vector<std::pair<std::string, std::string>> PendingItems() const {
     auto lock = std::unique_lock{pending_mutex_};
     std::vector<std::pair<std::string, std::string>> out;
@@ -365,9 +382,11 @@ class Handler {
       // Snapshot iterators under the lock; heavy per-node work runs lock-free.
       // Only structural mutations (erase) re-acquire pending_mutex_ below.
       std::vector<typename std::list<PendingDeletion>::iterator> its;
+      std::function<void(std::string_view)> hook;
       {
         auto lock = std::unique_lock{pending_mutex_};
         for (auto it = pending_.begin(); it != pending_.end(); ++it) its.push_back(it);
+        hook = drain_hook_;  // copy while holding lock; called below WITHOUT the lock to avoid lock inversion
       }
 
       for (auto it : its) {
@@ -394,6 +413,8 @@ class Handler {
             node.stop_step(*acc->get());
             node.stopped = true;
           }
+
+          if (hook) hook(node.id);  // release external pins for this husk before attempting teardown
 
           if (acc->try_delete(kDeferTryTimeout)) {
             acc.reset();
@@ -442,6 +463,7 @@ class Handler {
   mutable std::mutex pending_mutex_;
   bool shutting_down_ = false;  //!< set by ~Handler before Stop(); guards the DeferDelete/drain race
   std::list<PendingDeletion> pending_;
+  std::function<void(std::string_view id)> drain_hook_;  //!< guarded by pending_mutex_; see SetDrainHook
   utils::Scheduler defer_worker_;  //!< background teardown worker; cadence default 10 s, injectable via constructor
 };
 
