@@ -13,7 +13,6 @@
 
 #include <map>
 #include <optional>
-#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -82,6 +81,11 @@ class AtomicAuthOverlay {
   iterator begin(std::string const &prefix) const;
   iterator end(std::string const &prefix) const;
 
+  /// Narrow a just-completed scan to depending only on whether the prefix was inhabited. The caller says so after
+  /// the fact, because only it knows it stopped early; a scan is recorded as depending on the whole key set until
+  /// told otherwise.
+  void ScanDependsOnEmptinessOnly(std::string const &prefix) const;
+
   /// Validate read-set against base and flush write-set.
   /// Returns true on success, false on conflict (base untouched).
   bool Flush();
@@ -93,10 +97,21 @@ class AtomicAuthOverlay {
 
   kvstore::KVStore &base_;
 
-  /// Prefixes this transaction has scanned. A scan depends on which keys exist under its prefix, not only on the
-  /// ones it saw, so `Flush` re-walks each prefix and fails if a key has appeared. Recording the keys seen is not
-  /// enough on its own: a scan of an empty prefix records nothing, which is exactly the first-user case.
-  mutable std::set<std::string, std::less<>> scanned_prefixes_;
+  /// What a scan of a prefix concluded, and therefore what invalidates it.
+  ///
+  /// A scan that stops at the first key learns only whether the prefix is inhabited; demanding it account for every
+  /// key would fail it against keys it was never obliged to look at. One that runs to exhaustion learns the key set
+  /// and depends on all of it.
+  struct ScanDependency {
+    enum class Kind : uint8_t { kEmptiness, kKeySet };
+
+    Kind kind;
+    bool was_empty;
+  };
+
+  /// Prefixes this transaction has scanned, and what each scan depended on. Recording the keys seen is not enough on
+  /// its own: a scan of an empty prefix records nothing, which is exactly the first-user case.
+  mutable std::map<std::string, ScanDependency, std::less<>> scanned_prefixes_;
 
   /// key -> value at snapshot time (nullopt = did not exist). Mutable because recording a read is bookkeeping for
   /// conflict detection, not observable state: reads stay logically const so Auth's query methods can too.
