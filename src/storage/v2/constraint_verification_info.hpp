@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <boost/container_hash/hash.hpp>
 #include <set>
 #include <unordered_set>
 
