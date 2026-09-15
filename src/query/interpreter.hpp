@@ -334,14 +334,17 @@ struct CurrentDB {
     }
   }
 
-  // Releases db_acc_ under the lock (tear-safe for concurrent foreign_db_view); called by the idle-session
-  // reaper. Identity cache kept so the session re-acquires by name. Swap-out-under-lock / destruct-outside.
-  void ReleaseDbAccessor() {
+  // Swap db_acc_ out under db_acc_mutex_ and RETURN it; the CALLER owns destruction and MUST destroy it
+  // OUTSIDE the interpreters SpinLock (the Accessor dtor can block on GKInternals::mutex_ during a concurrent
+  // suspend/teardown; destroying under the session-table spinlock would stall every WithLock consumer).
+  // Identity cache (current_db_name_/uuid) is kept so the session re-acquires by name.
+  [[nodiscard]] std::optional<memgraph::dbms::DatabaseAccess> ReleaseDbAccessor() {
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};
       old_db.swap(db_acc_);
     }
+    return old_db;
   }
 
   // Re-attach a freshly-acquired accessor under the lock (consistent optional for concurrent foreign_db_view).
@@ -644,7 +647,8 @@ class Interpreter final {
   // Called ONLY from the background reaper sweep. Releases db_acc_ (dropping the gatekeeper count) iff
   // this is a reapable, non-explicit-txn session on a non-default tenant idle past idle_timeout_ns.
   // Returns true iff it reaped.
-  bool TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns);
+  bool TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns,
+                             std::optional<memgraph::dbms::DatabaseAccess> *released_out = nullptr);
 
   // Force-releases this session's DB accessor if it is bound to `dropped_db_name`, regardless of idle
   // time — used by DROP DATABASE ... FORCE to evict idle-pinned sessions so the tenant drains promptly.
@@ -652,7 +656,8 @@ class Interpreter final {
   // message); an ACTIVE session fails the CAS and is skipped (it is separately TerminateTransactions'd,
   // then caught once idle). current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next
   // query; the marked-for-deletion guard then keeps it db-less. Returns true iff it released.
-  bool TryReleaseDbAccessorForDrop(std::string_view dropped_db_name);
+  bool TryReleaseDbAccessorForDrop(std::string_view dropped_db_name,
+                                   std::optional<memgraph::dbms::DatabaseAccess> *released_out = nullptr);
 
   // Re-acquire db_acc_ if the reaper released it while parked. No-op if held or db-less; on a
   // recycled/dropped tenant falls back to a db-less session.

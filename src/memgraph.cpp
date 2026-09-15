@@ -1058,13 +1058,21 @@ int main(int argc, char **argv) {
       const uint64_t timeout_ns = FLAGS_session_idle_accessor_release_sec * 1'000'000'000ULL;
       const uint64_t now_ns = memgraph::query::Interpreter::SteadyNowNs();
       uint64_t reaped = 0;
-      // Lock held for the full sweep: SessionHL's destructor erases under the same lock (SessionHL.cpp:755),
-      // so it cannot destroy an interpreter while we iterate; each TryReapIdleDbAccessor call is non-blocking.
+      // Collect released accessors and destroy them AFTER releasing the interpreters lock: an Accessor
+      // dtor can block on GKInternals::mutex_ during a concurrent suspend/teardown, and destroying it under
+      // the session-table spinlock would stall every WithLock consumer (SessionHL registration,
+      // SHOW TRANSACTIONS, TerminateTransactions). See NB2.
+      // SessionHL's destructor erases under the same lock (SessionHL.cpp:755), so it cannot destroy an
+      // interpreter while we iterate; each TryReapIdleDbAccessor call is non-blocking.
+      std::vector<memgraph::dbms::DatabaseAccess> reaped_accessors;
       interpreter_context_.interpreters.WithLock([&](auto &interpreters) {
         for (auto *interpreter : interpreters) {
-          if (interpreter->TryReapIdleDbAccessor(now_ns, timeout_ns)) ++reaped;
+          std::optional<memgraph::dbms::DatabaseAccess> released;
+          if (interpreter->TryReapIdleDbAccessor(now_ns, timeout_ns, &released)) ++reaped;
+          if (released) reaped_accessors.push_back(std::move(*released));
         }
       });
+      // reaped_accessors destructs here — outside the interpreters SpinLock.
       if (reaped > 0) {
         spdlog::info("Idle-session reaper: released {} idle session accessor(s).", reaped);
       }

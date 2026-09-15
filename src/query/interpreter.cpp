@@ -8712,8 +8712,12 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   // Try to terminate all interpreters using the database
                   // Best effort approach, if it fails, user will continue using the db until they commit/abort
                   // Get access to the interpreter context to notify all active interpreters
+                  // Declared before WithLock so it destructs AFTER the lock is released (NB2): an Accessor dtor
+                  // can block on GKInternals::mutex_ during a concurrent teardown, and destroying it under the
+                  // session-table spinlock would stall every WithLock consumer.
+                  std::vector<memgraph::dbms::DatabaseAccess> evicted;
                   interpreter_context->interpreters.WithLock(
-                      [db_name, interpreter_context, interpreter](auto &interpreters) {
+                      [db_name, interpreter_context, interpreter, &evicted](auto &interpreters) {
                         auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
                           return user_or_role &&
                                  user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
@@ -8734,9 +8738,15 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                         // closure — do NOT call any System API (e.g. TryCreateTransaction) here or it
                         // self-deadlocks.
                         if (flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) {
-                          for (auto *itr : interpreters) itr->TryReleaseDbAccessorForDrop(db_name);
+                          for (auto *itr : interpreters) {
+                            std::optional<memgraph::dbms::DatabaseAccess> released;
+                            itr->TryReleaseDbAccessorForDrop(db_name, &released);
+                            if (released) evicted.push_back(std::move(*released));
+                          }
                         }
                       });
+                  // `evicted` destructs here — AFTER WithLock returns — so the Accessor dtors run
+                  // outside the interpreters spinlock (prevents GKInternals::mutex_ stall under lock).
                 }
               } else {
                 success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
@@ -11515,7 +11525,8 @@ void Interpreter::EnsureDbAccessForQuery() {
   }
 }
 
-bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns) {
+bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns,
+                                        std::optional<memgraph::dbms::DatabaseAccess> *released_out) {
   return WithReapingLock([&] {
     // Belt-and-suspenders: never reap an explicit transaction (cannot occur from IDLE, but cheap).
     // Only release a held accessor whose tenant is non-default and has been idle past the timeout.
@@ -11528,7 +11539,9 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
       auto *db = current_db_.db_acc_->get();
       const auto last_used_ns = last_activity_ns_.load(std::memory_order_relaxed);
       if (db->name() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
-        current_db_.ReleaseDbAccessor();
+        auto rel = current_db_.ReleaseDbAccessor();  // swapped out, NOT yet destroyed
+        if (released_out) *released_out = std::move(rel);
+        // else `rel` destructs at end of this scope (no collector -> same as before for unit tests)
         return true;
       }
     }
@@ -11536,7 +11549,8 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
   });
 }
 
-bool Interpreter::TryReleaseDbAccessorForDrop(std::string_view dropped_db_name) {
+bool Interpreter::TryReleaseDbAccessorForDrop(std::string_view dropped_db_name,
+                                              std::optional<memgraph::dbms::DatabaseAccess> *released_out) {
   return WithReapingLock([&] {
     // Belt-and-suspenders: never release from an explicit transaction (cannot occur from IDLE, but cheap).
     // current_db_name_ is kept so EnsureDbAccessForQuery re-checks on the next query; the
@@ -11548,7 +11562,9 @@ bool Interpreter::TryReleaseDbAccessorForDrop(std::string_view dropped_db_name) 
         current_db_.db_acc_.has_value()) {
       auto *db = current_db_.db_acc_->get();
       if (db->name() == dropped_db_name) {
-        current_db_.ReleaseDbAccessor();
+        auto rel = current_db_.ReleaseDbAccessor();  // swapped out, NOT yet destroyed
+        if (released_out) *released_out = std::move(rel);
+        // else `rel` destructs at end of this scope (no collector -> same as before for unit tests)
         return true;
       }
     }
