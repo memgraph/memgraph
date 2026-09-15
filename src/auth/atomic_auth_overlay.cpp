@@ -22,7 +22,7 @@ std::optional<std::string> AtomicAuthOverlay::Get(std::string_view key) const {
     return it->second;  // nullopt if tombstone
   }
 
-  if (read_set_.find(key_str) == read_set_.end()) {
+  if (!read_set_.contains(key_str)) {
     auto val = base_.Get(key);
     read_set_.emplace(key_str, val);
   }
@@ -43,7 +43,7 @@ void AtomicAuthOverlay::Put(std::string_view key, std::string_view value) {
   auto const key_str = std::string(key);
 
   // Record in read-set if not already there (for conflict detection on existing keys)
-  if (read_set_.find(key_str) == read_set_.end()) {
+  if (!read_set_.contains(key_str)) {
     read_set_.emplace(key_str, base_.Get(key));
   }
 
@@ -53,7 +53,7 @@ void AtomicAuthOverlay::Put(std::string_view key, std::string_view value) {
 void AtomicAuthOverlay::Delete(std::string_view key) {
   auto const key_str = std::string(key);
 
-  if (read_set_.find(key_str) == read_set_.end()) {
+  if (!read_set_.contains(key_str)) {
     read_set_.emplace(key_str, base_.Get(key));
   }
 
@@ -141,7 +141,7 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const *overlay, std::str
     // Emptiness is read from base before any Advance, since Advance consumes the first entry. A scan is assumed to
     // depend on the whole key set; a caller that stopped early narrows it afterwards.
     auto [entry, inserted] = overlay_->scanned_prefixes_.try_emplace(
-        prefix_, ScanDependency{ScanDependency::Kind::kKeySet, base_it_ == base_end_});
+        prefix_, ScanDependency{.kind = ScanDependency::Kind::kKeySet, .was_empty = base_it_ == base_end_});
     // A fresh scan starts out depending on the key set, whatever an earlier short-circuiting one settled for. Only
     // the caller that stops early narrows it again, so the strictest scan of a prefix is what survives.
     if (!inserted) entry->second.kind = ScanDependency::Kind::kKeySet;
@@ -155,8 +155,8 @@ void AtomicAuthOverlay::iterator::Advance() {
   current_.reset();
 
   while (!current_.has_value()) {
-    bool have_base = (base_it_ != base_end_);
-    bool have_write = (write_it_ != write_end_ && write_it_->first.starts_with(prefix_));
+    bool const have_base = (base_it_ != base_end_);
+    bool const have_write = (write_it_ != write_end_ && write_it_->first.starts_with(prefix_));
 
     if (!have_base && !have_write) {
       at_end_ = true;
@@ -220,12 +220,8 @@ AtomicAuthOverlay::iterator::reference AtomicAuthOverlay::iterator::operator*() 
 
 AtomicAuthOverlay::iterator::pointer AtomicAuthOverlay::iterator::operator->() const { return &*current_; }
 
-AtomicAuthOverlay::iterator AtomicAuthOverlay::begin(std::string const &prefix) const {
-  return iterator(this, prefix, false);
-}
+AtomicAuthOverlay::iterator AtomicAuthOverlay::begin(std::string const &prefix) const { return {this, prefix, false}; }
 
-AtomicAuthOverlay::iterator AtomicAuthOverlay::end(std::string const &prefix) const {
-  return iterator(this, prefix, true);
-}
+AtomicAuthOverlay::iterator AtomicAuthOverlay::end(std::string const &prefix) const { return {this, prefix, true}; }
 
 }  // namespace memgraph::auth
