@@ -13,9 +13,10 @@
 /// Equivalence: one of the four relations openCypher defines over values, the
 /// one DISTINCT and grouping read, and the one a hash container is keyed by.
 ///
-/// It is two-valued where equality is three-valued, and it holds alike the two
-/// values equality does not hold equal to themselves: a Null, which equality
-/// leaves undecided, and a NaN, which equality answers false for.
+/// It is two-valued where equality is three-valued, and it holds alike whatever
+/// equality does not hold equal to itself: a Null, which equality leaves
+/// undecided, and a NaN, which equality answers false for. Either reaches this
+/// relation directly, inside a list or a map, or as a point's coordinate.
 #pragma once
 
 #include <cmath>
@@ -42,11 +43,19 @@ bool EquivalentOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b);
 /// to decide, other than a Null or a NaN standing on its own.
 bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b);
 
+/// Reads a pair of points equality did not decide equal. A point holds its
+/// coordinates as doubles and compares them together, so one holding a NaN is no
+/// more equal to itself than the NaN is.
+///
+/// @pre `a` is a two- or three-dimensional point.
+bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b);
+
 /// The types equality declines to decide against themselves, as a bit per type,
 /// so that ruling a type out is one test rather than one per type.
-inline constexpr unsigned kDeclinedOver = (1U << static_cast<unsigned>(TypedValue::Type::Double)) |
-                                          (1U << static_cast<unsigned>(TypedValue::Type::List)) |
-                                          (1U << static_cast<unsigned>(TypedValue::Type::Map));
+inline constexpr unsigned kDeclinedOver =
+    (1U << static_cast<unsigned>(TypedValue::Type::Double)) | (1U << static_cast<unsigned>(TypedValue::Type::Point2d)) |
+    (1U << static_cast<unsigned>(TypedValue::Type::Point3d)) | (1U << static_cast<unsigned>(TypedValue::Type::List)) |
+    (1U << static_cast<unsigned>(TypedValue::Type::Map));
 
 inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
@@ -74,6 +83,10 @@ inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.type() == TypedValue::Type::Double) {
     return std::isnan(lhs.UnsafeValueDouble()) && rhs.type() == TypedValue::Type::Double &&
            std::isnan(rhs.UnsafeValueDouble());
+  }
+
+  if (lhs.type() == TypedValue::Type::Point2d || lhs.type() == TypedValue::Type::Point3d) {
+    return EquivalentOfPoints(lhs, rhs);
   }
 
   // Equality answering Null says a Null sits inside and it declined. A false

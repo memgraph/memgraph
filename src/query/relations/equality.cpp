@@ -41,8 +41,27 @@ constexpr auto kIsNull = [](const TypedValue &value) { return value.IsNull(); };
 
 /// The two values equality does not hold equal to themselves, for its two
 /// reasons: a Null leaves the pair undecided, a NaN answers false.
+///
+/// A point carries its coordinates as doubles and compares them together, so
+/// one holding a NaN is no more equal to itself than the NaN is. Storage spells
+/// this question separately, and answers a point the same way.
 constexpr auto kIsUndecidable = [](const TypedValue &value) {
-  return value.IsNull() || (value.type() == TypedValue::Type::Double && std::isnan(value.UnsafeValueDouble()));
+  switch (value.type()) {
+    case TypedValue::Type::Null:
+      return true;
+    case TypedValue::Type::Double:
+      return std::isnan(value.UnsafeValueDouble());
+    case TypedValue::Type::Point2d: {
+      auto const &point = value.UnsafeValuePoint2d();
+      return std::isnan(point.x()) || std::isnan(point.y());
+    }
+    case TypedValue::Type::Point3d: {
+      auto const &point = value.UnsafeValuePoint3d();
+      return std::isnan(point.x()) || std::isnan(point.y()) || std::isnan(point.z());
+    }
+    default:
+      return false;
+  }
 };
 
 }  // namespace
