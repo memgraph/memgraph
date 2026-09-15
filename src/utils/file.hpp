@@ -437,6 +437,10 @@ class NonConcurrentOutputFile {
   /// throughout, so this is the only thing separating pacing that works from pacing that stopped.
   size_t PacingOffset() const { return pacing_offset_; }
 
+  /// Windows handed to writeback since pacing was enabled. Test-only, for the same reason: what
+  /// the page cache holds afterwards is the kernel's decision, this is what pacing did.
+  size_t PacingWindowsCompleted() const { return pacing_windows_completed_; }
+
   /// Closes the currently opened file. It doesn't perform a `Sync` on the
   /// file. On failure and misuse it crashes the program.
   void Close() noexcept;
@@ -478,6 +482,7 @@ class NonConcurrentOutputFile {
   size_t pacing_pending_start_{0};  // start of the window not yet handed to writeback
   size_t pacing_prev_start_{0};     // window handed to writeback, not yet disposed of
   size_t pacing_prev_len_{0};
+  size_t pacing_windows_completed_{0};
 
   std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
