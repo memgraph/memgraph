@@ -60,17 +60,22 @@ class Handler {
   using NewResult = std::expected<typename utils::Gatekeeper<T>::Accessor, NewError>;
 
   /**
-   * @brief Empty Handler constructor.
-   *
+   * @brief Start the deferred-teardown background worker.
+   * @param defer_interval Retry cadence; default is coarse (teardown is non-urgent); inject a short value in tests.
    */
-  Handler() = default;
+  explicit Handler(std::chrono::milliseconds defer_interval = std::chrono::seconds{10}) {
+    // SetInterval before Run: Scheduler default wait is time_point::max(); a post-Run SetInterval
+    // cannot wake a parked worker. A construction-time tick is safe: pending_ is empty until DeferDelete.
+    defer_worker_.SetInterval(defer_interval);
+    defer_worker_.Run("defer-delete", [this] { Tick_(); });
+  }
 
   virtual ~Handler() {
-    // Signal destruction before stopping the worker so a concurrent DeferDelete cannot
-    // start a new background worker after we stop ours.
+    // Set shutting_down_ before Stop() so a concurrent DeferDelete tears down inline
+    // rather than splicing into a pending_ we are about to drain.
     {
       auto lock = std::unique_lock{pending_mutex_};
-      destroying_ = true;
+      shutting_down_ = true;
     }
 
     // Stop the background worker before touching pending_ so the worker and
@@ -85,7 +90,7 @@ class Handler {
       remaining.splice(remaining.end(), pending_);
     }
 
-    // Unbounded: ~Gatekeeper blocks until accessor count hits zero; Bolt session reaping is a prereq (separate change).
+    // Unbounded: ~Gatekeeper blocks until accessor count hits zero; Bolt session reaping must precede ~Handler.
     for (auto &node : remaining) {
       TeardownNode_(node);
     }
@@ -212,13 +217,9 @@ class Handler {
   }
 
   /**
-   * @brief Defer teardown of the context associated with @p name to a shared background worker.
-   *
-   * @param name           Name of the item to tear down (erased from items_ unconditionally).
-   * @param id             Opaque caller tag (e.g. UUID string) stored on the node and surfaced
-   *                       by PendingItems(). Generic — no tenant vocabulary assumed.
-   * @param stop_step      One-time stop work (e.g. StopAllBackgroundTasks). Receives a T& ref.
-   * @param post_delete_step  Cleanup after value destruction (e.g. remove_all(dir)).
+   * @brief Defer teardown of @p name (erased from items_) to the background worker.
+   * @param id Opaque caller tag (e.g. UUID) surfaced by PendingItems().
+   * @param stop_step Before gatekeeper destruction (e.g. StopAllBackgroundTasks); @param post_delete_step after.
    */
   void DeferDelete(std::string_view name, std::string id, std::move_only_function<void(T &)> stop_step,
                    std::move_only_function<void()> post_delete_step) {
@@ -233,17 +234,14 @@ class Handler {
     auto gk = std::move(itr->second);
     items_.erase(itr);
 
-    // splice is noexcept, so the transfer to pending_ cannot fail once the node is built.
-    // On emplace_back bad_alloc, list-node allocation fails before any args are moved — gk
-    // and id are still valid, so the fallback stack-local node can use them.
+    // splice is noexcept; if emplace_back throws (OOM), node allocation fails before any arg is moved,
+    // so gk and id are intact for the fallback.
     std::list<PendingDeletion> node;
     try {
       node.emplace_back(
           std::move(gk), std::string{name}, std::move(id), std::move(stop_step), std::move(post_delete_step));
     } catch (...) {
-      // emplace_back failed (OOM); list-node allocation threw before construction — gk and id
-      // are intact. Run teardown via a stack-local node so the sequence is identical to the
-      // normal path.
+      // OOM in emplace_back; gk is intact — run the same teardown sequence.
       PendingDeletion fallback{
           std::move(gk), std::string{name}, std::move(id), std::move(stop_step), std::move(post_delete_step)};
       TeardownNode_(fallback);
@@ -252,7 +250,7 @@ class Handler {
 
     {
       auto lock = std::unique_lock{pending_mutex_};
-      if (destroying_) {
+      if (shutting_down_) {
         // ~Handler has already drained pending_; splicing would orphan this node.
         // Release the lock before the potentially-blocking ~Gatekeeper and user callbacks.
         lock.unlock();
@@ -261,21 +259,8 @@ class Handler {
       }
       pending_.splice(pending_.end(), node);
     }
-
-    // EnsureWorkerStarted_ may throw (pthread_create EAGAIN) after the node is spliced; don't
-    // propagate — the drop succeeded. Throwing leaves the once_flag unset, so call_once retries on
-    // the next DeferDelete; the destroying_ early-return instead marks it done permanently — safe,
-    // because ~Handler drains pending_ regardless.
-    try {
-      EnsureWorkerStarted_();
-    } catch (...) {
-      spdlog::warn(
-          "DeferDelete: background teardown worker could not start (thread creation failed). "
-          "Teardown will be retried on the next deferred drop or completed at shutdown.");
-    }
   }
 
-  // Snapshot of (name, id) for every pending (draining) item. Generic — id is an opaque caller tag.
   std::vector<std::pair<std::string, std::string>> PendingItems() const {
     auto lock = std::unique_lock{pending_mutex_};
     std::vector<std::pair<std::string, std::string>> out;
@@ -337,8 +322,8 @@ class Handler {
   // Explicit constructor: lets std::list::emplace_back forward the five args directly.
   struct PendingDeletion {
     utils::Gatekeeper<T> gk;
-    std::string name;  // opaque caller tag — no tenant vocabulary
-    std::string id;    // opaque caller tag (e.g. UUID string) — used by PendingItems()
+    std::string name;
+    std::string id;  // opaque caller tag (e.g. UUID string) — used by PendingItems()
     std::move_only_function<void(T &)> stop_step;
     std::move_only_function<void()> post_delete_step;
     bool stopped = false;
@@ -355,8 +340,8 @@ class Handler {
           enqueued_at{std::chrono::steady_clock::now()} {}
   };
 
-  // Best-effort teardown: stop, destroy gatekeeper, then post_delete. Each step is
-  // independently guarded. MUST be called with no Handler lock held.
+  // MUST be called with no Handler lock held: ~Gatekeeper and post_delete_step may block.
+  // Each step is independently caught — a throwing stop_step does not skip teardown.
   void TeardownNode_(PendingDeletion &node) {
     if (!node.stopped) {
       try {
@@ -371,25 +356,6 @@ class Handler {
       node.post_delete_step();
     } catch (...) {  // NOLINT(bugprone-empty-catch) best-effort teardown; post_delete failure is suppressed
     }
-  }
-
-  // Lazy: worker starts only on the first DeferDelete call, not at construction,
-  // so unused Handlers pay zero thread overhead.
-  void EnsureWorkerStarted_() {
-    std::call_once(worker_started_, [this] {
-      // If ~Handler already set destroying_ we are racing with shutdown — skip worker start.
-      {
-        auto lock = std::unique_lock{pending_mutex_};
-        if (destroying_) return;
-      }
-      // SetInterval before Run: Scheduler's default wait is time_point::max(); a post-Run
-      // SetInterval cannot wake a worker already parked on that default.
-      // Outside pending_mutex_: safe against ~Handler because shutdown sequencing in memgraph.cpp
-      // (stop worker pool → stop Bolt → StopAllBackgroundTasks) drains all callers before ~DbmsHandler
-      // runs, and declaration order there ensures repl_state is destroyed before dbms_handler.
-      defer_worker_.SetInterval(std::chrono::milliseconds(50));
-      defer_worker_.Run("defer-delete", [this] { Tick_(); });
-    });
   }
 
   // Must be noexcept: Scheduler calls f() without a try/catch (scheduler.cpp:188),
@@ -462,26 +428,21 @@ class Handler {
     }
   }
 
-  //!< Absorbs a transient accessor; limits per-node cost to ~10 ms. One tick's worst case is
-  //!< N * kDeferTryTimeout for N pinned nodes (no starvation — every snapshotted node is still
-  //!< processed each tick; a freshly-enqueued unpinned drop is serviced on the next tick, which
-  //!< arrives within the 50 ms inter-tick cadence, plus N * kDeferTryTimeout).
+  //!< Absorbs a transient accessor; limits per-node cost to ~10 ms. Worst-case tick latency is
+  //!< N * kDeferTryTimeout; a new unpinned drop is serviced within defer_interval + N * kDeferTryTimeout.
   static constexpr auto kDeferTryTimeout = std::chrono::milliseconds{10};
-  //!< Threshold for the one-shot stall warning per pending node.
   static constexpr auto kStuckWarnAfter = std::chrono::minutes{5};
 
   // items_ first (destroyed last) as a conservative failsafe: if ~Handler's drain
   // is bypassed, live gatekeepers in items_ outlive the worker-side structures.
   container_type items_;
 
-  // pending_mutex_ guards structural changes to pending_ (splice/erase) AND destroying_.
-  // Node contents (stopped, stop_step) are mutated by the single worker thread only.
-  // mutable: PendingItems() is const but must acquire this lock.
+  // pending_mutex_ guards structural changes to pending_ (splice/erase) AND shutting_down_.
+  // Node contents (stopped, stop_step) are mutated by the single worker thread only; no lock needed.
   mutable std::mutex pending_mutex_;
-  bool destroying_ = false;  //!< set by ~Handler before Stop(); blocks late worker starts
+  bool shutting_down_ = false;  //!< set by ~Handler before Stop(); guards the DeferDelete/drain race
   std::list<PendingDeletion> pending_;
-  utils::Scheduler defer_worker_;  //!< ~50 ms cadence background worker
-  std::once_flag worker_started_;
+  utils::Scheduler defer_worker_;  //!< background teardown worker; cadence default 10 s, injectable via constructor
 };
 
 }  // namespace memgraph::dbms
