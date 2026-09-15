@@ -28,6 +28,11 @@ target_link_libraries(storage_test_utils mg::storage)
 add_library(disk_test_utils disk_test_utils.cpp)
 target_link_libraries(disk_test_utils mg::storage)
 
+# A value of every type, for the suites that need to walk the whole value space
+add_library(value_shapes value_shapes.cpp)
+target_link_libraries(value_shapes mg::storage)
+target_include_directories(value_shapes PUBLIC ${CMAKE_SOURCE_DIR})
+
 # Header-only helpers shared across storage test files
 # (parameterized DDL abort/ghost/restore tests).
 add_library(ddl_abort_helpers INTERFACE)
@@ -932,6 +937,11 @@ add_unit_test(storage_v2_object_removal
 add_unit_test(storage_v2_name_id_mapper
     SOURCES storage_v2_name_id_mapper.cpp
     LINK_TARGETS mg::storage
+)
+
+add_unit_test(value_shapes_coverage
+    SOURCES value_shapes_coverage.cpp
+    LINK_TARGETS mg::storage value_shapes
 )
 
 add_unit_test(storage_v2_property_store
