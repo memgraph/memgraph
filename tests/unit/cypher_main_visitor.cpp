@@ -8506,6 +8506,71 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   TestInvalidQuery<SyntaxException>("MATCH (n) CALL (*, n) { RETURN 1 AS x } RETURN n", ast_generator);
 
   TestInvalidQuery<SyntaxException>("MATCH (n) CALL (n.prop) { RETURN 1 AS x } RETURN n", ast_generator);
+
+  // The procedure form parses - so that it can be rejected by name rather than as a syntax error.
+  TestInvalidQueryWithMessage<SemanticException>(
+      "MATCH (n) OPTIONAL CALL mg.procedures() YIELD name RETURN n, name",
+      ast_generator,
+      "OPTIONAL is supported only on a CALL subquery, not on a procedure call.");
+}
+
+TEST_P(CypherMainVisitorTest, CallSubqueryOptional) {
+  auto &ast_generator = *GetParam();
+
+  auto const parse_call_subquery = [](auto &generator, const std::string &query) {
+    const auto *cypher_query = dynamic_cast<CypherQuery *>(generator.ParseQuery(query));
+    return dynamic_cast<CallSubquery *>(cypher_query->single_query_->clauses_[1]);
+  };
+
+  {
+    const auto *call_subquery = parse_call_subquery(ast_generator, "MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m");
+    ASSERT_TRUE(call_subquery);
+    EXPECT_FALSE(call_subquery->optional_);
+  }
+
+  {
+    const auto *call_subquery =
+        parse_call_subquery(ast_generator, "MATCH (n) OPTIONAL CALL { MATCH (m) RETURN m } RETURN n, m");
+    ASSERT_TRUE(call_subquery);
+    EXPECT_TRUE(call_subquery->optional_);
+    EXPECT_FALSE(call_subquery->has_variable_scope_);
+  }
+
+  {
+    const auto *call_subquery =
+        parse_call_subquery(ast_generator, "MATCH (n) OPTIONAL CALL (n) { MATCH (n)-[]->(m) RETURN m } RETURN n, m");
+    ASSERT_TRUE(call_subquery);
+    EXPECT_TRUE(call_subquery->optional_);
+    EXPECT_TRUE(call_subquery->has_variable_scope_);
+    EXPECT_EQ(call_subquery->scoped_variables_.size(), 1U);
+  }
+
+  {
+    const auto *call_subquery =
+        parse_call_subquery(ast_generator, "MATCH (n) OPTIONAL CALL (*) { MATCH (m) RETURN m } RETURN n, m");
+    ASSERT_TRUE(call_subquery);
+    EXPECT_TRUE(call_subquery->optional_);
+    EXPECT_TRUE(call_subquery->all_variables_scoped_);
+  }
+
+  {
+    const auto *call_subquery = parse_call_subquery(
+        ast_generator,
+        "MATCH (n) OPTIONAL CALL (n) { MATCH (n)-[]->(m) RETURN m } IN TRANSACTIONS OF 10 ROWS RETURN n, m");
+    ASSERT_TRUE(call_subquery);
+    EXPECT_TRUE(call_subquery->optional_);
+    EXPECT_NE(call_subquery->cypher_query_->pre_query_directives_.commit_frequency_, nullptr);
+  }
+
+  {
+    // `optional` is a valid variable name, and one sitting immediately before CALL must not be read as the keyword.
+    const auto *cypher_query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("UNWIND [1] AS optional CALL (optional) { RETURN 1 AS x } RETURN optional, x"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(cypher_query->single_query_->clauses_[1]);
+    ASSERT_TRUE(call_subquery);
+    EXPECT_FALSE(call_subquery->optional_);
+    EXPECT_TRUE(call_subquery->has_variable_scope_);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {

@@ -815,10 +815,18 @@ TYPED_TEST(OperatorToStringTest, RollUpApply) {
 }
 
 TYPED_TEST(OperatorToStringTest, Apply) {
-  memgraph::query::plan::Apply last_op(nullptr, nullptr, false);
+  // What the branch does with an input row it returns nothing for is otherwise invisible in EXPLAIN.
+  using memgraph::query::plan::EmptyBranch;
 
-  std::string expected_string{"Apply"};
-  EXPECT_EQ(last_op.ToString(&this->dba), expected_string);
+  memgraph::query::plan::Apply drop_row(nullptr, nullptr, EmptyBranch::kDropRow);
+  EXPECT_EQ(drop_row.ToString(&this->dba), "Apply (empty branch: drop row)");
+
+  memgraph::query::plan::Apply pass_row(nullptr, nullptr, EmptyBranch::kPassRow);
+  EXPECT_EQ(pass_row.ToString(&this->dba), "Apply (empty branch: pass row)");
+
+  memgraph::query::plan::Apply pass_row_with_nulls(
+      nullptr, nullptr, EmptyBranch::kPassRowWithNulls, std::vector<Symbol>{this->GetSymbol("m")});
+  EXPECT_EQ(pass_row_with_nulls.ToString(&this->dba), "Apply (empty branch: pass row with nulls)");
 }
 
 TYPED_TEST(OperatorToStringTest, HashJoin) {

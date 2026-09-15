@@ -4217,7 +4217,7 @@ TYPED_TEST(SubqueriesFeature, BasicCartesian) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, EmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4246,7 +4246,7 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilter) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, EmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4275,7 +4275,7 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(filter, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, EmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4304,7 +4304,7 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, EmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4329,10 +4329,10 @@ TYPED_TEST(SubqueriesFeature, SubqueryInsideSubqueryCartesian) {
       NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_nested_subquery = MakeProduce(o.op_, return_o);
 
-  auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery, true);
+  auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery, EmptyBranch::kDropRow);
   auto produce_subquery = MakeProduce(inner_apply, return_o, return_m);
 
-  auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery, EmptyBranch::kDropRow);
   auto produce = MakeProduce(outer_apply, return_n, return_m, return_o);
 
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
@@ -4351,7 +4351,7 @@ TYPED_TEST(SubqueriesFeature, UnitSubquery) {
       NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_subquery = MakeProduce(o.op_, return_o);
 
-  auto apply = std::make_shared<Apply>(once, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(once, produce_subquery, EmptyBranch::kDropRow);
   auto produce = MakeProduce(apply, return_o);
 
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
@@ -4383,7 +4383,7 @@ TYPED_TEST(SubqueriesFeature, SubqueryWithBoundedSymbol) {
                       ->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_subquery = MakeProduce(expand.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, EmptyBranch::kDropRow);
   auto produce = MakeProduce(apply, return_n, return_m);
 
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
@@ -4413,7 +4413,7 @@ TYPED_TEST(SubqueriesFeature, SubqueryWithUnionAll) {
                                                 produce_left_union_subquery->OutputSymbols(this->symbol_table),
                                                 produce_right_union_subquery->OutputSymbols(this->symbol_table));
 
-  auto apply = std::make_shared<Apply>(n.op_, union_operator, true);
+  auto apply = std::make_shared<Apply>(n.op_, union_operator, EmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4448,7 +4448,7 @@ TYPED_TEST(SubqueriesFeature, SubqueryWithUnion) {
   auto union_output_symbols = union_operator->OutputSymbols(this->symbol_table);
   auto distinct = std::make_shared<Distinct>(union_operator, std::vector<Symbol>{union_output_symbols});
 
-  auto apply = std::make_shared<Apply>(n.op_, distinct, true);
+  auto apply = std::make_shared<Apply>(n.op_, distinct, EmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n);
 
@@ -4475,7 +4475,7 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
   auto foreach = std::make_shared<plan::Foreach>(once_foreach, create, iterating_list, iteration_symbol);
   auto empty_result = std::make_shared<EmptyResult>(foreach);
 
-  auto apply = std::make_shared<Apply>(n.op_, empty_result, false);
+  auto apply = std::make_shared<Apply>(n.op_, empty_result, EmptyBranch::kPassRow);
 
   auto produce = MakeProduce(apply, return_n);
 

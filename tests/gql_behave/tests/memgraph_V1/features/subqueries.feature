@@ -577,7 +577,7 @@ Feature: Subqueries
             | playerName | playerUpdated | teamName | teamUpdated   |
             | 'Player A' | 1719304206653 | 'Team A' | 1719304206653 |
 
-    Scenario: OPTIONAL CALL scoped subquery is not supported
+    Scenario: OPTIONAL CALL scoped subquery keeps a player with no team
         Given graph "subqueries"
         When executing query:
             """
@@ -587,8 +587,16 @@ Feature: Subqueries
                 RETURN team.name AS team
             }
             RETURN p.name AS playerName, team
+            ORDER BY playerName
             """
-        Then an error should be raised
+        Then the result should be, in order:
+            | playerName | team     |
+            | 'Player A' | 'Team A' |
+            | 'Player B' | 'Team A' |
+            | 'Player C' | null     |
+            | 'Player D' | 'Team B' |
+            | 'Player E' | 'Team C' |
+            | 'Player F' | 'Team C' |
 
     Scenario: Scoped CALL subquery with UNION over two ORDER BY branches
         Given graph "subqueries"
@@ -1198,3 +1206,170 @@ Feature: Subqueries
         Then the result should be:
             | d   |
             | '2' |
+
+    Scenario: OPTIONAL CALL keeps an input row whose body returns nothing
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1}), (b:Node {id: 2}), (c:Node {id: 3}),
+                   (a)-[:TYPE]->(b), (a)-[:TYPE]->(c)
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              RETURN m.id AS mid
+            }
+            RETURN n.id AS nid, mid
+            """
+        Then the result should be:
+            | nid | mid  |
+            | 1   | 2    |
+            | 1   | 3    |
+            | 2   | null |
+            | 3   | null |
+
+    Scenario: CALL without OPTIONAL still drops an input row whose body returns nothing
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1}), (b:Node {id: 2}), (c:Node {id: 3}),
+                   (a)-[:TYPE]->(b), (a)-[:TYPE]->(c)
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              RETURN m.id AS mid
+            }
+            RETURN n.id AS nid, mid
+            """
+        Then the result should be:
+            | nid | mid |
+            | 1   | 2   |
+            | 1   | 3   |
+
+    Scenario: OPTIONAL CALL nulls every column the body returns
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              RETURN m.id AS mid, m.id + 1 AS next
+            }
+            RETURN n.id AS nid, mid, next
+            """
+        Then the result should be:
+            | nid | mid  | next |
+            | 1   | null | null |
+
+    Scenario: OPTIONAL CALL with a RETURN * body keeps the imported variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              RETURN *
+            }
+            RETURN n.id AS nid, m.id AS mid
+            """
+        Then the result should be:
+            | nid | mid  |
+            | 1   | null |
+
+    Scenario: OPTIONAL on a unit subquery leaves the cardinality alone
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1}), (b:Node {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              SET m.seen = true
+            }
+            RETURN n.id AS nid
+            """
+        Then the result should be:
+            | nid |
+            | 1   |
+            | 2   |
+
+    Scenario: OPTIONAL CALL over an uncorrelated body that matches nothing
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1}), (b:Node {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL {
+              MATCH (z:Missing)
+              RETURN z.id AS zid
+            }
+            RETURN n.id AS nid, zid
+            """
+        Then the result should be:
+            | nid | zid  |
+            | 1   | null |
+            | 2   | null |
+
+    Scenario: OPTIONAL CALL over a UNION body nulls the union's columns
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              RETURN m.id AS v
+              UNION
+              MATCH (n)<-[:TYPE]-(m)
+              RETURN m.id AS v
+            }
+            RETURN n.id AS nid, v
+            """
+        Then the result should be:
+            | nid | v    |
+            | 1   | null |
+
+    Scenario: A variable named optional right before CALL is not the OPTIONAL keyword
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS optional
+            CALL (optional) {
+              RETURN optional * 10 AS scaled
+            }
+            RETURN optional, scaled
+            """
+        Then the result should be:
+            | optional | scaled |
+            | 1        | 10     |
+            | 2        | 20     |
+
+    Scenario: OPTIONAL is rejected on a procedure call
+        Given an empty graph
+        When executing query:
+            """
+            OPTIONAL CALL mg.procedures() YIELD name RETURN name
+            """
+        Then an error should be raised

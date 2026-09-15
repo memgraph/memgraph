@@ -662,6 +662,13 @@ auto GetCallSubqueryScopedAll(AstStorage &storage, TSubquery *subquery) {
   return call_subquery;
 }
 
+// `OPTIONAL CALL ... { ... }`. Composes with every `CALL` helper above, since the flag is orthogonal to the
+// scope clause.
+auto AsOptionalCall(memgraph::query::CallSubquery *call_subquery) {
+  call_subquery->optional_ = true;
+  return call_subquery;
+}
+
 auto GetCallPeriodicSubquery(AstStorage &storage, SingleQuery *subquery, CommitFrequency commit_frequency) {
   auto *periodic_subquery = storage.Create<memgraph::query::CallSubquery>();
 
@@ -906,6 +913,7 @@ auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
 #define CALL_PERIODIC_SUBQUERY(...) memgraph::query::test_common::GetCallPeriodicSubquery(this->storage, __VA_ARGS__)
 #define CALL_SUBQUERY_SCOPED(...) memgraph::query::test_common::GetCallSubqueryScoped(this->storage, __VA_ARGS__)
 #define CALL_SUBQUERY_SCOPED_ALL(...) memgraph::query::test_common::GetCallSubqueryScopedAll(this->storage, __VA_ARGS__)
+#define OPTIONAL_CALL(...) memgraph::query::test_common::AsOptionalCall(__VA_ARGS__)
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
 #define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)

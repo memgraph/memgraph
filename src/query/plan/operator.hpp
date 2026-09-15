@@ -3097,6 +3097,19 @@ class Foreach : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
+/// What an input row gets when its subquery branch produces no rows at all.
+enum class EmptyBranch : uint8_t {
+  /// `CALL { ... RETURN ... }` - the row is dropped, as the branch is a filter as well as a projection.
+  kDropRow,
+  /// A unit subquery (`CALL { ... }`, no RETURN) - it projects nothing, so cardinality is unchanged.
+  kPassRow,
+  /// `OPTIONAL CALL ( ... ) { ... RETURN ... }` - the row is emitted once with the branch's symbols set to null.
+  kPassRowWithNulls,
+};
+
+/// EXPLAIN spelling of @c EmptyBranch.
+std::string_view EmptyBranchName(EmptyBranch empty_branch);
+
 /// Applies symbols from both output branches.
 class Apply : public memgraph::query::plan::LogicalOperator {
  public:
@@ -3106,8 +3119,10 @@ class Apply : public memgraph::query::plan::LogicalOperator {
 
   Apply() = default;
 
+  /// @param null_symbols The symbols the branch introduces; only read for @c EmptyBranch::kPassRowWithNulls.
+  /// Empty is legitimate: a body that projects only what it imported has nothing of its own to null.
   Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-        bool subquery_has_return);
+        EmptyBranch empty_branch, std::vector<Symbol> null_symbols = {});
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -3118,9 +3133,12 @@ class Apply : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
+  std::string ToString(const DbAccessor *dba) const override;
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
-  bool subquery_has_return_;
+  EmptyBranch empty_branch_{EmptyBranch::kDropRow};
+  std::vector<Symbol> null_symbols_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -3133,11 +3151,10 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    [[maybe_unused]] const Apply &self_;
+    const Apply &self_;
     UniqueCursorPtr input_;
     UniqueCursorPtr subquery_;
     bool pull_input_{true};
-    bool subquery_has_return_{true};
   };
 };
 
@@ -3296,8 +3313,10 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
 
   PeriodicSubquery() = default;
 
+  /// @param null_symbols The symbols the branch introduces; only read for @c EmptyBranch::kPassRowWithNulls.
+  /// Empty is legitimate: a body that projects only what it imported has nothing of its own to null.
   PeriodicSubquery(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-                   Expression *commit_frequency, bool subquery_has_return);
+                   Expression *commit_frequency, EmptyBranch empty_branch, std::vector<Symbol> null_symbols = {});
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -3308,10 +3327,13 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
+  std::string ToString(const DbAccessor *dba) const override;
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
   Expression *commit_frequency_{nullptr};
-  bool subquery_has_return_;
+  EmptyBranch empty_branch_{EmptyBranch::kDropRow};
+  std::vector<Symbol> null_symbols_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };

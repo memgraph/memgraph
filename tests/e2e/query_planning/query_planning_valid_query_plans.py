@@ -20,7 +20,7 @@ QUERY_PLAN = "QUERY PLAN"
 def test_valid_plan_generation(memgraph):
     expected_explain = [
         " * Produce {0}",
-        " * Apply",
+        " * Apply (empty branch: drop row)",
         " |\\ ",
         " | * Produce {i_2}",
         " | * EdgeUniquenessFilter {anon11, anon10 : anon13}",
@@ -30,7 +30,7 @@ def test_valid_plan_generation(memgraph):
         " | * Expand (d_4)-[anon10]->(i)",
         " | * Produce {d_4, hyc_1}",
         " | * Once",
-        " * Apply",
+        " * Apply (empty branch: drop row)",
         " |\\ ",
         " | * Produce {i_1}",
         " | * EdgeUniquenessFilter {anon6, anon5 : anon8}",
