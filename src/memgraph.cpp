@@ -422,12 +422,6 @@ int main(int argc, char **argv) {
   }
 #endif
 
-#ifdef MG_ENTERPRISE
-  // Declared outside MG_PYTHON_SUPPORT so it exists when enterprise is built without Python;
-  // arm/run/stop below are each under their own #ifdef MG_ENTERPRISE.
-  std::optional<memgraph::utils::Scheduler> idle_reaper_scheduler{std::nullopt};
-#endif
-
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
 
@@ -977,6 +971,12 @@ int main(int argc, char **argv) {
       worker_pool_ ? &*worker_pool_ : nullptr);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
+#ifdef MG_ENTERPRISE
+  // Declared after interpreter_context_lifetime_control so the reaper thread is stopped/joined
+  // (via ~Scheduler -> Stop()) before the InterpreterContext is destroyed on every exit path,
+  // including early returns; reverse-order destruction of locals enforces this invariant.
+  std::optional<memgraph::utils::Scheduler> idle_reaper_scheduler{std::nullopt};
+#endif
   if (!is_coordinator_instance) {
     MG_ASSERT(db_acc.has_value(), "Failed to access the main database");
 

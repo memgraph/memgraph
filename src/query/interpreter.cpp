@@ -11538,7 +11538,9 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
         current_db_.db_acc_.has_value()) {
       auto *db = current_db_.db_acc_->get();
       const auto last_used_ns = last_activity_ns_.load(std::memory_order_relaxed);
-      if (db->name() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
+      // name_view() avoids the allocating std::string copy inside the noexcept WithReapingLock predicate
+      // (bad_alloc there would std::terminate because WithReapingLock is noexcept).
+      if (*db->name_view() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
         auto rel = current_db_.ReleaseDbAccessor();  // swapped out, NOT yet destroyed
         if (released_out) *released_out = std::move(rel);
         // else `rel` destructs at end of this scope (no collector -> same as before for unit tests)
@@ -11561,7 +11563,9 @@ bool Interpreter::TryReleaseDbAccessorForDrop(std::string_view dropped_db_name,
     if (!in_explicit_transaction_ && !current_db_.db_transactional_accessor_ && !current_db_.execution_db_accessor_ &&
         current_db_.db_acc_.has_value()) {
       auto *db = current_db_.db_acc_->get();
-      if (db->name() == dropped_db_name) {
+      // name_view() avoids the allocating std::string copy inside the noexcept WithReapingLock predicate
+      // (bad_alloc there would std::terminate because WithReapingLock is noexcept).
+      if (*db->name_view() == dropped_db_name) {
         auto rel = current_db_.ReleaseDbAccessor();  // swapped out, NOT yet destroyed
         if (released_out) *released_out = std::move(rel);
         // else `rel` destructs at end of this scope (no collector -> same as before for unit tests)
