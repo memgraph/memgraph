@@ -864,6 +864,16 @@ int main(int argc, char **argv) {
     dbms_handler.emplace(db_config);
   }
 
+#ifdef MG_ENTERPRISE
+  // Wired before the replication RPC server and the init file, either of which can drop a database:
+  // an unwired arm is an empty std::function, so the drop leaves the parameters behind for good.
+  if (dbms_handler.has_value()) {
+    dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
+      [[maybe_unused]] auto purged = parameters->DeleteScope(std::string{uuid});
+    });
+  }
+#endif
+
   memgraph::metrics::Metrics().SetStorageSnapshotResolver(
       [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
         if (!dbms_handler) return std::nullopt;

@@ -157,6 +157,15 @@ class MultiTenantTest : public ::testing::Test {
 
   auto &DBMS() { return min_mg->dbms; }
 
+  auto &Parameters() { return min_mg->parameters; }
+
+  // main() wires this arm; a test that exercises a uuid-retiring path has to wire it itself.
+  void WireParameterPurge() {
+    min_mg->dbms.SetOnUuidRetired([this](memgraph::utils::UUID const &uuid) {
+      [[maybe_unused]] auto purged = Parameters().DeleteScope(std::string{uuid});
+    });
+  }
+
   // Helper function to clean up databases before tests
   void CleanupDatabases() {
     auto interpreter = this->NewInterpreter();
@@ -328,6 +337,95 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   ASSERT_EQ(RunQuery(interpreter2, "MATCH(n) RETURN count(*)")[0][0].ValueInt(), 3);
   RunQuery(interpreter2, "COMMIT");
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
+}
+
+// Rebinding the default database's uuid retires the old one. Rows left under it are unreachable, and
+// the next recovery snapshot re-exports them to every replica.
+TEST_F(MultiTenantTest, UpdateDiscardsRetiredUuidsParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+
+  auto default_db = dbms.Get();
+  auto const old_uuid = std::string{default_db->config().salient.uuid};
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("v")", old_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("global", R"("g")", memgraph::parameters::kGlobalScope),
+            memgraph::parameters::SetParameterResult::Success);
+
+  memgraph::storage::SalientConfig const config{.name = "memgraph", .uuid = memgraph::utils::UUID{}};
+  ASSERT_TRUE(dbms.Update(config).has_value());
+  ASSERT_NE(std::string{config.uuid}, old_uuid);
+
+  EXPECT_FALSE(Parameters().GetParameter("on_default", old_uuid).has_value());
+  EXPECT_EQ(Parameters().GetParameter("global", memgraph::parameters::kGlobalScope), R"("g")");
+}
+
+// A rebind that fails must not take the parameters with it: the database keeps its uuid, so its
+// parameters are still reachable and still correct.
+TEST_F(MultiTenantTest, FailedUpdateKeepsParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+  auto interpreter = this->NewInterpreter();
+
+  auto const uuid = std::string{dbms.Get()->config().salient.uuid};
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("v")", uuid), memgraph::parameters::SetParameterResult::Success);
+
+  // Dirty the default db so the in-place rebind refuses.
+  RunQuery(interpreter, "CREATE (:Node)");
+  memgraph::storage::SalientConfig const config{.name = "memgraph", .uuid = memgraph::utils::UUID{}};
+  ASSERT_FALSE(dbms.Update(config).has_value());
+
+  EXPECT_EQ(Parameters().GetParameter("on_default", uuid), R"("v")");
+}
+
+// A forced drop retires the uuid, so its parameters go too. Every other scope stays.
+TEST_F(MultiTenantTest, ForcedDeleteDiscardsDroppedDatabasesParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+
+  auto db = dbms.New("params_db");
+  ASSERT_TRUE(db.has_value());
+  auto const db_uuid = std::string{db.value()->config().salient.uuid};
+  auto const default_uuid = std::string{dbms.Get()->config().salient.uuid};
+  db.value().reset();
+
+  ASSERT_EQ(Parameters().SetParameter("on_dropped", R"("gone")", db_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("stays")", default_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("global", R"("g")", memgraph::parameters::kGlobalScope),
+            memgraph::parameters::SetParameterResult::Success);
+
+  ASSERT_TRUE(dbms.Delete("params_db").has_value());
+
+  EXPECT_FALSE(Parameters().GetParameter("on_dropped", db_uuid).has_value());
+  EXPECT_EQ(Parameters().GetParameter("on_default", default_uuid), R"("stays")");
+  EXPECT_EQ(Parameters().GetParameter("global", memgraph::parameters::kGlobalScope), R"("g")");
+}
+
+// DROP DATABASE without FORCE takes TryDelete, a different path from the forced Delete above.
+TEST_F(MultiTenantTest, TryDeleteDiscardsDroppedDatabasesParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+
+  auto db = dbms.New("try_params_db");
+  ASSERT_TRUE(db.has_value());
+  auto const db_uuid = std::string{db.value()->config().salient.uuid};
+  auto const default_uuid = std::string{dbms.Get()->config().salient.uuid};
+  db.value().reset();
+
+  ASSERT_EQ(Parameters().SetParameter("on_dropped", R"("gone")", db_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("stays")", default_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("global", R"("g")", memgraph::parameters::kGlobalScope),
+            memgraph::parameters::SetParameterResult::Success);
+
+  ASSERT_TRUE(dbms.TryDelete("try_params_db").has_value());
+
+  EXPECT_FALSE(Parameters().GetParameter("on_dropped", db_uuid).has_value());
+  EXPECT_EQ(Parameters().GetParameter("on_default", default_uuid), R"("stays")");
+  EXPECT_EQ(Parameters().GetParameter("global", memgraph::parameters::kGlobalScope), R"("g")");
 }
 
 TEST_F(MultiTenantTest, DbmsNewDelete) {
