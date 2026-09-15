@@ -177,3 +177,48 @@ TEST_F(RepositoryTest, BufferedWritesAreNotVisibleUntilFlush) {
   ASSERT_TRUE(overlay.Flush());
   EXPECT_EQ(overlay_store_->Get("user:alice"), "data");
 }
+
+TEST_F(RepositoryTest, HasAnyDoesNotBindTheTransactionToKeysItNeverRead) {
+  // HasAny stops at the first key, so it learns only that the prefix is inhabited. Holding it to every key under
+  // the prefix would conflict a transaction against keys it was never obliged to look at.
+  overlay_store_->Put("user:one", "1");
+  overlay_store_->Put("user:two", "2");
+
+  AtomicAuthOverlay overlay{*overlay_store_};
+  Repository repo{overlay};
+  ASSERT_TRUE(repo.HasAnyUser());
+  repo.Put("user:three", "3");
+
+  EXPECT_TRUE(overlay.Flush());
+  EXPECT_TRUE(overlay_store_->Get("user:three").has_value());
+}
+
+TEST_F(RepositoryTest, HasAnyStillConflictsWhenEmptinessFlips) {
+  // The dependency HasAny does have: an empty prefix gaining a key invalidates whatever the caller concluded.
+  // This is the double-superuser race.
+  AtomicAuthOverlay overlay{*overlay_store_};
+  Repository repo{overlay};
+  ASSERT_FALSE(repo.HasAnyUser());
+  repo.Put("user:mine", "1");
+
+  overlay_store_->Put("user:theirs", "2");  // another transaction got there first
+
+  EXPECT_FALSE(overlay.Flush());
+  EXPECT_FALSE(overlay_store_->Get("user:mine").has_value());
+}
+
+TEST_F(RepositoryTest, AFullScanStillDependsOnTheWholeKeySet) {
+  // ForEachEntity runs to exhaustion, so it depends on every key; a key appearing under the prefix invalidates it,
+  // whatever order it ran in relative to a HasAny on the same prefix.
+  overlay_store_->Put("user:one", "1");
+
+  AtomicAuthOverlay overlay{*overlay_store_};
+  Repository repo{overlay};
+  ASSERT_TRUE(repo.HasAnyUser());
+  repo.ForEachUser([](auto &&...) {});
+  repo.Put("user:mine", "1");
+
+  overlay_store_->Put("user:appeared", "2");
+
+  EXPECT_FALSE(overlay.Flush());
+}
