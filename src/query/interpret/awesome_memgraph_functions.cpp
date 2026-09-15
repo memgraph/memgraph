@@ -103,6 +103,8 @@ namespace {
 // message.
 ////////////////////////////////////////////////////////////////////////////////
 
+struct Any {};
+
 struct Null {};
 
 struct Bool {};
@@ -151,7 +153,9 @@ struct Point3d {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
-  if constexpr (std::is_same_v<ArgType, Null>) {
+  if constexpr (std::is_same_v<ArgType, Any> || std::is_same_v<ArgType, void>) {
+    return true;
+  } else if constexpr (std::is_same_v<ArgType, Null>) {
     return arg.IsNull();
   } else if constexpr (std::is_same_v<ArgType, Bool>) {
     return arg.IsBool();
@@ -197,8 +201,6 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsPoint2d();
   } else if constexpr (std::is_same_v<ArgType, Point3d>) {
     return arg.IsPoint3d();
-  } else if constexpr (std::is_same_v<ArgType, void>) {
-    return true;
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -209,7 +211,9 @@ template <class ArgType>
 constexpr const char *ArgTypeName() {
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
-  if constexpr (std::is_same_v<ArgType, Null>) {
+  if constexpr (std::is_same_v<ArgType, Any>) {
+    return "any";
+  } else if constexpr (std::is_same_v<ArgType, Null>) {
     return "null";
   } else if constexpr (std::is_same_v<ArgType, Bool>) {
     return "boolean";
@@ -575,6 +579,22 @@ TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContex
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   if (args[0].IsVirtualEdge()) return TypedValue(args[0].ValueVirtualEdge().From(), ctx.memory);
   return TypedValue(args[0].ValueEdge().From(), ctx.memory);
+}
+
+TypedValue NullIf(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Any, Any>("nullIf", args, nargs);
+  // Equality, the three-valued relation `=` reads, and not equivalence: a comparison turning on a Null
+  // decides nothing, so nullIf(1, null) answers 1 and nullIf([null], [null]) answers [null].
+  try {
+    auto const equal = args[0] == args[1];
+    if (equal.IsBool() && equal.ValueBool()) return TypedValue(ctx.memory);
+  } catch (const TypedValueException &) {
+    // A pair `=` defines no equality over reaches the client as the query error `=` itself raises.
+    // Letting the TypedValueException escape would instead reach it as a transient error, which a
+    // driver is entitled to replay even though the query can never answer.
+    throw QueryRuntimeException("Invalid types: {} and {} for 'nullIf'.", args[0].type(), args[1].type());
+  }
+  return {args[0], ctx.memory};
 }
 
 namespace {
@@ -2162,6 +2182,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {kId, func_info{.func_ = Id, .is_pure_ = true}},
     {kElementId, func_info{.func_ = ElementId, .is_pure_ = true}},
     {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
+    {"NULLIF", func_info{.func_ = NullIf, .is_pure_ = true}},
     {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
     {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
     {"SIZE", func_info{.func_ = Size, .is_pure_ = true}},

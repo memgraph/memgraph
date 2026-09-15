@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
+#include <exception>
 #include <execution>
 #include <functional>
 #include <limits>
@@ -8961,6 +8962,8 @@ class CallProcedureCursor : public Cursor {
   bool stream_exhausted{true};
   bool call_initializer{false};
   std::optional<std::function<void()>> cleanup_{std::nullopt};
+  // Whether the module holds state for a stream this cursor started and has not torn down yet.
+  bool cleanup_pending_{false};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem,
@@ -9035,22 +9038,20 @@ class CallProcedureCursor : public Cursor {
       }
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
-          if (proc_->cleanup) {
-            const utils::MemoryTracker::RefusalHandledScope refusal_handled;
-            proc_->cleanup.value()();
-          }
+          RunCleanup();
           return false;
         }
         stream_exhausted = false;
+        // A reset leaves the previous row's stream live; starting a new one tears it down.
+        RunCleanup();
         if (proc_->initializer) {
           call_initializer = true;
           MG_ASSERT(proc_->cleanup);
-          const utils::MemoryTracker::RefusalHandledScope refusal_handled;
-          proc_->cleanup.value()();
         }
-      }
-      if (!cleanup_ && proc_->cleanup) [[unlikely]] {
-        cleanup_.emplace(*proc_->cleanup);
+        if (proc_->cleanup) [[unlikely]] {
+          if (!cleanup_) cleanup_.emplace(*proc_->cleanup);
+          cleanup_pending_ = true;
+        }
       }
       result_.rows.clear();
 
@@ -9124,17 +9125,54 @@ class CallProcedureCursor : public Cursor {
   void Reset() override {
     result_.rows.clear();
     result_row_it_ = result_.rows.begin();
-    if (cleanup_) {
-      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
-      cleanup_.value()();
-    }
+    // true == "no live stream, pull a fresh input row first". The interrupted stream is torn down by
+    // whichever comes first: the next Pull's cleanup, `Shutdown`, or this cursor's destructor.
+    stream_exhausted = true;
+    call_initializer = false;
+    input_cursor_->Reset();
   }
 
   void Shutdown() override {
-    if (cleanup_) {
-      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
-      cleanup_.value()();
+    // The input has to be shut down even when the module's cleanup throws, or one throwing module
+    // skips the teardown of everything below it. Both calls are sequenced here rather than guarding
+    // the second with a scope guard, because a scope guard would run the input's shutdown from a
+    // destructor while the cleanup's exception was propagating, and a throw out of a destructor
+    // during unwinding aborts the process.
+    std::exception_ptr cleanup_failure;
+    try {
+      RunCleanup();
+    } catch (...) {
+      cleanup_failure = std::current_exception();
     }
+    try {
+      input_cursor_->Shutdown();
+    } catch (...) {
+      if (!cleanup_failure) throw;
+      // Only one can be reported. Keep the cleanup's, which is the one this cursor is responsible for.
+      spdlog::warn("Ignoring a shutdown failure below '{}', which failed to clean up itself", self_->procedure_name_);
+    }
+    if (cleanup_failure) std::rethrow_exception(cleanup_failure);
+  }
+
+  // A query that ends in an exception never reaches `Shutdown`, so this is the only teardown an
+  // aborted stream gets. Destructors may not throw, and the module's cleanup is arbitrary code.
+  ~CallProcedureCursor() override {
+    try {
+      RunCleanup();
+    } catch (const std::exception &e) {
+      spdlog::warn("Ignoring an exception from the cleanup of '{}': {}", self_->procedure_name_, e.what());
+    } catch (...) {
+      spdlog::warn("Ignoring an unknown exception from the cleanup of '{}'", self_->procedure_name_);
+    }
+  }
+
+ private:
+  // Runs the module's cleanup if a stream is live, at most once per stream.
+  void RunCleanup() {
+    if (!cleanup_pending_) return;
+    cleanup_pending_ = false;
+    const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    cleanup_.value()();
   }
 };
 

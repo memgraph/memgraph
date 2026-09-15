@@ -115,7 +115,11 @@ class Cursor {
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
 
-  /// Perform cleanup which may throw an exception
+  /// Releases whatever the cursor acquired while iterating, and may throw to report a failure doing
+  /// so. Only a query that runs to completion reaches this; every failure, rollback and teardown path
+  /// destroys the cursor without it. A cursor holding an obligation that must be met on every path
+  /// has to meet it in its destructor, where throwing is not allowed, and treat this as the earlier
+  /// opportunity that can still report.
   virtual void Shutdown() = 0;
 
   virtual ~Cursor() = default;

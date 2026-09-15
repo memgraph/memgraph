@@ -23,6 +23,7 @@
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/concepts.hpp"
@@ -1428,7 +1429,14 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
 
 void CallPythonCleanup(const py::Object &py_cleanup) {
   auto gil = py::EnsureGIL();
-  auto py_res = py_cleanup.Call();
+  const auto py_res = py_cleanup.Call();
+  if (py_res) return;
+  // A cleanup runs while the query that started the stream is already finishing, so there is nothing
+  // left to report a failure to. The error still has to be taken off the thread: left set, it is
+  // found by whichever unrelated Python call runs next, which then fails instead of this one.
+  const auto exc_info = py::FetchError();
+  spdlog::warn("Ignoring an exception from a query module's cleanup: {}",
+               exc_info ? py::FormatException(*exc_info) : std::string{"unknown error"});
 }
 
 void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {

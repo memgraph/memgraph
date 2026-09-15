@@ -944,6 +944,7 @@ void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
 void NonConcurrentOutputFile::EnableWritebackPacing(size_t window_bytes, PageCachePolicy completed_window) {
   pacing_window_ = window_bytes;
   pacing_completed_window_ = completed_window;
+  pacing_windows_completed_ = 0;
   RestartPacing(0);
 }
 
@@ -1029,6 +1030,7 @@ void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
   // exceeds the device's request queue. That is the trade pacing exists to make: this writer waits
   // instead of every writer on the machine waiting at `dirty_ratio`.
   if (!sync_range(pacing_pending_start_, pending_len, SYNC_FILE_RANGE_WRITE)) return;
+  ++pacing_windows_completed_;
 
   if (pacing_prev_len_ != 0) {
     if (!sync_range(pacing_prev_start_, pacing_prev_len_, SYNC_FILE_RANGE_WAIT_BEFORE)) return;
