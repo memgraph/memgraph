@@ -691,7 +691,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.list_collection_branch_);
+    // The edge half of a branch inherits the same row the vertex half does, or a comprehension would seek
+    // on a node property and still scan every edge of the type. A deferred fold's bare Once inherits
+    // nothing, which is what that shape needs.
+    RewriteBranch(&op.list_collection_branch_, InheritedFor(op));
     return false;
   }
 
