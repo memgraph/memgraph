@@ -35,6 +35,20 @@ if(CCACHE_PROGRAM)
         ${CCACHE_PROGRAM})
     set(CMAKE_C_COMPILER_LAUNCHER   ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
     set(CMAKE_CXX_COMPILER_LAUNCHER ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
+
+    # A compiled module interface records the path of its source and of every
+    # file it read, and -ffile-prefix-map does not reach those. Sharing an entry
+    # between checkouts then hands one checkout an interface naming another's
+    # files, which a compile that has to quote the module's source reports as a
+    # missing file, or renders from the wrong checkout where that one still
+    # exists. Recording the paths relative to the working directory makes the
+    # interface mean the same thing in whichever checkout reads it. It takes
+    # effect because base_dir has already rewritten the source path given to the
+    # compiler, and so belongs with the sharing it protects.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        add_compile_options(
+            "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fmodule-file-home-is-cwd>")
+    endif()
 endif()
 
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
