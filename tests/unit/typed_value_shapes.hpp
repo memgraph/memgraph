@@ -46,6 +46,15 @@ inline constexpr std::array kUnshapedTypedValueTypes{
     query::TypedValue::Type::VirtualNode,
 };
 
+/// The types whose values hold a piece of the graph, so an accessor has to make
+/// them and a test with no database reaches every type but these.
+inline constexpr std::array kGraphTypedValueTypes{
+    query::TypedValue::Type::Vertex,
+    query::TypedValue::Type::Edge,
+    query::TypedValue::Type::Path,
+    query::TypedValue::Type::Graph,
+};
+
 /// Whether a NaN sits anywhere in the value, at the top or below it. A test
 /// that checks a copy is the same value needs one a relation can decide against
 /// itself, and neither equality nor equivalence decides a NaN.

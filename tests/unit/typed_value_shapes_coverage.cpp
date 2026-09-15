@@ -71,17 +71,14 @@ TEST_F(TypedValueShapes, TheTypesThatNeedTheGraphAreTheOnlyOnesAnAccessorAdds) {
     auto const without = shapes::ShapesOfType(type, nullptr);
     auto const with = shapes::ShapesOfType(type, &dba_);
 
-    switch (type) {
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::Path:
-      case TypedValue::Type::Graph:
-        EXPECT_TRUE(without.empty()) << "type " << static_cast<unsigned>(type) << " made a value with no accessor";
-        EXPECT_FALSE(with.empty());
-        break;
-      default:
-        EXPECT_EQ(without.size(), with.size())
-            << "type " << static_cast<unsigned>(type) << " reads the accessor it does not need";
+    auto const needs_the_graph =
+        std::ranges::find(shapes::kGraphTypedValueTypes, type) != shapes::kGraphTypedValueTypes.end();
+    if (needs_the_graph) {
+      EXPECT_TRUE(without.empty()) << "type " << static_cast<unsigned>(type) << " made a value with no accessor";
+      EXPECT_FALSE(with.empty());
+    } else {
+      EXPECT_EQ(without.size(), with.size())
+          << "type " << static_cast<unsigned>(type) << " reads the accessor it does not need";
     }
   }
 }
