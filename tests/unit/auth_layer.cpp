@@ -290,3 +290,18 @@ TEST_F(AuthLayerTest, AConflictingCommitLeavesTheSystemTransactionEmpty) {
   EXPECT_FALSE(layer_->Commit(tx, &*system_tx));
   EXPECT_FALSE(tx.pending_actions().empty()) << "a conflicted transaction must keep its actions undrained";
 }
+
+TEST_F(AuthLayerTest, AReadGuardKeepsTheOverlayInstalled) {
+  // ReadLock moves its ScopedOverlay into a variant. A defaulted move would leave the source's saved storage
+  // engaged, so the temporary's destructor would restore durable storage while the surviving guard still reads
+  // through it, and every transactional read would silently miss the transaction's own writes.
+  memgraph::auth::AuthTransaction tx;
+  {
+    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+  }
+  {
+    auto reader = layer_->ReadLock(&tx);
+    EXPECT_TRUE(reader->GetUser("alice").has_value()) << "read guard lost the overlay";
+  }
+  EXPECT_FALSE(layer_->Lock()->HasUser("alice")) << "the write escaped the transaction";
+}
