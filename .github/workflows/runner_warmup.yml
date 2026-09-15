@@ -21,7 +21,7 @@ run-name: Runner Cache Warmup
 
 jobs:
   cache-warmup:
-    if: ${{ inputs.runner != "" }}
+    if: ${{ inputs.runner != '' }}
     runs-on: [self-hosted, Linux, '${{ inputs.runner }}']
     timeout-minutes: 180
     steps:
