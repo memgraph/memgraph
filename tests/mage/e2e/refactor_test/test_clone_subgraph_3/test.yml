@@ -8,22 +8,22 @@ query: >
 output:
   - output:
         labels:
-          - Person
+          - Ana
         properties:
-          id: 6
-          name: person6
+          id: 0
+          name: Ana
+  - output:
+        labels:
+          - Marija
+        properties:
+          id: 1
+          name: Marija
   - output:
         labels:
           - Person
         properties:
-          id: 5
-          name: person5
-  - output:
-        labels:
-          - Person
-        properties:
-          id: 4
-          name: person4
+          id: 2
+          name: person2
   - output:
         labels:
           - Person
@@ -34,17 +34,17 @@ output:
         labels:
           - Person
         properties:
-          id: 2
-          name: person2
+          id: 4
+          name: person4
   - output:
         labels:
-          - Marija
+          - Person
         properties:
-          id: 1
-          name: Marija
+          id: 5
+          name: person5
   - output:
         labels:
-          - Ana
+          - Person
         properties:
-          id: 0
-          name: Ana
+          id: 6
+          name: person6
