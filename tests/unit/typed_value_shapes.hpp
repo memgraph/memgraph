@@ -46,6 +46,11 @@ inline constexpr std::array kUnshapedTypedValueTypes{
     query::TypedValue::Type::VirtualNode,
 };
 
+/// Whether a NaN sits anywhere in the value, at the top or below it. A test
+/// that checks a copy is the same value needs one a relation can decide against
+/// itself, and neither equality nor equivalence decides a NaN.
+bool HoldsANaN(query::TypedValue const &value);
+
 /// The shapes of one type. A vertex, an edge, a path and a graph are made
 /// through the accessor, so without one those types have no shapes.
 auto ShapesOfType(query::TypedValue::Type type, query::DbAccessor *dba) -> std::vector<query::TypedValue>;

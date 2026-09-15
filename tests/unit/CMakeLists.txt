@@ -387,7 +387,7 @@ add_unit_test(stripped
 
 add_unit_test(typed_value
     SOURCES typed_value.cpp
-    LINK_TARGETS mg-query disk_test_utils
+    LINK_TARGETS mg-query disk_test_utils typed_value_shapes
 )
 
 add_unit_test(query_relations
