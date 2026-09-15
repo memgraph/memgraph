@@ -26,6 +26,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/graph.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
@@ -2278,6 +2279,95 @@ TYPED_TEST(FunctionTest, Last) {
   argument.ValueList().clear();
   ASSERT_TRUE(this->EvaluateFunction("LAST", argument).IsNull());
   ASSERT_THROW(this->EvaluateFunction("LAST", 5), QueryRuntimeException);
+}
+
+TYPED_TEST(FunctionTest, NullIf) {
+  ASSERT_THROW(this->EvaluateFunction("NULLIF"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("NULLIF", 1), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("NULLIF", 1, 2, 3), QueryRuntimeException);
+
+  // Equal arguments are taken away, unequal ones leave the first standing.
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", 1, 1).IsNull());
+  ASSERT_EQ(this->EvaluateFunction("NULLIF", 1, 2).ValueInt(), 1);
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", "abc", "abc").IsNull());
+  ASSERT_EQ(this->EvaluateFunction("NULLIF", "abc", "def").ValueString(), "abc");
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", true, true).IsNull());
+  ASSERT_FALSE(this->EvaluateFunction("NULLIF", false, true).ValueBool());
+
+  // An integer and a float of the same value are equal, so either order is taken away.
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", 1, 1.0).IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", 1.0, 1).IsNull());
+
+  // Two different types are unequal rather than an error.
+  ASSERT_EQ(this->EvaluateFunction("NULLIF", 1, "1").ValueInt(), 1);
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", true, 1).ValueBool());
+
+  // A Null decides nothing, so the first argument stands whatever it is.
+  ASSERT_EQ(this->EvaluateFunction("NULLIF", 1, TypedValue()).ValueInt(), 1);
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", TypedValue(), 1).IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", TypedValue(), TypedValue()).IsNull());
+
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", MakeTypedValueList(1, 2), MakeTypedValueList(1, 2)).IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", MakeTypedValueList(), MakeTypedValueList()).IsNull());
+  CompareList(this->EvaluateFunction("NULLIF", MakeTypedValueList(1, 2), MakeTypedValueList(1, 3)),
+              MakeTypedValueList(1, 2));
+  // A list is not equal to the scalar it holds, so the scalar stands.
+  ASSERT_EQ(this->EvaluateFunction("NULLIF", 2, MakeTypedValueList(2)).ValueInt(), 2);
+
+  // nullIf reads equality, and not equivalence. The two relations answer differently for exactly one
+  // shape -- a container holding a Null -- so it is the only thing that can pin which one is read.
+  // Equivalence, the relation DISTINCT and grouping are keyed by, holds this pair the same value:
+  auto null_element = MakeTypedValueList(TypedValue());
+  ASSERT_TRUE(TypedValue::BoolEqual{}(null_element, MakeTypedValueList(TypedValue())));
+  // Equality leaves it undecided instead, and that is the answer nullIf follows, so the list stands.
+  // Reading equivalence here would answer Null. See TypedValue.EqualityOfAContainerHoldingNullIsUndecided.
+  CompareList(this->EvaluateFunction("NULLIF", null_element, MakeTypedValueList(TypedValue())), null_element);
+  auto trailing_null = MakeTypedValueList(1, TypedValue());
+  CompareList(this->EvaluateFunction("NULLIF", trailing_null, MakeTypedValueList(1, TypedValue())), trailing_null);
+  CompareList(this->EvaluateFunction("NULLIF", MakeTypedValueList(1), MakeTypedValueList(TypedValue())),
+              MakeTypedValueList(1));
+  // A pair decided unequal settles the comparison, and unequal leaves the list standing all the same.
+  CompareList(
+      this->EvaluateFunction("NULLIF", MakeTypedValueList(1, TypedValue()), MakeTypedValueList(2, TypedValue())),
+      MakeTypedValueList(1, TypedValue()));
+
+  // A map holding a Null is the same story.
+  auto null_valued = TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue()}});
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", null_valued, null_valued).IsMap());
+  auto one_valued = TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}});
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", one_valued, one_valued).IsNull());
+
+  // A NaN is not equal to itself, so it is never taken away.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  ASSERT_TRUE(std::isnan(this->EvaluateFunction("NULLIF", nan, nan).ValueDouble()));
+
+  // Durations follow the same equality the `=` operator reads.
+  const memgraph::utils::Duration one_day({1, 0, 0, 0, 0, 0});
+  const memgraph::utils::Duration one_hour({0, 1, 0, 0, 0, 0});
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", TypedValue(one_day), TypedValue(one_day)).IsNull());
+  ASSERT_EQ(this->EvaluateFunction("NULLIF", TypedValue(one_day), TypedValue(one_hour)).ValueDuration(), one_day);
+
+  // Nodes compare by identity, so two nodes carrying the same property are still unequal.
+  auto first = this->dba.InsertVertex();
+  auto second = this->dba.InsertVertex();
+  auto const prop = this->dba.NameToProperty("p");
+  ASSERT_TRUE(first.SetProperty(prop, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(second.SetProperty(prop, memgraph::storage::PropertyValue(1)).has_value());
+  this->dba.AdvanceCommand();
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", TypedValue(first), TypedValue(first)).IsNull());
+  ASSERT_EQ(this->EvaluateFunction("NULLIF", TypedValue(first), TypedValue(second)).ValueVertex(), first);
+
+  // A pair no equality is defined over is an error here exactly as it is for `=`, which means the
+  // same class of error: a query error the client is told is its own, and not one the driver may
+  // replay. A graph against some other type never reaches that comparison, since differing types
+  // are unequal first.
+  auto graph = TypedValue(memgraph::query::Graph(memgraph::utils::NewDeleteResource()));
+  auto other_graph = TypedValue(memgraph::query::Graph(memgraph::utils::NewDeleteResource()));
+  auto const graph_pair = this->ExpressionsFromTypedValues({graph, other_graph});
+  ASSERT_THROW(this->Eval(this->storage.template Create<EqualOperator>(graph_pair[0], graph_pair[1])),
+               QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("NULLIF", graph, other_graph), QueryRuntimeException);
+  ASSERT_TRUE(this->EvaluateFunction("NULLIF", graph, 1).IsGraph());
 }
 
 TYPED_TEST(FunctionTest, Size) {
