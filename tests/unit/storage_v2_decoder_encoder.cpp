@@ -10,9 +10,14 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <zlib.h>
 
+#include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <limits>
+#include <memory>
+#include <vector>
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -39,6 +44,19 @@ class DecoderEncoderTest : public ::testing::Test {
   std::filesystem::path alternate_file{std::filesystem::temp_directory_path() /
                                        "MG_test_unit_storage_v2_decoder_encoder_alternate.bin"};
 
+  void ExpectBytes(const std::vector<uint8_t> &expected) {
+    memgraph::utils::InputFile file;
+    ASSERT_TRUE(file.Open(storage_file));
+    ASSERT_EQ(file.GetSize(), expected.size());
+    std::vector<uint8_t> actual(expected.size());
+    ASSERT_TRUE(file.Read(actual.data(), actual.size()));
+    EXPECT_EQ(actual, expected);
+  }
+
+  static uint32_t ExpectedCrc(const std::vector<uint8_t> &bytes) {
+    return crc32(0, bytes.data(), static_cast<uInt>(bytes.size()));
+  }
+
  private:
   void Clear() {
     if (std::filesystem::exists(this->storage_file)) {
@@ -52,6 +70,164 @@ class DecoderEncoderTest : public ::testing::Test {
 
 using FileTypes = testing::Types<memgraph::utils::OutputFile, memgraph::utils::NonConcurrentOutputFile>;
 TYPED_TEST_SUITE(DecoderEncoderTest, FileTypes);
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DecoderEncoderTest, StagedCapacityAndBypass) {
+  memgraph::storage::durability::Encoder<TypeParam> encoder;
+  ASSERT_TRUE(encoder.Initialize(this->storage_file));
+  std::vector<uint8_t> expected(8192, 0x11);
+  expected.insert(expected.end(), 8192, 0x22);
+  encoder.Write(expected.data(), 8192);
+  encoder.Write(expected.data() + 8192, 8192);  // Exactly one full stage.
+  EXPECT_EQ(encoder.GetPosition(), 16384);
+  EXPECT_EQ(encoder.GetSize(), 16384);
+  EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(expected));
+  const std::vector<uint8_t> prefix{0x33}, payload(8193, 0x44), suffix{0x55, 0x66};
+  encoder.Write(prefix.data(), prefix.size());  // Overflow leaves a new staged prefix.
+  EXPECT_EQ(encoder.GetPosition(), expected.size() + prefix.size());
+  EXPECT_EQ(encoder.GetSize(), expected.size() + prefix.size());
+  encoder.Write(payload.data(), payload.size());
+  EXPECT_EQ(encoder.GetPosition(), expected.size() + prefix.size() + payload.size());
+  EXPECT_EQ(encoder.GetSize(), expected.size() + prefix.size() + payload.size());
+  encoder.Write(suffix.data(), suffix.size());
+  expected.insert(expected.end(), prefix.begin(), prefix.end());
+  expected.insert(expected.end(), payload.begin(), payload.end());
+  expected.insert(expected.end(), suffix.begin(), suffix.end());
+  EXPECT_EQ(encoder.GetPosition(), expected.size());
+  EXPECT_EQ(encoder.GetSize(), expected.size());
+  EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(expected));
+  encoder.Finalize();
+  this->ExpectBytes(expected);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DecoderEncoderTest, StagedCrcAndEmptyWrites) {
+  memgraph::storage::durability::Encoder<TypeParam> encoder;
+  ASSERT_TRUE(encoder.Initialize(this->storage_file));
+  std::vector<uint8_t> expected{0x12, 0x34, 0x56};
+  encoder.Write(expected.data(), expected.size());
+  encoder.Sync();  // Give empty writes a nonzero accumulated CRC to preserve.
+  encoder.Write(nullptr, 0);
+  encoder.Write(expected.data(), 0);
+  EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(expected));
+  encoder.WriteString(std::string_view{});
+  expected.push_back(static_cast<uint8_t>(memgraph::storage::durability::Marker::TYPE_STRING));
+  expected.insert(expected.end(), sizeof(uint64_t), 0);
+  for (int i = 0; i < 3; ++i) EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(expected));
+  expected.push_back(static_cast<uint8_t>(memgraph::storage::durability::Marker::TYPE_INT));
+  const uint64_t crc = this->ExpectedCrc(expected);
+  EXPECT_EQ(encoder.WriteCrc(), crc);
+  for (unsigned i = 0; i < sizeof(crc); ++i) expected.push_back(static_cast<uint8_t>(crc >> (8 * i)));
+  EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(expected));
+  EXPECT_EQ(encoder.GetPosition(), expected.size());
+  encoder.Finalize();
+  this->ExpectBytes(expected);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DecoderEncoderTest, StagedResetCrc) {
+  memgraph::storage::durability::Encoder<TypeParam> encoder;
+  ASSERT_TRUE(encoder.Initialize(this->storage_file));
+  const std::vector<uint8_t> prefix{1, 2, 3}, suffix{4, 5};
+  encoder.Write(prefix.data(), prefix.size());
+  encoder.ResetCrcAcc();
+  EXPECT_EQ(encoder.CrcAccValue(), 0);
+  encoder.Write(suffix.data(), suffix.size());
+  EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(suffix));
+  encoder.Finalize();
+  EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(suffix));
+  this->ExpectBytes({1, 2, 3, 4, 5});
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DecoderEncoderTest, StagedSeekAndCrcPatch) {
+  memgraph::storage::durability::Encoder<TypeParam> encoder;
+  ASSERT_TRUE(encoder.Initialize(this->storage_file));
+  std::vector<uint8_t> expected(32, 0x55);
+  auto accumulated = expected;
+  encoder.Write(expected.data(), expected.size());
+  constexpr uint64_t patch_crc = 0x12345678;
+  std::vector<uint8_t> patch{static_cast<uint8_t>(memgraph::storage::durability::Marker::TYPE_INT)};
+  for (unsigned i = 0; i < sizeof(patch_crc); ++i) patch.push_back(static_cast<uint8_t>(patch_crc >> (8 * i)));
+  encoder.WriteCrcAt(3, patch_crc);
+  std::copy(patch.begin(), patch.end(), expected.begin() + 3);
+  accumulated.insert(accumulated.end(), patch.begin(), patch.end());
+  EXPECT_EQ(encoder.GetPosition(), 12);
+  EXPECT_EQ(encoder.GetSize(), 32);
+  EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(accumulated));  // Write order, including overwritten bytes.
+  const std::vector<uint8_t> suffix{0xaa, 0xbb, 0xcc};
+  encoder.SetPosition(31);
+  encoder.Write(suffix.data(), suffix.size());
+  expected.resize(31);
+  expected.insert(expected.end(), suffix.begin(), suffix.end());
+  accumulated.insert(accumulated.end(), suffix.begin(), suffix.end());
+  EXPECT_EQ(encoder.GetPosition(), 34);
+  EXPECT_EQ(encoder.GetSize(), 34);
+  EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(accumulated));
+  encoder.Finalize();
+  this->ExpectBytes(expected);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DecoderEncoderTest, StagedCompletion) {
+  const std::vector<uint8_t> expected{1, 3, 5, 7};
+  for (int completion = 0; completion < 4; ++completion) {
+    SCOPED_TRACE(completion);  // Sync, Close, Finalize, then destructor alone.
+    std::filesystem::remove(this->storage_file);
+    {
+      memgraph::storage::durability::Encoder<TypeParam> encoder;
+      ASSERT_TRUE(encoder.Initialize(this->storage_file));
+      encoder.Write(expected.data(), expected.size());
+      EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(expected));
+      switch (completion) {
+        case 0:
+          encoder.Sync();
+          break;
+        case 1:
+          encoder.Close();
+          break;
+        case 2:
+          encoder.Finalize();
+          break;
+      }
+      if (completion != 3) this->ExpectBytes(expected);
+    }
+    this->ExpectBytes(expected);
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DecoderEncoderTest, StagedFileVisibility) {
+  memgraph::storage::durability::Encoder<TypeParam> encoder;
+  ASSERT_TRUE(encoder.Initialize(this->storage_file));
+  const std::vector<uint8_t> prefix{1, 2, 3}, suffix{4, 5};
+  encoder.Write(prefix.data(), prefix.size());
+  if constexpr (std::same_as<TypeParam, memgraph::utils::OutputFile>) {
+    encoder.DisableFlushing();
+    encoder.Write(suffix.data(), suffix.size());
+    const auto [data, size] = encoder.CurrentFileBuffer();
+    EXPECT_EQ(size, prefix.size());
+    EXPECT_EQ(std::vector<uint8_t>(data, data + size), prefix);
+    EXPECT_EQ(encoder.GetPosition(), prefix.size() + suffix.size());
+    encoder.EnableFlushing();
+    encoder.TryFlushing();
+    this->ExpectBytes({1, 2, 3, 4, 5});
+  } else {
+    const auto source = std::unique_ptr<FILE, decltype(&std::fclose)>{
+        std::fopen(this->alternate_file.c_str(), "w+b"), &std::fclose};
+    ASSERT_NE(source, nullptr);
+    ASSERT_EQ(std::fwrite(suffix.data(), 1, suffix.size(), source.get()), suffix.size());
+    ASSERT_EQ(std::fflush(source.get()), 0);
+    const auto appended = encoder.AppendFrom(::fileno(source.get()), suffix.size());
+    ASSERT_TRUE(appended);
+    EXPECT_EQ(*appended, suffix.size());
+    EXPECT_EQ(encoder.GetPosition(), prefix.size() + suffix.size());
+    EXPECT_EQ(encoder.GetSize(), prefix.size() + suffix.size());
+    EXPECT_EQ(encoder.CrcAccValue(), this->ExpectedCrc(prefix));  // AppendFrom does not accumulate copied bytes.
+    encoder.Finalize();
+    this->ExpectBytes({1, 2, 3, 4, 5});
+  }
+}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DecoderEncoderTest, ReadMarker) {

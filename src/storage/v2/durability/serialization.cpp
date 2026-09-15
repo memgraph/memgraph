@@ -13,6 +13,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 
 #include "storage/v2/durability/marker.hpp"
@@ -69,16 +70,35 @@ bool Encoder<FileType>::OpenExisting(const std::filesystem::path &path) {
 template <typename FileType>
 void Encoder<FileType>::Close() {
   if (file_.IsOpen()) {
+    DrainStage();
     file_.Close();
   }
 }
 
 template <typename FileType>
+void Encoder<FileType>::DrainStage() {
+  if (staged_ == 0) return;
+  file_.Write(stage_.data(), staged_);
+  crc_acc.Update(stage_.data(), static_cast<uint32_t>(staged_));
+  staged_ = 0;
+}
+
+template <typename FileType>
 void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
-  file_.Write(data, size);
+  // Also prevents a null empty view from resetting the running CRC: crc32(c, NULL, 0) returns 0.
+  if (size == 0) return;
   logical_position_ += size;
   logical_size_ = std::max(logical_size_, logical_position_);
-  crc_acc.Update(data, size);
+  if (size > kStageCapacity / 2) {
+    // Large payloads go straight through, after whatever precedes them in the stream.
+    DrainStage();
+    file_.Write(data, size);
+    crc_acc.Update(data, static_cast<uint32_t>(size));
+    return;
+  }
+  if (staged_ + size > kStageCapacity) DrainStage();
+  memcpy(stage_.data() + staged_, data, size);
+  staged_ += size;
 }
 
 template <typename FileType>
@@ -297,6 +317,7 @@ template <typename FileType>
 std::optional<uint64_t> Encoder<FileType>::AppendFrom(int src_fd, uint64_t size)
   requires std::same_as<FileType, utils::NonConcurrentOutputFile>
 {
+  DrainStage();
   auto const appended = file_.AppendFrom(src_fd, size);
   if (appended) {
     logical_position_ += *appended;
@@ -307,16 +328,19 @@ std::optional<uint64_t> Encoder<FileType>::AppendFrom(int src_fd, uint64_t size)
 
 template <typename FileType>
 void Encoder<FileType>::SetPosition(uint64_t position) {
+  DrainStage();
   logical_position_ = file_.SetPosition(FileType::Position::SET, position);
 }
 
 template <typename FileType>
 void Encoder<FileType>::Sync() {
+  DrainStage();
   file_.Sync();
 }
 
 template <typename FileType>
 void Encoder<FileType>::Finalize(utils::PageCachePolicy page_cache) {
+  DrainStage();
   file_.Sync();
   // After the sync every page is clean, which is the only state in which dropping them works.
   if (page_cache == utils::PageCachePolicy::kDrop) file_.DropCachedPages();
@@ -327,6 +351,8 @@ template <typename FileType>
 void Encoder<FileType>::DisableFlushing()
   requires std::same_as<FileType, utils::OutputFile>
 {
+  // A reader that pins the buffer must see everything written so far.
+  DrainStage();
   file_.DisableFlushing();
 }
 
@@ -341,11 +367,15 @@ template <typename FileType>
 void Encoder<FileType>::TryFlushing()
   requires std::same_as<FileType, utils::OutputFile>
 {
+  // The drain is an ordinary file write and waits on the flush lock like every fragment did
+  // before staging; only the flush of the file layer's buffer below is best effort.
+  DrainStage();
   file_.TryFlushing();
 }
 
 template <typename FileType>
 std::pair<const uint8_t *, size_t> Encoder<FileType>::CurrentFileBuffer() const {
+  // Exposes the file layer's buffer, which is what pinning freezes.
   return file_.CurrentBuffer();
 }
 
