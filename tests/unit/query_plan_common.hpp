@@ -33,7 +33,7 @@
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
-using Bound = ScanAllByEdgeTypePropertyRange::Bound;
+using Bound = memgraph::utils::Bound<memgraph::query::Expression *>;
 
 inline memgraph::metrics::DatabaseMetricHandles &TestMetricHandles() {
   static memgraph::metrics::DatabaseMetricHandles h;

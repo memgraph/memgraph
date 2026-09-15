@@ -77,7 +77,7 @@ def test_scan_all_by_edge_type_property_value_index_plan(memgraph):
 
     expected_explain = [
         " * Produce {prop}",
-        " * ScanAllByEdgeTypePropertyValue (n)-[r:TYPE {prop}]->(m)",
+        " * ScanAllByEdgeTypeProperty (n)-[r:TYPE {prop}]->(m)",
         " * Once",
     ]
     expected_results = {2}
@@ -96,7 +96,7 @@ def test_scan_all_by_edge_type_property_range_index_plan(memgraph):
 
     expected_explain = [
         " * Produce {prop}",
-        " * ScanAllByEdgeTypePropertyRange (n)-[r:TYPE {prop}]->(m)",
+        " * ScanAllByEdgeTypeProperty (n)-[r:TYPE {prop}]->(m)",
         " * Once",
     ]
     expected_results = {2}
@@ -118,9 +118,9 @@ def test_scan_all_by_edge_type_property_range_cartesian_index_plan(memgraph):
         " * EdgeUniquenessFilter {b : r}",
         " * Cartesian {n, m, r : b, a, c}",
         " |\\ ",
-        " | * ScanAllByEdgeTypePropertyValue (a)-[b:TYPE {prop}]->(c)",
+        " | * ScanAllByEdgeTypeProperty (a)-[b:TYPE {prop}]->(c)",
         " | * Once",
-        " * ScanAllByEdgeTypePropertyValue (n)-[r:TYPE {prop}]->(m)",
+        " * ScanAllByEdgeTypeProperty (n)-[r:TYPE {prop}]->(m)",
         " * Once",
     ]
     expected_results = {(1, 2)}
