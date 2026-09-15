@@ -149,12 +149,21 @@ class AuthLayer {
     return SharedOrOverlay{Lock(tx)};
   }
 
-  /// Flush the transaction under the write lock. Returns false on conflict, leaving durable storage untouched.
-  /// On success the epoch moves once, invalidating every session's cached permissions.
-  [[nodiscard]] bool Commit(AuthTransaction &tx) {
+  /// Flush the transaction under the write lock. Returns false on conflict, leaving durable storage untouched and
+  /// `system_tx` empty for the caller to abort. On success the epoch moves once, invalidating every session's
+  /// cached permissions, and the collected replication actions move into `system_tx`.
+  ///
+  /// The caller owns `system_tx`: creating it here would mean holding the system mutex for the transaction's whole
+  /// life, which is what the overlay exists to avoid, and committing it needs a replication handler this layer has
+  /// no business knowing.
+  [[nodiscard]] bool Commit(AuthTransaction &tx, system::Transaction *system_tx) {
     auto locked = auth_->Lock();
     if (tx.overlay_ && !tx.overlay_->Flush()) return false;
     locked->UpdateEpoch();
+    if (system_tx) {
+      for (auto &action : tx.pending_actions_) system_tx->AddAction(std::move(action));
+    }
+    tx.pending_actions_.clear();
 #ifdef MG_ENTERPRISE
     for (auto const &username : tx.dropped_users_) locked->ReleaseUserResources(username);
     tx.dropped_users_.clear();
