@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 
 #include "query/graph.hpp"
 #include "query/path.hpp"
@@ -150,6 +151,24 @@ auto Durations() -> std::vector<TypedValue> {
 }
 
 }  // namespace
+
+bool HoldsANaN(TypedValue const &value) {
+  switch (value.type()) {
+    case TypedValue::Type::Double:
+      return std::isnan(value.ValueDouble());
+    case TypedValue::Type::List:
+      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return HoldsANaN(element); });
+    case TypedValue::Type::Map:
+      return std::ranges::any_of(value.ValueMap(), [](auto const &entry) { return HoldsANaN(entry.second); });
+    case TypedValue::Type::Point2d:
+      return std::isnan(value.ValuePoint2d().x()) || std::isnan(value.ValuePoint2d().y());
+    case TypedValue::Type::Point3d:
+      return std::isnan(value.ValuePoint3d().x()) || std::isnan(value.ValuePoint3d().y()) ||
+             std::isnan(value.ValuePoint3d().z());
+    default:
+      return false;
+  }
+}
 
 auto ShapesOfType(TypedValue::Type type, query::DbAccessor *dba) -> std::vector<TypedValue> {
   switch (type) {
