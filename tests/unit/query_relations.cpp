@@ -487,6 +487,34 @@ TEST(Equivalence, HoldsANaNEquivalentToItself) {
   EXPECT_TRUE(equivalence::Equivalent(ListOf({ListOf({nan})}), ListOf({ListOf({nan})})));
 }
 
+TEST(Equivalence, HoldsAPointHoldingANaNEquivalentToItself) {
+  // A point holds its coordinates as doubles and compares them together, so one
+  // holding a NaN is no more equal to itself than the NaN is. Storage reads a
+  // point when it asks whether a value equals itself, and the two layers spell
+  // that question separately, so each has to answer it the same way.
+  auto const nan = std::nan("");
+  auto const flat = TypedValue(Point2d{Cartesian_2d, 1.0, nan});
+  auto const solid = TypedValue(Point3d{Cartesian_3d, 1.0, 2.0, nan});
+
+  EXPECT_FALSE(equality::EqualsItself(flat));
+  EXPECT_FALSE(equality::EqualsItself(solid));
+
+  EXPECT_TRUE(equivalence::Equivalent(flat, flat));
+  EXPECT_TRUE(equivalence::Equivalent(solid, solid));
+  EXPECT_TRUE(equivalence::Equivalent(ListOf({flat}), ListOf({flat})));
+  EXPECT_EQ(equivalence::Hash(flat), equivalence::Hash(TypedValue(Point2d{Cartesian_2d, 1.0, -nan})));
+}
+
+TEST(Equivalence, HoldsAPointHoldingANaNEquivalentToNoOther) {
+  auto const nan = std::nan("");
+  auto const flat = TypedValue(Point2d{Cartesian_2d, 1.0, nan});
+
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{Cartesian_2d, 1.0, 2.0})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{Cartesian_2d, 2.0, nan})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{WGS84_2d, 1.0, nan})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point3d{Cartesian_3d, 1.0, nan, 3.0})));
+}
+
 TEST(Equivalence, HoldsANaNEquivalentToNoOtherNumber) {
   auto const nan = TypedValue(std::nan(""));
   EXPECT_FALSE(equivalence::Equivalent(nan, TypedValue(1.0)));
