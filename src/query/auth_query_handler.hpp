@@ -54,6 +54,11 @@ class AuthQueryHandler {
   /// the previously bound one. Prefer the ScopedTransaction guard below to calling this directly.
   virtual auth::AuthTransaction *BindTransaction(auth::AuthTransaction *tx) = 0;
 
+  /// Flush an auth transaction, moving its replication actions into `system_tx` for the caller to commit. Returns
+  /// false on conflict, leaving durable storage untouched. Takes the transaction explicitly rather than using the
+  /// bound one, because no query is in flight at COMMIT.
+  [[nodiscard]] virtual bool CommitTransaction(auth::AuthTransaction &tx, system::Transaction *system_tx) = 0;
+
   /// Binds an auth transaction for as long as it lives. Pass nullptr outside an auth transaction.
   class [[nodiscard]] ScopedTransaction {
    public:
