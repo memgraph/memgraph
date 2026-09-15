@@ -33,6 +33,7 @@
 #include <unordered_map>
 
 class CypherMainVisitorTest;
+class ProcedureTeardownTest;
 
 namespace memgraph::query::procedure {
 
@@ -62,6 +63,7 @@ class Module {
 /// Thread-safe registration of modules from libraries, uses utils::RWLock.
 class ModuleRegistry final {
   friend CypherMainVisitorTest;
+  friend ProcedureTeardownTest;
 
  private:
   std::map<std::string, std::shared_ptr<Module>, std::less<>> modules_;

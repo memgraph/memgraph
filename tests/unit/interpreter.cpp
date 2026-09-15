@@ -34,6 +34,8 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
@@ -410,6 +412,254 @@ TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
   EXPECT_EQ(normal.GetSummary().count("graph_free"), 0U);
   EXPECT_FALSE(sorted_names(fast).empty());
   EXPECT_EQ(sorted_names(fast), sorted_names(normal));
+}
+
+// `Apply` restarts the subquery branch per input row, so the procedure's cursor must rewind everything
+// on a reset -- its input included -- or every row after the first silently yields nothing.
+TYPED_TEST(InterpreterTest, ProcedureInsideSubqueryRunsForEveryInputRow) {
+  auto baseline = this->Interpret("CALL mg.procedures() YIELD name RETURN count(name) AS c");
+  ASSERT_EQ(baseline.GetResults().size(), 1U);
+  const auto expected_count = baseline.GetResults()[0][0].ValueInt();
+  ASSERT_GT(expected_count, 0);
+  {
+    auto stream = this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name RETURN count(name) AS c } RETURN x, c");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    for (auto &row : stream.GetResults()) {
+      SCOPED_TRACE(row[0].ValueInt());
+      EXPECT_EQ(row[1].ValueInt(), expected_count);
+    }
+  }
+  {
+    // The subquery's LIMIT stops pulling mid-stream, so the reset interrupts a live procedure.
+    auto stream = this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name RETURN name LIMIT 1 } RETURN x, name");
+    EXPECT_EQ(stream.GetResults().size(), 3U);
+  }
+  // Periodic commit is only supported on in-memory storage.
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    // Same restart via the periodic-commit subquery operator; it returns no rows, so check the writes.
+    this->Interpret("MATCH (n) DETACH DELETE n");
+    this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name WITH x, count(name) AS c "
+        "CREATE (:Row {x: x, c: c}) } IN TRANSACTIONS OF 1 ROWS");
+    auto stream = this->Interpret("MATCH (r:Row) RETURN r.x AS x, r.c AS c ORDER BY x");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    for (int64_t i = 0; i < 3; ++i) {
+      SCOPED_TRACE(i);
+      EXPECT_EQ(stream.GetResults()[i][0].ValueInt(), i + 1);
+      EXPECT_EQ(stream.GetResults()[i][1].ValueInt(), expected_count);
+    }
+    this->Interpret("MATCH (n) DETACH DELETE n");
+  }
+}
+
+// Restarting the procedure's cursor restarts everything it feeds on, so a write below it runs per row
+// too. The body without a procedure is the reference; the procedure variant used to run the write once.
+TYPED_TEST(InterpreterTest, WriteBelowProcedureInsideSubqueryRunsForEveryInputRow) {
+  auto count_nodes = [this](const std::string &label) {
+    auto stream = this->Interpret("MATCH (n:" + label + ") RETURN count(n) AS c");
+    return stream.GetResults()[0][0].ValueInt();
+  };
+
+  this->Interpret("MATCH (n) DETACH DELETE n");
+  auto reference = this->Interpret("UNWIND [1, 2, 3] AS x CALL (x) { CREATE (:Ref) WITH x RETURN 1 AS r } RETURN x, r");
+  EXPECT_EQ(reference.GetResults().size(), 3U);
+  EXPECT_EQ(count_nodes("Ref"), 3);
+
+  auto with_procedure = this->Interpret(
+      "UNWIND [1, 2, 3] AS x CALL (x) { CREATE (:Proc) WITH x CALL mg.procedures() YIELD name "
+      "RETURN count(name) AS c } RETURN x, c");
+  EXPECT_EQ(with_procedure.GetResults().size(), 3U);
+  EXPECT_EQ(count_nodes("Proc"), 3);
+
+  this->Interpret("MATCH (n) DETACH DELETE n");
+}
+
+namespace {
+
+namespace procedure = memgraph::query::procedure;
+
+class ProbeModule : public procedure::Module {
+ public:
+  bool Close() override { return true; }
+
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override { return &procedures; }
+
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
+
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override { return &functions; }
+
+  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
+
+  std::map<std::string, mgp_proc, std::less<>> procedures{};
+  std::map<std::string, mgp_trans, std::less<>> transformations{};
+  std::map<std::string, mgp_func, std::less<>> functions{};
+};
+
+// A batched procedure that counts its own lifecycle, so a test can assert on the teardown the plan
+// performed instead of on the plan's shape. Each initializer starts a stream of `rows_per_stream`
+// records; stopping the pull before that many leaves the stream live.
+struct BatchedProbe {
+  int inits{0};
+  int cleanups{0};
+  int rows_per_stream{2};
+  bool cleanup_throws{false};
+  int remaining{0};
+};
+
+void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe) {
+  auto *memory = memgraph::utils::NewDeleteResource();
+  mgp_type *int_type{nullptr};
+  MG_ASSERT(mgp_type_int(&int_type) == mgp_error::MGP_ERROR_NO_ERROR);
+
+  auto initializer = [probe](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_memory * /*memory*/) {
+    ++probe->inits;
+    probe->remaining = probe->rows_per_stream;
+  };
+  auto cleanup = [probe] {
+    ++probe->cleanups;
+    probe->remaining = 0;
+    if (probe->cleanup_throws) {
+      throw memgraph::utils::BasicException("the cleanup of a mock procedure failed");
+    }
+  };
+  auto callback = [probe](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *result_memory) {
+    if (probe->remaining == 0) return;
+    --probe->remaining;
+    mgp_result_record *record{nullptr};
+    MG_ASSERT(mgp_result_new_record(result, &record) == mgp_error::MGP_ERROR_NO_ERROR);
+    mgp_value *value{nullptr};
+    MG_ASSERT(mgp_value_make_int(probe->remaining, result_memory, &value) == mgp_error::MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_result_record_insert(record, "num", value) == mgp_error::MGP_ERROR_NO_ERROR);
+    mgp_value_destroy(value);
+  };
+
+  mgp_proc proc(name,
+                callback,
+                initializer,
+                cleanup,
+                memory,
+                {.graph_access = memgraph::query::GraphAccess::None, .is_batched = true});
+  proc.results.emplace(memgraph::utils::pmr::string{"num", memory}, std::make_pair(int_type->impl.get(), false));
+  module.procedures.emplace(name, std::move(proc));
+}
+
+}  // namespace
+
+// Registering a module is private to the registry, so the probes are set up from the fixture, which
+// the registry befriends.
+class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemoryStorage> {
+ protected:
+  // The probes outlive the test body on purpose: a stream left live at the end of a test is torn
+  // down from `TearDown`, and the cleanup that runs then writes to the probe it was registered with.
+  BatchedProbe probe;
+  BatchedProbe lower;
+  BatchedProbe upper;
+
+  void RegisterProbes(std::initializer_list<std::pair<const char *, BatchedProbe *>> probes) {
+    auto module = std::make_unique<ProbeModule>();
+    for (auto [name, p] : probes) {
+      AddBatchedProbe(*module, name, p);
+    }
+    const std::unique_lock registry_lock{procedure::gModuleRegistry.lock_};
+    ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_module", std::move(module)));
+  }
+
+  // Set by a test that ends with a stream still live, to pin where that stream is torn down.
+  bool expect_teardown_to_clean_up{false};
+
+  void TearDown() override {
+    // A test that stops mid-query leaves the plan, and with it the module's shared_ptr, alive.
+    const auto cleanups_before = probe.cleanups;
+    default_interpreter.Abort();
+    if (expect_teardown_to_clean_up) {
+      EXPECT_EQ(probe.cleanups, cleanups_before + 1);
+    }
+    procedure::gModuleRegistry.UnloadAllModules();
+    InterpreterTest<memgraph::storage::InMemoryStorage>::TearDown();
+  }
+};
+
+// Two stacked procedures whose cleanups both throw: the query has to fail, and every stream still
+// has to be torn down. Teardown that ran a second cleanup from a destructor while the first was
+// unwinding aborted the process instead.
+TEST_F(ProcedureTeardownTest, ThrowingProcedureCleanupFailsTheQueryInsteadOfTheProcess) {
+  lower.rows_per_stream = 4;
+  upper.rows_per_stream = 4;
+  RegisterProbes({{"lower", &lower}, {"upper", &upper}});
+
+  // `LIMIT 2` is reached with both streams still live, so `Shutdown` is what tears them down.
+  // Arming the throw between the two pulls keeps it out of everything that runs earlier, which
+  // would fail the query before it ever reaches `Shutdown`.
+  auto [stream, qid] =
+      Prepare("CALL probe_module.lower() YIELD num AS a CALL probe_module.upper() YIELD num AS b RETURN a, b LIMIT 2");
+  Pull(&stream, 1);
+  ASSERT_EQ(lower.inits, 1);
+  ASSERT_EQ(upper.inits, 1);
+  lower.cleanup_throws = true;
+  upper.cleanup_throws = true;
+
+  EXPECT_ANY_THROW(Pull(&stream));
+  EXPECT_EQ(upper.cleanups, 1);
+  EXPECT_EQ(lower.cleanups, 1);
+}
+
+// A query that ends in an exception never reaches `Shutdown`, so without a teardown of its own the
+// module keeps the stream's state long after the query that started it is gone.
+TEST_F(ProcedureTeardownTest, ProcedureStreamIsTornDownWhenTheQueryFails) {
+  RegisterProbes({{"probe", &probe}});
+
+  // The division fails on the first row, with rows of the stream still unread.
+  EXPECT_THROW(Interpret("CALL probe_module.probe() YIELD num RETURN num / 0"), memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(probe.inits, 1);
+  EXPECT_EQ(probe.cleanups, 1);
+  // Only the cleanup clears what the initializer set up, so this is what the module was left holding.
+  EXPECT_EQ(probe.remaining, 0);
+}
+
+// One initializer, one cleanup: a reset defers the teardown to the next pull rather than doing it
+// itself, and no later teardown repeats it.
+TEST_F(ProcedureTeardownTest, ProcedureRunsOneCleanupPerInitializer) {
+  RegisterProbes({{"probe", &probe}});
+
+  // The subquery restarts the procedure per input row, and its `LIMIT` leaves every stream live.
+  Interpret("UNWIND [1, 2, 3] AS x CALL (x) { CALL probe_module.probe() YIELD num RETURN num LIMIT 1 } RETURN x, num");
+  EXPECT_EQ(probe.inits, 3);
+  EXPECT_EQ(probe.cleanups, 3);
+}
+
+// Rolling back is the other way a query ends without reaching `Shutdown`. The plan is released while
+// the transaction it reads is still open, so the cleanup does not run against a dead accessor.
+TEST_F(ProcedureTeardownTest, ProcedureStreamIsTornDownWhenTheTransactionRollsBack) {
+  probe.rows_per_stream = 4;
+  RegisterProbes({{"probe", &probe}});
+
+  Interpret("BEGIN");
+  auto [stream, qid] = Prepare("CALL probe_module.probe() YIELD num RETURN num");
+  Pull(&stream, 1, qid);
+  ASSERT_EQ(probe.inits, 1);
+  ASSERT_GT(probe.remaining, 0);
+
+  Interpret("ROLLBACK");
+  // Only the cleanup clears what the initializer set up, so this is the teardown, not a count that
+  // some other cleanup site could also have produced.
+  EXPECT_EQ(probe.remaining, 0);
+  EXPECT_EQ(probe.cleanups, probe.inits);
+}
+
+// A stream left live when the test ends is torn down from `TearDown`, after the test body's locals
+// are gone. The cleanup writes to its probe as it goes, so the probe has to outlive the body.
+TEST_F(ProcedureTeardownTest, ProcedureStreamOutlivesTheQueryUntilTheInterpreterIsAborted) {
+  probe.rows_per_stream = 4;
+  RegisterProbes({{"probe", &probe}});
+  expect_teardown_to_clean_up = true;
+
+  Interpret("BEGIN");
+  auto [stream, qid] = Prepare("CALL probe_module.probe() YIELD num RETURN num");
+  Pull(&stream, 1, qid);
+  ASSERT_EQ(probe.inits, 1);
+  ASSERT_GT(probe.remaining, 0);
 }
 
 // Column headers from the accessor-free path must be byte-identical to the normal path's (clients
