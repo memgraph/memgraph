@@ -150,7 +150,9 @@ std::vector<User> AllUsers(Repository const &repo) {
       User user = User::Deserialize(ParseAndMigrateJson(value));
       LinkUser(repo, user);
       ret.emplace_back(std::move(user));
-    } catch (AuthException &) {
+    } catch (AuthException &e) {
+      // One unreadable record must not fail the whole listing.
+      spdlog::warn("Skipping user '{}': {}", username, e.what());
     }
   });
   return ret;
@@ -163,7 +165,9 @@ std::vector<std::string> AllUsernames(Repository const &repo) {
     try {
       User::Deserialize(ParseAndMigrateJson(value));
       ret.emplace_back(username);
-    } catch (AuthException &) {
+    } catch (AuthException &e) {
+      // One unreadable record must not fail the whole listing.
+      spdlog::warn("Skipping user '{}': {}", username, e.what());
     }
   });
   return ret;
@@ -186,7 +190,9 @@ std::vector<std::string> AllRolenames(Repository const &repo) {
     try {
       Role::Deserialize(ParseAndMigrateJson(value));
       ret.emplace_back(rolename);
-    } catch (AuthException &) {
+    } catch (AuthException &e) {
+      // One unreadable record must not fail the whole listing.
+      spdlog::warn("Skipping role '{}': {}", rolename, e.what());
     }
   });
   return ret;
