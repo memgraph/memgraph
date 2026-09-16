@@ -182,7 +182,11 @@ TEST(SessionRegistryTest, ConcurrentChurnWhileFinding) {
   for (int t = 0; t < kFindThreads; ++t) {
     threads.emplace_back([&registry, &prefix] {
       for (int i = 0; i < kFindIterations; ++i) {
-        auto found = registry.Find(prefix);  // near-always a miss; exercises Find() under churn
+        // Mirror the key sequence that churn thread 0 produces so that Find() reaches
+        // it->second.lock() while the entry is live or being concurrently destroyed,
+        // forcing the weak_ptr upgrade-vs-destruction race onto the hit path.
+        const std::string target = prefix + ".0." + std::to_string(i % kChurnIterations);
+        auto found = registry.Find(target);
         static_cast<void>(found);
       }
     });

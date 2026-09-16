@@ -29,8 +29,6 @@
 namespace memgraph::query {
 
 namespace {
-// Exactly one of lv/rv null -> false (an unauthenticated/null snapshot never matches a live caller);
-// both null also compares equal, via lv.get() == rv.
 bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv) {
   if (lv.get() == rv) return true;
   if (lv && rv) return *lv == *rv;
@@ -105,9 +103,7 @@ bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill)
 /// TRANSACTION_MANAGEMENT for.
 bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
                   std::function<bool(QueryUserOrRole *, std::string const &)> const &privilege_checker) {
-  // interpreter->user_or_role_ is owning-thread state -- SetUser/ResetUser can run concurrently on it from
-  // interpreter's own thread. foreign_user_view_.load() copies the shared_ptr, which keeps the pointee alive
-  // for the whole comparison below, instead of racing a bare reference to it.
+  // user_or_role_ is owning-thread state; foreign_user_view_.load() snapshots it safely for cross-thread reads.
   auto const user_snapshot = interpreter->foreign_user_view_.load();
   if (SameUser(user_snapshot, user_or_role)) return true;
 
@@ -213,8 +209,7 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
 
     Interpreter *target = nullptr;
     for (Interpreter *interpreter : interpreters) {
-      // A null snapshot means SetSessionInfo has not run yet (unauthenticated) and so can't carry a non-empty
-      // uuid; the added null check here preserves the original `!session_info_.uuid.empty()` guard.
+      // A null snapshot means SetSessionInfo has not run yet (unauthenticated), so it cannot carry a non-empty uuid.
       auto const session_snapshot = interpreter->foreign_session_view_.load();
       if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
         target = interpreter;
@@ -228,18 +223,11 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
       continue;
     }
 
-    // foreign_db_view(), not current_db_.name(): the target is typically IDLE, which the verifier CAS below can
-    // never claim, so the unlocked read name() performs would be a data race here.
-    // This authorizes against the database the session held *at the time of the check* -- no claim is carried
-    // across to the termination below, so the target may USE DATABASE in between. That closes the systematic
-    // cross-tenant hole (a db-A admin can no longer terminate any db-B session); it is not transactional
-    // enforcement.
-    // This decision runs before the only CAS in this function (transaction_status_ below, which only marks
-    // TERMINATED) -- unlike TerminateTransactions, nothing here incidentally orders the read against the target.
+    // foreign_db_view(), not name(): IDLE sessions can't be pinned by the ACTIVE→VERIFYING CAS, so name() would race.
+    // Authorization is check-time-only; the target may USE DATABASE before termination — closes the cross-tenant hole.
     auto const target_user_snapshot = target->foreign_user_view_.load();
     if (!SameUser(target_user_snapshot, user_or_role)) {
-      // A dbless target has no tenant to scope against; see the declaration comment for why
-      // dbms::kDefaultDB is the fallback rather than a refusal.
+      // A dbless session has no tenant; kDefaultDB lets a default-db admin still terminate it.
       auto target_db = target->current_db_.foreign_db_view().name;
       if (target_db.empty()) {
         target_db = std::string{dbms::kDefaultDB};

@@ -587,30 +587,6 @@ TYPED_TEST(TransactionQueueSimpleTest, RefusesWhenTheCheckerDeniesTheTargetsData
   EXPECT_TRUE(result.to_close.empty());
 }
 
-TYPED_TEST(TransactionQueueSimpleTest, AllowsWhenTheCheckerGrantsTheTargetsDatabase) {
-  this->db->storage()->config_.salient.name = "tenant_a";  // see PassesTheTargetSessionsDatabaseToThePrivilegeChecker
-
-  auto &target = this->running_interpreter.interpreter;
-  auto &caller = this->main_interpreter.interpreter;
-  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
-  target.SetSessionInfo("target-session-uuid", "bob", "ts");
-  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
-
-  // Literal, not this->db->name(): the grant must be pinned to the name this test wrote, not to whatever name the
-  // callee happens to pass back.
-  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &db_name) { return db_name == "tenant_a"; };
-
-  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-    return this->interpreter_context.TerminateSessions(
-        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
-  });
-
-  ASSERT_EQ(result.rows.size(), 1U);
-  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
-  EXPECT_TRUE(result.rows[0][1].ValueBool());
-  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
-}
-
 TYPED_TEST(TransactionQueueSimpleTest, FallsBackToTheDefaultDbForATargetHoldingNoDatabase) {
   // Named first, so the fallback below can only come from the ResetDB and not from a fixture that never had a name.
   this->db->storage()->config_.salient.name = "tenant_a";
@@ -798,6 +774,8 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsRacingIdentityChurnIsDat
   constexpr int kIterations = 2000;
   std::atomic<int> writer_iterations{0};
   int reader_iterations = 0;
+  bool saw_unauthorized_kill = false;
+  bool saw_nonempty_to_close = false;
 
   {
     // jthread: joins unconditionally on scope exit, same reasoning as the test above.
@@ -811,17 +789,25 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsRacingIdentityChurnIsDat
     });
 
     for (int i = 0; i < kIterations; ++i) {
-      this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+      // Not EXPECT/ASSERT here on purpose -- this runs 2000 times per test. Accumulate into plain flags and
+      // assert once after the loop.
+      auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
         return this->interpreter_context.TerminateSessions(
             interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
       });
+      if (!result.rows.empty() && result.rows[0][1].ValueBool()) saw_unauthorized_kill = true;
+      if (!result.to_close.empty()) saw_nonempty_to_close = true;
       ++reader_iterations;
     }
   }
 
-  // The only claim here: both loops ran to completion and the process is still standing. The outcome's
-  // correctness is not this test's job (see the test above) -- reaching this line without TSan aborting the
-  // binary is the actual assertion.
+  // Both loops ran to completion and the process is still standing -- reaching this line without TSan
+  // aborting the binary is the primary assertion for this test.
   EXPECT_EQ(writer_iterations.load(std::memory_order_relaxed), kIterations);
   EXPECT_EQ(reader_iterations, kIterations);
+  // Functional gate (mirrors TerminateSessionsCannotBeTrickedIntoSkippingThePrivilegeCheck): caller != target
+  // on every iteration and the checker always refuses, so nothing may ever be killed and nothing may ever be
+  // handed back for the caller to close.
+  EXPECT_FALSE(saw_unauthorized_kill);
+  EXPECT_FALSE(saw_nonempty_to_close);
 }

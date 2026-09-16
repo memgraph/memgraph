@@ -6644,12 +6644,8 @@ std::vector<Interpreter::SessionInfo> GetActiveUsersInfo(InterpreterContext *int
         std::vector<Interpreter::SessionInfo> info;
         info.reserve(interpreters_.size());
         for (const auto &interpreter : interpreters_) {
-          // interpreter->session_info_ is owning-thread state; interpreter's own thread can
-          // concurrently rewrite it via SetSessionInfo. foreign_session_view_ is the published
-          // snapshot. A null snapshot means SetSessionInfo has not run yet for this session (still
-          // mid-login, before even a no-auth/anonymous identity is recorded), so there is no row to
-          // report yet -- skip it rather than push a default-constructed SessionInfo{} that would
-          // render as a spurious blank row.
+          // foreign_session_view_ is the cross-thread snapshot of session_info_; null means the
+          // session hasn't completed login yet -- skip rather than emit a blank row.
           auto const session_snapshot = interpreter->foreign_session_view_.load();
           if (!session_snapshot) continue;
           info.push_back(*session_snapshot);
@@ -7407,11 +7403,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       if (lv && rv) return *lv == *rv;
       return false;
     };
-    // interpreter->user_or_role_ is owning-thread state; interpreter's own thread can concurrently
-    // rewrite it via SetUser/ResetUser. Load foreign_user_view_ once and reuse it for both the
-    // identity check and the username column below -- reading the live field twice would let the
-    // two reads disagree (e.g. observe a user for the check, then a reset user_or_role_ for the
-    // column).
+    // Load foreign_user_view_ once: reading user_or_role_ twice could disagree (user present
+    // for the identity check, then reset before the username column is read).
     auto const user_snapshot = interpreter->foreign_user_view_.load();
     if (transaction_id.has_value() &&
         (same_user(user_snapshot, user_or_role) || privilege_checker(user_or_role, get_interpreter_db_name()))) {
@@ -11855,9 +11848,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
-  // Foreign threads observe this session's identity only through foreign_user_view_ (see its
-  // declaration in interpreter.hpp), so publish right after the assignment above -- before the
-  // session-limit throw below -- so the snapshot can never disagree with user_or_role_.
+  // Publish before the session-limit throw below: foreign_user_view_ must never disagree with user_or_role_.
   foreign_user_view_.store(user_or_role_);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});

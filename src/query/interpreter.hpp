@@ -284,24 +284,21 @@ struct CurrentDB {
   }
 
   void ResetDB() {
-    // Narrowed to db_acc_ only: db_transactional_accessor_'s dtor can abort a txn and take storage locks,
-    // which would stall a concurrent foreign_db_view() if held under the same lock. old_db is swapped out
-    // under the lock and destructed below, outside it (see db_acc_mutex_).
+    // db_acc_ only: db_transactional_accessor_'s dtor can abort a txn and take storage locks, stalling a
+    // concurrent foreign_db_view(); swap out under the lock and destruct below, outside it (see db_acc_mutex_).
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};
       old_db.swap(db_acc_);
     }
-    old_db.reset();  // release db access before the accessors below, as before
+    old_db.reset();  // release db access before the accessors below
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
   }
 
-  // Releases db_acc_ only if held and marked for deletion; db_transactional_accessor_/execution_db_accessor_/
-  // trigger_context_collector_ are untouched -- that's ResetDB()'s job. is_marked_for_deletion() only reads
-  // an atomic_bool (no GKInternals::mutex_), so it's safe to call under db_acc_mutex_; the swapped-out
-  // Accessor itself is destructed after the lock is released (see db_acc_mutex_).
+  // Releases db_acc_ if marked for deletion; other accessors are untouched (ResetDB()'s job).
+  // is_marked_for_deletion() reads only an atomic_bool (no GKInternals::mutex_), safe under db_acc_mutex_.
   void ReleaseDbIfMarked() {
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
@@ -312,18 +309,15 @@ struct CurrentDB {
     }
   }
 
-  // Owning-thread-only (or under the verifier's ACTIVE->VERIFYING CAS). Reads db_acc_ with no synchronization,
-  // safe because a session's queries are serialized -- Bolt's worker pool never runs two for one session at
-  // once, so a writer and this read never overlap regardless of which thread runs each -- adding a concurrent
-  // writer invalidates this contract and every unlocked read in interpreter.cpp. A foreign thread -- including
-  // one observing an IDLE session -- must use foreign_db_view() instead.
+  // Owning-thread-only: a session's queries are serialized, so a writer and this read never overlap.
+  // A foreign thread (including one observing an IDLE session) must use foreign_db_view() instead.
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
 
   // Safe from any thread: unlike name(), it needs no verifier CAS, which can never succeed on IDLE anyway.
   // Reads db_acc_ live, not cached -- DbmsHandler::Rename mutates storage's name in place, not db_acc_.
   struct ForeignDbView {
-    std::string name;                 // "" when the session holds no database
-    bool marked_for_deletion{false};  // false when there is no database
+    std::string name;  // "" when the session holds no database
+    bool marked_for_deletion{false};
   };
 
   [[nodiscard]] ForeignDbView foreign_db_view() const {
@@ -342,21 +336,9 @@ struct CurrentDB {
   bool in_explicit_db_{false};
   metrics::ScopedGauge transaction_gauge_;
 
-  // Guards mutation of db_acc_ only; owning-thread reads (name(), ~100 direct db_acc_ reads in interpreter.cpp) skip
-  // it because a session's queries are serialized, so a reader and writer for the same session never overlap.
-  // Must NOT be a spinlock: foreign_db_view() calls Storage::name(), which blocks on a shared_mutex inside
-  // utils::SafeString.
-  //
-  // LEAF LOCK: every writer above swaps the outgoing Accessor out under this lock and destroys it only
-  // after releasing it -- no Accessor may be destroyed while this lock is held. An Accessor's dtor takes
-  // its GKInternals::mutex_, which finish_suspend() holds across the whole ~Database + WAL finalization,
-  // and InterpreterContext::TerminateSessions takes this lock (via foreign_db_view()) while holding the interpreters
-  // SpinLock -- so nesting the two would put a busy-wait spinlock over the entire session table behind a
-  // tenant suspend. That pile-up is NOT reachable today: try_begin_suspend() waits for count_ == 1 before
-  // entering SUSPENDING, so a session holding this accessor keeps its tenant out of the suspend path
-  // entirely. Keeping this a leaf lock means correctness here does not depend on that remote invariant
-  // holding -- note finish_suspend()'s own count_ precondition is only a DMG_ASSERT, which compiles out
-  // under NDEBUG.
+  // Guards db_acc_ mutation only; owning-thread reads skip it (serialized sessions). Not a spinlock:
+  // foreign_db_view() blocks on SafeString's shared_mutex. LEAF: Accessors deferred outside — dtor may take
+  // GKInternals::mutex_.
   mutable std::mutex db_acc_mutex_;
 };
 
@@ -398,11 +380,9 @@ class Interpreter final {
     std::string login_timestamp;
   };
 
-  // Owning-thread state: written only by this interpreter's own thread (SetUser / ResetUser /
-  // SetSessionInfo) and read directly only by that same thread; every other read site in
-  // interpreter.cpp relies on that. A foreign thread must go through the published snapshot
-  // below instead -- a direct cross-thread read races a non-atomic shared_ptr/string, and for
-  // user_or_role_ it is a use-after-free (a concurrent ResetUser can free the pointee mid-read).
+  // Owning-thread only: written/read by SetUser/ResetUser/SetSessionInfo on the same thread.
+  // Foreign threads must use the snapshots below — a cross-thread read races a non-atomic shared_ptr (UAF if ResetUser
+  // runs concurrently).
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
 #ifdef MG_ENTERPRISE
   // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
@@ -419,20 +399,9 @@ class Interpreter final {
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
   SessionInfo session_info_;
-  // Published snapshots of the two fields above, for foreign readers: ShowTransactions,
-  // TerminateTransactions (src/query/interpreter.cpp, src/query/interpreter_context.cpp),
-  // TerminateSessions (interpreter_context.cpp) and GetActiveUsersInfo (interpreter.cpp).
-  // Written by the owning thread only, so a store never races another store.
-  //
-  // is_always_lock_free being false here is the REASON THIS WORKS, not a caveat to optimise
-  // away: libstdc++ steals the control block pointer's low bit as a per-instance spinlock and
-  // increments the refcount while holding it, so the copy load() returns is safe against a
-  // concurrent decrement to zero, and the replaced value's destructor only runs after that lock
-  // is released. A raw pointer, a relaxed atomic, or a hand-rolled seqlock reintroduces the UAF.
-  //
-  // Keep each snapshot WHOLE -- do not split foreign_user_view_ into separate username/rolenames
-  // atomics: QueryUserOrRole::operator== compares the pair jointly, so a reader observing an old
-  // username beside new rolenames would decide identity wrongly, which is an authorization bug.
+  // Published snapshots of user_or_role_ and session_info_ for foreign readers; atomic<shared_ptr> makes
+  // load() refcount-safe (raw ptr/relaxed atomic reintroduces UAF). Keep WHOLE: operator== checks username+rolenames
+  // jointly.
   std::atomic<std::shared_ptr<QueryUserOrRole>> foreign_user_view_{};
   std::atomic<std::shared_ptr<const SessionInfo>> foreign_session_view_{};
   bool in_explicit_transaction_{false};

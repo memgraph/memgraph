@@ -29,8 +29,7 @@ void SessionRegistry::Deregister(std::string_view uuid, TerminableSession const 
   const std::scoped_lock lock{mutex_};
   auto it = sessions_.find(std::string(uuid));
   if (it == sessions_.end()) return;
-  // Erase iff the entry is stale or still owned by the caller; a uuid collision must not let one
-  // session's destructor erase another session's live entry.
+  // Guard: a reused uuid must not let a stale session's dtor evict the current owner.
   auto owner = it->second.lock();
   if (owner == nullptr || owner.get() == self) {
     sessions_.erase(it);
