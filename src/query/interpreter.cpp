@@ -9954,12 +9954,17 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "user-profiles"));
   }
 
-  // User profiles are out of scope for transactional auth: UserProfiles answers reads from an in-memory cache
-  // rather than the store, so the overlay cannot isolate them, roll them back, or detect a conflict.
+  // Profile queries do not belong in an explicit transaction at all, reads included, which is how storage
+  // information queries are already treated (InfoInMulticommandTxException). Writes cannot be isolated:
+  // UserProfiles answers from an in-memory cache rather than the store, so the overlay cannot roll them back or
+  // detect a conflict. Reads are rejected for consistency of the rule rather than because they are unsafe.
   //
   // Tested on the explicit transaction rather than on a live auth transaction, which only exists once an auth
   // statement has run: a profile query arriving first would otherwise be let through, write durably at once, and
   // survive the ROLLBACK.
+  //
+  // The exception names user modification, which is wrong for the five SHOW actions. Tolerated deliberately; a
+  // profile-specific type is on the backlog, together with the counter pool that makes adding one unattractive.
   if (interpreter->in_explicit_transaction_) {
     throw UserModificationInMulticommandTxException();
   }
