@@ -1121,7 +1121,9 @@ build_memgraph () {
 init_tests() {
   echo "Initializing tests..."
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
-  docker exec -u mg "$build_container" bash -c "$SETUP_MGDEPS_CACHE_ENDPOINT && cd $MGBUILD_ROOT_DIR && ./init-test --ci"
+  # The build images don't ship uv; install it for the mg user if it's missing.
+  local ENSURE_UV="export PATH=\$HOME/.local/bin:\$PATH && { command -v uv >/dev/null || PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir uv==0.8.15; }"
+  docker exec -u mg "$build_container" bash -c "$ENSURE_UV && $SETUP_MGDEPS_CACHE_ENDPOINT && cd $MGBUILD_ROOT_DIR && ./init-test --ci --uv"
   echo "...Done"
 }
 
