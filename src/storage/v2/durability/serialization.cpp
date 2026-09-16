@@ -607,9 +607,12 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       for (uint64_t i = 0; i < *size; ++i) {
         auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
-        all_ints &= item->IsInt();
+        // An integer too wide for the packed form leaves the list boxed, which
+        // is the only representation that holds it at the width it was given.
+        auto const packable_int = item->IsInt() && FitsAPackedList(item->ValueInt());
+        all_ints &= packable_int;
         all_doubles &= item->IsDouble();
-        all_numeric &= item->IsInt() || item->IsDouble();
+        all_numeric &= packable_int || item->IsDouble();
         list.emplace_back(std::move(*item));
       }
       if (all_ints) {
