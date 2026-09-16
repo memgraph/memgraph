@@ -300,13 +300,9 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph \
-<<<<<<< HEAD
+          ${{ inputs.profile_build && '--profile' || '' }} \
           --memory-per-compile-job-mb 3500 \
           --memory-per-link-job-mb 700 \
-=======
-          ${{ inputs.profile_build && '--profile' || '' }} \
-          --link-threads $LINK_THREADS \
->>>>>>> 9e04f31b8 (update workflows to be able to run profiling)
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           $ABI3_REWRITE_FLAG \
