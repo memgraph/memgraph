@@ -362,3 +362,30 @@ TEST_F(AuthLayerTest, AReadOnlyTransactionDoesNotSpendTheEpoch) {
   ASSERT_TRUE(layer_->Commit(writer, nullptr));
   EXPECT_FALSE(layer_->Lock()->UpToDate(seen));
 }
+
+TEST_F(AuthLayerTest, ARepeatedListingDoesNotAdoptAConcurrentCreate) {
+  // Listing twice must not launder a user created in between into the set the transaction is held to. The first
+  // exhaustive scan fixes what it depends on; a later one can only confirm a subset of it.
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("bob").has_value());
+  }
+
+  memgraph::auth::AuthTransaction tx;
+  {
+    ASSERT_EQ(layer_->ReadLock(&tx)->AllUsers().size(), 1);
+  }
+
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+
+  {
+    // The transaction lists again, now seeing alice, and then writes on the strength of what it has read.
+    auto locked = layer_->Lock(&tx);
+    ASSERT_EQ(locked->AllUsers().size(), 2);
+    ASSERT_TRUE(locked->AddUser("carol").has_value());
+  }
+
+  EXPECT_FALSE(layer_->Commit(tx, nullptr)) << "committed on a user list that changed under it";
+  EXPECT_FALSE(layer_->Lock()->HasUser("carol"));
+}
