@@ -93,9 +93,13 @@ constexpr uint16_t kPort{8199};
   });
 }
 
-// Extract the leaf-cert CN from s_server's verify-callback output. Lines look
-// like e.g. `depth=0 CN = instance1`. We find the first `depth=0` line and
-// return the value after `CN = `.
+// Extract the leaf-cert CN from s_server's verify-callback output. We find the first `depth=0` line
+// and return the CN on it.
+//
+// The spacing around the `=` is not ours to rely on: OpenSSL 1.1.1 and 3.0 print `depth=0 CN = x`,
+// while 3.5 prints `depth=0 CN=x`. Matching one spelling passes on whichever openssl the build
+// container happens to ship and fails on a developer machine that is merely newer, so skip
+// whitespace on both sides of the `=` instead.
 [[nodiscard]] std::optional<std::string> ExtractDepth0CN(std::string_view output) {
   constexpr std::string_view kDepthZero{"depth=0"};
   auto const depth_pos = output.find(kDepthZero);
@@ -103,13 +107,21 @@ constexpr uint16_t kPort{8199};
   // The CN on the same line as `depth=0`.
   auto const eol = output.find('\n', depth_pos);
   auto const line = output.substr(depth_pos, eol == std::string_view::npos ? std::string_view::npos : eol - depth_pos);
-  constexpr std::string_view kCnMarker{"CN = "};
-  auto const cn_pos = line.find(kCnMarker);
+  constexpr std::string_view kCnMarker{"CN"};
+  // Past `depth=0` itself, so its own `=` cannot be read as the CN's separator.
+  auto const cn_pos = line.find(kCnMarker, kDepthZero.size());
   if (cn_pos == std::string_view::npos) return std::nullopt;
-  auto cn = line.substr(cn_pos + kCnMarker.size());
+  auto rest = line.substr(cn_pos + kCnMarker.size());
+  auto const eq = rest.find_first_not_of(" \t");
+  if (eq == std::string_view::npos || rest[eq] != '=') return std::nullopt;
+  rest.remove_prefix(eq + 1);
+  auto const value_start = rest.find_first_not_of(" \t");
+  if (value_start == std::string_view::npos) return std::nullopt;
+  auto cn = rest.substr(value_start);
   // Strip trailing whitespace / comma in case the subject has more fields.
   auto const end = cn.find_first_of(", \r\n");
   if (end != std::string_view::npos) cn = cn.substr(0, end);
+  if (cn.empty()) return std::nullopt;
   return std::string{cn};
 }
 
