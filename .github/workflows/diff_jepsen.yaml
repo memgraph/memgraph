@@ -11,6 +11,10 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
+      profile_build:
+        type: boolean
+        description: "Profile the memgraph build with tools/build_profile and upload the results as a build_profile_* artifact. Disables ccache for the build."
+        default: false
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -93,9 +97,19 @@ jobs:
           build-memgraph \
           --memory-per-compile-job-mb 3500 \
           --memory-per-link-job-mb 500 \
+          ${{ inputs.profile_build && '--profile' || '' }} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
+
+      - name: Save build profile
+        if: ${{ always() && inputs.profile_build }}
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "build_profile_Jepsen-core${{ env.RUN_ID }}"
+          path: build_profile_results/
+          if-no-files-found: warn
 
       - name: Copy memgraph binary
         run: |

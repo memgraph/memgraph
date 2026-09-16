@@ -28,6 +28,14 @@ container build with the profiler attached and copies the results directory to
 `build_profile_results/` on the host. The build itself is identical apart from
 ccache being disabled for the run.
 
+### In CI
+
+The Diff workflow has a `profile_build` input (workflow_dispatch and
+workflow_call). When set, every `build-memgraph` step in the Community,
+Coverage, Debug, Jepsen and Release jobs runs with `--profile`, and each job
+uploads its results directory as a `build_profile_<Workflow>-<job>` artifact,
+even if the build failed. Builds run without ccache while profiling.
+
 ### Wrapping your own build command
 
 If configure and build are separate steps in your flow (as they are in mgbuild),
