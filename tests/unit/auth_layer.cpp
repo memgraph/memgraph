@@ -305,3 +305,34 @@ TEST_F(AuthLayerTest, AReadGuardKeepsTheOverlayInstalled) {
   }
   EXPECT_FALSE(layer_->Lock()->HasUser("alice")) << "the write escaped the transaction";
 }
+
+TEST_F(AuthLayerTest, AListedUserSetIsNotInvalidatedByAConcurrentCreate) {
+  // The end-to-end sequence, through the calls a real session makes rather than the repository directly:
+  // SHOW USERS lists the users, another session creates one, then CREATE USER runs HasUsers() on the way in.
+  // The transaction concluded something from the list it read, so a new user appearing under that prefix has to
+  // conflict it.
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("bob").has_value());
+  }
+
+  memgraph::auth::AuthTransaction tx;
+  {
+    auto listed = layer_->ReadLock(&tx)->AllUsers();
+    ASSERT_EQ(listed.size(), 1);
+  }
+
+  // Another session, outside the transaction.
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+
+  {
+    // HasUsers() is what CreateUser calls first, and it re-scans the same prefix.
+    auto locked = layer_->Lock(&tx);
+    ASSERT_TRUE(locked->HasUsers());
+    ASSERT_TRUE(locked->AddUser("carol").has_value());
+  }
+
+  EXPECT_FALSE(layer_->Commit(tx, nullptr)) << "committed on a user list that had already changed";
+  EXPECT_FALSE(layer_->Lock()->HasUser("carol"));
+}

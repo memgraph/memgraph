@@ -222,3 +222,36 @@ TEST_F(RepositoryTest, AFullScanStillDependsOnTheWholeKeySet) {
 
   EXPECT_FALSE(overlay.Flush());
 }
+
+TEST_F(RepositoryTest, AFullScanIsNotWeakenedByALaterHasAny) {
+  // The mirror of the test above, and the order that actually happens: SHOW USERS scans the prefix to exhaustion,
+  // then CREATE USER calls HasUsers on the same prefix. The short-circuiting scan must not discard what the
+  // exhaustive one established, or the transaction commits on a user list that has since changed.
+  overlay_store_->Put("user:one", "1");
+
+  AtomicAuthOverlay overlay{*overlay_store_};
+  Repository repo{overlay};
+  repo.ForEachUser([](auto &&...) {});
+  ASSERT_TRUE(repo.HasAnyUser());
+  repo.Put("user:mine", "1");
+
+  overlay_store_->Put("user:appeared", "2");
+
+  EXPECT_FALSE(overlay.Flush());
+}
+
+TEST_F(RepositoryTest, HasAnyAfterAFullScanStillAllowsAnUnrelatedCommit) {
+  // The same ordering must not start over-conflicting either: with the key set unchanged, both scans' premises
+  // still hold and the transaction commits.
+  overlay_store_->Put("user:one", "1");
+  overlay_store_->Put("user:two", "2");
+
+  AtomicAuthOverlay overlay{*overlay_store_};
+  Repository repo{overlay};
+  repo.ForEachUser([](auto &&...) {});
+  ASSERT_TRUE(repo.HasAnyUser());
+  repo.Put("user:mine", "1");
+
+  EXPECT_TRUE(overlay.Flush());
+  EXPECT_TRUE(overlay_store_->Get("user:mine").has_value());
+}
