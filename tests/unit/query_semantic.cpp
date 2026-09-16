@@ -1633,15 +1633,6 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
       EXPECT_EQ(std::string_view{e.what()}, message);
     }
   };
-  auto expect_semantic_message = [](auto *query, std::string_view message) {
-    try {
-      MakeSymbolTable(query);
-      FAIL() << "expected the query to be refused";
-    } catch (const SemanticException &e) {
-      EXPECT_EQ(std::string_view{e.what()}, message);
-    }
-  };
-
   // MATCH (n) WHERE CASE WHEN true THEN EXISTS { ... } ELSE false END RETURN n
   MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))), WHERE(case_expr(LITERAL(true), exists_subquery(), LITERAL(false))), RETURN("n"))));
@@ -1663,14 +1654,13 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
   MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                      RETURN(case_expr(LITERAL(true), exists_subquery(), exists_subquery()), AS("h")))));
 
-  // Nested CASE, so num_if_operators reaches two.
+  // Nested CASE.
   MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       RETURN(case_expr(LITERAL(true), case_expr(exists_subquery(), LITERAL(true), LITERAL(false)), LITERAL(false)),
              AS("h")))));
 
-  // Inside an aggregate's argument. The other consumer of num_if_operators stays: it refuses an aggregation inside a
-  // CASE, not a CASE inside an aggregation.
+  // Inside an aggregate's argument.
   MakeSymbolTable(
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                          RETURN(COLLECT_LIST(case_expr(exists_subquery(), LITERAL(1), LITERAL(0)), false), AS("c")))));
@@ -1707,11 +1697,10 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
                  AS("h")))),
       "Not yet implemented: EXISTS is not supported in this position yet!");
 
-  // An aggregation inside a CASE is still refused; that gate is untouched.
-  expect_semantic_message(
+  // An aggregation beside an EXISTS in the same CASE.
+  MakeSymbolTable(
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                         RETURN(case_expr(LITERAL(true), COUNT(IDENT("n"), false), exists_subquery()), AS("h")))),
-      "Using aggregation functions inside of CASE is not allowed.");
+                         RETURN(case_expr(LITERAL(true), COUNT(IDENT("n"), false), exists_subquery()), AS("h")))));
 }
 
 // A simple CASE compares one test expression against every alternative, so the generator reaches it once per arm.
@@ -1754,6 +1743,104 @@ TYPED_TEST(TestSymbolGenerator, ExistsAsSimpleCaseTest) {
   // Two side by side, each reached twice: the first's variables must be gone before the second declares its own.
   MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                      RETURN(AND(simple_case(pattern_form()), simple_case(pattern_form())), AS("h")))));
+}
+
+// An aggregation may sit anywhere inside a CASE, like any other expression holding one. These pin the symbol
+// generator only: which grouping keys the planner derives is query_plan.cpp's, and the results are the behave suite's.
+TYPED_TEST(TestSymbolGenerator, AggregationInsideCase) {
+  auto case_expr = [this](Expression *condition, Expression *then_expr, Expression *else_expr) -> Expression * {
+    return this->storage.template Create<memgraph::query::IfOperator>(condition, then_expr, else_expr);
+  };
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+  auto prop = PROPERTY_PAIR(this->dba, "prop");
+
+  // RETURN CASE WHEN true THEN count(n) ELSE 0 END AS h - the THEN arm.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     RETURN(case_expr(LITERAL(true), COUNT(IDENT("n"), false), LITERAL(0)), AS("h")))));
+
+  // The ELSE arm.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(case_expr(LITERAL(true), LITERAL(0), SUM(PROPERTY_LOOKUP(this->dba, "n", prop), false)), AS("h")))));
+
+  // The condition: CASE WHEN count(n) > 2 THEN 1 ELSE 0 END.
+  MakeSymbolTable(QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   RETURN(case_expr(GREATER(COUNT(IDENT("n"), false), LITERAL(2)), LITERAL(1), LITERAL(0)), AS("h")))));
+
+  // A nested CASE.
+  MakeSymbolTable(QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   RETURN(case_expr(LITERAL(true),
+                                    case_expr(GREATER(COUNT(IDENT("n"), false), LITERAL(2)), LITERAL(1), LITERAL(0)),
+                                    LITERAL(0)),
+                          AS("h")))));
+
+  // A WITH projection.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     WITH(NEXPR("c", case_expr(LITERAL(true), COUNT(IDENT("n"), false), LITERAL(0)))),
+                                     RETURN("c"))));
+
+  // Beside another aggregation in the same RETURN.
+  MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(COUNT(IDENT("n"), false),
+                                AS("c"),
+                                case_expr(LITERAL(true), SUM(PROPERTY_LOOKUP(this->dba, "n", prop), false), LITERAL(0)),
+                                AS("h")))));
+
+  // Inside a list comprehension, which already accepts a bare aggregation; a CASE there inherits that.
+  auto *ident_x = IDENT("x");
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(LIST_COMPREHENSION(
+                 ident_x, LIST(LITERAL(1)), nullptr, case_expr(LITERAL(true), COUNT(IDENT("n"), false), ident_x)),
+             AS("h")))));
+
+  // A simple CASE desugars to nested IfOperators sharing one test node, so the generator reaches the aggregation once
+  // per arm. Each arm past the first would mint another symbol for the same node; nothing else in an arm takes a
+  // symbol, so an extra arm may not change the count.
+  auto simple_case = [&](int arms) {
+    auto *test = COUNT(IDENT("n"), false);
+    Expression *result = LITERAL("other");
+    for (int arm = arms; arm > 0; --arm) {
+      result = case_expr(EQ(test, LITERAL(arm)), LITERAL("hit"), result);
+    }
+    return QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(result, AS("h"))));
+  };
+  EXPECT_EQ(MakeSymbolTable(simple_case(1)).max_position(), MakeSymbolTable(simple_case(3)).max_position());
+
+  // The positions that refuse an aggregation refuse it through a CASE too; the CASE never launders one.
+  const std::string_view position_message{"Aggregation functions are only allowed in WITH and RETURN."};
+  auto aggregating_case = [&] { return case_expr(LITERAL(true), COUNT(IDENT("n"), false), LITERAL(0)); };
+
+  // SET n.prop = CASE ...
+  expect_message(
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP(this->dba, "n", prop), aggregating_case()), RETURN("n"))),
+      position_message);
+  // MATCH ... WHERE CASE ...
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(aggregating_case()), RETURN("n"))),
+                 position_message);
+  // UNWIND CASE ... AS x
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), UNWIND(aggregating_case(), AS("x")), RETURN("x"))),
+                 position_message);
+  // RETURN n ORDER BY CASE ...
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", ORDER_BY(aggregating_case())))),
+                 position_message);
+  // WITH n WHERE CASE ...
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n"), WHERE(aggregating_case()), RETURN("n"))),
+                 position_message);
+  // An aggregation inside an aggregation, reached through a CASE.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COUNT(aggregating_case(), false), AS("c")))),
+                 "Using aggregation functions inside aggregation functions is not allowed.");
 }
 
 TYPED_TEST(TestSymbolGenerator, Subqueries) {

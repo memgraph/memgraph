@@ -599,20 +599,14 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
         "Using aggregation functions inside aggregation functions is not "
         "allowed.");
   }
-  if (scope.num_if_operators) {
-    // Neo allows aggregations here and produces very interesting behaviors.
-    // To simplify implementation at this moment we decided to completely
-    // disallow aggregations inside of the CASE.
-    // However, in some cases aggregation makes perfect sense, for example:
-    //    CASE count(n) WHEN 10 THEN "YES" ELSE "NO" END.
-    // TODO: Rethink of allowing aggregations in some parts of the CASE
-    // construct.
-    throw SemanticException("Using aggregation functions inside of CASE is not allowed.");
+  // A simple CASE shares one test node across its arms, so the same node is reached once per arm. Only the first
+  // visit names it; a later one would orphan the symbol the planner already writes into.
+  if (visited_aggregations_.insert(&aggr).second) {
+    // Create a virtual symbol for aggregation result.
+    // Currently, we only have aggregation operators which return numbers.
+    auto aggr_name = Aggregation::OpToString(aggr.op_) + std::to_string(aggr.symbol_pos_);
+    aggr.MapTo(CreateSymbol(aggr_name, false, Symbol::Type::NUMBER));
   }
-  // Create a virtual symbol for aggregation result.
-  // Currently, we only have aggregation operators which return numbers.
-  auto aggr_name = Aggregation::OpToString(aggr.op_) + std::to_string(aggr.symbol_pos_);
-  aggr.MapTo(CreateSymbol(aggr_name, false, Symbol::Type::NUMBER));
   scope.in_aggregation = true;
   scope.has_aggregation = true;
   return true;
@@ -620,16 +614,6 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
 
 bool SymbolGenerator::PostVisit(Aggregation &) {
   scopes_.back().in_aggregation = false;
-  return true;
-}
-
-bool SymbolGenerator::PreVisit(IfOperator &) {
-  ++scopes_.back().num_if_operators;
-  return true;
-}
-
-bool SymbolGenerator::PostVisit(IfOperator &) {
-  --scopes_.back().num_if_operators;
   return true;
 }
 
@@ -733,7 +717,7 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
     throw utils::NotYetImplemented("{} cannot be used within REDUCE!", subquery.FoldName());
   }
 
-  // A CASE holds no position of its own, so it is not consulted here. num_if_operators still gates aggregations.
+  // A CASE holds no position of its own, so it is not consulted here.
   // The fold does not change which positions work; only what is written into the frame slot differs.
   if (!IsSupportedSubqueryPosition(scope)) {
     throw utils::NotYetImplemented("{} is not supported in this position yet!", subquery.FoldName());

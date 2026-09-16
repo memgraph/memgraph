@@ -69,13 +69,154 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | n         |
             | (:DELete) |
 
-    Scenario: Aggregation in CASE:
+    Scenario: Aggregation in CASE with constant arms:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN true THEN count(n) ELSE 0 END AS c
+            """
+        Then the result should be:
+            | c |
+            | 3 |
+
+    Scenario: Aggregation as the test of a simple CASE:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE count(n) WHEN 3 THEN 'three' WHEN 2 THEN 'two' ELSE 'other' END AS c
+            """
+        Then the result should be:
+            | c       |
+            | 'three' |
+
+    Scenario: Aggregation in the condition of a CASE:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN count(n) > 2 THEN 'many' ELSE 'few' END AS c
+            """
+        Then the result should be:
+            | c      |
+            | 'many' |
+
+    Scenario: Aggregation in both arms of a CASE:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN count(n) > 100 THEN count(n) ELSE sum(n.age) END AS c
+            """
+        Then the result should be:
+            | c  |
+            | 50 |
+
+    Scenario: Aggregation in CASE over empty input:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN true THEN count(n) ELSE 0 END AS c
+            """
+        Then the result should be:
+            | c |
+            | 0 |
+
+    Scenario: Aggregation in CASE over empty input with a list arm:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN true THEN count(n) ELSE [] END AS c
+            """
+        Then the result should be:
+            | c |
+            | 0 |
+
+    Scenario: Aggregation in CASE over empty input with a computed constant arm:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN true THEN count(n) ELSE 1 + 1 END AS c
+            """
+        Then the result should be:
+            | c |
+            | 0 |
+
+    Scenario: Aggregation in CASE without a match:
         Given an empty graph
         When executing query:
             """
-            MATCH (n) RETURN CASE count(n) WHEN 10 THEN 10 END
+            RETURN CASE WHEN true THEN count(*) ELSE 0 END AS c
             """
-        Then an error should be raised
+        Then the result should be:
+            | c |
+            | 1 |
+
+    Scenario: Aggregation in CASE beside an explicit grouping key:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN n.age AS age, CASE WHEN n.age > 15 THEN count(n) ELSE 0 END AS c
+            """
+        Then the result should be:
+            | age | c |
+            | 10  | 0 |
+            | 20  | 2 |
+
+    Scenario: Aggregation in CASE with a null grouping key:
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, null, 2, null] AS x RETURN x AS k, CASE WHEN x IS NULL THEN count(*) ELSE -count(*) END AS c
+            """
+        Then the result should be:
+            | k    | c  |
+            | 1    | -1 |
+            | 2    | -1 |
+            | null | 2  |
+
+    Scenario: Aggregation in CASE in a WITH, filtered afterwards:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) WITH CASE WHEN true THEN count(n) ELSE 0 END AS c WHERE c > 1 RETURN c
+            """
+        Then the result should be:
+            | c |
+            | 3 |
 
     Scenario: Create enum:
         Given an empty graph
@@ -107,7 +248,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             SHOW ENUMS;
             """
         Then the result should be:
-            | Enum Name | Enum Values     |
+            | Enum Name | Enum Values               |
             | 'Status'  | ['Good', 'Bad', 'Medium'] |
 
     Scenario: Update value in enum:
@@ -121,7 +262,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             SHOW ENUMS;
             """
         Then the result should be:
-            | Enum Name | Enum Values     |
+            | Enum Name | Enum Values                |
             | 'Status'  | ['Good', 'Bad', 'Average'] |
 
     Scenario: Compare enum values for equality:
@@ -148,7 +289,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be:
             | result1 |
-            | false  |
+            | false   |
 
     Scenario: Create an edge with an enum property:
         Given an empty graph
@@ -233,9 +374,9 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
                 EXPLAIN RETURN 1
             """
         Then the result should be:
-            | QUERY PLAN        |
-            | ' * Produce {0}'  |
-            | ' * Once'         |
+            | QUERY PLAN       |
+            | ' * Produce {0}' |
+            | ' * Once'        |
 
     Scenario: PROFILE tolerates leading whitespace
         Given an empty graph

@@ -610,6 +610,67 @@ TYPED_TEST(TestPlanner, CreateWithSumWithDistinct) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce());
 }
 
+// An aggregation inside a CASE plans like one inside any other expression: the Aggregate writes it into its own
+// symbol and the Produce evaluates the CASE against the post-aggregate frame.
+TYPED_TEST(TestPlanner, MatchReturnCaseWithAggregation) {
+  // Test MATCH (n) RETURN CASE WHEN true THEN COUNT(n) ELSE 0 END AS c
+  FakeDbAccessor dba;
+  auto count = COUNT(IDENT("n"), false);
+  auto *case_expr = this->storage.template Create<memgraph::query::IfOperator>(LITERAL(true), count, LITERAL(0));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(case_expr, AS("c"))));
+  // Both arms and the condition name nothing, so there is no grouping key.
+  auto aggr = ExpectAggregate({count}, {});
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MatchReturnCaseWithAggregationAndImplicitGroupingKey) {
+  // Test MATCH (n) RETURN CASE WHEN n.prop THEN COUNT(n) ELSE 0 END AS c
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto count = COUNT(IDENT("n"), false);
+  auto n_prop = PROPERTY_LOOKUP(dba, "n", prop);
+  auto *case_expr = this->storage.template Create<memgraph::query::IfOperator>(n_prop, count, LITERAL(0));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(case_expr, AS("c"))));
+  // The condition does not aggregate and names `n`, so it is evaluated once per group and becomes the key.
+  auto aggr = ExpectAggregate({count}, {n_prop});
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MatchReturnSimpleCaseOnAggregation) {
+  // Test MATCH (n) RETURN CASE COUNT(n) WHEN 3 THEN 'three' WHEN 2 THEN 'two' ELSE 'other' END AS c
+  FakeDbAccessor dba;
+  auto count = COUNT(IDENT("n"), false);
+  auto *inner = this->storage.template Create<memgraph::query::IfOperator>(
+      EQ(count, LITERAL(2)), LITERAL("two"), LITERAL("other"));
+  auto *case_expr =
+      this->storage.template Create<memgraph::query::IfOperator>(EQ(count, LITERAL(3)), LITERAL("three"), inner);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(case_expr, AS("c"))));
+  // A simple CASE shares one test node across its arms, so the aggregation is reached twice and must still be
+  // computed once; ExpectAggregate fails on a second element for the same symbol.
+  auto aggr = ExpectAggregate({count}, {});
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MatchReturnCaseWithSymbolFreeArm) {
+  // Test MATCH (n) RETURN CASE WHEN true THEN COLLECT(n.prop) ELSE [] END AS c
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto collect = COLLECT_LIST(PROPERTY_LOOKUP(dba, "n", prop), false);
+  auto *case_expr = this->storage.template Create<memgraph::query::IfOperator>(LITERAL(true), collect, LIST());
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(case_expr, AS("c"))));
+  // An empty list is not a literal in the AST, but it names nothing, so it is no more a grouping key than `0` is.
+  auto aggr = ExpectAggregate({collect}, {});
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, MatchWithCreate) {
   // Test MATCH (n) WITH n AS a CREATE (a) -[r :r]-> (b)
   auto r_type = "r";
