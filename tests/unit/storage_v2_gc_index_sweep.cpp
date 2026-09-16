@@ -703,3 +703,133 @@ TEST_F(StorageV2GcIndexSweepCountTest, AnAbortLeavesNoEntryInAnyEdgeIndexForAnEd
       << "edge-type index kept an entry for an edge that never existed";
   acc->Abort();
 }
+
+///// ONE RULE, TWO ROUTES TO IT
+
+// What a write armed is worked out two separate ways. A transactional write is read back off its
+// deltas when they are unlinked; an analytical write leaves no deltas, so it notes itself as it
+// happens. They are two implementations of one rule, and a route that stops noting what the other
+// notes leaves entries nothing comes back for.
+class StorageV2GcArmingRouteTest : public StorageV2GcIndexSweepCountTest,
+                                   public testing::WithParamInterface<ms::StorageMode> {
+ protected:
+  void SetUp() override {
+    StorageV2GcIndexSweepCountTest::SetUp();
+    // Before any write, so the count belongs to writes made under one route.
+    static_cast<ms::InMemoryStorage *>(storage.get())->SetStorageMode(GetParam());
+  }
+};
+
+TEST_P(StorageV2GcArmingRouteTest, ALabelWriteArmsThatLabelsIndexAlone) {
+  ASSERT_NO_FATAL_FAILURE(CreateLabelIndex("A"));
+  ASSERT_NO_FATAL_FAILURE(CreateLabelIndex("B"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("B")));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+TEST_P(StorageV2GcArmingRouteTest, AVertexPropertyWriteArmsThatPropertysIndexAlone) {
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("a"));
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{2}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+TEST_P(StorageV2GcArmingRouteTest, AnEdgePropertyWriteArmsThatPropertysIndexAlone) {
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "b"));
+
+  ms::Gid edge_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto edge = acc->FindEdge(edge_gid, ms::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{2}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(BothArmingRoutes, StorageV2GcArmingRouteTest,
+                         testing::Values(ms::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                                         ms::StorageMode::IN_MEMORY_ANALYTICAL),
+                         [](testing::TestParamInfo<ms::StorageMode> const &mode) {
+                           return mode.param == ms::StorageMode::IN_MEMORY_TRANSACTIONAL ? "Transactional"
+                                                                                         : "Analytical";
+                         });
+
+// The one write the two routes answer differently, asserted so that it stays a deliberate
+// difference rather than becoming one. Creating an edge stales nothing: the entry it adds can only
+// go stale once the edge is removed, and a removal arms every edge index by itself. Arming nothing
+// is therefore the tighter of the two answers, and the transactional route does not reach it
+// because it treats the four deltas that link and unlink an edge alike.
+TEST_F(StorageV2GcIndexSweepCountTest, AnEdgeCreationArmsOnlyOnTheTransactionalRoute) {
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypeIndex("E"));
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypeIndex("F"));
+
+  auto const create_an_edge = [this] {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  };
+
+  ASSERT_NO_FATAL_FAILURE(create_an_edge());
+  EXPECT_EQ(SweptByOnePass(), kIndexes) << "the transactional route arms every edge index";
+
+  static_cast<ms::InMemoryStorage *>(storage.get())->SetStorageMode(ms::StorageMode::IN_MEMORY_ANALYTICAL);
+  // Changing mode is itself a reason to sweep everything, so spend that before measuring.
+  SweptByOnePass();
+
+  ASSERT_NO_FATAL_FAILURE(create_an_edge());
+  EXPECT_EQ(SweptByOnePass(), 0) << "the analytical route arms none, and nothing it could sweep is stale";
+}
