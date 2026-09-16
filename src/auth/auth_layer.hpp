@@ -165,7 +165,10 @@ class AuthLayer {
   [[nodiscard]] bool Commit(AuthTransaction &tx, system::Transaction *system_tx) {
     auto locked = auth_->Lock();
     if (tx.overlay_ && !tx.overlay_->Flush()) return false;
-    locked->UpdateEpoch();
+    // A read-only transaction is still validated above, because what it read can still have been invalidated. It
+    // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every session's
+    // cached permissions, and nothing changed for them to re-read.
+    if (tx.overlay_ && tx.overlay_->HasWrites()) locked->UpdateEpoch();
     if (system_tx) {
       for (auto &action : tx.pending_actions_) system_tx->AddAction(std::move(action));
     }

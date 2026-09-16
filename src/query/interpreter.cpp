@@ -11695,7 +11695,10 @@ void Interpreter::Commit() {
 #else
           false;
 #endif
-      if (!system_transaction_ && !on_coordinator) {
+      // Only a transaction with something to replicate needs the system transaction, and taking one blocks every
+      // other system query for as long as it is held. A read-only auth transaction would otherwise be refused
+      // outright while another session held one, for a commit that publishes nothing.
+      if (!system_transaction_ && !on_coordinator && !auth_transaction_->pending_actions().empty()) {
         system_transaction_ =
             interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
         if (!system_transaction_) {
