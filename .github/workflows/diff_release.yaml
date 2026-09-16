@@ -112,8 +112,6 @@ jobs:
 
       - name: Build release binary
         run: |
-          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
-          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -121,7 +119,8 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph \
-          --link-threads $LINK_THREADS \
+          --memory-per-compile-job-mb 3500 \
+          --memory-per-link-job-mb 500 \
           --split-debug \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
@@ -730,8 +729,6 @@ jobs:
 
       - name: Build release binary
         run: |
-          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
-          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -739,7 +736,8 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph \
-          --link-threads $LINK_THREADS \
+          --memory-per-compile-job-mb 3500 \
+          --memory-per-link-job-mb 500 \
           --split-debug \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
@@ -895,8 +893,6 @@ jobs:
 
       - name: Build release binary
         run: |
-          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
-          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -904,7 +900,8 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph \
-          --link-threads $LINK_THREADS \
+          --memory-per-compile-job-mb 3500 \
+          --memory-per-link-job-mb 500 \
           --split-debug \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \

@@ -159,6 +159,8 @@ print_help () {
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Pin the number of concurrent link steps (default 0: derived from the memory available to the container). Compile parallelism is unaffected."
+  echo -e "  --memory-per-compile-job-mb int  Memory budgeted per compile step when deriving parallelism (maps to -DMG_MEMORY_PER_COMPILE_JOB_MB)."
+  echo -e "  --memory-per-link-job-mb int  Memory budgeted per link step when deriving parallelism (maps to -DMG_MEMORY_PER_LINK_JOB_MB)."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
@@ -701,6 +703,8 @@ build_memgraph () {
   local conan_password=""
   local build_dependency=""
   local link_threads=0
+  local memory_per_compile_job_mb=0
+  local memory_per_link_job_mb=0
   local split_debug=false
   local mage_mode="off"
   local mage_cuda=false
@@ -764,6 +768,14 @@ build_memgraph () {
       ;;
       --link-threads)
         link_threads=$2
+        shift 2
+      ;;
+      --memory-per-compile-job-mb)
+        memory_per_compile_job_mb=$2
+        shift 2
+      ;;
+      --memory-per-link-job-mb)
+        memory_per_link_job_mb=$2
         shift 2
       ;;
       --split-debug)
@@ -1013,6 +1025,14 @@ build_memgraph () {
   # Pin link concurrency instead of deriving it from the container's memory.
   if [[ "$link_threads" -gt 0 ]]; then
     additional_options="$additional_options -DMG_LINK_JOBS=$link_threads"
+  fi
+
+  # Retune the per-job memory budgets that derive the compile/link pool sizes.
+  if [[ "$memory_per_compile_job_mb" -gt 0 ]]; then
+    additional_options="$additional_options -DMG_MEMORY_PER_COMPILE_JOB_MB=$memory_per_compile_job_mb"
+  fi
+  if [[ "$memory_per_link_job_mb" -gt 0 ]]; then
+    additional_options="$additional_options -DMG_MEMORY_PER_LINK_JOB_MB=$memory_per_link_job_mb"
   fi
 
   # Extract debug info into sidecar .debug files post-link (requires RWD/Debug).
