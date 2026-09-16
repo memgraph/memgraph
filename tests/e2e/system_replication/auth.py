@@ -1424,5 +1424,82 @@ def test_user_profile_replication(connection, test_name):
     connection(BOLT_PORTS["main"], "main", "user1")
 
 
+def test_transactional_auth_replication(connection, test_name):
+    # Goal: show that a whole auth transaction reaches the replicas, and that an aborted one reaches neither.
+    # The actions are collected while the transaction runs and drained into a single system transaction at COMMIT,
+    # so a batch either arrives entire or not at all.
+
+    INSTANCES = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    interactive_mg_runner.start_all(INSTANCES, keep_directories=False)
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+
+    def check(expected_data):
+        mg_sleep_and_assert(expected_data, show_users_func(cursor_replica1))
+        mg_sleep_and_assert(expected_data, show_users_func(cursor_replica2))
+
+    # A committed transaction replicates every statement in it.
+    execute_and_fetch_all(cursor_main, "BEGIN")
+    execute_and_fetch_all(cursor_main, "CREATE USER alice")
+    execute_and_fetch_all(cursor_main, "CREATE USER bob")
+    execute_and_fetch_all(cursor_main, "COMMIT")
+    check({("alice",), ("bob",)})
+
+    # An aborted one replicates nothing, not even the statements that ran before the abort.
+    execute_and_fetch_all(cursor_main, "BEGIN")
+    execute_and_fetch_all(cursor_main, "CREATE USER carol")
+    execute_and_fetch_all(cursor_main, "ROLLBACK")
+    check({("alice",), ("bob",)})
+
+    # A dropped user is a delta like any other.
+    execute_and_fetch_all(cursor_main, "BEGIN")
+    execute_and_fetch_all(cursor_main, "DROP USER bob")
+    execute_and_fetch_all(cursor_main, "COMMIT")
+    check({("alice",)})
+
+    # Hotfix: Make sure the last connection is alice on main (connect caches the connection and uses it for cleanup)
+    connection(BOLT_PORTS["main"], "main", "alice")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
