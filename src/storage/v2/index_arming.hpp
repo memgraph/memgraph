@@ -12,6 +12,8 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
+#include <ranges>
 #include <set>
 #include <stop_token>
 
@@ -27,7 +29,8 @@ namespace memgraph::storage {
 /// left it something to collect. A type per way of being arranged, so that a structure asking
 /// about its own key cannot be answered by the rule belonging to another way of being keyed.
 ///
-/// Each borrows what it names and lives only as long as the question being asked.
+/// Each borrows what it names rather than owning it, so one is built where the question is asked
+/// and answered in the same expression. Storing one outlives what it points at.
 struct LabelKey {
   LabelId label;
 };
@@ -278,7 +281,15 @@ class IndexArming {
 /// stopping when asked to, skipping what the writes cannot have dirtied, and counting what is left.
 /// `key_of` answers what one index is arranged by, and `sweep_one` walks it and says whether it
 /// stopped part-way.
-template <typename TIndexes, typename TKeyOf, typename TSweepOne>
+/// Spelled out rather than left to deduction, so a family that hands over a key belonging to
+/// another way of being arranged is told so here, where it passed the key, rather than from inside
+/// the walk below.
+template <std::ranges::input_range TIndexes, typename TKeyOf, typename TSweepOne>
+  requires requires(IndexArming const &arming, std::ranges::range_reference_t<TIndexes> index, TKeyOf key_of,
+                    TSweepOne sweep_one) {
+    { arming.arms(key_of(index)) } -> std::same_as<bool>;
+    { sweep_one(index) } -> std::same_as<SweepOutcome>;
+  }
 uint64_t SweepArmedIndexes(IndexArming const &arming, std::stop_token const &token, TIndexes &&indexes, TKeyOf key_of,
                            TSweepOne sweep_one) {
   uint64_t swept = 0;

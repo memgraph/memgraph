@@ -900,6 +900,11 @@ TEST_F(StorageV2GcIndexSweepCountTest, AnAbortLeavesNoEntryInAnyEdgeIndexForAnEd
 // deltas when they are unlinked; an analytical write leaves no deltas, so it notes itself as it
 // happens. They are two implementations of one rule, and a route that stops noting what the other
 // notes leaves entries nothing comes back for.
+//
+// Indexes only. A unique constraint cannot be reached under the analytical route: a write there
+// makes no delta, a commit with no deltas returns before constraints are validated, and switching
+// a database to that mode is refused while a constraint exists. The constraint cases are
+// transactional for that reason, not by omission.
 class StorageV2GcArmingRouteTest : public StorageV2GcIndexSweepCountTest,
                                    public testing::WithParamInterface<ms::StorageMode> {
  protected:
