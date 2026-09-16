@@ -404,7 +404,10 @@ def build_report(meta, steps, samples, cfg, top, timeline_rows_wanted=30):
     info = [
         ("host", f"{meta.get('host', '?')}  ({cpus} cpus, {fmt_mib(meta.get('mem_total_kb', 0))} MiB RAM)"),
         ("git", f"{meta.get('git_head', '?')}{' (dirty)' if meta.get('git_dirty') else ''}"),
-        ("build.sh args", " ".join(meta.get("build_args", [])) or "(none)"),
+        (
+            "command" if meta.get("runner") == "exec" else "build.sh args",
+            " ".join(meta.get("build_args", [])) or "(none)",
+        ),
         ("build type", cfg.get("CMAKE_BUILD_TYPE", "?")),
         ("compiler", os.path.basename(cfg.get("CMAKE_CXX_COMPILER", "?"))),
         ("ccache", meta.get("ccache", "?")),

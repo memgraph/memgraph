@@ -78,7 +78,7 @@ def build_data(meta, steps, samples, cfg):
         "title": f"memgraph build profile, {meta.get('host', '?')}, {meta.get('git_head', '?')}",
         "subtitle": " ".join(
             [
-                f"build.sh {' '.join(meta.get('build_args', [])) or '(no args)'};",
+                f"{'' if meta.get('runner') == 'exec' else 'build.sh '}{' '.join(meta.get('build_args', [])) or '(no args)'};",
                 f"{cfg.get('CMAKE_BUILD_TYPE', '?')};",
                 f"pools {', '.join(f'{k}={v}' for k, v in cfg.get('pools', {}).items()) or 'none'};",
                 f"budgets compile {cfg.get('MG_MEMORY_PER_COMPILE_JOB_MB', '?')} / link"

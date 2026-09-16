@@ -5,7 +5,7 @@ The first line of steps.jsonl describes the run (machine, commit, build.sh
 arguments, ccache mode) so the file is self-contained: report.py and plots.py
 need nothing else to label a run copied from another machine.
 
-    meta.py --log FILE --ccache MODE [-- BUILD_SH_ARGS...]
+    meta.py --log FILE --ccache MODE [--runner build.sh|exec] [-- ARGS...]
 """
 import argparse
 import json
@@ -35,7 +35,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--log", required=True, help="steps.jsonl to append the record to")
     ap.add_argument("--ccache", required=True, help="how ccache was configured for the run")
-    ap.add_argument("build_args", nargs="*", help="arguments given to build.sh")
+    ap.add_argument(
+        "--runner",
+        default="build.sh",
+        choices=("build.sh", "exec"),
+        help="what the arguments were given to: ./build.sh, or a command run as is",
+    )
+    ap.add_argument("build_args", nargs="*", help="arguments given to build.sh, or the command under exec")
     args = ap.parse_args()
 
     rec = {
@@ -47,6 +53,7 @@ def main():
         "kernel": os.uname().release,
         "git_head": git("rev-parse", "--short", "HEAD"),
         "git_dirty": bool(git("status", "--porcelain")),
+        "runner": args.runner,
         "build_args": args.build_args,
         "ccache": args.ccache,
         "cwd": os.getcwd(),

@@ -21,6 +21,24 @@ tools/build_profile/profile.sh --build-type RelWithDebInfo --dev -DMG_ENABLE_TES
 tools/build_profile/profile.sh --report-only --out build_profile_results/20260915_120000
 ```
 
+### Inside the mgbuild container
+
+`release/package/mgbuild.sh ... build-memgraph --profile` runs the normal
+container build with the profiler attached and copies the results directory to
+`build_profile_results/` on the host. The build itself is identical apart from
+ccache being disabled for the run.
+
+### Wrapping your own build command
+
+If configure and build are separate steps in your flow (as they are in mgbuild),
+arm the hook at configure time and let `--exec` wrap the build:
+
+```bash
+export MG_BUILD_PROFILE_LOG=$PWD/out/steps.jsonl
+cmake --preset conan-release -DCMAKE_PROJECT_INCLUDE=$PWD/tools/build_profile/launcher.cmake
+tools/build_profile/profile.sh --exec --out out -- cmake --build --preset conan-release
+```
+
 Results land in `build_profile_results/<timestamp>/`:
 
 | file            | contents                                                            |
