@@ -176,9 +176,11 @@ void AtomicAuthOverlay::iterator::Advance() {
       // short-circuiting scan of the same prefix walks past whatever has appeared since, and must not be able to
       // pass those off as keys this scan covered.
       if (auto d = overlay_->scanned_prefixes_.find(prefix_); d != overlay_->scanned_prefixes_.end()) {
+        // The first exhaustive scan fixes the key set the transaction is held to; a later one only ever sees a
+        // superset, since anything that appeared since is a concurrent change this is meant to catch.
+        if (!d->second.exhausted) d->second.seen = std::exchange(seen_, {});
         d->second.exhausted = true;
         d->second.kind = ScanDependency::Kind::kKeySet;
-        d->second.seen = std::exchange(seen_, {});
       }
       return;
     }
