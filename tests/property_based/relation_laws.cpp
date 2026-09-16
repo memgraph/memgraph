@@ -322,6 +322,30 @@ RC_GTEST_PROP(Orderability, PutsAnIntegerAndADoubleOnOneSideOfEveryOtherValue, (
   RC_ASSERT(Before(third, as_integer) == Before(third, as_double));
 }
 
+RC_GTEST_PROP(Orderability, TellsApartTwoIntegersThatReachOneDouble, ()) {
+  // Above the point where the doubles stop being spaced one apart, an integer and its
+  // neighbour reach the same double. Both relations have to keep the two apart and place
+  // each against that double, or a value equality holds equal to one of them is held equal
+  // to the other, and sharing a position stops being transitive.
+  //
+  // Drawn at the boundary on purpose. A value drawn freely is almost never large enough, so
+  // this law asked over the broad generator would be asked about nothing at all.
+  auto const step = *rc::gen::inRange<int64_t>(0, 1 << 20);
+  auto const whole = kExactlyRepresentable + step * 2;  // even, so still exactly a double
+  auto const lower = TypedValue(whole);
+  auto const higher = TypedValue(whole + 1);  // odd, so no double carries it
+  auto const reached = TypedValue(static_cast<double>(whole));
+
+  RC_ASSERT(std::is_eq(orderability::Compare(lower, reached)));
+  RC_ASSERT(std::is_gt(orderability::Compare(higher, reached)));
+  RC_ASSERT(std::is_lt(orderability::Compare(reached, higher)));
+  RC_ASSERT(std::is_lt(orderability::Compare(lower, higher)));
+
+  // Equality answers the same pair, and has to answer it the same way.
+  RC_ASSERT(equality::Equal(lower, reached).ValueBool());
+  RC_ASSERT(!equality::Equal(higher, reached).ValueBool());
+}
+
 RC_GTEST_PROP(Orderability, AgreesWithComparabilityWhereverComparabilityAnswers, ()) {
   // The two relations differ in which pairs they answer for, not in what they
   // answer. Where comparability gives an order, a sort keyed by orderability has
