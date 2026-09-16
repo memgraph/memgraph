@@ -398,15 +398,49 @@ def test_syntax_errors():
         "KSHORTEST expansion does not support the accumulated path in a filter lambda.",
     )
 
-    # kshortest takes at most one lambda; a weight lambda is not accepted
-    print("Test: kshortest with two lambdas should raise error")
+    # A weight lambda cannot take the accumulated path: it never sees one.
+    print("Test: kshortest with an accumulated path in the weight lambda should raise error")
     expect_error(
         """
         MATCH (a:Person {name: 'Alice'}),(b:Person {name: 'Bob'})
-        WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST|2 (rel, n | 1) (rel, n | true)]->(b) RETURN r
+        WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST|2 (rel, n, p | 1) total]->(b) RETURN r
     """,
-        "kshortest with two lambdas",
+        "kshortest with an accumulated path in the weight lambda",
+        "accumulated path",
+    )
+
+    # Two lambdas are weight then filter, so a third has nowhere to go.
+    print("Test: depth-first expansion with two lambdas should still raise error")
+    expect_error(
+        """
+        MATCH (a:Person {name: 'Alice'}),(b:Person {name: 'Bob'})
+        WITH a, b MATCH (a)-[r:KNOWS * (rel, n | 1) (rel, n | true)]->(b) RETURN r
+    """,
+        "depth-first expansion with two lambdas",
         "Only one filter lambda can be supplied.",
+    )
+
+    # The two below are runtime errors, so unlike the rest of this function they need a pair the
+    # expansion actually walks: Alice-[:KNOWS]->Bob is the one edge this graph has.
+    print("Test: kshortest with a null weight should raise error")
+    expect_error(
+        """
+        MATCH (a:Person {name: 'Alice'}),(b:Person {name: 'Bob'})
+        WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST (rel, n | rel.missing) total]->(b) RETURN r
+    """,
+        "kshortest with a null weight",
+        "must not evaluate to null",
+    )
+
+    # Dijkstra needs non-negative weights.
+    print("Test: kshortest with a negative weight should raise error")
+    expect_error(
+        """
+        MATCH (a:Person {name: 'Alice'}),(b:Person {name: 'Bob'})
+        WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST (rel, n | -1) total]->(b) RETURN r
+    """,
+        "kshortest with a negative weight",
+        "non-negative",
     )
 
     # A filter lambda evaluating to something other than a boolean or null must fail at runtime
@@ -423,6 +457,120 @@ def test_syntax_errors():
     print("Syntax error tests passed! ✅")
 
 
+def test_kshortest_weight_lambda():
+    """The three spellings a weight lambda can take, and the order they impose."""
+    print("Testing kshortest weight lambda...")
+
+    execute_query("MATCH (n) DETACH DELETE n")
+    # One cheap three-hop route against one expensive single hop, so hop count and weight disagree.
+    execute_query(
+        """
+        CREATE (a:P {name: 'a'})
+        CREATE (b:P {name: 'b'})
+        CREATE (c:P {name: 'c'})
+        CREATE (d:P {name: 'd'})
+        CREATE (a)-[:E {w: 1}]->(b)
+        CREATE (b)-[:E {w: 1}]->(c)
+        CREATE (c)-[:E {w: 1}]->(d)
+        CREATE (a)-[:E {w: 4}]->(c)
+        CREATE (a)-[:E {w: 10}]->(d)
+    """
+    )
+
+    # Spelling 1: weight lambda and a named total. Ascending by (weight, hops).
+    print("Test: weight lambda with a named total weight")
+    results = execute_query(
+        """
+        MATCH (a:P {name: 'a'}),(d:P {name: 'd'})
+        WITH a, d MATCH (a)-[r:E *KSHORTEST (rel, n | rel.w) total]->(d)
+        RETURN total, size(r) AS hops
+    """
+    )
+    assert [(r["total"], r["hops"]) for r in results] == [
+        (3, 3),
+        (5, 2),
+        (10, 1),
+    ], f"Unexpected weighted order: {[(r['total'], r['hops']) for r in results]}"
+
+    # Hop count alone would serve the same three paths the other way round.
+    print("Test: the same pair without a weight lambda still orders by hops")
+    results = execute_query(
+        """
+        MATCH (a:P {name: 'a'}),(d:P {name: 'd'})
+        WITH a, d MATCH (a)-[r:E *KSHORTEST]->(d) RETURN size(r) AS hops
+    """
+    )
+    assert [r["hops"] for r in results] == [1, 2, 3], f"Unexpected hop-count order: {[r['hops'] for r in results]}"
+
+    # Spelling 2: a lone lambda with no total weight variable is still the filter, as it always was.
+    print("Test: a lone lambda is still the filter lambda")
+    results = execute_query(
+        """
+        MATCH (a:P {name: 'a'}),(d:P {name: 'd'})
+        WITH a, d MATCH (a)-[r:E *KSHORTEST (rel, n | rel.w < 5)]->(d) RETURN size(r) AS hops
+    """
+    )
+    assert [r["hops"] for r in results] == [2, 3], f"Unexpected filtered order: {[r['hops'] for r in results]}"
+
+    # Spelling 3: weight then filter, with the total weight variable between them.
+    print("Test: weight lambda, total weight and filter lambda")
+    results = execute_query(
+        """
+        MATCH (a:P {name: 'a'}),(d:P {name: 'd'})
+        WITH a, d MATCH (a)-[r:E *KSHORTEST (rel, n | rel.w) total (rel, n | n.name <> 'c')]->(d)
+        RETURN total, size(r) AS hops
+    """
+    )
+    assert [(r["total"], r["hops"]) for r in results] == [(10, 1)], f"Unexpected filtered weighted rows: {results}"
+
+    # Spelling 4: two lambdas with the total weight variable left out.
+    print("Test: weight and filter lambdas with an anonymous total weight")
+    results = execute_query(
+        """
+        MATCH (a:P {name: 'a'}),(d:P {name: 'd'})
+        WITH a, d MATCH (a)-[r:E *KSHORTEST (rel, n | rel.w) (rel, n | true)]->(d) RETURN size(r) AS hops
+    """
+    )
+    assert [r["hops"] for r in results] == [
+        3,
+        2,
+        1,
+    ], f"Unexpected anonymous-total order: {[r['hops'] for r in results]}"
+
+    # The path limit caps the cheapest paths, not the shortest ones.
+    print("Test: weight lambda with a path limit")
+    results = execute_query(
+        """
+        MATCH (a:P {name: 'a'}),(d:P {name: 'd'})
+        WITH a, d MATCH (a)-[r:E *KSHORTEST|2 (rel, n | rel.w) total]->(d) RETURN total
+    """
+    )
+    assert [r["total"] for r in results] == [3, 5], f"Unexpected limited totals: {[r['total'] for r in results]}"
+
+    # The length bound still counts hops, so the cheapest route can fall outside it.
+    print("Test: weight lambda with an upper bound")
+    results = execute_query(
+        """
+        MATCH (a:P {name: 'a'}),(d:P {name: 'd'})
+        WITH a, d MATCH (a)-[r:E *KSHORTEST ..2 (rel, n | rel.w) total]->(d) RETURN total
+    """
+    )
+    assert [r["total"] for r in results] == [5, 10], f"Unexpected bounded totals: {[r['total'] for r in results]}"
+
+    # The total weight variable is an ordinary bound symbol, so a later WHERE can filter on it.
+    print("Test: filtering on the total weight")
+    results = execute_query(
+        """
+        MATCH (a:P {name: 'a'}),(d:P {name: 'd'})
+        WITH a, d MATCH (a)-[r:E *KSHORTEST (rel, n | rel.w) total]->(d)
+        WHERE total < 6 RETURN total
+    """
+    )
+    assert [r["total"] for r in results] == [3, 5], f"Unexpected filtered totals: {[r['total'] for r in results]}"
+
+    print("Weight lambda tests passed! ✅")
+
+
 if __name__ == "__main__":
     try:
         test_kshortest_limit()
@@ -430,6 +578,7 @@ if __name__ == "__main__":
         test_kshortest_limit_is_per_input_row()
         test_kshortest_limit_can_depend_on_the_input_row()
         test_kshortest_depth_bounds()
+        test_kshortest_weight_lambda()
         test_syntax_errors()
         print("\n🎉 All tests completed successfully!")
     except Exception as e:

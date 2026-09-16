@@ -48,7 +48,9 @@ class VertexDb : public Database {
       Symbol source_sym, Symbol sink_sym, Symbol edge_sym, EdgeAtom::Direction direction,
       const std::vector<memgraph::storage::EdgeTypeId> &edge_types, const std::shared_ptr<LogicalOperator> &input,
       bool existing_node, memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
-      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit) override {
+      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit,
+      std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda,
+      std::optional<memgraph::query::Symbol> total_weight) override {
     return std::make_unique<ExpandVariable>(input,
                                             source_sym,
                                             sink_sym,
@@ -61,8 +63,8 @@ class VertexDb : public Database {
                                             upper_bound,
                                             existing_node,
                                             filter_lambda,
-                                            std::nullopt,
-                                            std::nullopt,
+                                            std::move(weight_lambda),
+                                            std::move(total_weight),
                                             limit);
   }
 
@@ -90,6 +92,9 @@ class VertexDb : public Database {
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
       MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).has_value());
       MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).has_value());
+      // The weighted arm reads this; `EdgeWeightFor` is the same formula, so the oracle can replay it.
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("weight"), memgraph::storage::PropertyValue(EdgeWeightFor(u, v)))
+                    .has_value());
       edge_addr.push_back(*edge);
     }
 
@@ -195,6 +200,147 @@ TEST_F(GeneralKShortestTestInMemory, InterleavedRootsMatchOracle) {
                      FilterLambdaType::NONE,
                      kInterleavedVertexLocations,
                      kInterleavedEdges);
+}
+
+// --- weighted ---------------------------------------------------------------------------------
+
+// The weighted matrix over the default fixture: every pair, every direction, every edge-type filter,
+// with and without a length bound. Compared path for path against a brute-force enumeration.
+class WeightedKShortestTestInMemory
+    : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
+ public:
+  using StorageType = memgraph::storage::InMemoryStorage;
+
+  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
+
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+TEST_P(WeightedKShortestTestInMemory, All) {
+  auto const [lower_bound, upper_bound, direction, edge_types] = GetParam();
+  this->db_->KShortestWeightedTest(db_.get(), lower_bound, upper_bound, direction, edge_types);
+}
+
+std::unique_ptr<VertexDb<WeightedKShortestTestInMemory::StorageType>> WeightedKShortestTestInMemory::db_{nullptr};
+
+INSTANTIATE_TEST_SUITE_P(Weighted, WeightedKShortestTestInMemory,
+                         testing::Combine(testing::Values(-1, 2), testing::Values(3, -1),
+                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                          EdgeAtom::Direction::BOTH),
+                                          testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"},
+                                                          std::vector<std::string>{"b"})));
+
+class WeightedKShortestCasesInMemory : public ::testing::Test {
+ public:
+  using StorageType = memgraph::storage::InMemoryStorage;
+
+  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
+
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+std::unique_ptr<VertexDb<WeightedKShortestCasesInMemory::StorageType>> WeightedKShortestCasesInMemory::db_{nullptr};
+
+TEST_F(WeightedKShortestCasesInMemory, OrderDiffersFromHopCount) {
+  db_->KShortestWeightedTestOrderDiffersFromHopCount(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, HandFixture) { db_->KShortestWeightedTestHandFixture(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, ZeroWeights) { db_->KShortestWeightedTestZeroWeights(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, DurationWeights) { db_->KShortestWeightedTestDurationWeights(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, MixedNumericWeights) {
+  db_->KShortestWeightedTestMixedNumericWeights(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, UpperBoundPrefersShorterPricierPath) {
+  db_->KShortestWeightedTestUpperBoundPrefersShorterPricierPath(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, LowerBoundKeepsDeviations) {
+  db_->KShortestWeightedTestLowerBoundKeepsDeviations(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, LimitTakesTheCheapest) {
+  db_->KShortestWeightedTestLimitTakesTheCheapest(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, UnreachableTargetDoesNotSearch) {
+  db_->KShortestWeightedTestUnreachableTargetDoesNotSearch(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, WeightErrors) { db_->KShortestWeightedTestWeightErrors(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, FilterLambda) { db_->KShortestWeightedTestFilterLambda(db_.get()); }
+
+// The ladder drives deviation indices the 6-vertex fixture never reaches; under weights the root
+// prefix's cost has to be accumulated correctly all the way down it.
+TEST_F(WeightedKShortestCasesInMemory, LadderMatchesOracleAtDepth) {
+  db_->KShortestWeightedTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, -1, kLadderVertexLocations, kLadderEdges);
+}
+
+TEST_F(WeightedKShortestCasesInMemory, InterleavedRootsMatchOracle) {
+  db_->KShortestWeightedTest(
+      db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, kInterleavedVertexLocations, kInterleavedEdges);
+}
+
+// Random graphs at fixed seeds, every pair, against the brute-force enumeration. This is what would
+// catch a spur search that loses a path on a shape nobody thought to write down.
+class WeightedKShortestRandomInMemory : public ::testing::TestWithParam<std::tuple<uint32_t, int, double>> {
+ public:
+  using StorageType = memgraph::storage::InMemoryStorage;
+
+  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
+
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+std::unique_ptr<VertexDb<WeightedKShortestRandomInMemory::StorageType>> WeightedKShortestRandomInMemory::db_{nullptr};
+
+TEST_P(WeightedKShortestRandomInMemory, MatchesOracle) {
+  auto const [seed, vertex_count, density] = GetParam();
+  auto const [locations, edges] = RandomKShortestGraph(seed, vertex_count, density);
+  SCOPED_TRACE(fmt::format("seed = {}, vertices = {}, density = {}", seed, vertex_count, density));
+  for (auto direction : {EdgeAtom::Direction::OUT, EdgeAtom::Direction::BOTH}) {
+    // Bounded and unbounded: the bound is what puts depth into the search's state key.
+    db_->KShortestWeightedTest(db_.get(), -1, -1, direction, {}, -1, locations, edges);
+    db_->KShortestWeightedTest(db_.get(), -1, 3, direction, {}, -1, locations, edges);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Random, WeightedKShortestRandomInMemory,
+                         testing::Combine(testing::Range(uint32_t{1}, uint32_t{13}), testing::Values(5, 6),
+                                          testing::Values(0.3, 0.5)));
+
+// With the reverse-tree heuristic off the spur search is a plain Dijkstra. It must enumerate exactly
+// the same paths, which is what pins the heuristic as admissible rather than merely fast.
+TEST_F(WeightedKShortestCasesInMemory, PlainDijkstraAgreesWithAStar) {
+  struct HeuristicOff {
+    HeuristicOff() { KShortestWeightedHeuristicEnabled() = false; }
+
+    ~HeuristicOff() { KShortestWeightedHeuristicEnabled() = true; }
+  } guard;
+
+  for (auto direction : {EdgeAtom::Direction::OUT, EdgeAtom::Direction::BOTH}) {
+    db_->KShortestWeightedTest(db_.get(), -1, -1, direction, {});
+    db_->KShortestWeightedTest(db_.get(), -1, 3, direction, {});
+  }
+  for (uint32_t seed = 1; seed <= 4; ++seed) {
+    auto const [locations, edges] = RandomKShortestGraph(seed, 6, 0.4);
+    SCOPED_TRACE(fmt::format("seed = {}", seed));
+    db_->KShortestWeightedTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, -1, locations, edges);
+  }
 }
 
 TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
