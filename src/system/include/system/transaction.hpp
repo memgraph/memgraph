@@ -92,8 +92,9 @@ struct Transaction {
     actions_.clear();
   }
 
-  /// True if every action in this transaction is replicable in community (e.g. only parameter actions). Auth and
-  /// dbms actions are not.
+  /// True if every action in this transaction may replicate without an enterprise licence, which today means
+  /// parameter actions only. Despite the name this is never reached in a community build: that build compiles no
+  /// auth or dbms action, so the caller replicates unconditionally.
   [[nodiscard]] bool CanReplicateInCommunity() const {
     return !actions_.empty() &&
            std::ranges::all_of(actions_, [](auto const &action) { return action->ShouldReplicateInCommunity(); });
