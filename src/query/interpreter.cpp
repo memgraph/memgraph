@@ -9956,7 +9956,11 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
 
   // User profiles are out of scope for transactional auth: UserProfiles answers reads from an in-memory cache
   // rather than the store, so the overlay cannot isolate them, roll them back, or detect a conflict.
-  if (interpreter->auth_transaction_ptr()) {
+  //
+  // Tested on the explicit transaction rather than on a live auth transaction, which only exists once an auth
+  // statement has run: a profile query arriving first would otherwise be let through, write durably at once, and
+  // survive the ROLLBACK.
+  if (interpreter->in_explicit_transaction_) {
     throw UserModificationInMulticommandTxException();
   }
 
