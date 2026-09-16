@@ -63,9 +63,18 @@ struct AsyncIndexer {
     friend auto operator<=>(LabelProperties const &, LabelProperties const &) = default;
   };
 
+  /// Wake anything waiting on cv_, having taken the mutex those waiters evaluate their
+  /// condition under.
+  void Notify();
+
   // Label, EdgeType, Composite, Edge Property
   utils::SkipList<std::variant<LabelId, EdgeTypeId, LabelProperties, PropertyId>> request_queue_{};
-  mutable std::mutex mutex_{};
+  // Held for as long as the worker scans the queue, which is as long as building an index
+  // takes. Enqueueing must not wait that long, so it is not the mutex the condition variable
+  // uses. Where both are held the order is this one first.
+  std::mutex scan_mutex_{};
+  // Held only around a wait or a notification.
+  std::mutex wait_mutex_{};
   std::condition_variable cv_{};
   memory::DbAwareThread index_creator_thread_{};
   mutable std::atomic<bool> is_processing_{false};       // Track if thread is actively processing

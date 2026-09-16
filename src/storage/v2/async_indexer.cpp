@@ -19,26 +19,36 @@
 
 namespace memgraph::storage {
 
-AsyncIndexer::~AsyncIndexer() { cv_.notify_all(); }
+AsyncIndexer::~AsyncIndexer() { Notify(); }
+
+void AsyncIndexer::Notify() {
+  // The notification must be issued under the mutex the worker evaluates its wait condition
+  // under. Issued without it, it can land in the window where the worker has read that
+  // condition as false and has not yet registered on the condition variable. The wake-up then
+  // reaches nobody, and since the wait has no deadline the worker sleeps until the next
+  // notification, leaving the work queued behind it undone.
+  auto guard = std::unique_lock{wait_mutex_};
+  cv_.notify_all();
+}
 
 void AsyncIndexer::Enqueue(LabelId label) {
   request_queue_.access().insert(label);
-  cv_.notify_all();
+  Notify();
 }
 
 void AsyncIndexer::Enqueue(EdgeTypeId edge_type) {
   request_queue_.access().insert(edge_type);
-  cv_.notify_all();
+  Notify();
 }
 
 void AsyncIndexer::Enqueue(LabelId label, PropertiesPaths properties) {
   request_queue_.access().insert(LabelProperties{label, std::move(properties)});
-  cv_.notify_all();
+  Notify();
 }
 
 void AsyncIndexer::Enqueue(PropertyId property) {
   request_queue_.access().insert(property);
-  cv_.notify_all();
+  Notify();
 }
 
 void AsyncIndexer::RunGC() { request_queue_.run_gc(); }
@@ -46,7 +56,7 @@ void AsyncIndexer::RunGC() { request_queue_.run_gc(); }
 void AsyncIndexer::Clear() {
   // SkipList clear is not thread safe
   // need to make sure it is not being scanned
-  auto lock = std::unique_lock{mutex_};
+  auto lock = std::unique_lock{scan_mutex_};
   request_queue_.clear();
 }
 
@@ -59,33 +69,36 @@ bool AsyncIndexer::HasThreadStopped() const { return !index_creator_thread_.join
 void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
   index_creator_thread_ = memory::DbAwareThread{
       storage->DbArenaPool(), [this, stop_token, storage](std::stop_token thread_stop_token) mutable {
-        // the lock must be taken first because on destruction
-        // local objects get destroyed in reverse order of declaration
-        // and we must do notify_all before releasing the lock
-        // hence making releasing the lock the last thing we do
-        std::unique_lock<std::mutex> lock(mutex_);
         auto on_exit = utils::OnScopeExit{[this] {
+          auto guard = std::unique_lock{wait_mutex_};
           thread_has_stopped_ = true;
           cv_.notify_all();
         }};
         auto const cancel_check = [&]() { return thread_stop_token.stop_requested() || stop_token.stop_requested(); };
         while (!cancel_check()) {
-          cv_.wait(lock, [&, this] {
-            auto empty = request_queue_.size() != 0;
-            auto stopped = cancel_check();
-            return empty || stopped;
-          });
+          {
+            auto guard = std::unique_lock{wait_mutex_};
+            cv_.wait(guard, [&, this] {
+              auto empty = request_queue_.size() != 0;
+              auto stopped = cancel_check();
+              return empty || stopped;
+            });
+          }
           if (cancel_check()) {
             return;
           }
 
+          // Holding this for the whole scan is what lets Clear wait for the scan to end.
+          auto scan_guard = std::unique_lock{scan_mutex_};
           auto access = request_queue_.access();
           auto it_end = access.end();
           auto backoff = std::chrono::milliseconds(100);
 
-          // Mark as processing when we have work to do
+          // Mark as processing when we have work to do. A request stays queued until it
+          // succeeds, so a waiter for idleness reads a non-empty queue until this is set.
           is_processing_ = true;
           auto processing_exit = utils::OnScopeExit{[this] {
+            auto guard = std::unique_lock{wait_mutex_};
             is_processing_ = false;
             cv_.notify_all();  // wake CompleteRemaining waiters
           }};
@@ -145,19 +158,16 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
 }
 
 void AsyncIndexer::Shutdown() {
+  // The stop request stays outside the mutex so a worker part-way through building an index
+  // sees it while polling, rather than waiting to be let in.
   index_creator_thread_.request_stop();
-  // The notification must be issued under the mutex the worker evaluates its wait condition under.
-  // Issued before taking it, it can land in the window where the worker has read that condition as
-  // false and has not yet registered on the condition variable. The wake-up then reaches nobody,
-  // the worker sleeps with a stop already requested, and the wait below never finishes, because
-  // only the worker can satisfy it.
-  auto guard = std::unique_lock{mutex_};
+  auto guard = std::unique_lock{wait_mutex_};
   cv_.notify_all();
   cv_.wait(guard, [this] { return HasThreadStopped(); });
 }
 
 void AsyncIndexer::CompleteRemaining() {
-  auto guard = std::unique_lock{mutex_};
+  auto guard = std::unique_lock{wait_mutex_};
   cv_.wait(guard, [this] { return IsIdle(); });
 }
 
