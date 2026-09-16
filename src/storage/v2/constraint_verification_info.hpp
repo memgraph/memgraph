@@ -89,6 +89,12 @@ struct ConstraintVerificationInfo final {
   /// properties being set on it.
   bool CouldHaveChangedUniqueKey(Vertex const *vertex, LabelId label, std::set<PropertyId> const &properties) const;
 
+  /// Forgets what has been reported, keeping which ids are worth reporting. A transaction that
+  /// commits more than once owes each commit what was written since the one before it, and a
+  /// vertex still named by a commit that wrote nothing it is keyed on is one whose constraints
+  /// gain an entry that commit never armed a sweep for.
+  void Clear();
+
  private:
   // Update unique constraints to check whether any vertex already has that value
   // Update existence constraints to check whether for that label the node has all the properties present

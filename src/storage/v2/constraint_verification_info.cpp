@@ -66,6 +66,12 @@ bool ConstraintVerificationInfo::CouldHaveChangedUniqueKey(Vertex const *vertex,
   });
 }
 
+void ConstraintVerificationInfo::Clear() {
+  added_labels_.clear();
+  added_properties_.clear();
+  removed_properties_.clear();
+}
+
 bool ConstraintVerificationInfo::NeedsUniqueConstraintVerification() const {
   return !added_labels_.empty() || !added_properties_.empty();
 }

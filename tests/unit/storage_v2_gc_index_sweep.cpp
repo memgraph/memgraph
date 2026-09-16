@@ -296,6 +296,163 @@ TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromAPropertyNoCon
   EXPECT_EQ(ConstraintEntryCount("Item", "id"), 1);
 }
 
+// The property written is a key of a constraint on a label this vertex does not carry. That is
+// enough for the write to be reported, because what counts as reportable is gathered across every
+// constraint rather than per constraint, so the constraint the vertex does fall under must still
+// be left alone.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromAKeyOfAConstraintOnAnotherLabel) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Elsewhere", "b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("Item", "a"), 1);
+
+  for (auto value = 2; value != 12; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("b"), ms::PropertyValue{value}));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("Item", "a"), 1);
+}
+
+// A label arriving on a vertex arms the constraints keyed on that label, and says nothing about
+// the constraints keyed on the labels it already carried.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromASecondLabelArriving) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Added", "b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Added")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("Item", "a"), 1);
+
+  // Taking the second label off and putting it back names only that label.
+  for (auto round = 0; round != 10; ++round) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_TRUE(*vertex->RemoveLabel(acc->NameToLabel("Added")));
+      ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("Added")));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("Item", "a"), 1);
+}
+
+// Writing both keys at once through one map, where one of them keeps the value it already had.
+// Whether that one counts as written decides both whether an entry is added for it and whether its
+// constraint is swept, and those two must not part company.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromAMapThatRewritesItsKeyUnchanged) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  auto const before = ConstraintEntryCount("Item", "a");
+
+  for (auto value = 2; value != 12; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      auto update = std::map<ms::PropertyId, ms::PropertyValue>{
+          {acc->NameToProperty("a"), ms::PropertyValue{1}},
+          {acc->NameToProperty("b"), ms::PropertyValue{value}},
+      };
+      ASSERT_NO_ERROR(vertex->UpdateProperties(update));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("Item", "a"), before);
+}
+
+// One transaction committing repeatedly. What an earlier batch wrote is not what a later one
+// wrote, so a batch that names no key of a constraint may not add to it, however the batch before
+// it was reported.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromABatchThatDidNotNameIt) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "a"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("v"), ms::PropertyValue{0}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    // The first batch writes the key, which is what puts the vertex on the list of those owing a
+    // constraint check.
+    {
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{2}));
+      ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    auto const after_the_key_write = ConstraintEntryCount("Item", "a");
+
+    // Every batch after it writes a property no constraint is keyed on.
+    for (auto value = 1; value != 11; ++value) {
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("v"), ms::PropertyValue{value}));
+      ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Asked while the transaction is still open, because a collection pass cannot run until it
+    // closes, and one that runs afterwards still holds the first batch's arming and would collect
+    // whatever the later batches added.
+    EXPECT_EQ(ConstraintEntryCount("Item", "a"), after_the_key_write)
+        << "a batch naming no key of this constraint added to it anyway";
+
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+}
+
 // The same rule across the labels of one vertex: a write reaching a constraint on one of them says
 // nothing about a constraint on another, which is left unswept and so must be left unwritten.
 TEST_F(StorageV2GcIndexSweepCountTest, AConstraintOnAnotherOfTheVertexsLabelsGainsNoEntry) {
