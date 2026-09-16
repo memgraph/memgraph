@@ -1047,47 +1047,50 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
 
   uint64_t swept = 0;
   auto const remove_from = [&](auto const &all_indexes) {
-    for (auto &all_entry : *all_indexes) {
-      if (token.stop_requested()) return;
-      auto const &label_id = all_entry.label_;
-      auto const &property_paths = all_entry.properties_;
-      // A sweep walks the whole index whether or not it has anything to collect.
-      if (!arming.arms_vertex_index_on(label_id, property_paths)) continue;
-      ++swept;
+    swept += SweepArmedIndexes(
+        arming,
+        token,
+        *all_indexes,
+        [](auto const &all_entry) {
+          return LabelPropertiesKey{.label = all_entry.label_, .properties = all_entry.properties_};
+        },
+        [&](auto const &all_entry) {
+          auto const &label_id = all_entry.label_;
+          auto const &property_paths = all_entry.properties_;
+          bool const stop = WithIndex(all_entry.index_, [&](auto &index) -> bool {
+            auto const &permutationHelper = index.permutations_helper;
+            auto index_acc = index.skiplist.access();
+            auto it = index_acc.begin();
+            auto end_it = index_acc.end();
+            if (it == end_it) return false;
+            auto match_scratch = std::vector<bool>{};
+            while (true) {
+              if (maybe_stop() && token.stop_requested()) return true;
 
-      bool const stop = WithIndex(all_entry.index_, [&](auto &index) -> bool {
-        auto const &permutationHelper = index.permutations_helper;
-        auto index_acc = index.skiplist.access();
-        auto it = index_acc.begin();
-        auto end_it = index_acc.end();
-        if (it == end_it) return false;
-        auto match_scratch = std::vector<bool>{};
-        while (true) {
-          if (maybe_stop() && token.stop_requested()) return true;
+              auto next_it = it;
+              ++next_it;
 
-          auto next_it = it;
-          ++next_it;
-
-          const bool has_next = next_it != end_it;
-          if (!preserve_recent_entries || it->timestamp < oldest_active_start_timestamp) {
-            const bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
-            if (redundant_duplicate || !AnyVersionHasLabelProperties(*it->vertex,
-                                                                     label_id,
-                                                                     property_paths,
-                                                                     permutationHelper,
-                                                                     it->values.as_view(),
-                                                                     oldest_active_start_timestamp,
-                                                                     match_scratch)) {
-              index_acc.remove(*it);
+              const bool has_next = next_it != end_it;
+              if (!preserve_recent_entries || it->timestamp < oldest_active_start_timestamp) {
+                const bool redundant_duplicate =
+                    has_next && it->vertex == next_it->vertex && it->values == next_it->values;
+                if (redundant_duplicate || !AnyVersionHasLabelProperties(*it->vertex,
+                                                                         label_id,
+                                                                         property_paths,
+                                                                         permutationHelper,
+                                                                         it->values.as_view(),
+                                                                         oldest_active_start_timestamp,
+                                                                         match_scratch)) {
+                  index_acc.remove(*it);
+                }
+              }
+              if (!has_next) break;
+              it = next_it;
             }
-          }
-          if (!has_next) break;
-          it = next_it;
-        }
-        return false;
-      });
-      if (stop) return;
-    }
+            return false;
+          });
+          return stop ? SweepOutcome::STOPPED : SweepOutcome::COMPLETED;
+        });
   };
 
   auto data = all_indices_.ReadCopy();

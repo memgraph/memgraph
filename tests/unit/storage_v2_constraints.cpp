@@ -29,7 +29,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
 
-#include "query/exceptions.hpp"
+#include "storage/v2/exceptions.hpp"
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 
@@ -1310,7 +1310,8 @@ TYPED_TEST(ConstraintsTest, TypeConstraints) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")),
+                 memgraph::storage::TypeConstraintViolationException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(1)));
   }
 }
@@ -1334,7 +1335,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsInitProperties) {
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> invalid_props{
         {this->prop1, PropertyValue("problem")}};
-    ASSERT_THROW((void)vertex1.InitProperties(invalid_props), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.InitProperties(invalid_props), memgraph::storage::TypeConstraintViolationException);
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> valid_props{
         {this->prop1, PropertyValue(1)}};
     ASSERT_NO_ERROR(vertex1.InitProperties(valid_props));
@@ -1359,7 +1360,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsUpdateProperties) {
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto properties1 = std::map<PropertyId, PropertyValue>{{this->prop1, PropertyValue("problem")}};
-    ASSERT_THROW((void)vertex1.UpdateProperties(properties1), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.UpdateProperties(properties1), memgraph::storage::TypeConstraintViolationException);
     auto properties2 = std::map<PropertyId, PropertyValue>{{this->prop1, PropertyValue(1)}};
     ASSERT_NO_ERROR(vertex1.UpdateProperties(properties2));
   }
@@ -1389,9 +1390,11 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsMultiplePropertiesSameLabel) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")),
+                 memgraph::storage::TypeConstraintViolationException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(1)));
-    ASSERT_THROW((void)vertex1.SetProperty(this->prop2, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop2, PropertyValue("problem")),
+                 memgraph::storage::TypeConstraintViolationException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop2, PropertyValue(1)));
   }
 }
@@ -1432,7 +1435,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddLabelLast) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue("problem")));
-    ASSERT_THROW((void)vertex1.AddLabel(this->label1), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.AddLabel(this->label1), memgraph::storage::TypeConstraintViolationException);
   }
 }
 
@@ -1517,9 +1520,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalData) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")),
+                 memgraph::storage::TypeConstraintViolationException);
     ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})),
-                 memgraph::query::QueryException);
+                 memgraph::storage::TypeConstraintViolationException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::Date, 0})));
   }
 }
@@ -1553,9 +1557,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsZonedDateTimeWithOffsetTimezone) {
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, zoned(memgraph::utils::Timezone(std::chrono::minutes{-330}))));
 
     // A value that is not a zoned datetime is still rejected.
-    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")),
+                 memgraph::storage::TypeConstraintViolationException);
     ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})),
-                 memgraph::query::QueryException);
+                 memgraph::storage::TypeConstraintViolationException);
   }
 
   // The same holds when the label arrives after the property.
@@ -1640,7 +1645,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalDataAddLabelLa
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})));
-    ASSERT_THROW((void)vertex1.AddLabel(this->label1), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.AddLabel(this->label1), memgraph::storage::TypeConstraintViolationException);
   }
 
   {

@@ -143,22 +143,22 @@ TEST(IndexArming, AnEmptyPathArmsNothing) {
   EXPECT_FALSE(arming.arms_vertex_index_on(Label(1), key));
 }
 
-// A unique constraint keeps a skiplist keyed the way an index is and is swept the same way; its
-// key is a set of properties rather than paths into them.
+// A unique constraint is asked its own question. Its key is a set of properties rather than paths
+// into them, and what puts an entry in it is a commit rather than the key being written.
 TEST(IndexArming, AConstraintArmsOnEitherHalfOfItsKey) {
   auto const key = std::set<PropertyId>{Property(10), Property(11)};
 
   auto on_label = IndexArming{};
   on_label.note_label(Label(1));
-  EXPECT_TRUE(on_label.arms_vertex_index_on(Label(1), key));
+  EXPECT_TRUE(on_label.arms_unique_constraint_on(Label(1), key));
 
   auto on_property = IndexArming{};
   on_property.note_vertex_property(Property(11));
-  EXPECT_TRUE(on_property.arms_vertex_index_on(Label(1), key));
+  EXPECT_TRUE(on_property.arms_unique_constraint_on(Label(1), key));
 
   auto on_neither = IndexArming{};
   on_neither.note_vertex_property(Property(12));
-  EXPECT_FALSE(on_neither.arms_vertex_index_on(Label(1), key));
+  EXPECT_FALSE(on_neither.arms_unique_constraint_on(Label(1), key));
 }
 
 // An index keyed on a property alone holds an entry per vertex carrying it, whatever labels that
@@ -230,7 +230,7 @@ TEST(IndexArming, ArmingAllVertexIndexesArmsEveryVertexKey) {
   EXPECT_TRUE(arming.arms_vertex_indexes());
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(1)));
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(999), PropertiesPaths{PropertyPath{Property(999)}}));
-  EXPECT_TRUE(arming.arms_vertex_index_on(Label(999), std::set<PropertyId>{Property(999)}));
+  EXPECT_TRUE(arming.arms_unique_constraint_on(Label(999), std::set<PropertyId>{Property(999)}));
   EXPECT_TRUE(arming.arms_vertex_property_index_on(Property(999)));
 }
 

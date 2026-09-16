@@ -26,12 +26,12 @@ ConstraintVerificationInfo &ConstraintVerificationInfo::operator=(ConstraintVeri
 void ConstraintVerificationInfo::AddedLabel(LabelId label, Vertex const *vertex) {
   // One set feeds both checks, so a label either kind is keyed on is reported to both.
   if (!relevance_.unique_labels.IsInteresting(label) && !relevance_.existence_labels.IsInteresting(label)) return;
-  added_labels_.insert(vertex);
+  added_labels_.insert({.vertex = vertex, .id = label});
 }
 
 void ConstraintVerificationInfo::AddedProperty(PropertyId property, Vertex const *vertex) {
   if (!relevance_.unique_properties.IsInteresting(property)) return;
-  added_properties_.insert(vertex);
+  added_properties_.insert({.vertex = vertex, .id = property});
 }
 
 void ConstraintVerificationInfo::RemovedProperty(PropertyId property, Vertex const *vertex) {
@@ -42,8 +42,8 @@ void ConstraintVerificationInfo::RemovedProperty(PropertyId property, Vertex con
 auto ConstraintVerificationInfo::GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *> {
   std::unordered_set<Vertex const *> updated_vertices;
 
-  updated_vertices.insert(added_labels_.begin(), added_labels_.end());
-  updated_vertices.insert(added_properties_.begin(), added_properties_.end());
+  for (auto const &write : added_labels_) updated_vertices.insert(write.vertex);
+  for (auto const &write : added_properties_) updated_vertices.insert(write.vertex);
 
   return updated_vertices;
 }
@@ -52,10 +52,24 @@ auto ConstraintVerificationInfo::GetVerticesForExistenceConstraintChecking() con
     -> std::unordered_set<Vertex const *> {
   std::unordered_set<Vertex const *> updated_vertices;
 
-  updated_vertices.insert(added_labels_.begin(), added_labels_.end());
+  for (auto const &write : added_labels_) updated_vertices.insert(write.vertex);
   updated_vertices.insert(removed_properties_.begin(), removed_properties_.end());
 
   return updated_vertices;
+}
+
+bool ConstraintVerificationInfo::CouldHaveChangedUniqueKey(Vertex const *vertex, LabelId label,
+                                                           std::set<PropertyId> const &properties) const {
+  if (added_labels_.contains({.vertex = vertex, .id = label})) return true;
+  return std::ranges::any_of(properties, [this, vertex](PropertyId const property) {
+    return added_properties_.contains({.vertex = vertex, .id = property});
+  });
+}
+
+void ConstraintVerificationInfo::Clear() {
+  added_labels_.clear();
+  added_properties_.clear();
+  removed_properties_.clear();
 }
 
 bool ConstraintVerificationInfo::NeedsUniqueConstraintVerification() const {

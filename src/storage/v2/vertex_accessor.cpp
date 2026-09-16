@@ -11,7 +11,6 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 #include <range/v3/all.hpp>
-#include "query/exceptions.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -44,10 +43,10 @@ namespace memgraph::storage {
 
 namespace {
 void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
-  throw query::QueryException("IS TYPED {} violation on {}({})",
-                              TypeConstraintKindToString(*violation.constraint_kind),
-                              storage->LabelToName(violation.label),
-                              storage->PropertyToName(*violation.properties.begin()));
+  throw TypeConstraintViolationException("IS TYPED {} violation on {}({})",
+                                         TypeConstraintKindToString(*violation.constraint_kind),
+                                         storage->LabelToName(violation.label),
+                                         storage->PropertyToName(*violation.properties.begin()));
 }
 
 std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,

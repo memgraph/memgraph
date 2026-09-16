@@ -1336,6 +1336,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
   transaction_.commit_info.reset();
+  // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
+  // the next batch would have every later commit re-enter its vertices into constraints none of
+  // its own writes named, which nothing would then come back to collect.
+  if (transaction_.constraint_verification_info) transaction_.constraint_verification_info->Clear();
   // Do NOT touch `original_start_timestamp` — it must remain stable per-query
   // (procedures use it as a cache key across PERIODIC COMMIT).
 
