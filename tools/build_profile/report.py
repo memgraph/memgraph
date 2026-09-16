@@ -199,12 +199,24 @@ def relpath(path, root):
     return path
 
 
+def custom_subject(cmd, root):
+    """What a custom command works on when it has no declared output: the first
+    path handed to it, typically the binary a post-build step rewrites."""
+    for tok in cmd.split()[1:]:
+        value = tok.split("=", 1)[1] if tok.startswith("-D") and "=" in tok else tok
+        if "/" in value and not value.startswith("-"):
+            return relpath(value, root)
+    return ""
+
+
 def label(s, root):
     if s["kind"] in ("compile", "scan"):
         return relpath(s.get("source") or s.get("output"), root)
     text = relpath(s.get("output"), root)
-    if s["kind"] == "custom" and s.get("exe"):
-        text = f"{text}  [{s['exe']}]"
+    if s["kind"] == "custom":
+        text = text or s.get("target") or custom_subject(s.get("cmd", ""), root)
+        if s.get("exe"):
+            text = f"{text}  [{s['exe']}]"
     return text
 
 
@@ -265,13 +277,13 @@ def concurrency(steps):
         counts["all"] = len(running)
         for k, v in counts.items():
             max_count[k] = max(max_count[k], v)
-        total = sum(peak_kb(r) for r in running.values())
-        if total > worst["sum_kb"]:
+        anon = sum(anon_kb(r) for r in running.values())
+        if anon > worst["anon_kb"]:
             worst = {
-                "sum_kb": total,
+                "sum_kb": sum(peak_kb(r) for r in running.values()),
                 "t": t,
-                "anon_kb": sum(anon_kb(r) for r in running.values()),
-                "steps": sorted(running.values(), key=peak_kb, reverse=True)[:8],
+                "anon_kb": anon,
+                "steps": sorted(running.values(), key=anon_kb, reverse=True)[:8],
             }
     return dict(max_count), worst
 
@@ -472,13 +484,13 @@ def build_report(meta, steps, samples, cfg, top, timeline_rows_wanted=30):
     out.append(heading("Steps by sub-kind"))
     out.append(table(hdr, kind_rows(steps, subkind, top), num))
 
-    out.append(heading(f"Top {top} steps by peak memory"))
+    out.append(heading(f"Top {top} steps by anon memory"))
     rows = []
-    for s in sorted(steps, key=peak_kb, reverse=True)[:top]:
+    for s in sorted(steps, key=anon_kb, reverse=True)[:top]:
         rows.append(
             [
+                fmt_mib(anon_kb(s)),
                 fmt_mib(peak_kb(s)),
-                fmt_mib(s.get("tree_anon_peak_kb", 0)),
                 fmt_s(s["wall_s"]),
                 fmt_s(cpu_s(s)),
                 s["kind"],
@@ -486,17 +498,17 @@ def build_report(meta, steps, samples, cfg, top, timeline_rows_wanted=30):
                 shorten(label(s, root), 70),
             ]
         )
-    out.append(table(["peak MiB", "anon MiB", "wall", "cpu", "kind", "target", "step"], rows, (0, 1, 2, 3)))
+    out.append(table(["anon MiB", "rss MiB", "wall", "cpu", "kind", "target", "step"], rows, (0, 1, 2, 3)))
 
     for kind in ("compile", "link"):
-        group = sorted((s for s in steps if s["kind"] == kind), key=peak_kb, reverse=True)[:top]
+        group = sorted((s for s in steps if s["kind"] == kind), key=anon_kb, reverse=True)[:top]
         if not group:
             continue
-        out.append(heading(f"Top {min(top, len(group))} {kind} steps by peak memory"))
+        out.append(heading(f"Top {min(top, len(group))} {kind} steps by anon memory"))
         rows = [
             [
+                fmt_mib(anon_kb(s)),
                 fmt_mib(peak_kb(s)),
-                fmt_mib(s.get("tree_anon_peak_kb", 0)),
                 fmt_s(s["wall_s"]),
                 fmt_s(cpu_s(s)),
                 s.get("target", ""),
@@ -504,7 +516,7 @@ def build_report(meta, steps, samples, cfg, top, timeline_rows_wanted=30):
             ]
             for s in group
         ]
-        out.append(table(["peak MiB", "anon MiB", "wall", "cpu", "target", "step"], rows, (0, 1, 2, 3)))
+        out.append(table(["anon MiB", "rss MiB", "wall", "cpu", "target", "step"], rows, (0, 1, 2, 3)))
 
     out.append(heading(f"Top {top} steps by wall time"))
     rows = []
@@ -513,24 +525,24 @@ def build_report(meta, steps, samples, cfg, top, timeline_rows_wanted=30):
             [
                 fmt_s(s["wall_s"]),
                 fmt_s(cpu_s(s)),
-                fmt_mib(peak_kb(s)),
+                fmt_mib(anon_kb(s)),
                 s["kind"],
                 s.get("target", ""),
                 shorten(label(s, root), 70),
             ]
         )
-    out.append(table(["wall", "cpu", "peak MiB", "kind", "target", "step"], rows, (0, 1, 2)))
+    out.append(table(["wall", "cpu", "anon MiB", "kind", "target", "step"], rows, (0, 1, 2)))
 
-    out.append(heading(f"Top {top} targets by peak memory"))
+    out.append(heading(f"Top {top} targets by anon memory"))
     per_target = defaultdict(list)
     for s in steps:
         per_target[s.get("target") or "(custom)"].append(s)
     rows = []
     for name, group in per_target.items():
-        heavy = max(group, key=peak_kb)
+        heavy = max(group, key=anon_kb)
         rows.append(
             [
-                fmt_mib(peak_kb(heavy)),
+                fmt_mib(anon_kb(heavy)),
                 len(group),
                 fmt_s(sum(cpu_s(s) for s in group)),
                 fmt_s(sum(s["wall_s"] for s in group)),
@@ -539,7 +551,7 @@ def build_report(meta, steps, samples, cfg, top, timeline_rows_wanted=30):
             ]
         )
     rows.sort(key=lambda r: -float(r[0].replace(",", "")))
-    out.append(table(["peak MiB", "steps", "cpu Σ", "wall Σ", "target", "heaviest step"], rows[:top], (0, 1, 2, 3)))
+    out.append(table(["anon MiB", "steps", "cpu Σ", "wall Σ", "target", "heaviest step"], rows[:top], (0, 1, 2, 3)))
 
     out.append(heading("Concurrency and machine memory"))
     max_count, worst = concurrency(steps)
@@ -552,7 +564,7 @@ def build_report(meta, steps, samples, cfg, top, timeline_rows_wanted=30):
         f" {fmt_mib(worst['anon_kb'])} MiB anon, at +{fmt_s((worst['t'] or t_start) - t_start)}"
     )
     for s in worst["steps"][:5]:
-        out.append(f"      {fmt_mib(peak_kb(s)):>8} MiB  {s['kind']:<8} {shorten(label(s, root), 60)}")
+        out.append(f"      {fmt_mib(anon_kb(s)):>8} MiB anon  {s['kind']:<8} {shorten(label(s, root), 60)}")
     mm = machine_memory(samples, t_start, t_end)
     if mm:
         out.append(

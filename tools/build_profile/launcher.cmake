@@ -36,5 +36,5 @@ set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE
 set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK
     "${_mg_bp_wrap} --kind link --target <TARGET_NAME> --language <LANGUAGE> --target-type <TARGET_TYPE> --output <TARGET> --")
 set_property(GLOBAL PROPERTY RULE_LAUNCH_CUSTOM
-    "${_mg_bp_wrap} --kind custom --output <OUTPUT> --")
+    "${_mg_bp_wrap} --kind custom --target <TARGET_NAME> --output <OUTPUT> --")
 message(STATUS "Build profiling: per-step resource log -> $ENV{MG_BUILD_PROFILE_LOG}")
