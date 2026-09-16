@@ -11545,16 +11545,27 @@ void Interpreter::Commit() {
     // the whole time the user held the transaction open.
     if (auth_transaction_) {
       utils::OnScopeExit const clear_auth_tx([this]() { auth_transaction_.reset(); });
-      if (!system_transaction_) {
+      // A coordinator commits role changes through Raft and has no replication state for a system transaction to
+      // reach into, so it must not take one. Mirrors the suppression in Prepare. Unreachable today, because BEGIN
+      // needs a database and a coordinator has none; the test asserts that precondition.
+      bool const on_coordinator =
+#ifdef MG_ENTERPRISE
+          interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator();
+#else
+          false;
+#endif
+      if (!system_transaction_ && !on_coordinator) {
         system_transaction_ =
             interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
         if (!system_transaction_) {
           throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
         }
       }
-      if (!interpreter_context_->auth->CommitTransaction(*auth_transaction_, &*system_transaction_)) {
-        system_transaction_->Abort();
-        system_transaction_.reset();
+      if (!interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr())) {
+        if (system_transaction_) {
+          system_transaction_->Abort();
+          system_transaction_.reset();
+        }
         throw QueryException("Auth transaction conflicted with a concurrent change; nothing was committed.");
       }
     }
