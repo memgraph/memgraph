@@ -11,6 +11,8 @@
 
 #include "auth/atomic_auth_overlay.hpp"
 
+#include <utility>
+
 namespace memgraph::auth {
 
 AtomicAuthOverlay::AtomicAuthOverlay(kvstore::KVStore &base) : base_(base) {}
@@ -30,7 +32,10 @@ std::optional<std::string> AtomicAuthOverlay::Get(std::string_view key) const {
 }
 
 void AtomicAuthOverlay::ScanDependsOnEmptinessOnly(std::string const &prefix) const {
-  if (auto it = scanned_prefixes_.find(prefix); it != scanned_prefixes_.end()) {
+  auto it = scanned_prefixes_.find(prefix);
+  // An exhaustive scan of this prefix has already committed the transaction to its whole key set, and a scan that
+  // stopped at the first key cannot take that back.
+  if (it != scanned_prefixes_.end() && !it->second.exhausted) {
     it->second.kind = ScanDependency::Kind::kEmptiness;
   }
 }
@@ -104,7 +109,9 @@ bool AtomicAuthOverlay::Flush() {
       continue;
     }
     for (; it != e; ++it) {
-      if (!read_set_.contains(it->first)) return false;
+      // A key this transaction wrote after the scan is its own doing, not a concurrent change.
+      if (write_set_.contains(it->first)) continue;
+      if (!dependency.seen.contains(it->first)) return false;
     }
   }
 
@@ -160,6 +167,15 @@ void AtomicAuthOverlay::iterator::Advance() {
 
     if (!have_base && !have_write) {
       at_end_ = true;
+      // Reaching the end means this scan saw every key under the prefix, whoever drove it. That fixes the
+      // transaction's dependency at the whole key set, and records the set as this scan saw it: a later
+      // short-circuiting scan of the same prefix walks past whatever has appeared since, and must not be able to
+      // pass those off as keys this scan covered.
+      if (auto d = overlay_->scanned_prefixes_.find(prefix_); d != overlay_->scanned_prefixes_.end()) {
+        d->second.exhausted = true;
+        d->second.kind = ScanDependency::Kind::kKeySet;
+        d->second.seen = std::exchange(seen_, {});
+      }
       return;
     }
 
@@ -167,6 +183,7 @@ void AtomicAuthOverlay::iterator::Advance() {
       if (base_it_->first < write_it_->first) {
         // Base entry not overridden; check it's not deleted in write-set
         overlay_->RecordScanned(base_it_->first, base_it_->second);
+        seen_.insert(base_it_->first);
         auto ws = overlay_->write_set_.find(base_it_->first);
         if (ws == overlay_->write_set_.end()) {
           current_ = *base_it_;
@@ -176,11 +193,13 @@ void AtomicAuthOverlay::iterator::Advance() {
         // Write-set entry with no base counterpart
         if (write_it_->second.has_value()) {
           current_ = std::make_pair(write_it_->first, *write_it_->second);
+          seen_.insert(write_it_->first);
         }
         ++write_it_;
       } else {
         // Same key: write-set wins
         overlay_->RecordScanned(base_it_->first, base_it_->second);
+        seen_.insert(base_it_->first);
         if (write_it_->second.has_value()) {
           current_ = std::make_pair(write_it_->first, *write_it_->second);
         }
@@ -189,6 +208,7 @@ void AtomicAuthOverlay::iterator::Advance() {
       }
     } else if (have_base) {
       overlay_->RecordScanned(base_it_->first, base_it_->second);
+      seen_.insert(base_it_->first);
       auto ws = overlay_->write_set_.find(base_it_->first);
       if (ws == overlay_->write_set_.end()) {
         current_ = *base_it_;
@@ -197,6 +217,7 @@ void AtomicAuthOverlay::iterator::Advance() {
     } else {
       if (write_it_->second.has_value()) {
         current_ = std::make_pair(write_it_->first, *write_it_->second);
+        seen_.insert(write_it_->first);
       }
       ++write_it_;
     }
