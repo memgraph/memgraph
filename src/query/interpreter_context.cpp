@@ -191,6 +191,11 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
   TerminateSessionsResult result;
   result.rows.reserve(session_ids.size());
 
+  // Tracks uuids accepted for termination in this call. A duplicate occurrence of an already-accepted
+  // id is reported killed=false (mirrors the TERMINATE TRANSACTIONS convention), without re-authorizing
+  // or re-adding to to_close.
+  std::unordered_set<std::string> accepted_for_kill;
+
   for (const auto &id : session_ids) {
     // A connection is registered into `interpreters` before authentication completes, so a mid-handshake
     // session carries an empty uuid; without this guard an empty id would match every such session at once.
@@ -204,6 +209,13 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     if (id == caller_session_uuid) {
       result.rows.push_back({TypedValue(id), TypedValue(false)});
       spdlog::warn("Cannot terminate the session that issued the command");
+      continue;
+    }
+
+    // Duplicate: uuid was already accepted for kill earlier in this same statement. Keep one row per
+    // input id (1:1 contract), but the repeat occurrence reports killed=false.
+    if (accepted_for_kill.contains(id)) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
       continue;
     }
 
@@ -245,7 +257,10 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     }
     // Unlike TerminateTransactions, a failed CAS here must NOT skip termination -- the primary target of this
     // feature is an IDLE session, for which the CAS above is expected to fail.
+    // Mid-commit case: CAS fails because status is STARTED_COMMITTING (not ACTIVE) -- intentionally left to
+    // complete on the owning thread; we terminate the session, not the in-flight commit.
 
+    accepted_for_kill.insert(id);
     result.to_close.push_back(id);
     result.rows.push_back({TypedValue(id), TypedValue(true)});
     spdlog::warn("Session {} successfully killed", id);

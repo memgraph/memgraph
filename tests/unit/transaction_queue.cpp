@@ -673,6 +673,43 @@ TYPED_TEST(TransactionQueueSimpleTest, SameUserIsStillAllowedWithoutAnyPrivilege
   EXPECT_FALSE(checker_called);
 }
 
+TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsReportsDuplicateIdAsNotKilled) {
+  // NB6 regression: supplying the same session UUID twice in one TERMINATE SESSIONS call must produce
+  // exactly one result row per input id (the 1:1 contract), report the first occurrence as killed=true
+  // and the second as killed=false, and must push the UUID into to_close only once (no double-close).
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  // Permissive checker: admin is authorized on every tenant.
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &) { return true; };
+
+  // The same UUID appears twice in the session_ids list -- the scenario under test.
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(interpreters,
+                                                       {"target-session-uuid", "target-session-uuid"},
+                                                       caller.user_or_role_.get(),
+                                                       checker,
+                                                       "caller-session-uuid");
+  });
+
+  // One row per input id: two inputs must produce two rows.
+  ASSERT_EQ(result.rows.size(), 2U);
+  // First occurrence: target found, authorization passes, session marked for termination.
+  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  // Second occurrence: same UUID already accepted for kill in this call → reported not-killed.
+  EXPECT_EQ(result.rows[1][0].ValueString(), "target-session-uuid");
+  EXPECT_FALSE(result.rows[1][1].ValueBool());
+  // The UUID must appear in to_close exactly once; a duplicate entry would double-close the connection.
+  ASSERT_EQ(result.to_close.size(), 1U);
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
+}
+
 // This is the authorization half of the use-after-free fix: a foreign reader that observes a torn
 // `user_or_role_` can conclude "same user" and skip both the empty-database refusal and the privilege
 // checker entirely -- an authorization bypass, not merely a memory-safety bug. The published snapshot

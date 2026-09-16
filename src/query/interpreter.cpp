@@ -7599,12 +7599,11 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       std::ranges::transform(transaction_query->session_id_list_,
                              std::back_inserter(session_ids),
                              [&evaluator](Expression *expression) -> std::string {
-                               try {
-                                 auto value = expression->Accept(evaluator);
-                                 return std::string{value.ValueString()};
-                               } catch (std::exception & /* unused */) {
-                                 return std::string{};
+                               auto value = expression->Accept(evaluator);
+                               if (!value.IsString()) {
+                                 throw QueryRuntimeException("Session id must be a string.");
                                }
+                               return std::string{value.ValueString()};
                              });
       callback.header = {"session_id", "killed"};
       callback.fn = [interpreter_context,

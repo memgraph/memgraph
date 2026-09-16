@@ -204,6 +204,20 @@ def test_empty_session_id_refused():
     assert_connection_alive(survivor_cursor)
 
 
+def test_non_string_session_id_rejected():
+    """A non-string session id literal raises a runtime error instead of silently failing.
+
+    TERMINATE SESSIONS evaluates its argument at execution time. Passing a non-string
+    TypedValue (e.g. an integer literal) must now raise QueryRuntimeException
+    "Session id must be a string." rather than coercing to ("", false). An empty-string
+    literal is still valid and is tested separately by test_empty_session_id_refused.
+    """
+    cursor = connect().cursor()
+
+    with pytest.raises(mgclient.DatabaseError, match="Session id must be a string"):
+        execute_and_fetch_all(cursor, "TERMINATE SESSIONS 123")
+
+
 def test_unknown_session_id():
     """A session id that matches nothing is reported as not-killed, without raising."""
     cursor = connect().cursor()
