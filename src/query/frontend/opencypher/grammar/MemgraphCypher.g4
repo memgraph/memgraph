@@ -457,6 +457,7 @@ parameterQuery : setParameter
 transactionQueueQuery : showTransactions
                       | terminateTransactions
                       | terminateSessions
+                      | showSessions
                       ;
 
 showTransactions : SHOW transactionStatusList? TRANSACTIONS ;
@@ -468,6 +469,8 @@ transactionStatus : RUNNING | COMMITTING | ABORTING ;
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
 terminateSessions : TERMINATE SESSIONS sessionIdList ;
+
+showSessions : SHOW SESSIONS ;
 
 loadCsv : LOAD CSV FROM csvFile
          ( WITH CONFIG configsMap=configMap ) ?

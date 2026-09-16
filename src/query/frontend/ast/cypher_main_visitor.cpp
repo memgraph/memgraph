@@ -1935,6 +1935,12 @@ antlrcpp::Any CypherMainVisitor::visitTerminateSessions(MemgraphCypher::Terminat
   return terminator;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowSessions(MemgraphCypher::ShowSessionsContext * /*ctx*/) {
+  auto *session_shower = storage_->Create<TransactionQueueQuery>();
+  session_shower->action_ = TransactionQueueQuery::Action::SHOW_SESSIONS;
+  return session_shower;
+}
+
 antlrcpp::Any CypherMainVisitor::visitSessionIdList(MemgraphCypher::SessionIdListContext *ctx) {
   std::vector<Expression *> session_ids;
   for (auto *session_id : ctx->sessionId()) {

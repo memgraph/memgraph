@@ -558,6 +558,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitTerminateSessions(MemgraphCypher::TerminateSessionsContext *ctx) override;
 
   /**
+   * @return TransactionQueueQuery*
+   */
+  antlrcpp::Any visitShowSessions(MemgraphCypher::ShowSessionsContext *ctx) override;
+
+  /**
    * @return SessionIdList*
    */
   antlrcpp::Any visitSessionIdList(MemgraphCypher::SessionIdListContext *ctx) override;

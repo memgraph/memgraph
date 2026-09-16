@@ -7436,6 +7436,32 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
   return results;
 }
 
+template <typename Func>
+auto ShowSessions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
+                  Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
+  std::vector<std::vector<TypedValue>> results;
+  results.reserve(interpreters.size());
+  auto same_user = [](const auto &lv, const auto &rv) {
+    if (lv.get() == rv) return true;
+    if (lv && rv) return *lv == *rv;
+    return false;
+  };
+  for (Interpreter *interpreter : interpreters) {
+    auto const session_snapshot = interpreter->foreign_session_view_.load();
+    if (!session_snapshot) continue;  // mid-handshake: SetSessionInfo not yet called
+    auto const user_snapshot = interpreter->foreign_user_view_.load();
+    auto db = interpreter->current_db_.foreign_db_view().name;
+    auto db_for_check = db.empty() ? std::string{dbms::kDefaultDB} : db;
+    if (same_user(user_snapshot, user_or_role) || privilege_checker(user_or_role, db_for_check)) {
+      results.push_back({TypedValue(session_snapshot->uuid),
+                         TypedValue(session_snapshot->username),
+                         TypedValue(db),
+                         TypedValue(session_snapshot->login_timestamp)});
+    }
+  }
+  return results;
+}
+
 // Synthetic SHOW TRANSACTIONS row for a background task (snapshot, GC): same
 // 7-column "running" shape, differing only in id, query text, and metadata.
 std::vector<TypedValue> BuildBackgroundTaskRow(std::string_view transaction_id, std::string_view query_text,
@@ -7623,6 +7649,17 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
           }
         }
         return std::move(result.rows);
+      };
+      break;
+    }
+    case TransactionQueueQuery::Action::SHOW_SESSIONS: {
+      auto show_sessions = [user_or_role = std::move(user_or_role),
+                            privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
+        return ShowSessions(interpreters, user_or_role.get(), privilege_checker);
+      };
+      callback.header = {"session_id", "username", "database", "login_timestamp"};
+      callback.fn = [interpreter_context, show_sessions = std::move(show_sessions)] {
+        return interpreter_context->interpreters.WithLock(show_sessions);
       };
       break;
     }

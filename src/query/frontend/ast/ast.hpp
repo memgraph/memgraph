@@ -3976,7 +3976,7 @@ class TransactionQueueQuery : public memgraph::query::Query {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { SHOW_TRANSACTIONS, TERMINATE_TRANSACTIONS, TERMINATE_SESSIONS };
+  enum class Action { SHOW_TRANSACTIONS, TERMINATE_TRANSACTIONS, TERMINATE_SESSIONS, SHOW_SESSIONS };
 
   // Mirrors the grammar's transactionStatus rule (RUNNING | COMMITTING | ABORTING).
   // Kept as a parser-layer enum so ast.hpp stays free of runtime context headers.

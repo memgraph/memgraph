@@ -848,3 +848,83 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsRacingIdentityChurnIsDat
   EXPECT_FALSE(saw_unauthorized_kill);
   EXPECT_FALSE(saw_nonempty_to_close);
 }
+
+// SHOW SESSIONS tests
+//
+// Visibility rule (ShowSessions in interpreter.cpp):
+//   A session row is emitted if and only if foreign_session_view_ is non-null AND
+//   (same_user(target_user, caller_user) || privilege_checker(caller_user, db)).
+// With AllowEverythingAuthChecker the privilege_checker always grants, so any session that
+// has called SetSessionInfo is visible. A session that never called SetSessionInfo is
+// unconditionally skipped before either check runs.
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsListsLoggedInSessions) {
+  // Both sessions publish their identity via SetUser + SetSessionInfo.  The caller uses
+  // AllowEverythingAuthChecker, so the privilege_checker grants both rows regardless of
+  // same_user.  Iteration over the internal unordered_set is order-unspecified, so the
+  // assertions scan by session_id rather than by position.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &running = this->running_interpreter.interpreter;
+  auto &main = this->main_interpreter.interpreter;
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  running.SetSessionInfo("session-alice", "alice", "2026-01-01T00:00:00");
+  main.SetUser(this->main_interpreter.auth_checker.GenQueryUser("bob", {}));
+  main.SetSessionInfo("session-bob", "bob", "2026-01-01T00:00:00");
+
+  auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 2U);
+
+  for (auto const &row : rows) {
+    auto const id = row[0].ValueString();
+    if (id == "session-alice") {
+      EXPECT_EQ(row[1].ValueString(), "alice");
+      EXPECT_EQ(row[2].ValueString(), "tenant_a");
+      EXPECT_TRUE(row[3].IsString());
+    } else if (id == "session-bob") {
+      EXPECT_EQ(row[1].ValueString(), "bob");
+      EXPECT_EQ(row[2].ValueString(), "tenant_a");
+      EXPECT_TRUE(row[3].IsString());
+    } else {
+      FAIL() << "Unexpected session_id in SHOW SESSIONS result: " << id;
+    }
+  }
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsSelfOnlyForUnprivilegedCaller) {
+  // Caller has session info published; the other interpreter does not (foreign_session_view_
+  // is null from the fixture default).  SHOW SESSIONS must return exactly one row — the
+  // caller's own — reached via same_user pointer-equality without consulting the privilege
+  // checker.  Mirrors the ShowTransactionsSelfOnly pattern where running_interpreter has no
+  // active transaction and therefore does not appear.
+  auto &main = this->main_interpreter.interpreter;
+  main.SetUser(this->main_interpreter.auth_checker.GenQueryUser("bob", {}));
+  main.SetSessionInfo("session-main", "bob", "2026-01-01T00:00:00");
+  // running_interpreter: SetUser was called by the InterpreterFaker constructor but
+  // SetSessionInfo was never called, so foreign_session_view_ remains null and the session
+  // is unconditionally skipped by ShowSessions.
+
+  auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 1U);
+  EXPECT_EQ(rows[0][0].ValueString(), "session-main");
+  EXPECT_EQ(rows[0][1].ValueString(), "bob");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsSkipsSessionWithoutSessionInfo) {
+  // running_interpreter has session info; main_interpreter (the caller) does not.
+  // AllowEverythingAuthChecker makes the privilege_checker grant running_interpreter's row,
+  // so the result has exactly one entry.  The absence of a second row proves that a session
+  // which never called SetSessionInfo (null foreign_session_view_) is skipped even when the
+  // caller holds sufficient privilege to see it.
+  auto &running = this->running_interpreter.interpreter;
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  running.SetSessionInfo("session-running", "alice", "2026-01-01T00:00:00");
+  // main_interpreter: SetSessionInfo never called — foreign_session_view_ is null.
+
+  auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 1U);
+  EXPECT_EQ(rows[0][0].ValueString(), "session-running");
+}

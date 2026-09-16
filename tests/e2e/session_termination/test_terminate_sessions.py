@@ -749,5 +749,86 @@ def test_dbless_session_refused_when_caller_lacks_default_db_access(request):
     assert any(row[1] == victim_uuid for row in rows), f"session {victim_uuid} is no longer registered"
 
 
+def test_show_sessions_lists_and_terminate_by_listed_id(request):
+    """SHOW SESSIONS exposes session metadata; its session_id can feed directly into TERMINATE SESSIONS.
+
+    Two properties are exercised in one pass:
+
+    1. Column shape and victim visibility: an admin with TRANSACTION_MANAGEMENT running SHOW SESSIONS
+       sees the victim's row with all four columns (session_id, username, database, login_timestamp)
+       and a non-empty session_id -- SHOW SESSIONS visibility mirrors TERMINATE SESSIONS: an admin
+       with TRANSACTION_MANAGEMENT scoped to their database sees all sessions on that database.
+
+    2. The SHOW -> TERMINATE loop: the session_id obtained from SHOW SESSIONS is valid input for
+       TERMINATE SESSIONS, so a caller can discover and kill a session in a single round-trip
+       without having to call SHOW ACTIVE USERS INFO first.
+
+    3. Unprivileged visibility: a user stripped of all privileges running SHOW SESSIONS sees only
+       their own row -- visibility mirrors TERMINATE SESSIONS's same-user-only rule for unprivileged
+       callers, so no cross-user information leaks through SHOW SESSIONS either.
+
+    Same admin-must-be-authenticated constraint as test_idle_session_terminated; the anonymous
+    superadmin_cursor is used only for user lifecycle DDL, not for the SHOW SESSIONS assertion
+    itself.
+    """
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER show_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO show_admin")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER show_victim")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER show_unpriv")
+    # show_unpriv must start genuinely unprivileged (same reasoning as test_unprivileged_user_refused
+    # and the module-level comment): strip both direct grants and any auto-promoted role membership.
+    execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM show_unpriv")
+    execute_and_fetch_all(superadmin_cursor, "CLEAR ROLE FOR show_unpriv")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER show_admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER show_victim")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER show_unpriv")
+
+    request.addfinalizer(on_exit)
+
+    admin_cursor = connect(username="show_admin", password="").cursor()
+
+    victim_connection = connect(username="show_victim", password="")
+    victim_cursor = victim_connection.cursor()
+    execute_and_fetch_all(victim_cursor, "RETURN 1")  # show_victim is now idle
+
+    unpriv_connection = connect(username="show_unpriv", password="")
+    unpriv_cursor = unpriv_connection.cursor()
+
+    # --- Part 1: column shape and victim visibility -----------------------------------------------
+    # Admin runs SHOW SESSIONS; show_victim's row must appear with all four columns populated and
+    # a non-empty session_id. The victim ran one query and is now idle, so its session is stable.
+    rows = execute_and_fetch_all(admin_cursor, "SHOW SESSIONS")
+    victim_rows = [row for row in rows if row[1] == "show_victim"]
+    assert len(victim_rows) == 1, f"expected exactly one SHOW SESSIONS row for show_victim, got {victim_rows!r}"
+    victim_row = victim_rows[0]
+    assert len(victim_row) == 4, (
+        f"SHOW SESSIONS row must have 4 columns (session_id, username, database, login_timestamp), "
+        f"got {len(victim_row)}: {victim_row!r}"
+    )
+    session_id, username, _database, _login_timestamp = victim_row
+    assert username == "show_victim"
+    assert session_id != "", "SHOW SESSIONS must return a non-empty session_id for a live session"
+
+    # --- Part 2: SHOW -> TERMINATE loop ----------------------------------------------------------
+    # Feed the session_id obtained directly from SHOW SESSIONS into TERMINATE SESSIONS; the id must
+    # be accepted and cause the victim's connection to close.
+    results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{session_id}'")
+    assert results == [(session_id, True)]
+    wait_until_terminated(victim_cursor)
+
+    # --- Part 3: unprivileged visibility ---------------------------------------------------------
+    # show_unpriv holds no privileges; SHOW SESSIONS must return only rows whose username is
+    # "show_unpriv" -- other users' session metadata must not leak through.
+    unpriv_rows = execute_and_fetch_all(unpriv_cursor, "SHOW SESSIONS")
+    assert len(unpriv_rows) >= 1, "unprivileged user must see at least their own session in SHOW SESSIONS"
+    assert all(row[1] == "show_unpriv" for row in unpriv_rows), (
+        f"unprivileged user must only see their own sessions in SHOW SESSIONS, "
+        f"but got rows with other usernames: {unpriv_rows!r}"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
