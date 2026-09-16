@@ -151,6 +151,10 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const *overlay, std::str
         prefix_, ScanDependency{.kind = ScanDependency::Kind::kKeySet, .was_empty = base_it_ == base_end_});
     // A fresh scan starts out depending on the key set, whatever an earlier short-circuiting one settled for. Only
     // the caller that stops early narrows it again, so the strictest scan of a prefix is what survives.
+    //
+    // `was_empty` keeps the first scan's observation and is not refreshed here. It is only ever read for a
+    // `kEmptiness` dependency, and a scan of an empty prefix has nothing to stop early on, so it exhausts and
+    // pins the prefix to `kKeySet`. An entry that stays `kEmptiness` was therefore never empty.
     if (!inserted) entry->second.kind = ScanDependency::Kind::kKeySet;
     write_it_ = overlay_->write_set_.lower_bound(prefix_);
     write_end_ = overlay_->write_set_.end();
