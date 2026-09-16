@@ -3952,8 +3952,10 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        // An auth transaction releases the accessor BEGIN opened, so there is no database to count against.
-        if (current_db_.db_acc_) {
+        // Only data transactions are counted. An auth transaction never reaches the commit counter, which sits
+        // on the data path, so counting its rollbacks would show a database rolling back more than it committed.
+        // `db_acc_` is not the test to use here: it outlives the accessor an auth transaction releases.
+        if (tx_mode_ != TxMode::Auth && current_db_.db_acc_) {
           (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
         }
 
