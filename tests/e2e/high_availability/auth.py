@@ -16,6 +16,7 @@ import sys
 import time
 
 import interactive_mg_runner
+import mgclient
 import pytest
 from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
 from mg_utils import mg_sleep_and_assert
@@ -1645,6 +1646,28 @@ def test_sso_authenticates_through_follower(test_name):
 
     follower_port = find_follower_ports(leader_port)[0]
     assert sorted(name for (name,) in sso_run(follower_port, "saml", "reader", "SHOW ROLES")) == ["architect", "reader"]
+
+
+def test_explicit_transactions_are_rejected_on_a_coordinator(test_name):
+    # A coordinator has no database, so BEGIN is refused before an auth transaction can be created. That matters
+    # beyond the error message: a coordinator commits role changes through Raft and has no replication state, so
+    # an auth transaction reaching COMMIT there would ask for a system transaction it must never have. If this
+    # test starts failing because BEGIN succeeds, the coordinator guard in Interpreter::Commit is what keeps it
+    # from crashing, and it needs a test of its own.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+
+    try:
+        execute_and_fetch_all(cursor, "BEGIN")
+        assert False, "BEGIN should be refused on a coordinator"
+    except mgclient.DatabaseError as e:
+        assert "No current database" in str(e)
+
+    # Role changes still work outside a transaction.
+    execute_and_fetch_all(cursor, "CREATE ROLE no_txn")
+    assert show_roles(cursor) == ["no_txn"]
 
 
 if __name__ == "__main__":
