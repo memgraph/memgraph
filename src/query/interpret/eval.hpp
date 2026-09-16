@@ -480,11 +480,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         const auto &cached_value = cached_value_ref->get();
 
-        // A lookup in the set answers by equivalence, which holds a Null equivalent to a Null.
-        // Equality answers Null against anything holding one, so the set stands in for the loop
-        // below only while neither the list's elements nor the sought value hold a Null below
-        // their top level. A top-level Null does not spoil it, because the explicit lookup for
-        // one answers exactly that case.
+        // A lookup in the set answers by equivalence, so it stands in for the loop below only
+        // where the set says equivalence and equality agree over its elements. The sought value
+        // is the caller's half of that: equality answers Null against anything holding one, and
+        // a miss here could only report false. A NaN needs no such check, because equality
+        // answers a pair holding one false, which is what a miss reports.
         if (cached_value.AnswersEquality() && !relations::equality::HoldsANull(literal)) {
           if (cached_value.Contains(literal)) {
             return TypedValue(true, ctx_->memory);
