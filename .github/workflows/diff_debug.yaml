@@ -104,8 +104,6 @@ jobs:
 
       - name: Build debug binary
         run: |
-          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
-          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -113,7 +111,8 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph \
-          --link-threads $LINK_THREADS \
+          --memory-per-compile-job-mb 3500 \
+          --memory-per-link-job-mb 700 \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           $ABI3_REWRITE_FLAG \
@@ -280,8 +279,6 @@ jobs:
 
       - name: Build debug binary
         run: |
-          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
-          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -289,7 +286,8 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph \
-          --link-threads $LINK_THREADS \
+          --memory-per-compile-job-mb 3500 \
+          --memory-per-link-job-mb 700 \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           $ABI3_REWRITE_FLAG \
