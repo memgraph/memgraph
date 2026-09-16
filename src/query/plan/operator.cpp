@@ -9745,11 +9745,23 @@ std::unique_ptr<LogicalOperator> Foreach::Clone(AstStorage *storage) const {
   return object;
 }
 
+std::string_view OnEmptyBranchName(OnEmptyBranch on_empty_branch) {
+  switch (on_empty_branch) {
+    case OnEmptyBranch::kDropRow:
+      return "drop row";
+    case OnEmptyBranch::kPassRow:
+      return "pass row";
+  }
+  LOG_FATAL("Unhandled OnEmptyBranch");
+}
+
 Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-             bool subquery_has_return)
-    : input_(input ? input : std::make_shared<Once>()),
-      subquery_(subquery),
-      subquery_has_return_(subquery_has_return) {}
+             OnEmptyBranch on_empty_branch)
+    : input_(input ? input : std::make_shared<Once>()), subquery_(subquery), on_empty_branch_(on_empty_branch) {}
+
+std::string Apply::ToString(const DbAccessor * /*dba*/) const {
+  return fmt::format("Apply ({})", OnEmptyBranchName(on_empty_branch_));
+}
 
 bool Apply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -9768,12 +9780,10 @@ Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem,
                                 metrics::DatabaseMetricHandles &metric_handles)
     : self_(self),
       input_(self.input_->MakeCursor(mem, metric_handles)),
-      subquery_(self.subquery_->MakeCursor(mem, metric_handles)),
-      subquery_has_return_(self.subquery_has_return_) {}
+      subquery_(self.subquery_->MakeCursor(mem, metric_handles)) {}
 
 std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
-  // Since Apply is the Cartesian product, modified symbols are combined from
-  // both execution branches.
+  // A row spans both branches, so the modified symbols are their union.
   auto symbols = input_->ModifiedSymbols(table);
   auto subquery_symbols = subquery_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
@@ -9784,13 +9794,13 @@ std::unique_ptr<LogicalOperator> Apply::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Apply>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
-  object->subquery_has_return_ = subquery_has_return_;
+  object->on_empty_branch_ = on_empty_branch_;
   return object;
 }
 
 bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Apply");
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   while (true) {
     AbortCheck(context);
@@ -9803,13 +9813,16 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
       pull_input_ = false;
       return true;
     }
-    // subquery cursor has been exhausted
-    // skip that row
     pull_input_ = true;
     subquery_->Reset();
 
-    // don't skip row if no rows are returned from subquery, return input_ rows
-    if (!subquery_has_return_) return true;
+    switch (self_.on_empty_branch_) {
+      case OnEmptyBranch::kDropRow:
+        break;
+      case OnEmptyBranch::kPassRow:
+        // The branch projects nothing, so it can't filter; the input row passes either way.
+        return true;
+    }
   }
 }
 
@@ -9851,8 +9864,7 @@ IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils
       sub_branch_(self.sub_branch_->MakeCursor(mem, metric_handles)) {}
 
 std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
-  // Since Apply is the Cartesian product, modified symbols are combined from
-  // both execution branches.
+  // A row spans both branches, so the modified symbols are their union.
   auto symbols = main_branch_->ModifiedSymbols(table);
   auto sub_branch_symbols = sub_branch_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), sub_branch_symbols.begin(), sub_branch_symbols.end());
@@ -10292,11 +10304,15 @@ std::unique_ptr<LogicalOperator> PeriodicCommit::Clone(AstStorage *storage) cons
 
 PeriodicSubquery::PeriodicSubquery(const std::shared_ptr<LogicalOperator> input,
                                    const std::shared_ptr<LogicalOperator> subquery, Expression *commit_frequency,
-                                   bool subquery_has_return)
+                                   OnEmptyBranch on_empty_branch)
     : input_(input ? input : std::make_shared<Once>()),
       subquery_(subquery),
       commit_frequency_(commit_frequency),
-      subquery_has_return_(subquery_has_return) {}
+      on_empty_branch_(on_empty_branch) {}
+
+std::string PeriodicSubquery::ToString(const DbAccessor * /*dba*/) const {
+  return fmt::format("PeriodicSubquery ({})", OnEmptyBranchName(on_empty_branch_));
+}
 
 bool PeriodicSubquery::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -10320,8 +10336,7 @@ class PeriodicSubqueryCursor : public Cursor {
                          metrics::DatabaseMetricHandles &metric_handles)
       : self_(self),
         input_(self.input_->MakeCursor(mem, metric_handles)),
-        subquery_(self.subquery_->MakeCursor(mem, metric_handles)),
-        subquery_has_return_(self.subquery_has_return_) {
+        subquery_(self.subquery_->MakeCursor(mem, metric_handles)) {
     MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
 
@@ -10329,7 +10344,7 @@ class PeriodicSubqueryCursor : public Cursor {
     // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
-    SCOPED_PROFILE_OP("PeriodicSubquery");
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     AbortCheck(context);
 
@@ -10371,13 +10386,16 @@ class PeriodicSubqueryCursor : public Cursor {
         pulled_ = 0;
       }
 
-      // subquery cursor has been exhausted
-      // skip that row
       pull_input_ = true;
       subquery_->Reset();
 
-      // don't skip row if no rows are returned from subquery, return input_ rows
-      if (!subquery_has_return_) return true;
+      switch (self_.on_empty_branch_) {
+        case OnEmptyBranch::kDropRow:
+          break;
+        case OnEmptyBranch::kPassRow:
+          // The branch projects nothing, so it can't filter; the input row passes either way.
+          return true;
+      }
     }
   }
 
@@ -10399,7 +10417,6 @@ class PeriodicSubqueryCursor : public Cursor {
   const PeriodicSubquery &self_;
   UniqueCursorPtr input_;
   UniqueCursorPtr subquery_;
-  bool subquery_has_return_{true};
   bool pull_input_{true};
   uint64_t pulled_{0};
   std::optional<uint64_t> commit_frequency_;
@@ -10417,7 +10434,7 @@ std::unique_ptr<LogicalOperator> PeriodicSubquery::Clone(AstStorage *storage) co
   auto object = std::make_unique<PeriodicSubquery>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
-  object->subquery_has_return_ = subquery_has_return_;
+  object->on_empty_branch_ = on_empty_branch_;
   object->commit_frequency_ = commit_frequency_;
   return object;
 }

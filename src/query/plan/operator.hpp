@@ -3101,7 +3101,19 @@ class Foreach : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
-/// Applies symbols from both output branches.
+/// What an input row becomes when its subquery branch yields no rows. Keyed on the planned branch root, never on
+/// whether the body spells a RETURN. Free-standing because both @c Apply and @c PeriodicSubquery name it.
+enum class OnEmptyBranch : uint8_t {
+  kDropRow,  ///< the row is dropped, as a row-producing branch filters as well as projects
+  kPassRow,  ///< a branch rooted in @c EmptyResult, which never yields - cardinality is unchanged
+};
+
+/// EXPLAIN spelling of @c OnEmptyBranch.
+std::string_view OnEmptyBranchName(OnEmptyBranch on_empty_branch);
+
+/// Runs the subquery branch once per input row - a correlated nested loop, not a product: the branch reads the
+/// input row off the same frame. Emits one output row per branch row; @c OnEmptyBranch decides what an input row
+/// with no branch rows gets.
 class Apply : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
@@ -3111,7 +3123,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   Apply() = default;
 
   Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-        bool subquery_has_return);
+        OnEmptyBranch on_empty_branch);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -3122,9 +3134,11 @@ class Apply : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
+  std::string ToString(const DbAccessor *dba) const override;
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
-  bool subquery_has_return_;
+  OnEmptyBranch on_empty_branch_{OnEmptyBranch::kDropRow};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -3137,11 +3151,10 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    [[maybe_unused]] const Apply &self_;
+    const Apply &self_;
     UniqueCursorPtr input_;
     UniqueCursorPtr subquery_;
     bool pull_input_{true};
-    bool subquery_has_return_{true};
   };
 };
 
@@ -3301,7 +3314,7 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   PeriodicSubquery() = default;
 
   PeriodicSubquery(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-                   Expression *commit_frequency, bool subquery_has_return);
+                   Expression *commit_frequency, OnEmptyBranch on_empty_branch);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -3312,10 +3325,12 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
+  std::string ToString(const DbAccessor *dba) const override;
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
   Expression *commit_frequency_{nullptr};
-  bool subquery_has_return_;
+  OnEmptyBranch on_empty_branch_{OnEmptyBranch::kDropRow};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };

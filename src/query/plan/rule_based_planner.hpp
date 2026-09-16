@@ -1688,18 +1688,18 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     context_->bound_symbols.insert(std::make_move_iterator(subquery_bound_symbols.begin()),
                                    std::make_move_iterator(subquery_bound_symbols.end()));
 
-    auto subquery_has_return = true;
-    if (subquery_op->GetTypeInfo() == EmptyResult::kType) {
-      subquery_has_return = false;
-    }
+    // Keyed on the planned root, not on the body lacking a RETURN: a RETURN-less body ending in a UNION, a
+    // `CALL ... YIELD` or a `LOAD CSV` still has a row-producing root, so an empty branch drops the row.
+    auto const on_empty_branch =
+        subquery_op->GetTypeInfo() == EmptyResult::kType ? OnEmptyBranch::kPassRow : OnEmptyBranch::kDropRow;
 
     bool has_periodic_commit = commit_frequency != nullptr;
     if (!has_periodic_commit) {
-      last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
+      last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), on_empty_branch);
     } else {
       // this periodic commit is from CALL IN TRANSACTIONS OF x ROWS
       last_op = std::make_unique<PeriodicSubquery>(
-          std::move(last_op), std::move(subquery_op), commit_frequency, subquery_has_return);
+          std::move(last_op), std::move(subquery_op), commit_frequency, on_empty_branch);
     }
 
     return last_op;

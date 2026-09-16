@@ -1572,6 +1572,45 @@ TYPED_TEST(PrintToJsonTest, SubqueryExpression) {
 }
 
 // Test for rollup apply operator
+// The empty-branch mode is the only thing distinguishing the three Apply shapes, so the JSON has to carry it.
+TYPED_TEST(PrintToJsonTest, Apply) {
+  auto x = this->GetSymbol("x");
+
+  auto make_apply = [&](OnEmptyBranch on_empty_branch) {
+    auto input_op = std::make_shared<ScanAll>(nullptr, x);
+    auto subquery = std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{NEXPR("alias", IDENT("x"))});
+    return std::make_shared<Apply>(std::move(input_op), std::move(subquery), on_empty_branch);
+  };
+
+  auto expected = [](std::string const &on_empty_branch) {
+    return R"sep({"on_empty_branch": ")sep" + on_empty_branch + R"sep(",
+            "input": {
+                "input": {
+                    "name": "Once"
+                },
+                "name": "ScanAll",
+                "output_symbol": "x"
+            },
+            "name": "Apply",
+            "subquery": {
+                "input": {
+                    "name": "Once"
+                },
+                "name": "Produce",
+                "named_expressions": [
+                    {
+                        "expression": "(Identifier \"x\")",
+                        "name": "alias"
+                    }
+                ]
+            }
+          })sep";
+  };
+
+  this->Check(make_apply(OnEmptyBranch::kDropRow).get(), expected("drop row"));
+  this->Check(make_apply(OnEmptyBranch::kPassRow).get(), expected("pass row"));
+}
+
 TYPED_TEST(PrintToJsonTest, RollUpApply) {
   auto x = this->GetSymbol("x");
   auto e = this->GetSymbol("edge");
