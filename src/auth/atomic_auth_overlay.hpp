@@ -13,6 +13,7 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -76,6 +77,9 @@ class AtomicAuthOverlay {
 
     std::optional<value_type> current_;
     bool at_end_{false};
+
+    /// Keys this scan has yielded so far. Handed to the prefix's dependency if the scan reaches the end.
+    std::set<std::string, std::less<>> seen_;
   };
 
   iterator begin(std::string const &prefix) const;
@@ -107,6 +111,15 @@ class AtomicAuthOverlay {
 
     Kind kind;
     bool was_empty;
+
+    /// Set once a scan of this prefix has run to exhaustion. That transaction now depends on the whole key set for
+    /// the rest of its life, so a later short-circuiting scan of the same prefix cannot weaken it back.
+    bool exhausted{false};
+
+    /// The keys that exhaustive scan saw, as it saw them. `Flush` compares base against this rather than against
+    /// the read set, because the read set keeps growing: a later short-circuiting scan of the same prefix walks
+    /// past whatever has appeared since, and a key recorded then would otherwise look like one this scan covered.
+    std::set<std::string, std::less<>> seen;
   };
 
   /// Prefixes this transaction has scanned, and what each scan depended on. Recording the keys seen is not enough on
