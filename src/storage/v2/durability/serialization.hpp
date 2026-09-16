@@ -137,7 +137,7 @@ class Encoder final : public BaseEncoder {
  private:
   // Batch small writes to amortize file locking and encoder CRC updates. Position/size getters
   // are logical; operations that read or reposition the file drain first.
-  static constexpr size_t kStageCapacity = 16 * 1024;
+  static constexpr size_t kStageCapacity = 16'384;
   void DrainStage();
 
   FileType file_;
