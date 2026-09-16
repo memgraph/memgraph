@@ -1195,6 +1195,12 @@ struct ExpansionLambda {
 /// MATCH (a) MATCH (a)--(b)),
 /// only expansions that match defined equalities are succesfully
 /// pulled.
+/// Test hook. With this off, the weighted KSHORTEST spur search builds no reverse tree, prunes
+/// nothing by reachability and orders by cost alone - a plain Dijkstra over the whole graph. A suite
+/// can then assert the whole optimisation is semantics-preserving, not just its ordering. Always on
+/// in production; read once per `Pull`.
+bool &KShortestWeightedHeuristicEnabled();
+
 class ExpandVariable : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;

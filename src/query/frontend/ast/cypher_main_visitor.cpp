@@ -3357,9 +3357,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
   if (variableExpansion) {
     if (relationshipDetail->total_weight && edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
-        edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS)
+        edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS && edge->type_ != EdgeAtom::Type::KSHORTEST)
       throw SemanticException(
-          "Variable for total weight is allowed only with weighted and all shortest "
+          "Variable for total weight is allowed only with weighted, all shortest and K shortest "
           "path expansion.");
     auto visit_lambda = [this](auto *lambda) {
       EdgeAtom::Lambda edge_lambda;
@@ -3387,6 +3387,33 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         anonymous_identifiers.push_back(&edge->total_weight_);
       }
     };
+    // No expansion evaluates the weight lambda against a path; it sees one edge and the node that
+    // edge reaches. Named here rather than left to the unbound-variable error the extra argument
+    // would otherwise raise.
+    auto reject_accumulators_in_weight_lambda = [&]() {
+      if (edge->weight_lambda_.accumulated_path) {
+        throw SemanticException(
+            "The lambda for calculating weights cannot take the accumulated path or the accumulated weight.");
+      }
+    };
+    // A bidirectional search reusing inner searches has no one path leading to the tested edge, and
+    // the accumulated weight only means something where the search is ordered by weight.
+    auto validate_filter_lambda = [&]() {
+      if (edge->type_ == EdgeAtom::Type::KSHORTEST && edge->filter_lambda_.accumulated_path) {
+        throw SemanticException("KSHORTEST expansion does not support the accumulated path in a filter lambda.");
+      }
+      if (edge->filter_lambda_.accumulated_weight && edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
+          edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+        throw SemanticException(
+            "Accumulated weight in filter lambda can be used only with "
+            "shortest paths expansion.");
+      }
+    };
+    // KSHORTEST takes a lone lambda as the filter, which is what it has always meant. The total
+    // weight variable after it is what makes that lambda the weight one instead.
+    const bool weight_lambda_comes_first =
+        edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
+        (edge->type_ == EdgeAtom::Type::KSHORTEST && relationshipDetail->total_weight != nullptr);
     switch (relationshipLambdas.size()) {
       case 0:
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
@@ -3411,11 +3438,11 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 1:
-        if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
-            edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+        if (weight_lambda_comes_first) {
           // For wShortest and allShortest, the first (and required) lambda is
           // used for weight calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
+          reject_accumulators_in_weight_lambda();
           visit_total_weight();
           // Add mandatory inner variables for filter lambda.
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
@@ -3430,23 +3457,18 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
-          // A bidirectional search reusing inner searches has no one path leading to the tested edge.
-          if (edge->type_ == EdgeAtom::Type::KSHORTEST && edge->filter_lambda_.accumulated_path) {
-            throw SemanticException("KSHORTEST expansion does not support the accumulated path in a filter lambda.");
-          }
-          if (edge->filter_lambda_.accumulated_weight) {
-            throw SemanticException(
-                "Accumulated weight in filter lambda can be used only with "
-                "shortest paths expansion.");
-          }
+          validate_filter_lambda();
         }
         break;
       case 2:
-        if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH && edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS)
+        if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
+            edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS && edge->type_ != EdgeAtom::Type::KSHORTEST)
           throw SemanticException("Only one filter lambda can be supplied.");
         edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
+        reject_accumulators_in_weight_lambda();
         visit_total_weight();
         edge->filter_lambda_ = visit_lambda(relationshipLambdas[1]);
+        validate_filter_lambda();
         break;
       default:
         throw SemanticException("Only one filter lambda can be supplied.");

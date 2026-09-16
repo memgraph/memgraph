@@ -4179,7 +4179,58 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   }
 };
 
+namespace {
+
+/// Adds two path costs. A null operand is the additive identity: the seed's "nothing traversed yet"
+/// and the target's own zero distance in the reverse tree. Every edge weight is non-null - the
+/// KSHORTEST weight lambda throws on null - so this never hides one.
+TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
+  if (lhs.IsNull()) return rhs;
+  if (rhs.IsNull()) return lhs;
+  ValidateWeightTypes(lhs, rhs);
+  return lhs + rhs;
+}
+
+/// Orders two path costs exactly, with null - only ever the seed - below everything. No tolerance:
+/// two nearly equal doubles order by hop count and then arbitrarily, as any other tie does.
+bool CostLess(const TypedValue &lhs, const TypedValue &rhs) {
+  if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && !rhs.IsNull();
+  ValidateWeightTypes(lhs, rhs);
+  return (lhs < rhs).ValueBool();
+}
+
+/// Hop count is the cost: today's `PathInfo` and today's bidirectional BFS, with no per-path payload.
+struct KShortestHopCost {
+  static constexpr bool kWeighted = false;
+  /// Whether an expansion may take this arc.
+  using Verdict = bool;
+
+  struct Payload {};
+};
+
+/// A user-supplied weight lambda is the cost, ordered by `(total weight, hop count)`.
+struct KShortestWeightCost {
+  static constexpr bool kWeighted = true;
+  /// `nullopt` is "blocked"; otherwise the arc's own weight, so one memo entry answers the access
+  /// check, the filter lambda and the weight at once. Weights are scalars - numeric or a Duration,
+  /// enforced by `ValidateWeight` - so the `TypedValue` here never owns an allocation.
+  using Verdict = std::optional<TypedValue>;
+
+  struct Payload {
+    TypedValue total;
+  };
+};
+
+}  // namespace
+
+bool &KShortestWeightedHeuristicEnabled() {
+  // Read once per `Pull`, never written outside tests.
+  static bool enabled = true;
+  return enabled;
+}
+
 // K-Shortest Paths Cursor using lazy-evaluated Yen's algorithm
+template <class Cost>
 class KShortestPathsCursor : public Cursor {
  public:
   KShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem,
@@ -4204,7 +4255,11 @@ class KShortestPathsCursor : public Cursor {
         bfs_target_next_(mem),
         expansion_memo_(mem),
         bfs_in_edge_(mem),
-        bfs_out_edge_(mem) {}
+        bfs_out_edge_(mem),
+        reverse_dist_(mem),
+        weighted_pq_(mem),
+        search_tree_(mem),
+        settled_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -4213,32 +4268,40 @@ class KShortestPathsCursor : public Cursor {
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
-    // A cost switch only, not a semantic one: `ShouldExpand` agrees either way.
+    // A cost switch only, not a semantic one: `ShouldExpand` agrees either way. Weighted mode always
+    // memoises, because a memo entry is also where an arc's weight is kept.
     fine_grained_access_check_enabled_ = FineGrainedAccessCheckEnabled(context);
-    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || fine_grained_access_check_enabled_;
+    memoize_expansion_ =
+        Cost::kWeighted || self_.filter_lambda_.expression != nullptr || fine_grained_access_check_enabled_;
+    use_heuristic_ = KShortestWeightedHeuristicEnabled();
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
       n_returned_paths_++;
     };
 
-    auto unsent_paths_count = [&]() { return shortest_paths_.size() - current_path_index_; };
+    // Walks `current_path_index_` up to the next path long enough to serve, generating more when the
+    // already-found ones run out. Under weights a path shorter than the lower bound can turn up at
+    // any point in the enumeration, so the bound is a serving filter rather than a one-off top-up;
+    // in hop-count mode the paths only grow, so this skips the same prefix the top-up loop did.
+    auto advance_to_servable = [&](Frame &frame, ExpressionEvaluator &evaluator) {
+      if (!current_input_initialized_ || !current_source_.has_value() || !current_target_.has_value()) return false;
+      while (true) {
+        while (current_path_index_ < shortest_paths_.size()) {
+          if (std::cmp_greater_equal(shortest_paths_[current_path_index_].edges.size(), lower_bound_)) return true;
+          ++current_path_index_;
+        }
+        if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
+          return false;
+        }
+      }
+    };
 
-    // Guard each serving site rather than returning early: a saturated row must still reach the
+    // Guard the serving site rather than returning early: a saturated row must still reach the
     // input loop, where `ResetState` zeroes the count.
-    if (n_returned_paths_ < limit_) {
-      // If we have cached shortest paths, return the next one
-      if (unsent_paths_count() > 0) {
-        push_next_path(frame, evaluator);
-        return true;
-      }
-
-      // Try to compute the next shortest path for current input
-      if (current_input_initialized_ && current_source_.has_value() && current_target_.has_value() &&
-          ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
-        push_next_path(frame, evaluator);
-        return true;
-      }
+    if (n_returned_paths_ < limit_ && advance_to_servable(frame, evaluator)) {
+      push_next_path(frame, evaluator);
+      return true;
     }
 
     // Need to pull new input
@@ -4295,19 +4358,9 @@ class KShortestPathsCursor : public Cursor {
         continue;
       }
 
-      // Handle lower bound
-      auto *last_path = &shortest_paths_.back();
-      while (last_path->edges.size() < lower_bound_) {
-        current_path_index_ = shortest_paths_.size();
-        if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
-          break;
-        }
-        last_path = &shortest_paths_.back();
-      }
-
-      // The count was reset above and the top-up loop serves nothing, so this row is unspent.
+      // The count was reset above and nothing has been served yet, so this row is unspent.
       DMG_ASSERT(n_returned_paths_ == 0, "KSHORTEST path count must be reset before a new input row is served");
-      if (n_returned_paths_ < limit_ && unsent_paths_count() > 0) {
+      if (n_returned_paths_ < limit_ && advance_to_servable(frame, evaluator)) {
         push_next_path(frame, evaluator);
         return true;
       }
@@ -4328,12 +4381,19 @@ class KShortestPathsCursor : public Cursor {
   struct PathInfo {
     utils::pmr::vector<EdgeAccessor> edges;
     size_t deviation_vertex_index;  // Index where this path deviates from parent
+    // Empty under hop count, so the layout is the one this operator has always had.
+    [[no_unique_address]] typename Cost::Payload cost;
 
     explicit PathInfo(utils::MemoryResource *mem) : edges(mem), deviation_vertex_index(0) {}
   };
 
   struct PathComparator {
     bool operator()(const PathInfo &a, const PathInfo &b) const {
+      if constexpr (Cost::kWeighted) {
+        // Reversed, as below: the heap serves the cheapest path, and the shortest of those.
+        if (CostLess(a.cost.total, b.cost.total)) return false;
+        if (CostLess(b.cost.total, a.cost.total)) return true;
+      }
       return a.edges.size() > b.edges.size();  // Reversed: the heap serves the shortest path first
     }
   };
@@ -4427,20 +4487,73 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::vector<VertexAccessor> bfs_source_next_;
   utils::pmr::vector<VertexAccessor> bfs_target_next_;
 
-  // Memoised `access check && filter lambda` verdicts. Sound across Yen's inner searches because the
-  // blocked sets - the only per-deviation inputs - are checked outside the memo.
-  utils::pmr::unordered_map<ExpansionKey, bool, ExpansionKeyHash> expansion_memo_;
+  // Memoised `access check && filter lambda` verdicts, and under weights the arc's weight with them.
+  // Sound across Yen's inner searches because the blocked sets - the only per-deviation inputs - are
+  // checked outside the memo.
+  utils::pmr::unordered_map<ExpansionKey, typename Cost::Verdict, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
   bool fine_grained_access_check_enabled_{false};
+  bool use_heuristic_{true};
 
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
   VertexEdgeMapT bfs_in_edge_;
   VertexEdgeMapT bfs_out_edge_;
 
+  // --- weighted mode only; empty containers under hop count -------------------------------------
+
+  /// One entry of the A* frontier. `priority` is `cost + h(vertex)`; ties break on `depth` so a walk
+  /// that revisits a vertex over zero-weight edges always loses to the walk that does not.
+  struct WeightedQueueEntry {
+    TypedValue priority;
+    TypedValue cost;
+    int64_t depth;
+    VertexAccessor vertex;
+    std::optional<EdgeAccessor> in_edge;
+    int64_t parent;  // index into `search_tree_`, -1 at the search's own root
+  };
+
+  struct WeightedQueueComparator {
+    // Reversed, like `PathComparator`: `std::priority_queue` serves its maximum, and the cheapest
+    // entry has to come out first.
+    bool operator()(const WeightedQueueEntry &lhs, const WeightedQueueEntry &rhs) const {
+      if (CostLess(lhs.priority, rhs.priority)) return false;
+      if (CostLess(rhs.priority, lhs.priority)) return true;
+      return lhs.depth > rhs.depth;
+    }
+  };
+
+  /// A settled state's edge in and its parent state, so a found path reads straight back off the
+  /// search's own tree rather than out of a state-keyed predecessor map.
+  struct SearchTreeNode {
+    std::optional<EdgeAccessor> in_edge;
+    int64_t parent;
+  };
+
+  /// Exact `dist(v, target)` over the unblocked graph this row's filters leave, built once per input
+  /// row. Blocking only raises true distances, so it stays an admissible and consistent heuristic for
+  /// every spur search, and a vertex missing from it can never reach the target.
+  utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
+
+  std::priority_queue<WeightedQueueEntry, utils::pmr::vector<WeightedQueueEntry>, WeightedQueueComparator> weighted_pq_;
+  utils::pmr::vector<SearchTreeNode> search_tree_;
+
+  /// Per vertex, the Pareto front of settled `(depth, cost)` pairs. Without a hop cap every depth
+  /// folds to 0 and this is a plain visited set.
+  using DepthCosts = utils::pmr::vector<std::pair<int64_t, TypedValue>>;
+  utils::pmr::unordered_map<VertexAccessor, DepthCosts, VertexAccessorHash> settled_;
+
   bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target, Frame &frame,
                                 ExpressionEvaluator &evaluator, ExecutionContext &context) {
     ResetState();
+
+    if constexpr (Cost::kWeighted) {
+      if (use_heuristic_) {
+        BuildReverseTree(target, frame, evaluator, context);
+        // Nothing reaches the target from here, so neither the seed search nor any spur can.
+        if (!reverse_dist_.contains(source)) return false;
+      }
+    }
 
     // Seeds Yen's with the shortest path; the rest are deviations from it.
     auto shortest_path = ComputeShortestPath(source, target, upper_bound_, frame, evaluator, context);
@@ -4475,6 +4588,9 @@ class KShortestPathsCursor : public Cursor {
       VertexAccessor deviation_vertex = source;
       // The base path is itself a found path, so this walk never falls off the trie.
       uint64_t trie_node = 0;
+      // The root prefix's cost, grown edge by edge as the walk passes them. A candidate costs this
+      // plus its spur; under hop count it stays null and the hop count does the ordering.
+      TypedValue root_weight;
 
       for (size_t i = 0UZ; i < base_path.edges.size(); ++i) {
         if (i >= first_deviation) {
@@ -4482,12 +4598,17 @@ class KShortestPathsCursor : public Cursor {
           for (uint64_t c = trie_first_child_[trie_node]; c != kNoChild; c = trie_children_[c].next_sibling) {
             blocked_edges_.insert(trie_children_[c].edge);
           }
-          GenerateCandidatesFromDeviation(target, base_path, i, deviation_vertex, frame, evaluator, context);
+          GenerateCandidatesFromDeviation(
+              target, base_path, i, deviation_vertex, root_weight, frame, evaluator, context);
         }
 
         blocked_vertices_.insert(deviation_vertex.Gid());
         const auto &edge = base_path.edges[i];
-        deviation_vertex = (edge.From() == deviation_vertex) ? edge.To() : edge.From();
+        const VertexAccessor next_vertex = (edge.From() == deviation_vertex) ? edge.To() : edge.From();
+        if constexpr (Cost::kWeighted) {
+          root_weight = AddCost(root_weight, EdgeWeight(edge, next_vertex, frame, evaluator, context));
+        }
+        deviation_vertex = next_vertex;
         trie_node = TrieDescend(trie_node, edge.Gid());
         // Checked in release too: a miss is `kNoChild`, and the next iteration would index the
         // child array with it.
@@ -4506,8 +4627,14 @@ class KShortestPathsCursor : public Cursor {
       candidate_paths_.pop_back();
       // Handle upper bound
       if (candidate.edges.size() > upper_bound_) {
-        // Next path is too long, stop generating candidates
-        return false;
+        if constexpr (Cost::kWeighted) {
+          // A long candidate says nothing about the cheaper ones behind it, so only it is dropped.
+          // Unreachable in practice: the spur search is already capped at the hops left over.
+          continue;
+        } else {
+          // Next path is too long, stop generating candidates
+          return false;
+        }
       }
       if (!IsPathInFoundSet(candidate)) {
         AddPathToFoundSet(candidate);
@@ -4519,8 +4646,8 @@ class KShortestPathsCursor : public Cursor {
   }
 
   void GenerateCandidatesFromDeviation(const VertexAccessor &target, const PathInfo &base_path, size_t deviation_index,
-                                       const VertexAccessor &deviation_vertex, Frame &frame,
-                                       ExpressionEvaluator &evaluator, ExecutionContext &context) {
+                                       const VertexAccessor &deviation_vertex, const TypedValue &root_weight,
+                                       Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     // The candidate's total is `deviation_index + spur_len`, so the spur gets what's left of it.
     auto spur_path = ComputeShortestPath(
         deviation_vertex, target, upper_bound_ - static_cast<int64_t>(deviation_index), frame, evaluator, context);
@@ -4534,6 +4661,9 @@ class KShortestPathsCursor : public Cursor {
                                 base_path.edges.begin() + static_cast<std::ptrdiff_t>(deviation_index));
     candidate_path.edges.insert(candidate_path.edges.end(), spur_path.edges.begin(), spur_path.edges.end());
     candidate_path.deviation_vertex_index = deviation_index;
+    if constexpr (Cost::kWeighted) {
+      candidate_path.cost.total = AddCost(root_weight, spur_path.cost.total);
+    }
 
     candidate_paths_.push_back(std::move(candidate_path));
     std::ranges::push_heap(candidate_paths_, PathComparator{});
@@ -4631,8 +4761,39 @@ class KShortestPathsCursor : public Cursor {
     return allowed;
   }
 
+  /// This vertex's out-edges, fetched and cached on the first ask. Both searches go through here, so
+  /// the hop accounting and the `hops_limit` charge are paid exactly once per vertex per query.
+  const CachedEdges &OutEdgesOf(const VertexAccessor &vertex, ExecutionContext &context) {
+    if (const auto it = out_edges_.find(vertex); it != out_edges_.end()) return it->second;
+    auto fetched =
+        UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+    context.number_of_hops += fetched.expanded_count;
+    return out_edges_
+        .emplace(vertex, CachedEdges(fetched.edges.begin(), fetched.edges.end(), out_edges_.get_allocator().resource()))
+        .first->second;
+  }
+
+  /// This vertex's in-edges; see `OutEdgesOf`.
+  const CachedEdges &InEdgesOf(const VertexAccessor &vertex, ExecutionContext &context) {
+    if (const auto it = in_edges_.find(vertex); it != in_edges_.end()) return it->second;
+    auto fetched = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+    context.number_of_hops += fetched.expanded_count;
+    return in_edges_
+        .emplace(vertex, CachedEdges(fetched.edges.begin(), fetched.edges.end(), in_edges_.get_allocator().resource()))
+        .first->second;
+  }
+
   PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
                                Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    if constexpr (Cost::kWeighted) {
+      return ComputeShortestPathWeighted(source, target, upper_bound, frame, evaluator, context);
+    } else {
+      return ComputeShortestPathBfs(source, target, upper_bound, frame, evaluator, context);
+    }
+  }
+
+  PathInfo ComputeShortestPathBfs(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
+                                  Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (source == target) return PathInfo(evaluator.GetMemoryResource());
 
     // We expand from both directions, both from the source and the target.
@@ -4663,16 +4824,7 @@ class KShortestPathsCursor : public Cursor {
       for (const auto &vertex : bfs_source_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          if (!out_edges_.contains(vertex)) {
-            auto out_edges_result =
-                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += out_edges_result.expanded_count;
-            out_edges_.emplace(vertex,
-                               CachedEdges(out_edges_result.edges.begin(),
-                                           out_edges_result.edges.end(),
-                                           out_edges_.get_allocator().resource()));
-          }
-          for (const auto &edge : out_edges_.at(vertex)) {
+          for (const auto &edge : OutEdgesOf(vertex, context)) {
             if (!ShouldExpand<kTo, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
@@ -4684,16 +4836,7 @@ class KShortestPathsCursor : public Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          if (!in_edges_.contains(vertex)) {
-            auto in_edges_result =
-                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += in_edges_result.expanded_count;
-            in_edges_.emplace(
-                vertex,
-                CachedEdges(
-                    in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
-          }
-          for (const auto &edge : in_edges_.at(vertex)) {
+          for (const auto &edge : InEdgesOf(vertex, context)) {
             if (!ShouldExpand<kFrom, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
@@ -4720,16 +4863,7 @@ class KShortestPathsCursor : public Cursor {
       for (const auto &vertex : bfs_target_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          if (!out_edges_.contains(vertex)) {
-            auto out_edges_result =
-                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += out_edges_result.expanded_count;
-            out_edges_.emplace(vertex,
-                               CachedEdges(out_edges_result.edges.begin(),
-                                           out_edges_result.edges.end(),
-                                           out_edges_.get_allocator().resource()));
-          }
-          for (const auto &edge : out_edges_.at(vertex)) {
+          for (const auto &edge : OutEdgesOf(vertex, context)) {
             if (!ShouldExpand<kTo, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
@@ -4741,16 +4875,7 @@ class KShortestPathsCursor : public Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          if (!in_edges_.contains(vertex)) {
-            auto in_edges_result =
-                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += in_edges_result.expanded_count;
-            in_edges_.emplace(
-                vertex,
-                CachedEdges(
-                    in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
-          }
-          for (const auto &edge : in_edges_.at(vertex)) {
+          for (const auto &edge : InEdgesOf(vertex, context)) {
             if (!ShouldExpand<kFrom, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
@@ -4769,6 +4894,208 @@ class KShortestPathsCursor : public Cursor {
     }
   }
 
+  // --- weighted spur search ---------------------------------------------------------------------
+
+  /// The access check, then the filter lambda, then the weight - one memo entry per `(edge, head)`
+  /// answers all three. `head` is the vertex the arc reaches in the *forward* direction whichever
+  /// way this search walks it, so the reverse tree and the spur searches can never disagree about
+  /// an arc, and the memo needs no pass in its key.
+  std::optional<TypedValue> WeightedVerdict(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
+                                            ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    const ExpansionKey key{.edge = edge.Gid(), .node = head.Gid(), .backward = false};
+    if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
+
+    std::optional<TypedValue> verdict;
+    // Access check first: an edge the user cannot read must never make a lambda run on it.
+    if (EdgeAndEndpointReadable(edge, head, context) && EvaluateFilterLambda(edge, head, frame, evaluator, context)) {
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      // The lambda is folded into a running total by the caller, so it is asked for this arc alone.
+      TypedValue weight = BindAndCalculateNextWeight(
+          self_.weight_lambda_, edge, head, /* total_weight */ TypedValue(), frame_writer, evaluator);
+      if (weight.IsNull()) {
+        throw QueryRuntimeException(
+            "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
+            "weight, or filter the ones without one out.");
+      }
+      verdict.emplace(std::move(weight));
+    }
+    expansion_memo_.emplace(key, verdict);
+    return verdict;
+  }
+
+  /// The weight of an edge a found path already walks, read back out of the memo.
+  TypedValue EdgeWeight(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
+                        ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    auto verdict = WeightedVerdict(edge, head, frame, evaluator, context);
+    // A found path's edges were accepted by a search in this row, and verdicts are memoised for the
+    // whole row, so this is a hit that already said yes.
+    DMG_ASSERT(verdict.has_value(), "a found path's edge must still pass the expansion checks");
+    return std::move(verdict).value_or(TypedValue());
+  }
+
+  /// `h(vertex)`, or null - the additive identity - when the reverse tree is off, which degrades the
+  /// spur search to a plain Dijkstra over the unpruned graph.
+  TypedValue Heuristic(const VertexAccessor &vertex) const {
+    if (!use_heuristic_) return {};
+    const auto it = reverse_dist_.find(vertex);
+    return it == reverse_dist_.end() ? TypedValue() : it->second;
+  }
+
+  /// A state no deeper and no cheaper than one already settled can only lead to worse paths, so it
+  /// is dropped. That is also what keeps every returned path simple: coming back to a vertex costs
+  /// at least as much - weights are non-negative - and always takes more hops.
+  bool IsDominated(const VertexAccessor &vertex, int64_t depth, const TypedValue &cost) const {
+    const auto it = settled_.find(vertex);
+    if (it == settled_.end()) return false;
+    return std::ranges::any_of(
+        it->second, [&](const auto &entry) { return entry.first <= depth && !CostLess(cost, entry.second); });
+  }
+
+  void RecordSettled(const VertexAccessor &vertex, int64_t depth, const TypedValue &cost) {
+    // No resource argument: the map's own uses-allocator construction gives the front the arena.
+    auto [it, _] = settled_.try_emplace(vertex);
+    // Whatever this state dominates can go, so the front stays as short as the depths in play.
+    std::erase_if(it->second, [&](const auto &entry) { return entry.first >= depth && !CostLess(entry.second, cost); });
+    it->second.emplace_back(depth, cost);
+  }
+
+  void ClearWeightedSearchState() {
+    while (!weighted_pq_.empty()) weighted_pq_.pop();
+    search_tree_.clear();
+    settled_.clear();
+  }
+
+  PathInfo ReconstructWeightedPath(int64_t node, const TypedValue &cost, utils::MemoryResource *memory) const {
+    PathInfo out(memory);
+    for (auto i = node; i != -1; i = search_tree_[static_cast<size_t>(i)].parent) {
+      const auto &in_edge = search_tree_[static_cast<size_t>(i)].in_edge;
+      if (in_edge) out.edges.push_back(*in_edge);
+    }
+    std::ranges::reverse(out.edges);
+    if constexpr (Cost::kWeighted) out.cost.total = cost;
+    return out;
+  }
+
+  /// One reverse Dijkstra from the target per input row, over the whole graph this row's filters
+  /// leave - Yen's blocked sets are deliberately ignored. An arc `u -> v` of the forward search is
+  /// walked here from `v`, and its weight and filter verdict are read in the forward sense, so the
+  /// tree agrees with the spur searches edge for edge.
+  void BuildReverseTree(const VertexAccessor &target, Frame &frame, ExpressionEvaluator &evaluator,
+                        ExecutionContext &context) {
+    ClearWeightedSearchState();
+    reverse_dist_.clear();
+
+    weighted_pq_.push(WeightedQueueEntry{.priority = TypedValue(),
+                                         .cost = TypedValue(),
+                                         .depth = 0,
+                                         .vertex = target,
+                                         .in_edge = std::nullopt,
+                                         .parent = -1});
+
+    while (!weighted_pq_.empty()) {
+      AbortCheck(context);
+      auto entry = weighted_pq_.top();
+      weighted_pq_.pop();
+      // First pop of a vertex is its cheapest walk to the target; later ones are stale.
+      if (!reverse_dist_.emplace(entry.vertex, entry.cost).second) continue;
+      if (context.hops_limit.IsLimitReached()) break;
+
+      auto relax = [&](const EdgeAccessor &edge, const VertexAccessor &predecessor) {
+        if (reverse_dist_.contains(predecessor)) return;
+        const auto weight = WeightedVerdict(edge, entry.vertex, frame, evaluator, context);
+        if (!weight) return;
+        auto cost = AddCost(entry.cost, *weight);
+        weighted_pq_.push(WeightedQueueEntry{.priority = cost,
+                                             .cost = std::move(cost),
+                                             .depth = 0,
+                                             .vertex = predecessor,
+                                             .in_edge = std::nullopt,
+                                             .parent = -1});
+      };
+
+      // `u -> v` over an out-edge of `u` is an in-edge of `v`, and vice versa.
+      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        for (const auto &edge : InEdgesOf(entry.vertex, context)) relax(edge, edge.From());
+      }
+      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        for (const auto &edge : OutEdgesOf(entry.vertex, context)) relax(edge, edge.To());
+      }
+    }
+
+    ClearWeightedSearchState();
+  }
+
+  void ExpandWeighted(const WeightedQueueEntry &from, int64_t tree_node, Frame &frame, ExpressionEvaluator &evaluator,
+                      ExecutionContext &context) {
+    auto relax = [&](const EdgeAccessor &edge, const VertexAccessor &next) {
+      if (blocked_edges_.contains(edge.Gid()) || blocked_vertices_.contains(next.Gid())) return;
+      const auto heuristic = reverse_dist_.find(next);
+      // The reverse tree holds every vertex that can still reach the target, so a miss is a dead end.
+      if (use_heuristic_ && heuristic == reverse_dist_.end()) return;
+      const auto weight = WeightedVerdict(edge, next, frame, evaluator, context);
+      if (!weight) return;
+
+      const int64_t depth = from.depth + 1;
+      auto cost = AddCost(from.cost, *weight);
+      if (IsDominated(next, depth, cost)) return;
+      auto priority = use_heuristic_ ? AddCost(cost, heuristic->second) : cost;
+      weighted_pq_.push(WeightedQueueEntry{.priority = std::move(priority),
+                                           .cost = std::move(cost),
+                                           .depth = depth,
+                                           .vertex = next,
+                                           .in_edge = edge,
+                                           .parent = tree_node});
+    };
+
+    if (self_.common_.direction != EdgeAtom::Direction::IN) {
+      for (const auto &edge : OutEdgesOf(from.vertex, context)) relax(edge, edge.To());
+    }
+    if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+      for (const auto &edge : InEdgesOf(from.vertex, context)) relax(edge, edge.From());
+    }
+  }
+
+  /// Yen's spur search under weights: A* from `source`, over the graph minus `blocked_edges_` and
+  /// `blocked_vertices_`, with the reverse tree as the heuristic. Blocking only raises true
+  /// distances, so that heuristic stays admissible and consistent and the first pop of the target
+  /// is optimal. `upper_bound` is the hop budget this spur has left.
+  PathInfo ComputeShortestPathWeighted(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
+                                       Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    auto *memory = evaluator.GetMemoryResource();
+    if (source == target) return PathInfo(memory);
+    // Absent from the reverse tree means no walk from here reaches the target at all.
+    if (use_heuristic_ && !reverse_dist_.contains(source)) return PathInfo(memory);
+
+    ClearWeightedSearchState();
+    weighted_pq_.push(WeightedQueueEntry{.priority = Heuristic(source),
+                                         .cost = TypedValue(),
+                                         .depth = 0,
+                                         .vertex = source,
+                                         .in_edge = std::nullopt,
+                                         .parent = -1});
+
+    while (!weighted_pq_.empty()) {
+      AbortCheck(context);
+      auto entry = weighted_pq_.top();
+      weighted_pq_.pop();
+
+      if (IsDominated(entry.vertex, entry.depth, entry.cost)) continue;
+      RecordSettled(entry.vertex, entry.depth, entry.cost);
+
+      search_tree_.push_back(SearchTreeNode{.in_edge = entry.in_edge, .parent = entry.parent});
+      const auto tree_node = static_cast<int64_t>(search_tree_.size()) - 1;
+
+      if (entry.vertex == target) return ReconstructWeightedPath(tree_node, entry.cost, memory);
+
+      // No budget left to take another edge.
+      if (std::cmp_greater_equal(entry.depth, upper_bound)) continue;
+      if (context.hops_limit.IsLimitReached()) break;
+      ExpandWeighted(entry, tree_node, frame, evaluator, context);
+    }
+
+    return PathInfo(memory);
+  }
+
   void PushPathToFrame(const PathInfo &path, Frame *frame, utils::MemoryResource *memory, ExecutionContext &context) {
     auto edge_list = TypedValue::TVector(memory);
     for (const auto &edge : path.edges) {
@@ -4776,6 +5103,9 @@ class KShortestPathsCursor : public Cursor {
     }
     auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, memory);
     frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+    if constexpr (Cost::kWeighted) {
+      frame_writer.Write(self_.total_weight_.value(), TypedValue(path.cost.total, memory));
+    }
   }
 
   bool IsPathInFoundSet(const PathInfo &path) {
@@ -4833,6 +5163,9 @@ class KShortestPathsCursor : public Cursor {
     trie_first_child_.assign(1, kNoChild);  // node 0 is the empty root
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
+    // Built from this row's target, under this row's filters.
+    reverse_dist_.clear();
+    reverse_dist_.rehash(0);
     ReleaseInnerSearchState();
     // Makes `|K` per input row; `Pull` guards each serving site instead of returning early.
     n_returned_paths_ = 0;
@@ -4851,6 +5184,9 @@ class KShortestPathsCursor : public Cursor {
       reached->clear();
       reached->rehash(0);
     }
+    ClearWeightedSearchState();
+    search_tree_.shrink_to_fit();
+    settled_.rehash(0);
   }
 };
 
@@ -4874,7 +5210,10 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::KSHORTEST: {
-      return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem, metric_handles);
+      if (weight_lambda_) {
+        return MakeUniqueCursorPtr<KShortestPathsCursor<KShortestWeightCost>>(mem, *this, mem, metric_handles);
+      }
+      return MakeUniqueCursorPtr<KShortestPathsCursor<KShortestHopCost>>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::PRUNING_BFS: {
       return MakeUniqueCursorPtr<PruningBFSDispatchCursor>(mem, *this, mem, metric_handles);
