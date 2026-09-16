@@ -103,5 +103,22 @@ def test_profile_queries_are_rejected_in_an_auth_transaction(cursor):
         execute(cursor, "CREATE USER PROFILE limited LIMIT sessions 1")
 
 
+def test_a_terminated_auth_transaction_cannot_commit(cursor):
+    # Termination is cooperative: TERMINATE marks the transaction, and the committer is responsible for refusing
+    # to go ahead. An auth transaction releases the data accessor, so it takes a different commit path from a data
+    # transaction and has to make that check for itself.
+    other = connect().cursor()
+
+    execute(cursor, "BEGIN")
+    execute(cursor, "CREATE USER doomed")
+
+    execute(other, 'TERMINATE TRANSACTIONS "*"')
+
+    with pytest.raises(mgclient.DatabaseError):
+        execute(cursor, "COMMIT")
+
+    assert "doomed" not in usernames(other), "a terminated transaction committed anyway"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
