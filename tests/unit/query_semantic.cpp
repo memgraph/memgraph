@@ -1056,6 +1056,50 @@ TYPED_TEST(TestSymbolGenerator, MatchWShortestReturn) {
   EXPECT_TRUE(symbol_table.at(*shortest->filter_lambda_.inner_node).user_declared());
 }
 
+// The K shortest paths expansion takes the same weight lambda, and its inner identifiers must be
+// scoped to the lambda exactly as the weighted expansion's are - nothing leaks to the outer scope.
+TYPED_TEST(TestSymbolGenerator, MatchKShortestWeightLambdaReturn) {
+  // Test MATCH (n) -[r *kShortest (r, n | r.weight) total (r, n | r.filter)]-> (m) RETURN r AS r
+  auto weight = this->dba.NameToProperty("weight");
+  auto filter = this->dba.NameToProperty("filter");
+  auto *node_n = NODE("n");
+  auto *r_weight = PROPERTY_LOOKUP(this->dba, "r", weight);
+  auto *r_filter = PROPERTY_LOOKUP(this->dba, "r", filter);
+  auto *shortest = this->storage.template Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
+  {
+    shortest->weight_lambda_.inner_edge = IDENT("r");
+    shortest->weight_lambda_.inner_node = IDENT("n");
+    shortest->weight_lambda_.expression = r_weight;
+    shortest->total_weight_ = IDENT("total_weight");
+  }
+  {
+    shortest->filter_lambda_.inner_edge = IDENT("r");
+    shortest->filter_lambda_.inner_node = IDENT("n");
+    shortest->filter_lambda_.expression = r_filter;
+  }
+  auto *ret_r = IDENT("r");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, shortest, NODE("m"))), RETURN(ret_r, AS("r"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  // Symbols for pattern, `n`, `[r]`, `total_weight`, (`r|`, `n|`)x2, `m` and `AS r`.
+  EXPECT_EQ(symbol_table.max_position(), 10);
+  EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*shortest->identifier_));
+  // The outer `n` and the lambdas' `n` are three different symbols, and the lambdas' `r` is neither
+  // the expansion's edge nor the other lambda's.
+  EXPECT_NE(symbol_table.at(*ret_r), symbol_table.at(*shortest->weight_lambda_.inner_edge));
+  EXPECT_NE(symbol_table.at(*node_n->identifier_), symbol_table.at(*shortest->weight_lambda_.inner_node));
+  EXPECT_NE(symbol_table.at(*shortest->weight_lambda_.inner_edge),
+            symbol_table.at(*shortest->filter_lambda_.inner_edge));
+  EXPECT_NE(symbol_table.at(*shortest->weight_lambda_.inner_node),
+            symbol_table.at(*shortest->filter_lambda_.inner_node));
+  // The weight expression reads the weight lambda's edge, not the expansion's.
+  EXPECT_EQ(symbol_table.at(*shortest->weight_lambda_.inner_edge),
+            symbol_table.at(*dynamic_cast<Identifier *>(r_weight->expression_)));
+  EXPECT_EQ(symbol_table.at(*shortest->filter_lambda_.inner_edge),
+            symbol_table.at(*dynamic_cast<Identifier *>(r_filter->expression_)));
+  EXPECT_EQ(symbol_table.at(*shortest->total_weight_).type(), Symbol::Type::NUMBER);
+}
+
 TYPED_TEST(TestSymbolGenerator, MatchUnionSymbols) {
   // RETURN 5 as X UNION RETURN 6 AS x
   auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))), UNION(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));

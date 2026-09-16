@@ -88,8 +88,9 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
               collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_weight));
             }
           }
-          if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
-              edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+          // Matches the weighted and all-shortest expansions exactly, down to not visiting the
+          // weight expression itself: an outer symbol only it reads goes unrecorded there too.
+          if (edge->weight_lambda_.expression) {
             collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
             collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
           }

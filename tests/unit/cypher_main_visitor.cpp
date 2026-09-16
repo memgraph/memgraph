@@ -2910,9 +2910,110 @@ TEST_P(CypherMainVisitorTest, MatchKShortestWithLimitAndFilterReturn) {
   EXPECT_TRUE(shortest->filter_lambda_.expression);
 }
 
-TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWithTwoLambdas) {
+// One lambda on its own stays the filter, as it always has. The total weight variable after it is
+// what promotes it to the weight lambda instead.
+TEST_P(CypherMainVisitorTest, MatchKShortestWithWeightLambdaReturn) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | 1) (e, n | e.prop = 42)]->() RETURN r"),
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.w) total]->() RETURN r"));
+  ASSERT_TRUE(query);
+  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(match);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_EQ(shortest->weight_lambda_.inner_edge->name_, "e");
+  EXPECT_EQ(shortest->weight_lambda_.inner_node->name_, "n");
+  EXPECT_TRUE(shortest->weight_lambda_.expression);
+  ASSERT_TRUE(shortest->total_weight_);
+  EXPECT_EQ(shortest->total_weight_->name_, "total");
+  EXPECT_TRUE(shortest->total_weight_->user_declared_);
+  // The filter lambda is left empty but still carries the inner identifiers an inlined filter needs.
+  EXPECT_FALSE(shortest->filter_lambda_.expression);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+  CheckRWType(query, kRead);
+}
+
+// Weight then filter, in the order the weighted and all-shortest expansions already take them, and
+// alongside the bounds and the path limit.
+TEST_P(CypherMainVisitorTest, MatchKShortestWithWeightAndFilterLambdasReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest 1..3 |2 (e, n | e.w) total (f, m | m.ok)]->() RETURN r"));
+  ASSERT_TRUE(query);
+  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(match);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_TRUE(shortest->lower_bound_);
+  EXPECT_TRUE(shortest->upper_bound_);
+  EXPECT_TRUE(shortest->limit_);
+  EXPECT_EQ(shortest->weight_lambda_.inner_edge->name_, "e");
+  EXPECT_TRUE(shortest->weight_lambda_.expression);
+  EXPECT_EQ(shortest->total_weight_->name_, "total");
+  EXPECT_EQ(shortest->filter_lambda_.inner_edge->name_, "f");
+  EXPECT_EQ(shortest->filter_lambda_.inner_node->name_, "m");
+  EXPECT_TRUE(shortest->filter_lambda_.expression);
+  CheckRWType(query, kRead);
+}
+
+// The variable between the two lambdas is optional; without it the total is still computed, just
+// under a name the query cannot reach.
+TEST_P(CypherMainVisitorTest, MatchKShortestWithAnonymousTotalWeightReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | 1) (e, n | e.prop = 42)]->() RETURN r"));
+  ASSERT_TRUE(query);
+  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(match);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_TRUE(shortest->weight_lambda_.expression);
+  EXPECT_TRUE(shortest->filter_lambda_.expression);
+  ASSERT_TRUE(shortest->total_weight_);
+  EXPECT_FALSE(shortest->total_weight_->user_declared_);
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWeightLambdaWithAccumulatedPath) {
+  auto &ast_generator = *GetParam();
+  try {
+    ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n, p | e.w) total]->() RETURN r");
+    FAIL() << "Expected the accumulated path to be rejected in a weight lambda";
+  } catch (const SemanticException &e) {
+    EXPECT_THAT(e.what(), HasSubstr("accumulated path"));
+  }
+}
+
+// The weighted shortest path expansion has no such form either; before, the extra argument only
+// surfaced as an unbound variable.
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestWeightLambdaWithAccumulatedPath) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *wShortest (e, n, p | e.w) total]->() RETURN r"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestFilterLambdaWithAccumulatedPath) {
+  auto &ast_generator = *GetParam();
+  try {
+    ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.w) total (f, m, p | size(p) > 0)]->() RETURN r");
+    FAIL() << "Expected the accumulated path to be rejected for KSHORTEST";
+  } catch (const SemanticException &e) {
+    EXPECT_THAT(e.what(), HasSubstr("accumulated path"));
+  }
+}
+
+// Only the three weighted expansions take a total weight variable.
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnTotalWeightWithBfs) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *bfs (e, n | true) total]->() RETURN r"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnDepthFirstWithTwoLambdas) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 * (e, n | 1) (e, n | true)]->() RETURN r"),
                SemanticException);
 }
 

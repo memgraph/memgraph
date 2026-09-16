@@ -327,6 +327,38 @@ TYPED_TEST(OperatorToStringTest, KShortestExpand) {
   EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
 }
 
+// A weight lambda does not change the operator's name: the plan line names the walk, and EXPLAIN
+// shows no lambdas for the weighted expansion either.
+TYPED_TEST(OperatorToStringTest, WeightedKShortestExpand) {
+  auto node1_sym = this->GetSymbol("node1");
+  auto node2_sym = this->GetSymbol("node2");
+  auto edge_sym = this->GetSymbol("edge");
+  auto total_weight_sym = this->GetSymbol("total_weight");
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
+  last_op = std::make_shared<ExpandVariable>(
+      last_op,
+      node1_sym,
+      node2_sym,
+      edge_sym,
+      EdgeAtom::Type::KSHORTEST,
+      EdgeAtom::Direction::OUT,
+      std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1")},
+      false,
+      nullptr,
+      nullptr,
+      false,
+      ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"), nullptr},
+      ExpansionLambda{this->GetSymbol("weight_node"),
+                      this->GetSymbol("weight_edge"),
+                      PROPERTY_LOOKUP(this->dba, "weight_edge", this->dba.NameToProperty("weight"))},
+      total_weight_sym,
+      nullptr);
+
+  std::string expected_string{"KShortest (node1)-[edge:EdgeType1]->(node2)"};
+  EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
+}
+
 TYPED_TEST(OperatorToStringTest, ConstructNamedPath) {
   auto node1_sym = this->GetSymbol("node1");
   auto edge1_sym = this->GetSymbol("edge1");

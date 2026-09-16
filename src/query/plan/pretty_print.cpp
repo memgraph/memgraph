@@ -1132,7 +1132,7 @@ bool PlanToJsonVisitor::PreVisit(ExpandVariable &op) {
 
   self["filter_lambda"] = op.filter_lambda_.expression ? ToJson(op.filter_lambda_.expression, *dba_) : json();
 
-  if (op.type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || op.type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+  if (op.weight_lambda_) {
     self["weight_lambda"] = ToJson(op.weight_lambda_->expression, *dba_);
     self["total_weight_symbol"] = ToJson(*op.total_weight_);
   }
