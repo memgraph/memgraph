@@ -20,9 +20,9 @@ option(MG_LIMIT_PARALLELISM_BY_MEMORY
 
 # Sized to the most expensive steps in the tree rather than the average, so a
 # full pool cannot exceed the budget even when every slot lands on a heavy one.
-set(MG_MEMORY_PER_COMPILE_JOB_MB 4096 CACHE STRING
+set(MG_MEMORY_PER_COMPILE_JOB_MB 3584 CACHE STRING
     "Memory budgeted for one compile step, in MiB")
-set(MG_MEMORY_PER_LINK_JOB_MB 6144 CACHE STRING
+set(MG_MEMORY_PER_LINK_JOB_MB 2560 CACHE STRING
     "Memory budgeted for one link step, in MiB")
 set(MG_RESERVE_CORES 0 CACHE STRING
     "Cores left free for other work, withheld from every pool")
