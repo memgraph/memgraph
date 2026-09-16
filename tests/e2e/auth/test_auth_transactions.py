@@ -100,7 +100,15 @@ def test_profile_queries_are_rejected_in_an_auth_transaction(cursor):
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER grace")
     with pytest.raises(mgclient.DatabaseError):
-        execute(cursor, "CREATE USER PROFILE limited LIMIT sessions 1")
+        execute(cursor, "CREATE PROFILE limited")
+
+
+def test_a_profile_query_is_rejected_as_the_first_statement(cursor):
+    # The other ordering. Arriving before any auth statement, a profile query would otherwise be let through and
+    # write durably at once, outliving the ROLLBACK.
+    execute(cursor, "BEGIN")
+    with pytest.raises(mgclient.DatabaseError):
+        execute(cursor, "CREATE PROFILE early")
 
 
 def test_a_terminated_auth_transaction_cannot_commit(cursor):
