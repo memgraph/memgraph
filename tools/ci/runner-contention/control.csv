@@ -1,0 +1,11 @@
+arm,test,seconds
+noload,memgraph__unit__storage_v2_constraints,28.79
+noload,memgraph__unit__storage_v2_indices,29.64
+noload,memgraph__unit__interpreter,38.87
+noload,memgraph__unit__utils_scheduler,55.79
+noload,memgraph__unit__query_expression_evaluator,62.18
+pinned_load,memgraph__unit__utils_scheduler,57.75
+pinned_load,memgraph__unit__storage_v2_constraints,165.78
+pinned_load,memgraph__unit__storage_v2_indices,181.93
+pinned_load,memgraph__unit__interpreter,312.85
+pinned_load,memgraph__unit__query_expression_evaluator,456.13

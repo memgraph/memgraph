@@ -1,0 +1,10 @@
+test,seconds,fsync,fdatasync,openat,renameat,total_sync
+memgraph__unit__query_expression_evaluator,170,11322,9650,2257,0,20972
+memgraph__unit__interpreter,105,7612,6830,2258,0,14442
+memgraph__unit__storage_v2_indices,52,4482,3818,1050,0,8300
+memgraph__unit__storage_v2_constraints,62,4272,3526,277,0,7798
+memgraph__unit__utils_scheduler,58,18,18,209,0,36
+memgraph__unit__storage_v2,13,1981,1196,485,0,3177
+memgraph__unit__storage_v2_wal_file,3,2988,0,222,0,2988
+memgraph__unit__rpc_file_framing,2,1616,0,231,0,1616
+memgraph__unit__query_dump,17,2674,2773,653,180,5627

@@ -1,0 +1,9 @@
+arm,test,seconds
+noload,memgraph__unit__query_dump,21.21
+noload,memgraph__unit__storage_v2,12.50
+noload,memgraph__unit__storage_v2_wal_file,2.14
+noload,memgraph__unit__rpc_file_framing,1.41
+pinned_load,memgraph__unit__query_dump,71.46
+pinned_load,memgraph__unit__storage_v2,35.17
+pinned_load,memgraph__unit__storage_v2_wal_file,32.09
+pinned_load,memgraph__unit__rpc_file_framing,33.91
