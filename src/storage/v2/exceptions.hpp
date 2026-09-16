@@ -37,6 +37,13 @@ class TextSearchException : public InvalidOperationException {
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchException)
 };
 
+// A write gave a property a value of a type a type constraint forbids. Carries the constraint it
+// broke already rendered, because the names behind the ids are the storage's to resolve.
+class TypeConstraintViolationException : public InvalidOperationException {
+  using InvalidOperationException::InvalidOperationException;
+  SPECIALIZE_GET_EXCEPTION_NAME(TypeConstraintViolationException)
+};
+
 class WriteVertexOperationInEdgeImportModeException : public InvalidOperationException {
  public:
   WriteVertexOperationInEdgeImportModeException()
