@@ -11675,6 +11675,15 @@ void Interpreter::Commit() {
     // the whole time the user held the transaction open.
     if (auth_transaction_) {
       utils::OnScopeExit const clear_auth_tx([this]() { auth_transaction_.reset(); });
+
+      // Termination is cooperative: TERMINATE TRANSACTIONS only marks the status, and refusing to go ahead is the
+      // committer's job. The data path does this below; an auth transaction released its accessor and never gets
+      // there, so it has to refuse for itself, before the flush makes anything durable. The status is left as it
+      // is rather than claimed, because the cleanup below expects to find ACTIVE or TERMINATED.
+      if (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
+        throw memgraph::utils::BasicException(
+            "Aborting transaction commit because the transaction was requested to stop from other session. ");
+      }
       // A coordinator commits role changes through Raft and has no replication state for a system transaction to
       // reach into, so it must not take one. Mirrors the suppression in Prepare. Unreachable today, because BEGIN
       // needs a database and a coordinator has none; the test asserts that precondition.
