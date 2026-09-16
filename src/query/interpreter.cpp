@@ -11716,6 +11716,10 @@ void Interpreter::Commit() {
       // Only a transaction with something to replicate needs the system transaction, and taking one blocks every
       // other system query for as long as it is held. A read-only auth transaction would otherwise be refused
       // outright while another session held one, for a commit that publishes nothing.
+      //
+      // The list is also empty for every auth transaction in a community build, because the actions that would
+      // populate it are compiled out there along with the rest of the enterprise auth surface. That is correct
+      // rather than incidental: a community build has no auth delta to send.
       if (!system_transaction_ && !on_coordinator && !auth_transaction_->pending_actions().empty()) {
         system_transaction_ =
             interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
