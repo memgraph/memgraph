@@ -718,6 +718,7 @@ build_memgraph () {
   local abi3_rewrite=true
   local abi3_rewrite_flag=""
   local profile=false
+
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --profile)
