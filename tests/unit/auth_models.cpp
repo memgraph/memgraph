@@ -18,6 +18,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth/repository.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "nlohmann/json.hpp"
@@ -1283,7 +1284,8 @@ TEST(AuthModule, UserProfiles) {
   }
 
   memgraph::kvstore::KVStore kvstore{temp_dir};
-  memgraph::auth::UserProfiles user_profiles{kvstore};
+  memgraph::auth::Repository repository{kvstore};
+  memgraph::auth::UserProfiles user_profiles{repository};
 
   // Test profile creation
   ASSERT_TRUE(user_profiles.Create("profile", {}));
