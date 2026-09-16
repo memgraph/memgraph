@@ -53,6 +53,7 @@ env:
   OS: ${{ inputs.os }}
   PYTHON_BUILD_VERSION: ${{ inputs.python_build_version }}
   PYTHON_RUNTIME_VERSION: ${{ inputs.python_runtime_version }}
+  ABI3_REWRITE_FLAG: ${{ (inputs.python_build_version == '' && inputs.python_runtime_version == '') && '--no-abi3-rewrite' || '' }}
   TOOLCHAIN: v8
   DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: "benchmark_result.json"
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
@@ -125,6 +126,7 @@ jobs:
           --split-debug \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
+          $ABI3_REWRITE_FLAG \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -377,6 +379,7 @@ jobs:
           --split-debug \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
+          $ABI3_REWRITE_FLAG \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -743,6 +746,7 @@ jobs:
           --split-debug \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
+          $ABI3_REWRITE_FLAG \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -908,6 +912,7 @@ jobs:
           --split-debug \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
+          $ABI3_REWRITE_FLAG \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD

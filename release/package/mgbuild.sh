@@ -165,6 +165,7 @@ print_help () {
   echo -e "  --no-python                   Build memgraph without the embedded Python interpreter (maps to -DMG_PYTHON_SUPPORT=OFF; the package then has no libpython/python3/pip dependencies)."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
+  echo -e "  --no-abi3-rewrite             Skip the abi3 DT_NEEDED rewrite and the libpython3.so symlink (maps to -DMG_PYTHON_REWRITE_DT_NEEDED=OFF). Binaries keep the versioned libpython dependency; faster for CI builds that only test on the build container. Incompatible with --python-runtime-version."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
@@ -708,6 +709,8 @@ build_memgraph () {
   local python_build_version_flag=""
   local python_runtime_version=""
   local python_support_flag=""
+  local abi3_rewrite=true
+  local abi3_rewrite_flag=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -795,6 +798,11 @@ build_memgraph () {
         python_runtime_version="$2"
         shift 2
       ;;
+      --no-abi3-rewrite)
+        abi3_rewrite=false
+        abi3_rewrite_flag="-DMG_PYTHON_REWRITE_DT_NEEDED=OFF"
+        shift 1
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -802,6 +810,13 @@ build_memgraph () {
       ;;
     esac
   done
+
+  # The runtime swap only proves anything if the binary resolves libpython via
+  # the unversioned abi3 SONAME, which is exactly what the rewrite provides.
+  if [[ "$abi3_rewrite" == false && -n "$python_runtime_version" ]]; then
+    echo "Error: --no-abi3-rewrite cannot be combined with --python-runtime-version (the swap relies on the abi3 DT_NEEDED rewrite)" >&2
+    exit 1
+  fi
 
   echo "Initializing deps ..."
   # If master is not the current branch, fetch it, because the get_version
@@ -852,9 +867,11 @@ build_memgraph () {
   # and the rewritten binary must be loadable for the config/generate.py
   # POST_BUILD step. RPM distros ship libpython3.so natively; Debian/Ubuntu ship
   # only versioned libpython, so create the symlink here. Idempotent: a no-op
-  # where libpython3.so already exists. Run unconditionally because the dep step
-  # above is skipped when `check` passes against a pre-provisioned image.
-  docker exec -u root "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && ensure_libpython3_so_symlink"
+  # where libpython3.so already exists. Not gated on the dep step above (which is
+  # skipped when `check` passes); only --no-abi3-rewrite skips it.
+  if [[ "$abi3_rewrite" == true ]]; then
+    docker exec -u root "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && ensure_libpython3_so_symlink"
+  fi
 
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
@@ -990,7 +1007,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag" "$abi3_rewrite_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then
