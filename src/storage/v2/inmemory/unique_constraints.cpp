@@ -335,6 +335,8 @@ auto InMemoryUniqueConstraints::ActiveConstraints::ListConstraints(uint64_t star
 }
 
 void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
+  auto const &writes = tx.constraint_verification_info;
+
   for (const auto &label : vertex->labels) {
     const auto &constraint = container_->find(label);
     if (constraint == container_->end()) {
@@ -342,6 +344,16 @@ void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vert
     }
 
     for (const auto &[props, individual_constraint] : constraint->second) {
+      // A vertex arrives here because one write on it named one constraint, which says nothing
+      // about the others its labels carry. Garbage collection visits a constraint only when a
+      // write named it, so an entry added to one no write named would never be collected, and
+      // repeating the write would accumulate them without bound. Skipping it loses nothing: the
+      // constraint holds the values it held before this transaction, and the entry carrying them
+      // survives for as long as the vertex does.
+      if (writes && !writes->CouldHaveChangedUniqueKey(vertex, label, props)) {
+        continue;
+      }
+
       // creation can only happen with read only access and here a write happened
       // therefore the constraint is already registered/validated and we don't need to check status
       auto values = vertex->properties.ExtractPropertyValues(props);
@@ -688,6 +700,13 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
     }
   }
   return {};
+}
+
+auto InMemoryUniqueConstraints::EntryCount(LabelId label, std::set<PropertyId> const &properties) const
+    -> std::optional<uint64_t> {
+  auto const constraint = GetIndividualConstraint(label, properties);
+  if (!constraint) return std::nullopt;
+  return constraint->skiplist.size();
 }
 
 uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
