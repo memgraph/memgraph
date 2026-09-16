@@ -11554,11 +11554,20 @@ void Interpreter::Commit() {
 
       // Termination is cooperative: TERMINATE TRANSACTIONS only marks the status, and refusing to go ahead is the
       // committer's job. The data path does this below; an auth transaction released its accessor and never gets
-      // there, so it has to refuse for itself, before the flush makes anything durable. The status is left as it
-      // is rather than claimed, because the cleanup below expects to find ACTIVE or TERMINATED.
-      if (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
-        throw memgraph::utils::BasicException(
-            "Aborting transaction commit because the transaction was requested to stop from other session. ");
+      // there, so it has to refuse for itself, before the flush makes anything durable.
+      //
+      // VERIFYING means a terminator is mid-decision, so wait for the answer rather than reading past it: it
+      // resolves to TERMINATED or back to ACTIVE within one call. Unlike the data path this does not claim the
+      // status, so a terminate arriving after this point still succeeds and is not honoured until the next
+      // statement -- claiming it would oblige every exit below, and both cleanup loops, to release it.
+      while (true) {
+        auto const status = transaction_status_.load(std::memory_order_acquire);
+        if (status == TransactionStatus::TERMINATED) {
+          throw memgraph::utils::BasicException(
+              "Aborting transaction commit because the transaction was requested to stop from other session. ");
+        }
+        if (status != TransactionStatus::VERIFYING) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       // A coordinator commits role changes through Raft and has no replication state for a system transaction to
       // reach into, so it must not take one. Mirrors the suppression in Prepare. Unreachable today, because BEGIN
