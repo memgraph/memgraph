@@ -9,6 +9,7 @@
       font:12px ui-monospace,monospace;white-space:pre;box-shadow:0 2px 8px rgba(0,0,0,.25);display:none;z-index:9}
  .legend span{display:inline-block;margin-right:14px} .sw{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px}
  .controls{margin:4px 0 6px;color:#444} .controls label{margin-right:16px}
+ .tbl{border-collapse:collapse;font-size:12px} .tbl th,.tbl td{padding:3px 10px;border-bottom:1px solid #e4e4e4;text-align:left} .tbl td.n,.tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
 </style></head><body>
 <h1>__TITLE__</h1>
 <div class="sub">__SUBTITLE__</div>
@@ -28,6 +29,10 @@
 <span class="legend" id="flameLegend"></span></div>
 <canvas id="flame"></canvas>
 
+<h2>Custom commands</h2>
+<div class="hint">Everything that is neither a compile, a module scan nor a link, grouped by the program it really runs (cmake's -E and -P front ends are looked through).</div>
+<table id="customTable" class="tbl"></table>
+
 <h2>Memory vs wall time, per step</h2>
 <div class="controls"><label>memory <select id="scMetric"><option value="a">anon peak (the step's own memory)</option><option value="p">RSS peak (includes shared file-backed pages)</option></select></label>
 <span class="hint">Log time axis. Dashed lines are the configured per-job budgets; anon is what each extra concurrent job costs the machine.</span></div>
@@ -37,7 +42,15 @@
 <script>const D = __DATA__;</script>
 <script>
 const KC = {compile:'#4c78a8', link:'#f58518', scan:'#bab0ac', custom:'#54a24b'};
+// Custom steps get a colour per program, most frequent first; the rest share KC.custom.
+const CUSTOM_PALETTE = ['#2ca02c', '#9467bd', '#17becf', '#e377c2', '#bcbd22', '#8c564b', '#7f7f7f'];
+const customCounts = {};
+for (const s of D.steps) if (s.k === 'custom') customCounts[s.x] = (customCounts[s.x] || 0) + 1;
+const customOrder = Object.keys(customCounts).sort((a, b) => customCounts[b] - customCounts[a]);
+const customColor = {};
+customOrder.slice(0, CUSTOM_PALETTE.length).forEach((x, i) => customColor[x] = CUSTOM_PALETTE[i]);
 const kc = k => KC[k] || '#b279a2';
+const stepColor = s => s.k === 'custom' ? (customColor[s.x] || KC.custom) : kc(s.k);
 const L = 70, R = 18;
 let view = {a: 0, b: D.duration};
 let hoverT = null;
@@ -130,9 +143,12 @@ byLane.forEach(l => l.sort((a,b) => a.s-b.s));
 const maxP = Math.max(1, ...D.steps.map(s => s.p)), maxA = Math.max(1, ...D.steps.map(s => s.a));
 const heat = f => `hsl(${Math.round(220 - 220*Math.min(1,f))},75%,${Math.round(60 - 15*Math.min(1,f))}%)`;
 function flameColor(s) { const m = document.getElementById('mode').value;
-  return m === 'kind' ? kc(s.k) : m === 'mem' ? heat(s.p/maxP) : heat(s.a/maxA); }
+  return m === 'kind' ? stepColor(s) : m === 'mem' ? heat(s.p/maxP) : heat(s.a/maxA); }
 function drawFlameLegend() { const m = document.getElementById('mode').value; const el = document.getElementById('flameLegend');
-  if (m === 'kind') el.innerHTML = Object.entries(KC).map(([k,c]) => `<span><i class="sw" style="background:${c}"></i>${k}</span>`).join('');
+  if (m === 'kind') { const items = Object.entries(KC).filter(([k]) => k !== 'custom').map(([k,c]) => `<span><i class="sw" style="background:${c}"></i>${k}</span>`);
+    for (const x of customOrder.slice(0, CUSTOM_PALETTE.length)) items.push(`<span><i class="sw" style="background:${customColor[x]}"></i>${x}</span>`);
+    if (customOrder.length > CUSTOM_PALETTE.length) items.push(`<span><i class="sw" style="background:${KC.custom}"></i>other custom</span>`);
+    el.innerHTML = items.join(''); }
   else { const mx = m === 'mem' ? maxP : maxA; el.innerHTML = [0,.25,.5,.75,1].map(f => `<span><i class="sw" style="background:${heat(f)}"></i>${fmtM(mx*f)}</span>`).join(''); } }
 function drawFlame() {
   const {ctx, w, h} = flameC; ctx.clearRect(0,0,w,h);
@@ -153,7 +169,7 @@ function drawFlame() {
 }
 function flameTip(x, y) { const t = tOf(flameC.w, x); const lane = Math.floor((y-FTOP)/ROW); const l = byLane[lane]; if (!l) return null;
   const s = l.find(s => s.s <= t && t <= s.s+s.d); if (!s) return null;
-  return `${s.n}\nkind ${s.k}${s.g ? '   target ' + s.g : ''}${s.x ? '   via ' + s.x : ''}\nstart +${fmtT(s.s)}   wall ${fmtT(s.d)}   cpu ${fmtT(s.c)}\npeak ${fmtM(s.p)}   anon ${fmtM(s.a)}${s.e ? '\nEXIT ' + s.e : ''}`; }
+  return `${s.n}\nkind ${s.k}${s.g ? '   target ' + s.g : ''}${s.x ? '   via ' + s.x : ''}\nstart +${fmtT(s.s)}   wall ${fmtT(s.d)}   cpu ${fmtT(s.c)}\npeak ${fmtM(s.p)}   anon ${fmtM(s.a)}${s.m ? '\n' + s.m : ''}${s.e ? '\nEXIT ' + s.e : ''}`; }
 charts.push({c: flameC, draw: drawFlame, tip: flameTip});
 
 // --- scatter ----------------------------------------------------------------
@@ -175,7 +191,7 @@ function drawScatter() {
     ctx.strokeStyle = color; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(L, Y(b)); ctx.lineTo(w-R, Y(b)); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(name+' '+fmtM(b), L+6, Y(b)-2); }
   scPts = [];
-  for (const s of D.steps) { const x = X(s.d), y = Y(mv(s)); scPts.push([x, y, s]); ctx.fillStyle = kc(s.k); ctx.globalAlpha = .7; ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill(); }
+  for (const s of D.steps) { const x = X(s.d), y = Y(mv(s)); scPts.push([x, y, s]); ctx.fillStyle = stepColor(s); ctx.globalAlpha = .7; ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill(); }
   ctx.globalAlpha = 1;
 }
 function scatterTip(x, y) { let best = null, bd = 64; for (const [px, py, s] of scPts) { const d = (px-x)**2 + (py-y)**2; if (d < bd) { bd = d; best = s; } }
@@ -205,5 +221,15 @@ document.getElementById('showAvail').addEventListener('change', redraw);
 document.getElementById('scMetric').addEventListener('change', drawScatter);
 document.getElementById('mode').addEventListener('change', () => { drawFlameLegend(); drawFlame(); });
 window.addEventListener('resize', () => { [memC, concC, flameC, scC].forEach(o => Object.assign(o, setup(o.c.id))); redraw(); drawScatter(); });
-drawFlameLegend(); redraw(); drawScatter();
+function customTable() {
+  const rows = {};
+  for (const s of D.steps) { if (s.k !== 'custom') continue; const r = rows[s.x] = rows[s.x] || {n: 0, wall: 0, cpu: 0, peak: 0, anon: 0, ex: s.n};
+    r.n++; r.wall += s.d; r.cpu += s.c; if (s.p > r.peak) { r.peak = s.p; r.anon = s.a; r.ex = s.n; } }
+  const order = Object.keys(rows).sort((a, b) => rows[b].wall - rows[a].wall);
+  const html = ['<tr><th></th><th>program</th><th class="n">steps</th><th class="n">wall Σ</th><th class="n">cpu Σ</th><th class="n">peak MiB</th><th class="n">anon MiB</th><th>heaviest step</th></tr>'];
+  for (const x of order) { const r = rows[x];
+    html.push(`<tr><td><i class="sw" style="background:${customColor[x] || KC.custom}"></i></td><td>${x}</td><td class="n">${r.n}</td><td class="n">${fmtT(r.wall)}</td><td class="n">${fmtT(r.cpu)}</td><td class="n">${Math.round(r.peak).toLocaleString()}</td><td class="n">${Math.round(r.anon).toLocaleString()}</td><td>${r.ex}</td></tr>`); }
+  document.getElementById('customTable').innerHTML = html.join('');
+}
+drawFlameLegend(); redraw(); drawScatter(); customTable();
 </script></body></html>

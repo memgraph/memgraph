@@ -82,6 +82,11 @@ Results land in `build_profile_results/<timestamp>/`:
 * `plots.py` fills `plots_template.html` with the same data; the page draws
   itself client-side with no libraries, so the file can be attached to a PR or
   CI artifact as is. Chart changes go in the template, data changes in the script.
+* Custom steps are grouped by what they really run: cmake's `-E <sub>` and
+  `-P <script>` front ends are looked through, and a script handed a tool via
+  `-D<NAME>=<path>` is labelled by that tool, so the abi3 rewrite shows up as
+  `patchelf via RewriteDtNeededAbi3.cmake` rather than as `cmake`. The plots
+  colour each such program separately and list them in a table.
 * `report.py` merges and ranks. "peak" for a step is the larger of rusage
   `ru_maxrss` and the sampled tree peak; "anon" is the tree's resident minus
   file-backed pages, the part that is really the step's own and the number to

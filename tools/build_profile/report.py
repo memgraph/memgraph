@@ -42,6 +42,35 @@ def load_jsonl(path):
     return records
 
 
+# Tools a `cmake -P` script is handed through -D<NAME>=<path>; naming them says
+# what the step really does (RewriteDtNeededAbi3.cmake is a patchelf run).
+SCRIPT_TOOLS = ("patchelf", "objcopy", "llvm-objcopy", "strip", "llvm-strip", "ld", "lld")
+
+
+def custom_exe(exe, cmd):
+    """What a custom step really runs, seen past cmake's -E and -P front ends."""
+    toks = cmd.split()
+    if exe != "cmake" or len(toks) < 3:
+        return exe
+    if "-E" in toks:
+        i = toks.index("-E")
+        sub = toks[i + 1] if i + 1 < len(toks) else "?"
+        if sub == "env":
+            prog = next((t for t in toks[i + 2 :] if "=" not in t and not t.startswith("-")), None)
+            return os.path.basename(prog) if prog else "cmake -E env"
+        return f"cmake -E {sub}"
+    if "-P" in toks:
+        i = toks.index("-P")
+        script = os.path.basename(toks[i + 1]) if i + 1 < len(toks) else "?"
+        for t in toks:
+            if t.startswith("-D") and "=" in t:
+                tool = os.path.basename(t.split("=", 1)[1])
+                if tool in SCRIPT_TOOLS:
+                    return f"{tool} via {script}"
+        return f"cmake -P {script}"
+    return exe
+
+
 def load_steps(path):
     meta = {}
     steps = []
@@ -49,6 +78,8 @@ def load_steps(path):
         if rec.get("type") == "meta":
             meta = rec
         else:
+            if rec.get("kind") == "custom":
+                rec["exe"] = custom_exe(rec.get("exe", ""), rec.get("cmd", ""))
             steps.append(rec)
     return meta, steps
 

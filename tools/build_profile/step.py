@@ -192,7 +192,8 @@ def main():
         "cwd": os.getcwd(),
     }
     if kind == "custom":
-        rec["cmd"] = " ".join(cmd)[:300]
+        # Enough to see past a `cmake -E env K=V ...` prefix to the real program.
+        rec["cmd"] = " ".join(cmd)[:800]
 
     try:
         line = (json.dumps(rec, separators=(",", ":")) + "\n").encode()

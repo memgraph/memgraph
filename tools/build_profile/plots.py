@@ -55,6 +55,7 @@ def build_data(meta, steps, samples, cfg):
             "c": round(cpu_s(s), 2),
             "e": s.get("exit", 0),
             "l": s["_lane"],
+            "m": s.get("cmd", "")[:160] if s["kind"] == "custom" else "",
         }
         for s in steps
     ]
