@@ -11590,7 +11590,10 @@ void Interpreter::Commit() {
 
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) {
-      current_transaction_.reset();
+      // Nothing below runs, so this is the exit that has to retire the transaction. A bare
+      // `current_transaction_.reset()` would leave the status ACTIVE while the id is gone, which is the state
+      // the invariant on `current_transaction_` rules out.
+      FinishAutocommitNothing();
       return;
     }
 
