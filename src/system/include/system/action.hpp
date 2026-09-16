@@ -26,8 +26,9 @@ struct ISystemAction {
   /// Durability step which is defered until commit time
   virtual void DoDurability() = 0;
 
-  /// True if this action is allowed to replicate in community (no enterprise license). Parameter actions return true;
-  /// auth and dbms actions return false.
+  /// True if this action may replicate without an enterprise licence. Parameter actions may; auth and dbms
+  /// actions may not. Only consulted in an enterprise build running unlicensed: a community build compiles none
+  /// of the actions that answer false, so it replicates whatever it has.
   virtual bool ShouldReplicateInCommunity() const = 0;
 
   /// Prepare the RPC payload that will be sent to all replicas clients
