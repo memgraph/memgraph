@@ -727,7 +727,7 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
       // before starting constraint, check if stop_requested
       if (token.stop_requested()) return swept;
       // A sweep walks the whole constraint whether or not it has anything to collect.
-      if (!arming.arms_vertex_index_on(label, properties)) continue;
+      if (!arming.arms_unique_constraint_on(label, properties)) continue;
       ++swept;
 
       auto acc = individual_constraint->skiplist.access();

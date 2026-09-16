@@ -146,9 +146,12 @@ class IndexArming {
   /// thing that can go stale is the edge being removed.
   bool arms_edge_type_index() const { return edge_.armed_all || edge_.structural; }
 
-  /// A unique constraint is keyed the way a label-property index is and goes stale under the same
-  /// conditions, so the same question answers for it. Its key is a plain set of properties.
-  bool arms_vertex_index_on(LabelId label, std::set<PropertyId> const &properties) const {
+  /// A unique constraint gains an entry for a vertex only when a commit writes the label or one of
+  /// the properties it is keyed on, and an entry it already holds goes stale under those same
+  /// writes. The rule this arrives at matches the label-property index's. It is asked separately
+  /// because the two are owed for different reasons: an index entry follows the key, while a
+  /// constraint entry is put there by the committer. Either reason can change without the other.
+  bool arms_unique_constraint_on(LabelId label, std::set<PropertyId> const &properties) const {
     return arms_vertex_index_on(label) || std::ranges::any_of(properties, [this](PropertyId const property) {
              return vertex_.properties.test(property);
            });
