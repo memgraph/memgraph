@@ -38,10 +38,17 @@ function setup_virtualenv () {
         rm -rf ve3
     fi
 
-    python3 -m venv ve3 || exit 1
-    source ve3/bin/activate
-    pip install -r requirements.txt || exit 1
-    deactivate
+    if [[ "$use_uv" == "true" ]]; then
+        # Resolve requirements.txt into a fully pinned lockfile, then install exactly that.
+        uv venv --seed --python python3 ve3 || exit 1
+        uv pip compile --python ve3/bin/python requirements.txt -o requirements.lock || exit 1
+        uv pip sync --python ve3/bin/python requirements.lock || exit 1
+    else
+        python3 -m venv ve3 || exit 1
+        source ve3/bin/activate
+        pip install -r requirements.txt || exit 1
+        deactivate
+    fi
 
     popd > /dev/null
 }
@@ -77,13 +84,15 @@ function setup_neo4j () {
 }
 
 function print_help () {
-  echo "Usage: $0 [--skip-prep-testing] [--ci]"
+  echo "Usage: $0 [--skip-prep-testing] [--ci] [--uv]"
   echo "  --skip-prep-testing: Skip the preparation of the testing environment"
   echo "  --ci: Run the tests in CI mode"
+  echo "  --uv: Use uv instead of pip to set up the test virtualenv (writes tests/requirements.lock)"
 }
 
 ci=false
 prep_testing=true
+use_uv=false
 while(($#)); do
     case "$1" in
       --skip-prep-testing)
@@ -93,6 +102,10 @@ while(($#)); do
       --ci)
           shift
           ci=true
+      ;;
+      --uv)
+          shift
+          use_uv=true
       ;;
       *)
           # unknown option
@@ -104,6 +117,15 @@ while(($#)); do
 done
 
 DISTRO=$(operating_system)
+
+if [[ "$use_uv" == "true" ]]; then
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "--uv requested but uv is not on PATH" && exit 1
+  fi
+  # Never reuse cached packages (stale-cache issues in CI containers) and never download a managed Python.
+  export UV_NO_CACHE=1
+  export UV_PYTHON_DOWNLOADS=never
+fi
 
 # Fix for centos 7 during release
 if [[ "$ci" == "false" ]]; then
