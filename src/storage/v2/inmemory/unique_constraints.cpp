@@ -721,38 +721,46 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
 
   auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
 
-  uint64_t swept = 0;
+  // One constraint per label and key, flattened so the sweep sees the same shape of family as the
+  // index sweeps do.
+  auto constraints = std::vector<std::tuple<LabelId, std::set<PropertyId> const *, IndividualConstraint *>>{};
   for (const auto &[label, map] : *container) {
     for (const auto &[properties, individual_constraint] : map) {
-      // before starting constraint, check if stop_requested
-      if (token.stop_requested()) return swept;
-      // A sweep walks the whole constraint whether or not it has anything to collect.
-      if (!arming.arms_unique_constraint_on(label, properties)) continue;
-      ++swept;
-
-      auto acc = individual_constraint->skiplist.access();
-      for (auto it = acc.begin(); it != acc.end();) {
-        // Hot loop, don't check stop_requested every time
-        if (maybe_stop() && token.stop_requested()) return swept;
-
-        auto next_it = it;
-        ++next_it;
-
-        // Cannot delete it yet
-        if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
-          it = next_it;
-          continue;
-        }
-
-        if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values) ||
-            !AnyVersionHasLabelProperty(*it->vertex, label, properties, it->values, oldest_active_start_timestamp)) {
-          acc.remove(*it);
-        }
-        it = next_it;
-      }
+      constraints.emplace_back(label, &properties, individual_constraint.get());
     }
   }
-  return swept;
+
+  return SweepArmedIndexes(
+      arming,
+      token,
+      constraints,
+      [](auto const &entry) {
+        return UniqueConstraintKey{.label = std::get<0>(entry), .properties = *std::get<1>(entry)};
+      },
+      [&](auto const &entry) {
+        auto const &[label, properties, individual_constraint] = entry;
+        auto acc = individual_constraint->skiplist.access();
+        for (auto it = acc.begin(); it != acc.end();) {
+          // Hot loop, don't check stop_requested every time
+          if (maybe_stop() && token.stop_requested()) return SweepOutcome::STOPPED;
+
+          auto next_it = it;
+          ++next_it;
+
+          // Cannot delete it yet
+          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
+            it = next_it;
+            continue;
+          }
+
+          if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values) ||
+              !AnyVersionHasLabelProperty(*it->vertex, label, *properties, it->values, oldest_active_start_timestamp)) {
+            acc.remove(*it);
+          }
+          it = next_it;
+        }
+        return SweepOutcome::COMPLETED;
+      });
 }
 
 void InMemoryUniqueConstraints::Clear() {

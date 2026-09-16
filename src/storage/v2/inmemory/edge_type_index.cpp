@@ -250,48 +250,48 @@ uint64_t InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t
 
   auto cpy = all_indices_.ReadCopy();
   if (cpy->empty()) return 0;
-  // No edge was created or removed, so nothing here can have gone stale, and finding that out by
-  // sweeping would cost every index its whole size to walk.
-  if (!arming.arms_edge_type_index()) return 0;
+  // Every index here holds the same key, so one answer settles the family. Asked up front only to
+  // keep an unarmed pass from pinning the edge store; the sweep below asks again per index.
+  if (!arming.arms(EdgeTypeKey{})) return 0;
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
 
   auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
+  return SweepArmedIndexes(
+      arming,
+      token,
+      *cpy,
+      [](auto const & /*index*/) { return EdgeTypeKey{}; },
+      [&](auto const &et_index) {
+        auto edges_acc = et_index->skip_list_.access();
+        for (auto it = edges_acc.begin(); it != edges_acc.end();) {
+          if (maybe_stop() && token.stop_requested()) return SweepOutcome::STOPPED;
 
-  uint64_t swept = 0;
-  for (auto &et_index : *cpy) {
-    if (token.stop_requested()) return swept;
-    ++swept;
+          auto next_it = it;
+          ++next_it;
 
-    auto edges_acc = et_index->skip_list_.access();
-    for (auto it = edges_acc.begin(); it != edges_acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return swept;
+          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
+            it = next_it;
+            continue;
+          }
 
-      auto next_it = it;
-      ++next_it;
+          const bool has_next = next_it != edges_acc.end();
 
-      if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
-        it = next_it;
-        continue;
-      }
+          // When we update specific entries in the index, we don't delete the previous entry.
+          // The way they are removed from the index is through this check. The entries should
+          // be right next to each other(in terms of iterator semantics) and the older one
+          // should be removed here.
+          const bool redundant_duplicate = has_next && it->from_vertex == next_it->from_vertex &&
+                                           it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
+          if (redundant_duplicate || !AnyVersionIsVisible(it->edge, oldest_active_start_timestamp)) {
+            edges_acc.remove(*it);
+          }
 
-      const bool has_next = next_it != edges_acc.end();
-
-      // When we update specific entries in the index, we don't delete the previous entry.
-      // The way they are removed from the index is through this check. The entries should
-      // be right next to each other(in terms of iterator semantics) and the older one
-      // should be removed here.
-      const bool redundant_duplicate = has_next && it->from_vertex == next_it->from_vertex &&
-                                       it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
-      if (redundant_duplicate || !AnyVersionIsVisible(it->edge, oldest_active_start_timestamp)) {
-        edges_acc.remove(*it);
-      }
-
-      it = next_it;
-    }
-  }
-  return swept;
+          it = next_it;
+        }
+        return SweepOutcome::COMPLETED;
+      });
 }
 
 uint64_t InMemoryEdgeTypeIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId edge_type) const {

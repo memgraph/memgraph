@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <set>
+#include <stop_token>
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
@@ -21,6 +22,38 @@
 #include "utils/id_bitmap.hpp"
 
 namespace memgraph::storage {
+
+/// What one index or constraint is arranged by, which is what decides whether a write could have
+/// left it something to collect. A type per way of being arranged, so that a structure asking
+/// about its own key cannot be answered by the rule belonging to another way of being keyed.
+///
+/// Each borrows what it names and lives only as long as the question being asked.
+struct LabelKey {
+  LabelId label;
+};
+
+struct LabelPropertiesKey {
+  LabelId label;
+  PropertiesPaths const &properties;
+};
+
+struct UniqueConstraintKey {
+  LabelId label;
+  std::set<PropertyId> const &properties;
+};
+
+struct VertexPropertyKey {
+  PropertyId property;
+};
+
+struct EdgePropertyKey {
+  PropertyId property;
+};
+
+struct EdgeTypeKey {};
+
+/// Whether a sweep ran out of the index or was asked to stop part-way.
+enum class SweepOutcome : bool { COMPLETED, STOPPED };
 
 /// Which indexes a set of writes could have left stale or duplicated entries in. An index is
 /// "armed" when some write may have left it something to clean up, and garbage collection sweeps
@@ -157,6 +190,21 @@ class IndexArming {
            });
   }
 
+  /// How a sweep asks. The key names what the structure is arranged by, and the type of the key
+  /// picks the rule, so the question a structure asks about itself is the one its shape settles
+  /// rather than one its author chose.
+  bool arms(LabelKey key) const { return arms_vertex_index_on(key.label); }
+
+  bool arms(LabelPropertiesKey const &key) const { return arms_vertex_index_on(key.label, key.properties); }
+
+  bool arms(UniqueConstraintKey const &key) const { return arms_unique_constraint_on(key.label, key.properties); }
+
+  bool arms(VertexPropertyKey key) const { return arms_vertex_property_index_on(key.property); }
+
+  bool arms(EdgePropertyKey key) const { return arms_edge_index_on(key.property); }
+
+  bool arms(EdgeTypeKey /*key*/) const { return arms_edge_type_index(); }
+
   IndexArming &operator|=(IndexArming const &other) {
     vertex_ |= other.vertex_;
     edge_ |= other.edge_;
@@ -221,5 +269,27 @@ class IndexArming {
   VertexIndexes vertex_{};
   EdgeIndexes edge_{};
 };
+
+/// Visits the indexes of one family that `arming` says may hold something to collect, and answers
+/// how many that was. A sweep walks the whole of an index whether or not it holds anything to
+/// collect, which is what makes asking first worth it.
+///
+/// What every sweep owes whichever family it belongs to lives here rather than once per family:
+/// stopping when asked to, skipping what the writes cannot have dirtied, and counting what is left.
+/// `key_of` answers what one index is arranged by, and `sweep_one` walks it and says whether it
+/// stopped part-way.
+template <typename TIndexes, typename TKeyOf, typename TSweepOne>
+uint64_t SweepArmedIndexes(IndexArming const &arming, std::stop_token const &token, TIndexes &&indexes, TKeyOf key_of,
+                           TSweepOne sweep_one) {
+  uint64_t swept = 0;
+  for (auto &&index : indexes) {
+    // Before starting an index rather than during it, so a stop costs at most one index.
+    if (token.stop_requested()) break;
+    if (!arming.arms(key_of(index))) continue;
+    ++swept;
+    if (sweep_one(index) == SweepOutcome::STOPPED) break;
+  }
+  return swept;
+}
 
 }  // namespace memgraph::storage
