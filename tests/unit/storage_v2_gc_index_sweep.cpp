@@ -263,6 +263,39 @@ TEST_F(StorageV2GcIndexSweepCountTest, AConstraintTheWriteDidNotNameGainsNoEntry
   EXPECT_EQ(ConstraintEntryCount("L", "b"), 1);
 }
 
+// A property no constraint is keyed on, written over and over on a vertex one constraint covers.
+// Such a write names nothing the constraint holds, so the constraint is left both unwritten and
+// unswept, and what it holds does not depend on how many times the write is repeated.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromAPropertyNoConstraintIsKeyedOn) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "id"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("id"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("v"), ms::PropertyValue{0}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("Item", "id"), 1);
+
+  for (auto value = 1; value != 11; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("v"), ms::PropertyValue{value}));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("Item", "id"), 1);
+}
+
 // The same rule across the labels of one vertex: a write reaching a constraint on one of them says
 // nothing about a constraint on another, which is left unswept and so must be left unwritten.
 TEST_F(StorageV2GcIndexSweepCountTest, AConstraintOnAnotherOfTheVertexsLabelsGainsNoEntry) {
