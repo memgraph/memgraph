@@ -863,7 +863,7 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernamesForRole(
 }
 
 void AuthQueryHandler::SetRoles(const std::string &username, const std::vector<std::string> &roles,
-                                const std::unordered_set<std::string> &role_databases,
+                                [[maybe_unused]] const std::unordered_set<std::string> &role_databases,
                                 memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) {
   try {
     auto locked_auth = Lock(auth_tx);
