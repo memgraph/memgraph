@@ -1634,13 +1634,6 @@ double ToDouble(const TypedValue &value) {
   }
 }
 
-TypedValue operator<(const TypedValue &a, const TypedValue &b) {
-  // Inlined here on purpose. The relation is reached through this operator by
-  // every caller, and the project builds without sibling-call optimisation, so
-  // forwarding to it would cost a call frame on every comparison.
-  [[clang::always_inline]] return relations::comparability::Less(a, b);
-}
-
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   // Inlined here on purpose. The relation is reached through this operator by
   // every caller, and the project builds without sibling-call optimisation, so

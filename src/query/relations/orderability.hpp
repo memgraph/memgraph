@@ -18,13 +18,12 @@
 /// type are placed rather than reported as unknown.
 #pragma once
 
-#include <algorithm>
 #include <compare>
 
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
+#include "query/relations/payload_order.hpp"
 #include "query/typed_value.hpp"
-#include "utils/logging.hpp"
 
 namespace memgraph::query::relations::orderability {
 
@@ -44,87 +43,61 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
   // First assume typical same type comparisons
   if (a.type() == b.type()) {
     switch (a.type()) {
-      case TypedValue::Type::Bool:
-        return a.UnsafeValueBool() <=> b.UnsafeValueBool();
-      case TypedValue::Type::Int:
-        return a.UnsafeValueInt() <=> b.UnsafeValueInt();
-      case TypedValue::Type::Double:
-        return a.UnsafeValueDouble() <=> b.UnsafeValueDouble();
-      case TypedValue::Type::String:
-        return a.UnsafeValueString() <=> b.UnsafeValueString();
-      case TypedValue::Type::Date:
-        return a.UnsafeValueDate() <=> b.UnsafeValueDate();
-      case TypedValue::Type::LocalTime:
-        return a.UnsafeValueLocalTime() <=> b.UnsafeValueLocalTime();
-      case TypedValue::Type::LocalDateTime:
-        return a.UnsafeValueLocalDateTime() <=> b.UnsafeValueLocalDateTime();
-      case TypedValue::Type::ZonedDateTime:
-        return a.UnsafeValueZonedDateTime() <=> b.UnsafeValueZonedDateTime();
-      case TypedValue::Type::Duration:
-        return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
-      case TypedValue::Type::Null:
+      using enum TypedValue::Type;
+      case Bool:
+        return ComparePayloadOf<Bool>(a, b);
+      case Int:
+        return ComparePayloadOf<Int>(a, b);
+      case Double:
+        return ComparePayloadOf<Double>(a, b);
+      case String:
+        return ComparePayloadOf<String>(a, b);
+      case Date:
+        return ComparePayloadOf<Date>(a, b);
+      case LocalTime:
+        return ComparePayloadOf<LocalTime>(a, b);
+      case LocalDateTime:
+        return ComparePayloadOf<LocalDateTime>(a, b);
+      case ZonedDateTime:
+        return ComparePayloadOf<ZonedDateTime>(a, b);
+      case Duration:
+        return ComparePayloadOf<Duration>(a, b);
+      case Enum:
+        return ComparePayloadOf<Enum>(a, b);
+      case Point2d:
+        return ComparePayloadOf<Point2d>(a, b);
+      case Point3d:
+        return ComparePayloadOf<Point3d>(a, b);
+
+      // The two this relation places that carry no order of their own: a null
+      // is the same position as any other null, and a list is ordered by what
+      // it holds rather than by a payload.
+      case Null:
         return std::partial_ordering::equivalent;
-      case TypedValue::Type::Enum:
-        return a.UnsafeValueEnum() <=> b.UnsafeValueEnum();
-      case TypedValue::Type::Point2d:
-        return a.UnsafeValuePoint2d() <=> b.UnsafeValuePoint2d();
-      case TypedValue::Type::Point3d:
-        return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
-      case TypedValue::Type::List:
+      case List:
         return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
-      case TypedValue::Type::Map:
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::VirtualEdge:
-      case TypedValue::Type::VirtualNode:
-      case TypedValue::Type::Path:
-      case TypedValue::Type::Graph:
-      case TypedValue::Type::VirtualGraph:
-      case TypedValue::Type::Function:
+
+      case Map:
+      case Vertex:
+      case Edge:
+      case VirtualEdge:
+      case VirtualNode:
+      case Path:
+      case Graph:
+      case VirtualGraph:
+      case Function:
         throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
     }
   } else {
-    // from this point legal only between values of
-    // int+float combinations or against null
-
-    // in ordering null comes after everything else
-    // at the same time Null is not less that null
-    // first deal with Null < Whatever case
+    // A null sorts after everything, and two nulls are the same position, which
+    // the same-type branch above has already answered.
     if (a.IsNull()) return std::partial_ordering::greater;
-    // now deal with NotNull < Null case
     if (b.IsNull()) return std::partial_ordering::less;
 
-    if (!(a.IsNumeric() && b.IsNumeric())) [[unlikely]]
+    // One Int against one Double is the only unlike pair left that is ordered.
+    if (!AreMixedNumbers(a.type(), b.type())) [[unlikely]]
       throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
-
-    switch (a.type()) {
-      case TypedValue::Type::Int:
-        return a.UnsafeValueInt() <=> b.ValueDouble();
-      case TypedValue::Type::Double:
-        return a.UnsafeValueDouble() <=> b.ValueInt();
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::Null:
-      case TypedValue::Type::String:
-      case TypedValue::Type::List:
-      case TypedValue::Type::Map:
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::VirtualEdge:
-      case TypedValue::Type::VirtualNode:
-      case TypedValue::Type::Path:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
-      case TypedValue::Type::Duration:
-      case TypedValue::Type::Enum:
-      case TypedValue::Type::Point2d:
-      case TypedValue::Type::Point3d:
-      case TypedValue::Type::Graph:
-      case TypedValue::Type::VirtualGraph:
-      case TypedValue::Type::Function:
-        LOG_FATAL("Invalid type");
-    }
+    return ComparePayloadOfMixedNumbers(a, b);
   }
 }
 

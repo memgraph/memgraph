@@ -335,6 +335,8 @@ auto InMemoryUniqueConstraints::ActiveConstraints::ListConstraints(uint64_t star
 }
 
 void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
+  auto const &writes = tx.constraint_verification_info;
+
   for (const auto &label : vertex->labels) {
     const auto &constraint = container_->find(label);
     if (constraint == container_->end()) {
@@ -342,6 +344,16 @@ void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vert
     }
 
     for (const auto &[props, individual_constraint] : constraint->second) {
+      // A vertex arrives here because one write on it named one constraint, which says nothing
+      // about the others its labels carry. Garbage collection visits a constraint only when a
+      // write named it, so an entry added to one no write named would never be collected, and
+      // repeating the write would accumulate them without bound. Skipping it loses nothing: the
+      // constraint holds the values it held before this transaction, and the entry carrying them
+      // survives for as long as the vertex does.
+      if (writes && !writes->CouldHaveChangedUniqueKey(vertex, label, props)) {
+        continue;
+      }
+
       // creation can only happen with read only access and here a write happened
       // therefore the constraint is already registered/validated and we don't need to check status
       auto values = vertex->properties.ExtractPropertyValues(props);
@@ -690,6 +702,13 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
   return {};
 }
 
+auto InMemoryUniqueConstraints::EntryCount(LabelId label, std::set<PropertyId> const &properties) const
+    -> std::optional<uint64_t> {
+  auto const constraint = GetIndividualConstraint(label, properties);
+  if (!constraint) return std::nullopt;
+  return constraint->skiplist.size();
+}
+
 uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
                                                           uint64_t const oldest_active_start_timestamp,
                                                           const std::stop_token &token, IndexArming const &arming) {
@@ -702,38 +721,46 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
 
   auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
 
-  uint64_t swept = 0;
+  // One constraint per label and key, flattened so the sweep sees the same shape of family as the
+  // index sweeps do.
+  auto constraints = std::vector<std::tuple<LabelId, std::set<PropertyId> const *, IndividualConstraint *>>{};
   for (const auto &[label, map] : *container) {
     for (const auto &[properties, individual_constraint] : map) {
-      // before starting constraint, check if stop_requested
-      if (token.stop_requested()) return swept;
-      // A sweep walks the whole constraint whether or not it has anything to collect.
-      if (!arming.arms_vertex_index_on(label, properties)) continue;
-      ++swept;
-
-      auto acc = individual_constraint->skiplist.access();
-      for (auto it = acc.begin(); it != acc.end();) {
-        // Hot loop, don't check stop_requested every time
-        if (maybe_stop() && token.stop_requested()) return swept;
-
-        auto next_it = it;
-        ++next_it;
-
-        // Cannot delete it yet
-        if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
-          it = next_it;
-          continue;
-        }
-
-        if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values) ||
-            !AnyVersionHasLabelProperty(*it->vertex, label, properties, it->values, oldest_active_start_timestamp)) {
-          acc.remove(*it);
-        }
-        it = next_it;
-      }
+      constraints.emplace_back(label, &properties, individual_constraint.get());
     }
   }
-  return swept;
+
+  return SweepArmedIndexes(
+      arming,
+      token,
+      constraints,
+      [](auto const &entry) {
+        return UniqueConstraintKey{.label = std::get<0>(entry), .properties = *std::get<1>(entry)};
+      },
+      [&](auto const &entry) {
+        auto const &[label, properties, individual_constraint] = entry;
+        auto acc = individual_constraint->skiplist.access();
+        for (auto it = acc.begin(); it != acc.end();) {
+          // Hot loop, don't check stop_requested every time
+          if (maybe_stop() && token.stop_requested()) return SweepOutcome::STOPPED;
+
+          auto next_it = it;
+          ++next_it;
+
+          // Cannot delete it yet
+          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
+            it = next_it;
+            continue;
+          }
+
+          if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values) ||
+              !AnyVersionHasLabelProperty(*it->vertex, label, *properties, it->values, oldest_active_start_timestamp)) {
+            acc.remove(*it);
+          }
+          it = next_it;
+        }
+        return SweepOutcome::COMPLETED;
+      });
 }
 
 void InMemoryUniqueConstraints::Clear() {

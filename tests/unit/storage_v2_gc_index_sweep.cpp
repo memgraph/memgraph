@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage_v2_gc_metrics_fixture.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -120,6 +121,15 @@ class StorageV2GcIndexSweepCountTest : public StorageV2GcMetricsTest {
     return count;
   }
 
+  // A constraint holds one entry per vertex it covers. Anything beyond that is an obsolete entry,
+  // which only a sweep of that constraint removes.
+  uint64_t ConstraintEntryCount(std::string_view label, std::string_view property) {
+    auto *constraints = static_cast<ms::InMemoryUniqueConstraints *>(storage->constraints_.unique_constraints_.get());
+    auto const count = constraints->EntryCount(storage->NameToLabel(label), {storage->NameToProperty(property)});
+    EXPECT_TRUE(count.has_value());
+    return count.value_or(0);
+  }
+
   uint64_t IndexedCount(std::string_view label, std::string_view property) {
     auto acc = storage->Access(ms::READ);
     auto const count = acc->ApproximateVertexCount(storage->NameToLabel(label),
@@ -214,6 +224,267 @@ TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysConstraintIsSwept)
     ASSERT_NO_ERROR(other.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
     EXPECT_FALSE(TryCommit(acc));
   }
+}
+
+// A commit may only add an entry to a constraint a sweep will come back for. Since a sweep visits
+// a constraint only when a write named its label or one of its properties, an entry added to a
+// constraint the write named neither of is never collected, and repeating the write accumulates
+// them without bound.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintTheWriteDidNotNameGainsNoEntry) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("L", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("L", "b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("L", "b"), 1);
+
+  // Ten writes naming "a" only, each followed by the collection it arms. The value of "b" is the
+  // same throughout, so the constraint on it covers the one vertex it covered to begin with.
+  for (auto value = 2; value != 12; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{value}));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("L", "b"), 1);
+}
+
+// A property no constraint is keyed on, written over and over on a vertex one constraint covers.
+// Such a write names nothing the constraint holds, so the constraint is left both unwritten and
+// unswept, and what it holds does not depend on how many times the write is repeated.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromAPropertyNoConstraintIsKeyedOn) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "id"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("id"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("v"), ms::PropertyValue{0}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("Item", "id"), 1);
+
+  for (auto value = 1; value != 11; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("v"), ms::PropertyValue{value}));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("Item", "id"), 1);
+}
+
+// The property written is a key of a constraint on a label this vertex does not carry. That is
+// enough for the write to be reported, because what counts as reportable is gathered across every
+// constraint rather than per constraint, so the constraint the vertex does fall under must still
+// be left alone.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromAKeyOfAConstraintOnAnotherLabel) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Elsewhere", "b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("Item", "a"), 1);
+
+  for (auto value = 2; value != 12; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("b"), ms::PropertyValue{value}));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("Item", "a"), 1);
+}
+
+// A label arriving on a vertex arms the constraints keyed on that label, and says nothing about
+// the constraints keyed on the labels it already carried.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromASecondLabelArriving) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Added", "b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Added")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("Item", "a"), 1);
+
+  // Taking the second label off and putting it back names only that label.
+  for (auto round = 0; round != 10; ++round) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_TRUE(*vertex->RemoveLabel(acc->NameToLabel("Added")));
+      ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("Added")));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("Item", "a"), 1);
+}
+
+// Writing both keys at once through one map, where one of them keeps the value it already had.
+// Whether that one counts as written decides both whether an entry is added for it and whether its
+// constraint is swept, and those two must not part company.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromAMapThatRewritesItsKeyUnchanged) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  auto const before = ConstraintEntryCount("Item", "a");
+
+  for (auto value = 2; value != 12; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      auto update = std::map<ms::PropertyId, ms::PropertyValue>{
+          {acc->NameToProperty("a"), ms::PropertyValue{1}},
+          {acc->NameToProperty("b"), ms::PropertyValue{value}},
+      };
+      ASSERT_NO_ERROR(vertex->UpdateProperties(update));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("Item", "a"), before);
+}
+
+// One transaction committing repeatedly. What an earlier batch wrote is not what a later one
+// wrote, so a batch that names no key of a constraint may not add to it, however the batch before
+// it was reported.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintGainsNoEntryFromABatchThatDidNotNameIt) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("Item", "a"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("Item")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("v"), ms::PropertyValue{0}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    // The first batch writes the key, which is what puts the vertex on the list of those owing a
+    // constraint check.
+    {
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{2}));
+      ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    auto const after_the_key_write = ConstraintEntryCount("Item", "a");
+
+    // Every batch after it writes a property no constraint is keyed on.
+    for (auto value = 1; value != 11; ++value) {
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("v"), ms::PropertyValue{value}));
+      ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Asked while the transaction is still open, because a collection pass cannot run until it
+    // closes, and one that runs afterwards still holds the first batch's arming and would collect
+    // whatever the later batches added.
+    EXPECT_EQ(ConstraintEntryCount("Item", "a"), after_the_key_write)
+        << "a batch naming no key of this constraint added to it anyway";
+
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+}
+
+// The same rule across the labels of one vertex: a write reaching a constraint on one of them says
+// nothing about a constraint on another, which is left unswept and so must be left unwritten.
+TEST_F(StorageV2GcIndexSweepCountTest, AConstraintOnAnotherOfTheVertexsLabelsGainsNoEntry) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("L", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("M", "c"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("M")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("c"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(ConstraintEntryCount("M", "c"), 1);
+
+  for (auto value = 2; value != 12; ++value) {
+    {
+      auto acc = storage->Access(ms::WRITE);
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{value}));
+      ASSERT_NO_FATAL_FAILURE(Commit(acc));
+    }
+    SweptByOnePass();
+  }
+
+  EXPECT_EQ(ConstraintEntryCount("M", "c"), 1);
 }
 
 // An index keyed on a property alone is swept by a callee of its own, and is armed by that
@@ -621,4 +892,139 @@ TEST_F(StorageV2GcIndexSweepCountTest, AnAbortLeavesNoEntryInAnyEdgeIndexForAnEd
   EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E")), 0)
       << "edge-type index kept an entry for an edge that never existed";
   acc->Abort();
+}
+
+///// ONE RULE, TWO ROUTES TO IT
+
+// What a write armed is worked out two separate ways. A transactional write is read back off its
+// deltas when they are unlinked; an analytical write leaves no deltas, so it notes itself as it
+// happens. They are two implementations of one rule, and a route that stops noting what the other
+// notes leaves entries nothing comes back for.
+//
+// Indexes only. A unique constraint cannot be reached under the analytical route: a write there
+// makes no delta, a commit with no deltas returns before constraints are validated, and switching
+// a database to that mode is refused while a constraint exists. The constraint cases are
+// transactional for that reason, not by omission.
+class StorageV2GcArmingRouteTest : public StorageV2GcIndexSweepCountTest,
+                                   public testing::WithParamInterface<ms::StorageMode> {
+ protected:
+  void SetUp() override {
+    StorageV2GcIndexSweepCountTest::SetUp();
+    // Before any write, so the count belongs to writes made under one route.
+    static_cast<ms::InMemoryStorage *>(storage.get())->SetStorageMode(GetParam());
+  }
+};
+
+TEST_P(StorageV2GcArmingRouteTest, ALabelWriteArmsThatLabelsIndexAlone) {
+  ASSERT_NO_FATAL_FAILURE(CreateLabelIndex("A"));
+  ASSERT_NO_FATAL_FAILURE(CreateLabelIndex("B"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("B")));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+TEST_P(StorageV2GcArmingRouteTest, AVertexPropertyWriteArmsThatPropertysIndexAlone) {
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("a"));
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{2}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+TEST_P(StorageV2GcArmingRouteTest, AnEdgePropertyWriteArmsThatPropertysIndexAlone) {
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "a"));
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "b"));
+
+  ms::Gid edge_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto edge = acc->FindEdge(edge_gid, ms::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{2}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(BothArmingRoutes, StorageV2GcArmingRouteTest,
+                         testing::Values(ms::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                                         ms::StorageMode::IN_MEMORY_ANALYTICAL),
+                         [](testing::TestParamInfo<ms::StorageMode> const &mode) {
+                           return mode.param == ms::StorageMode::IN_MEMORY_TRANSACTIONAL ? "Transactional"
+                                                                                         : "Analytical";
+                         });
+
+// The one write the two routes answer differently, asserted so that it stays a deliberate
+// difference rather than becoming one. Creating an edge stales nothing: the entry it adds can only
+// go stale once the edge is removed, and a removal arms every edge index by itself. Arming nothing
+// is therefore the tighter of the two answers, and the transactional route does not reach it
+// because it treats the four deltas that link and unlink an edge alike.
+TEST_F(StorageV2GcIndexSweepCountTest, AnEdgeCreationArmsOnlyOnTheTransactionalRoute) {
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypeIndex("E"));
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypeIndex("F"));
+
+  auto const create_an_edge = [this] {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  };
+
+  ASSERT_NO_FATAL_FAILURE(create_an_edge());
+  EXPECT_EQ(SweptByOnePass(), kIndexes) << "the transactional route arms every edge index";
+
+  static_cast<ms::InMemoryStorage *>(storage.get())->SetStorageMode(ms::StorageMode::IN_MEMORY_ANALYTICAL);
+  // Changing mode is itself a reason to sweep everything, so spend that before measuring.
+  SweptByOnePass();
+
+  ASSERT_NO_FATAL_FAILURE(create_an_edge());
+  EXPECT_EQ(SweptByOnePass(), 0) << "the analytical route arms none, and nothing it could sweep is stale";
 }

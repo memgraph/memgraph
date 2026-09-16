@@ -181,6 +181,13 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   auto Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
                 uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation>;
 
+  /// How many entries the named constraint holds, or nullopt when there is no such constraint.
+  /// Every vertex the constraint covers accounts for one; anything beyond that is an obsolete entry
+  /// still waiting for a sweep, which is what makes this worth asking: it is how a sweep that was
+  /// owed and never ran becomes visible from outside. Counts what the constraint holds, so an entry
+  /// already removed is gone from it whether or not its memory has been reclaimed.
+  auto EntryCount(LabelId label, std::set<PropertyId> const &properties) const -> std::optional<uint64_t>;
+
   /// GC method that removes outdated entries from constraints' storages. Sweeps only the
   /// constraints whose label or one of whose properties `arming` names, and answers with how
   /// many that was.

@@ -1,0 +1,470 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+// The four relations asked by name.
+//
+// Every other test reaches them through an operator, which leaves whatever no operator reads
+// covered only by whole queries. `Admits` is the clearest case: an index range is emitted or
+// withheld on its answer, and no operator reaches it at all.
+
+#include <chrono>
+#include <cmath>
+#include <map>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <gtest/gtest.h>
+
+#include "query/exceptions.hpp"
+#include "query/relations/comparability.hpp"
+#include "query/relations/equality.hpp"
+#include "query/relations/equivalence.hpp"
+#include "query/relations/orderability.hpp"
+#include "query/typed_value.hpp"
+#include "storage/v2/point.hpp"
+#include "storage/v2/property_value.hpp"
+#include "utils/temporal.hpp"
+
+namespace {
+
+using memgraph::query::TypedValue;
+using memgraph::storage::Enum;
+using memgraph::storage::EnumTypeId;
+using memgraph::storage::EnumValueId;
+using memgraph::storage::Point2d;
+using memgraph::storage::Point3d;
+using enum memgraph::storage::CoordinateReferenceSystem;
+
+namespace comparability = memgraph::query::relations::comparability;
+namespace equality = memgraph::query::relations::equality;
+namespace equivalence = memgraph::query::relations::equivalence;
+namespace orderability = memgraph::query::relations::orderability;
+
+using Type = TypedValue::Type;
+
+/// Every enumerator, listed so that adding one to the value fails here too.
+constexpr Type kEveryType[] = {
+    Type::Null,          Type::Bool,          Type::Int,      Type::Double,      Type::String,       Type::List,
+    Type::Map,           Type::Vertex,        Type::Edge,     Type::Path,        Type::Date,         Type::LocalTime,
+    Type::LocalDateTime, Type::ZonedDateTime, Type::Duration, Type::Graph,       Type::VirtualGraph, Type::Function,
+    Type::Enum,          Type::Point2d,       Type::Point3d,  Type::VirtualEdge, Type::VirtualNode};
+
+/// Two values of one type, the first ordering before the second.
+struct OrderedPair {
+  TypedValue lesser;
+  TypedValue greater;
+};
+
+memgraph::utils::ZonedDateTime ZonedAt(int minute) {
+  return memgraph::utils::ZonedDateTime{memgraph::utils::ZonedDateTimeParameters{
+      {2024, 3, 20}, {10, minute, 0, 0, 0}, memgraph::utils::Timezone{std::chrono::minutes{60}}}};
+}
+
+/// A pair of the given type, where one can be built without a graph to hold it.
+///
+/// Nothing is returned for a type carrying no order of its own, and for the graph types, which
+/// need an accessor. The switch names every case so that a type added to the value has to be
+/// placed here rather than silently going untested.
+std::optional<OrderedPair> PairOf(Type type) {
+  switch (type) {
+    case Type::Bool:
+      return OrderedPair{TypedValue(false), TypedValue(true)};
+    case Type::Int:
+      return OrderedPair{TypedValue(int64_t{1}), TypedValue(int64_t{2})};
+    case Type::Double:
+      return OrderedPair{TypedValue(1.5), TypedValue(2.5)};
+    case Type::String:
+      return OrderedPair{TypedValue("a"), TypedValue("b")};
+    case Type::Date:
+      return OrderedPair{TypedValue(memgraph::utils::Date({2024, 3, 19})),
+                         TypedValue(memgraph::utils::Date({2024, 3, 20}))};
+    case Type::LocalTime:
+      return OrderedPair{TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 100})),
+                         TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 200}))};
+    case Type::LocalDateTime:
+      return OrderedPair{TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 100})),
+                         TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 200}))};
+    case Type::ZonedDateTime:
+      return OrderedPair{TypedValue(ZonedAt(10)), TypedValue(ZonedAt(20))};
+    case Type::Duration:
+      return OrderedPair{TypedValue(memgraph::utils::Duration(1)), TypedValue(memgraph::utils::Duration(2))};
+    case Type::Enum:
+      return OrderedPair{TypedValue(Enum{EnumTypeId{2}, EnumValueId{1}}),
+                         TypedValue(Enum{EnumTypeId{2}, EnumValueId{2}})};
+    case Type::Point2d:
+      return OrderedPair{TypedValue(Point2d{Cartesian_2d, 1.0, 1.0}), TypedValue(Point2d{Cartesian_2d, 1.0, 2.0})};
+    case Type::Point3d:
+      return OrderedPair{TypedValue(Point3d{Cartesian_3d, 1.0, 1.0, 1.0}),
+                         TypedValue(Point3d{Cartesian_3d, 1.0, 1.0, 2.0})};
+
+    case Type::Null:
+    case Type::List:
+    case Type::Map:
+    case Type::Vertex:
+    case Type::Edge:
+    case Type::Path:
+    case Type::Graph:
+    case Type::VirtualGraph:
+    case Type::Function:
+    case Type::VirtualEdge:
+    case Type::VirtualNode:
+      return std::nullopt;
+  }
+}
+
+TypedValue ListOf(std::vector<TypedValue> elements) { return TypedValue(std::move(elements)); }
+
+TypedValue MapOf(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
+
+TypedValue Int(int64_t value) { return TypedValue(value); }
+
+}  // namespace
+
+// Comparability
+
+TEST(Comparability, AdmitsExactlyTheTypesItCanPlace) {
+  for (auto const type : kEveryType) {
+    auto const pair = PairOf(type);
+    if (!pair) continue;
+    // A type it admits has to be a type it can answer for, and the reverse. Two switches state
+    // this separately, so nothing but a test holds them together.
+    EXPECT_EQ(comparability::Admits(type), comparability::ComparePayload(pair->lesser, pair->greater).has_value())
+        << "type " << static_cast<unsigned>(type);
+  }
+}
+
+TEST(Comparability, PlacesNoGraphElement) {
+  EXPECT_FALSE(comparability::Admits(Type::Vertex));
+  EXPECT_FALSE(comparability::Admits(Type::Edge));
+  EXPECT_FALSE(comparability::Admits(Type::Path));
+  EXPECT_FALSE(comparability::Admits(Type::Graph));
+  EXPECT_FALSE(comparability::Admits(Type::Function));
+  EXPECT_FALSE(comparability::Admits(Type::VirtualEdge));
+  EXPECT_FALSE(comparability::Admits(Type::VirtualNode));
+  EXPECT_FALSE(comparability::Admits(Type::VirtualGraph));
+}
+
+TEST(Comparability, PlacesNoContainerAndNoNull) {
+  EXPECT_FALSE(comparability::Admits(Type::Null));
+  EXPECT_FALSE(comparability::Admits(Type::List));
+  EXPECT_FALSE(comparability::Admits(Type::Map));
+}
+
+TEST(Comparability, OrdersEveryTypeItAdmits) {
+  for (auto const type : kEveryType) {
+    if (!comparability::Admits(type)) continue;
+    auto const pair = PairOf(type);
+    ASSERT_TRUE(pair.has_value()) << "an admitted type needs a pair here: " << static_cast<unsigned>(type);
+    auto const order = comparability::Compare(pair->lesser, pair->greater);
+    ASSERT_TRUE(order.has_value()) << "type " << static_cast<unsigned>(type);
+    EXPECT_TRUE(std::is_lt(*order)) << "type " << static_cast<unsigned>(type);
+    EXPECT_TRUE(std::is_gt(*comparability::Compare(pair->greater, pair->lesser)));
+    EXPECT_TRUE(std::is_eq(*comparability::Compare(pair->lesser, pair->lesser)));
+  }
+}
+
+TEST(Comparability, AnswersNothingForAPairItCannotPlace) {
+  EXPECT_FALSE(comparability::Compare(TypedValue(int64_t{1}), TypedValue("a")).has_value());
+  EXPECT_FALSE(comparability::Compare(TypedValue(), TypedValue(int64_t{1})).has_value());
+  EXPECT_FALSE(comparability::Compare(TypedValue(int64_t{1}), TypedValue()).has_value());
+  EXPECT_FALSE(
+      comparability::Compare(TypedValue(Point2d{Cartesian_2d, 1.0, 1.0}), TypedValue(Point2d{Cartesian_2d, 1.0, 2.0}))
+          .has_value());
+}
+
+TEST(Comparability, PlacesOneIntegerAgainstOneDouble) {
+  EXPECT_TRUE(std::is_lt(*comparability::Compare(TypedValue(int64_t{1}), TypedValue(1.5))));
+  EXPECT_TRUE(std::is_gt(*comparability::Compare(TypedValue(2.5), TypedValue(int64_t{2}))));
+  EXPECT_TRUE(std::is_eq(*comparability::Compare(TypedValue(int64_t{2}), TypedValue(2.0))));
+}
+
+TEST(Comparability, PlacesEveryValueOfATypeItAdmitsExceptANaN) {
+  // A scan is fenced by a bound value rather than by a type, so the value-level question is the
+  // one it has to ask. The two answers agree everywhere except on the one value of an admitted
+  // type that has no order.
+  for (auto const type : kEveryType) {
+    auto const pair = PairOf(type);
+    if (!pair) continue;
+    EXPECT_EQ(comparability::Places(pair->lesser), comparability::Admits(type))
+        << "type " << static_cast<unsigned>(type);
+  }
+
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_TRUE(comparability::Admits(nan.type()));
+  EXPECT_FALSE(comparability::Places(nan));
+}
+
+TEST(Comparability, PlacesNoValueOfATypeItRefuses) {
+  EXPECT_FALSE(comparability::Places(TypedValue()));
+  EXPECT_FALSE(comparability::Places(ListOf({Int(1)})));
+  EXPECT_FALSE(comparability::Places(MapOf({{"a", Int(1)}})));
+}
+
+TEST(Comparability, AnswersFalseForEveryComparisonAgainstANaN) {
+  // Which is why a bound holding one keeps no row: a filter reading any of the four drops every
+  // row, so a scan standing in for it has to hand back nothing rather than a band.
+  auto const nan = TypedValue(std::nan(""));
+  auto const number = TypedValue(1.0);
+  EXPECT_FALSE((nan < number).ValueBool());
+  EXPECT_FALSE((number < nan).ValueBool());
+  EXPECT_FALSE((nan <= nan).ValueBool());
+  EXPECT_FALSE((number > nan).ValueBool());
+  EXPECT_FALSE((number >= nan).ValueBool());
+}
+
+TEST(Comparability, LeavesAPairHoldingANaNUnordered) {
+  auto const nan = TypedValue(std::nan(""));
+  auto const order = comparability::Compare(nan, TypedValue(1.0));
+  ASSERT_TRUE(order.has_value());
+  EXPECT_EQ(*order, std::partial_ordering::unordered);
+  EXPECT_EQ(*comparability::Compare(nan, nan), std::partial_ordering::unordered);
+}
+
+// Orderability, and where it has to agree with comparability
+
+TEST(Orderability, AgreesWithComparabilityWhereverComparabilityAnswers) {
+  for (auto const type : kEveryType) {
+    if (!comparability::Admits(type)) continue;
+    auto const pair = PairOf(type);
+    ASSERT_TRUE(pair.has_value());
+
+    // Each type's own order has to be one order, however it is reached. Two relations reading it
+    // differently would sort a column one way and filter it another.
+    for (auto const &[a, b] : {std::pair{&pair->lesser, &pair->greater},
+                               std::pair{&pair->greater, &pair->lesser},
+                               std::pair{&pair->lesser, &pair->lesser}}) {
+      auto const placed = comparability::Compare(*a, *b);
+      ASSERT_TRUE(placed.has_value()) << "type " << static_cast<unsigned>(type);
+      EXPECT_EQ(*placed, orderability::Compare(*a, *b)) << "type " << static_cast<unsigned>(type);
+    }
+  }
+}
+
+TEST(Orderability, AgreesWithComparabilityOnOneIntegerAgainstOneDouble) {
+  auto const one = TypedValue(int64_t{1});
+  auto const one_and_a_half = TypedValue(1.5);
+  EXPECT_EQ(*comparability::Compare(one, one_and_a_half), orderability::Compare(one, one_and_a_half));
+  EXPECT_EQ(*comparability::Compare(one_and_a_half, one), orderability::Compare(one_and_a_half, one));
+}
+
+TEST(Orderability, SortsANullAfterEverything) {
+  auto const null = TypedValue();
+  EXPECT_TRUE(std::is_gt(orderability::Compare(null, TypedValue(int64_t{1}))));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(TypedValue(int64_t{1}), null)));
+  EXPECT_TRUE(std::is_eq(orderability::Compare(null, null)));
+}
+
+TEST(Orderability, PlacesTheTypesComparabilityRefuses) {
+  for (auto const type : {Type::Enum, Type::Point2d, Type::Point3d}) {
+    auto const pair = PairOf(type);
+    ASSERT_TRUE(pair.has_value());
+    EXPECT_FALSE(comparability::Admits(type));
+    EXPECT_TRUE(std::is_lt(orderability::Compare(pair->lesser, pair->greater)));
+  }
+}
+
+TEST(Orderability, OrdersAListByItsElements) {
+  auto const shorter = TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1})});
+  auto const longer = TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1}), TypedValue(int64_t{2})});
+  auto const greater = TypedValue(std::vector<TypedValue>{TypedValue(int64_t{2})});
+  EXPECT_TRUE(std::is_lt(orderability::Compare(shorter, longer)));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(shorter, greater)));
+  EXPECT_TRUE(std::is_eq(orderability::Compare(shorter, shorter)));
+}
+
+// The walks each relation delegates a container to, asked directly
+
+TEST(Orderability, CompareOfListsPlacesAPrefixFirst) {
+  auto const prefix = ListOf({Int(1)});
+  auto const longer = ListOf({Int(1), Int(2)});
+  auto const empty = ListOf({});
+
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(prefix.ValueList(), longer.ValueList())));
+  EXPECT_TRUE(std::is_gt(orderability::CompareOfLists(longer.ValueList(), prefix.ValueList())));
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(empty.ValueList(), prefix.ValueList())));
+  EXPECT_TRUE(std::is_eq(orderability::CompareOfLists(empty.ValueList(), empty.ValueList())));
+}
+
+TEST(Orderability, CompareOfListsSettlesOnTheFirstElementThatDiffers) {
+  // A later element cannot overturn an earlier one, whichever way it would have gone.
+  auto const first_lesser = ListOf({Int(1), Int(9)});
+  auto const first_greater = ListOf({Int(2), Int(0)});
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(first_lesser.ValueList(), first_greater.ValueList())));
+}
+
+TEST(Orderability, CompareOfListsReadsTheRelationAgainForEachElement) {
+  // Whatever orderability does for a scalar it has to do inside a list, so the element order
+  // is asked for rather than restated: a null sorts last, a nested list is walked, and one
+  // integer is placed against one double.
+  auto const with_null = ListOf({TypedValue()});
+  auto const with_number = ListOf({Int(1)});
+  EXPECT_TRUE(std::is_gt(orderability::CompareOfLists(with_null.ValueList(), with_number.ValueList())));
+
+  auto const nested_lesser = ListOf({ListOf({Int(1)})});
+  auto const nested_greater = ListOf({ListOf({Int(1), Int(0)})});
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(nested_lesser.ValueList(), nested_greater.ValueList())));
+
+  auto const one = ListOf({Int(1)});
+  auto const one_and_a_half = ListOf({TypedValue(1.5)});
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(one.ValueList(), one_and_a_half.ValueList())));
+}
+
+TEST(Orderability, CompareOfListsLeavesAnElementItCannotPlaceUnordered) {
+  auto const nan = ListOf({TypedValue(std::nan(""))});
+  auto const number = ListOf({TypedValue(1.0)});
+  EXPECT_EQ(orderability::CompareOfLists(nan.ValueList(), number.ValueList()), std::partial_ordering::unordered);
+}
+
+TEST(Orderability, CompareOfListsRefusesAnElementPairItHasNoOrderFor) {
+  auto const number = ListOf({Int(1)});
+  auto const text = ListOf({TypedValue("a")});
+  EXPECT_THROW(orderability::CompareOfLists(number.ValueList(), text.ValueList()),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST(Equivalence, EquivalentOfListsWalksElementByElement) {
+  auto const one_two = ListOf({Int(1), Int(2)});
+  auto const two_one = ListOf({Int(2), Int(1)});
+  auto const shorter = ListOf({Int(1)});
+
+  EXPECT_TRUE(equivalence::EquivalentOfLists(one_two.ValueList(), one_two.ValueList()));
+  EXPECT_FALSE(equivalence::EquivalentOfLists(one_two.ValueList(), two_one.ValueList()));
+  EXPECT_FALSE(equivalence::EquivalentOfLists(one_two.ValueList(), shorter.ValueList()));
+}
+
+TEST(Equivalence, EquivalentOfListsReadsTheRelationAgainForEachElement) {
+  // The element answer is equivalence rather than equality, so a null element decides rather
+  // than leaving the list undecided, and a nested container is reached the same way.
+  auto const with_null = ListOf({TypedValue()});
+  EXPECT_TRUE(equivalence::EquivalentOfLists(with_null.ValueList(), with_null.ValueList()));
+
+  auto const with_number = ListOf({Int(1)});
+  EXPECT_FALSE(equivalence::EquivalentOfLists(with_null.ValueList(), with_number.ValueList()));
+
+  auto const nested = ListOf({ListOf({TypedValue(), Int(1)})});
+  EXPECT_TRUE(equivalence::EquivalentOfLists(nested.ValueList(), nested.ValueList()));
+}
+
+TEST(Equivalence, EquivalentOfMapsMatchesByKeyRatherThanByPosition) {
+  auto const one_then_two = MapOf({{"a", Int(1)}, {"b", Int(2)}});
+  auto const same_pairs = MapOf({{"b", Int(2)}, {"a", Int(1)}});
+  auto const swapped_values = MapOf({{"a", Int(2)}, {"b", Int(1)}});
+
+  EXPECT_TRUE(equivalence::EquivalentOfMaps(one_then_two.ValueMap(), same_pairs.ValueMap()));
+  EXPECT_FALSE(equivalence::EquivalentOfMaps(one_then_two.ValueMap(), swapped_values.ValueMap()));
+}
+
+TEST(Equivalence, EquivalentOfMapsRefusesAKeyTheOtherSideLacks) {
+  auto const under_a = MapOf({{"a", Int(1)}});
+  auto const under_b = MapOf({{"b", Int(1)}});
+  auto const two_keys = MapOf({{"a", Int(1)}, {"b", Int(1)}});
+
+  EXPECT_FALSE(equivalence::EquivalentOfMaps(under_a.ValueMap(), under_b.ValueMap()));
+  EXPECT_FALSE(equivalence::EquivalentOfMaps(under_a.ValueMap(), two_keys.ValueMap()));
+}
+
+TEST(Equivalence, EquivalentOfMapsReadsTheRelationAgainForEachValue) {
+  auto const holding_null = MapOf({{"a", TypedValue()}});
+  EXPECT_TRUE(equivalence::EquivalentOfMaps(holding_null.ValueMap(), holding_null.ValueMap()));
+  EXPECT_FALSE(equivalence::EquivalentOfMaps(holding_null.ValueMap(), MapOf({{"a", Int(1)}}).ValueMap()));
+
+  auto const nested = MapOf({{"a", ListOf({TypedValue()})}});
+  EXPECT_TRUE(equivalence::EquivalentOfMaps(nested.ValueMap(), nested.ValueMap()));
+}
+
+TEST(Equivalence, HashesEquivalentMapsAlike) {
+  auto const holding_null = MapOf({{"a", TypedValue()}, {"b", Int(1)}});
+  auto const same = MapOf({{"b", Int(1)}, {"a", TypedValue()}});
+  ASSERT_TRUE(equivalence::Equivalent(holding_null, same));
+  EXPECT_EQ(equivalence::Hash(holding_null), equivalence::Hash(same));
+}
+
+// Equality, the three-valued relation
+
+TEST(Equality, AnswersNullWhereverANullSits) {
+  EXPECT_TRUE(equality::Equal(TypedValue(), TypedValue(int64_t{1})).IsNull());
+  EXPECT_TRUE(equality::Equal(TypedValue(int64_t{1}), TypedValue()).IsNull());
+  EXPECT_TRUE(equality::Equal(TypedValue(), TypedValue()).IsNull());
+}
+
+TEST(Equality, AnswersFalseForUnlikeTypesThatAreNotBothNumbers) {
+  EXPECT_FALSE(equality::Equal(TypedValue(int64_t{1}), TypedValue("a")).ValueBool());
+  EXPECT_TRUE(equality::Equal(TypedValue(int64_t{1}), TypedValue(1.0)).ValueBool());
+}
+
+TEST(Equality, LeavesAContainerHoldingANullUndecided) {
+  auto const holding_null = TypedValue(std::vector<TypedValue>{TypedValue()});
+  EXPECT_TRUE(equality::Equal(holding_null, holding_null).IsNull());
+
+  // A pair that differs still settles it, so a null beside a difference does not hide it.
+  auto const differing = TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue(int64_t{1})});
+  auto const other = TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue(int64_t{2})});
+  EXPECT_FALSE(equality::Equal(differing, other).ValueBool());
+}
+
+TEST(Equality, HoldsANullSeesThroughAContainer) {
+  EXPECT_TRUE(equality::HoldsANull(TypedValue()));
+  EXPECT_TRUE(equality::HoldsANull(TypedValue(std::vector<TypedValue>{TypedValue()})));
+  EXPECT_TRUE(
+      equality::HoldsANull(TypedValue(std::vector<TypedValue>{TypedValue(std::vector<TypedValue>{TypedValue()})})));
+  EXPECT_FALSE(equality::HoldsANull(TypedValue(int64_t{1})));
+  EXPECT_FALSE(equality::HoldsANull(TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1})})));
+}
+
+// Equivalence, the two-valued one a hash container is keyed by
+
+TEST(Equivalence, HoldsANullEquivalentToANull) {
+  EXPECT_TRUE(equivalence::Equivalent(TypedValue(), TypedValue()));
+  EXPECT_FALSE(equivalence::Equivalent(TypedValue(), TypedValue(int64_t{1})));
+}
+
+TEST(Equivalence, HoldsAContainerHoldingANullEquivalentToItself) {
+  // Equality cannot decide this, and collapsing that to false would leave such a value not
+  // equivalent to itself, so a hash container would never find the key again.
+  auto const holding_null = TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue(int64_t{1})});
+  EXPECT_TRUE(equivalence::Equivalent(holding_null, holding_null));
+  EXPECT_TRUE(equality::Equal(holding_null, holding_null).IsNull());
+}
+
+TEST(Equivalence, HoldsEveryValueEquivalentToItself) {
+  // A hash container keyed by this relation finds a key again only if the key is equivalent to
+  // itself, so the property is asked of every type, of a null, and of an empty container.
+  for (auto const type : kEveryType) {
+    auto const pair = PairOf(type);
+    if (!pair) continue;
+    EXPECT_TRUE(equivalence::Equivalent(pair->lesser, pair->lesser)) << "type " << static_cast<unsigned>(type);
+  }
+
+  for (auto const &value :
+       {TypedValue(), ListOf({TypedValue(), Int(1)}), MapOf({{"a", TypedValue()}}), ListOf({}), MapOf({})}) {
+    EXPECT_TRUE(equivalence::Equivalent(value, value));
+  }
+}
+
+TEST(Equivalence, HoldsNoNaNEquivalentToItself) {
+  // The one value the property above does not reach. A double is equivalent as a double
+  // compares, which leaves each NaN its own group under DISTINCT and its own key in a hash
+  // container. Two of them still hash alike, so the lookup reaches the comparison and fails it.
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_FALSE(equivalence::Equivalent(nan, nan));
+  EXPECT_FALSE(equivalence::Equivalent(ListOf({nan}), ListOf({nan})));
+  EXPECT_EQ(equivalence::Hash(nan), equivalence::Hash(nan));
+}
+
+TEST(Equivalence, HashesEquivalentValuesAlike) {
+  auto const holding_null = TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue(int64_t{1})});
+  auto const same = TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue(int64_t{1})});
+  ASSERT_TRUE(equivalence::Equivalent(holding_null, same));
+  EXPECT_EQ(equivalence::Hash(holding_null), equivalence::Hash(same));
+
+  EXPECT_EQ(equivalence::Hash(TypedValue()), equivalence::Hash(TypedValue()));
+}

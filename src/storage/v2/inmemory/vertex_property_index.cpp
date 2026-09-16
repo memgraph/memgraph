@@ -297,37 +297,37 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
 
   auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
 
-  uint64_t swept = 0;
-  for (auto const &[property_id, index] : *cpy) {
-    if (token.stop_requested()) return swept;
-    // A sweep walks the whole index whether or not it has anything to collect.
-    if (!arming.arms_vertex_property_index_on(property_id)) continue;
-    ++swept;
+  return SweepArmedIndexes(
+      arming,
+      token,
+      *cpy,
+      [](auto const &entry) { return VertexPropertyKey{.property = entry.first}; },
+      [&](auto const &entry) {
+        auto const &[property_id, index] = entry;
+        auto acc = index->skip_list_.access();
+        for (auto it = acc.begin(); it != acc.end();) {
+          if (maybe_stop() && token.stop_requested()) return SweepOutcome::STOPPED;
 
-    auto acc = index->skip_list_.access();
-    for (auto it = acc.begin(); it != acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return swept;
+          auto next_it = it;
+          ++next_it;
 
-      auto next_it = it;
-      ++next_it;
+          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
+            it = next_it;
+            continue;
+          }
 
-      if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
-        it = next_it;
-        continue;
-      }
+          bool const has_next = next_it != acc.end();
 
-      bool const has_next = next_it != acc.end();
+          bool const redundant_duplicate = has_next && it->value == next_it->value && it->vertex == next_it->vertex;
+          if (redundant_duplicate ||
+              !AnyVersionHasProperty(*it->vertex, property_id, it->value, oldest_active_start_timestamp)) {
+            acc.remove(*it);
+          }
 
-      bool const redundant_duplicate = has_next && it->value == next_it->value && it->vertex == next_it->vertex;
-      if (redundant_duplicate ||
-          !AnyVersionHasProperty(*it->vertex, property_id, it->value, oldest_active_start_timestamp)) {
-        acc.remove(*it);
-      }
-
-      it = next_it;
-    }
-  }
-  return swept;
+          it = next_it;
+        }
+        return SweepOutcome::COMPLETED;
+      });
 }
 
 void InMemoryVertexPropertyIndex::DropGraphClearIndices() {
