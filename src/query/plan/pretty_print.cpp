@@ -721,6 +721,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypeProperty &op) {
   self["name"] = "ScanAllByEdgeTypeProperty";
   self["edge_type"] = ToJson(op.common_.edge_types[0], *dba_);
   self["property"] = ToJson(op.property_, *dba_);
+  self["expression_range"] = ToJson(op.expression_range_, *dba_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
   op.input_->Accept(*this);
@@ -734,6 +735,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeProperty &op) {
   json self;
   self["name"] = "ScanAllByEdgeProperty";
   self["property"] = ToJson(op.property_, *dba_);
+  self["expression_range"] = ToJson(op.expression_range_, *dba_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
   op.input_->Accept(*this);

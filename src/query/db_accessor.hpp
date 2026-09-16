@@ -515,11 +515,6 @@ class DbAccessor final {
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
-                                    const storage::PropertyValue value, size_t num_chunks) {
-    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, value, view, num_chunks)};
-  }
-
-  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
                                     const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
                                     const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
                                     size_t num_chunks) {
@@ -543,11 +538,6 @@ class DbAccessor final {
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                      const storage::PropertyValue value) {
-    return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
-  }
-
-  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
@@ -555,10 +545,6 @@ class DbAccessor final {
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
     return EdgesIterable(accessor_->Edges(property, view));
-  }
-
-  EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
-    return EdgesIterable(accessor_->Edges(property, value, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property,

@@ -560,34 +560,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool HasStatsFor(const Symbol &symbol) const { return scopes_.back().symbol_stats.contains(symbol.name()); }
 
-  // Helper function to estimate cardinality for edge property value queries.
-  // Used by both single-threaded and parallel scan operators.
-  double EstimateEdgePropertyValueCardinality(storage::EdgeTypeId edge_type, storage::PropertyId property,
-                                              Expression *expression) {
-    auto intermediate_property_value = ConstPropertyValue(expression);
-    if (intermediate_property_value) {
-      return db_accessor_->EdgesCount(edge_type,
-                                      property,
-                                      storage::ToPropertyValue(*intermediate_property_value,
-                                                               db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
-    } else {
-      return db_accessor_->EdgesCount(edge_type, property) * CardParam::kFilter;
-    }
-  }
-
-  // Helper function to estimate cardinality for edge property value queries (without edge type).
-  // Used by both single-threaded and parallel scan operators.
-  double EstimateEdgePropertyValueCardinality(storage::PropertyId property, Expression *expression) {
-    auto intermediate_property_value = ConstPropertyValue(expression);
-    if (intermediate_property_value) {
-      return db_accessor_->EdgesCount(property,
-                                      storage::ToPropertyValue(*intermediate_property_value,
-                                                               db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
-    } else {
-      return db_accessor_->EdgesCount(property) * CardParam::kFilter;
-    }
-  }
-
   // Helper function to estimate cardinality for edge property range queries.
   // Used by both single-threaded and parallel scan operators.
   double EstimateEdgePropertyRangeCardinality(storage::EdgeTypeId edge_type, storage::PropertyId property,
