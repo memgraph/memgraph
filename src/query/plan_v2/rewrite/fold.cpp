@@ -14,6 +14,7 @@
 #include <string_view>
 
 #include "query/plan_v2/egraph/op_ast_lists.hpp"
+#include "query/relations/comparability.hpp"
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::plan::v2 {
