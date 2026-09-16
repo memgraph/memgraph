@@ -38,7 +38,8 @@ nlohmann::json ParseAndMigrateJson(std::string_view str) {
 void LinkUser(Repository const &repo, User &user) {
   // User set roles on particular databases
   // NOTE Has to be done in this order, otherwise the global roles will overwrite the multi-tenant roles
-  [[maybe_unused]] std::unordered_set<std::string> failed_mt_roles;
+  // Filled only under MG_ENTERPRISE, below, but read unconditionally when applying the global roles.
+  std::unordered_set<std::string> failed_mt_roles;  // NOLINT(misc-const-correctness)
 #ifdef MG_ENTERPRISE
   auto mt_link = repo.Get(Repository::MtLinkKey(user.username()));
   if (mt_link) {
