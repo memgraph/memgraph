@@ -62,9 +62,19 @@ struct DoubleListTag {};
 
 struct NumericListTag {};
 
+/// Whether the type is one of the four a list is held in.
+///
+/// A list whose elements are all numbers is packed into a narrower
+/// representation, so one list arrives as one of several types according to what
+/// is in it. All four hold a list and are compared as one.
+inline bool IsAnyListType(PropertyValueType type) {
+  return type == PropertyValueType::List || type == PropertyValueType::IntList ||
+         type == PropertyValueType::DoubleList || type == PropertyValueType::NumericList;
+}
+
 inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
   return (a == b) || (a == PropertyValueType::Int && b == PropertyValueType::Double) ||
-         (a == PropertyValueType::Double && b == PropertyValueType::Int);
+         (a == PropertyValueType::Double && b == PropertyValueType::Int) || (IsAnyListType(a) && IsAnyListType(b));
 }
 
 /// Orders two doubles, giving a NaN the place it has nowhere else: after every
@@ -188,6 +198,25 @@ class PropertyValueException : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(PropertyValueException)
 };
+
+/// Whether the integer fits the width a packed list holds its elements at.
+///
+/// A packed list stores each integer narrower than a boxed list does, which is
+/// what the packing buys. Whoever chooses to pack a list asks this of every
+/// integer in it first, and leaves the list boxed when one does not fit.
+inline bool FitsAPackedList(std::int64_t whole) { return std::in_range<int>(whole); }
+
+/// The integer at the width a packed list holds it at.
+///
+/// @throws PropertyValueException if it does not fit. Narrowing it instead
+/// would store a different number from the one handed over, and nothing later
+/// could tell that it had happened.
+inline int PackedForAList(std::int64_t whole) {
+  if (!FitsAPackedList(whole)) {
+    throw PropertyValueException("Cannot pack a list holding an integer wider than the packed form");
+  }
+  return static_cast<int>(whole);
+}
 
 template <typename T>
 concept Reservable = requires(T &t, std::size_t n) {
@@ -319,7 +348,7 @@ class PropertyValueImpl {
                        return elem.ValueDouble();
                      }
                      if (elem.IsInt()) {
-                       return static_cast<int>(elem.ValueInt());
+                       return PackedForAList(elem.ValueInt());
                      }
                      throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
                    });
@@ -338,7 +367,7 @@ class PropertyValueImpl {
                        return elem.ValueDouble();
                      }
                      if (elem.IsInt()) {
-                       return static_cast<int>(elem.ValueInt());
+                       return PackedForAList(elem.ValueInt());
                      }
                      throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
                    });
@@ -357,7 +386,7 @@ class PropertyValueImpl {
                        return elem.ValueDouble();
                      }
                      if (elem.IsInt()) {
-                       return static_cast<int>(elem.ValueInt());
+                       return PackedForAList(elem.ValueInt());
                      }
                      throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
                    });
@@ -376,7 +405,7 @@ class PropertyValueImpl {
                        return elem.ValueDouble();
                      }
                      if (elem.IsInt()) {
-                       return static_cast<int>(elem.ValueInt());
+                       return PackedForAList(elem.ValueInt());
                      }
                      throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
                    });
@@ -390,7 +419,7 @@ class PropertyValueImpl {
     int_list_v.val_.reserve(value.size());
     std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
       if (elem.IsInt()) {
-        return static_cast<int>(elem.ValueInt());
+        return PackedForAList(elem.ValueInt());
       }
       throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
     });
@@ -403,7 +432,7 @@ class PropertyValueImpl {
     int_list_v.val_.reserve(value.size());
     std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
       if (elem.IsInt()) {
-        return static_cast<int>(elem.ValueInt());
+        return PackedForAList(elem.ValueInt());
       }
       throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
     });
@@ -416,7 +445,7 @@ class PropertyValueImpl {
     int_list_v.val_.reserve(value.size());
     std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
       if (elem.IsInt()) {
-        return static_cast<int>(elem.ValueInt());
+        return PackedForAList(elem.ValueInt());
       }
       throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
     });
@@ -429,7 +458,7 @@ class PropertyValueImpl {
     int_list_v.val_.reserve(value.size());
     std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
       if (elem.IsInt()) {
-        return static_cast<int>(elem.ValueInt());
+        return PackedForAList(elem.ValueInt());
       }
       throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
     });
@@ -693,9 +722,7 @@ class PropertyValueImpl {
 
   bool IsList() const { return type_ == Type::List; }
 
-  bool IsAnyList() const {
-    return type_ == Type::List || type_ == Type::IntList || type_ == Type::DoubleList || type_ == Type::NumericList;
-  }
+  bool IsAnyList() const { return IsAnyListType(type_); }
 
   bool IsMap() const { return type_ == Type::Map; }
 
@@ -1207,9 +1234,7 @@ template <typename Alloc, typename Alloc2, typename KeyType, typename VectorInde
 inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
                         const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept
     -> std::weak_ordering {
-  auto are_comparable = AreComparableTypes(first.type(), second.type());
-  auto are_lists = first.IsAnyList() && second.IsAnyList();
-  if (!are_comparable && !are_lists) return CompareIncompatibleTypes(first, second);
+  if (!AreComparableTypes(first.type(), second.type())) return CompareIncompatibleTypes(first, second);
 
   // Every pair that could compare unordered is a number, and each reaches this ordering through
   // `CompareDoublesNaNLast`, so what arrives here is already total.

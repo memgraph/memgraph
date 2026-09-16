@@ -913,9 +913,12 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       bool all_numeric = true;
       list.reserve(list_v.size());
       for (const auto &v : list_v) {
-        all_ints &= v.IsInt();
+        // An integer too wide for the packed form leaves the list boxed, which
+        // is the only representation that holds it at the width it was given.
+        auto const packable_int = v.IsInt() && storage::FitsAPackedList(v.ValueInt());
+        all_ints &= packable_int;
         all_doubles &= v.IsDouble();
-        all_numeric &= v.IsInt() || v.IsDouble();
+        all_numeric &= packable_int || v.IsDouble();
         list.emplace_back(v.ToPropertyValue(name_id_mapper));
       }
       if (all_ints) {
