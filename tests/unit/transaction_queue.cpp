@@ -717,7 +717,7 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsReportsDuplicateIdAsNotK
 // identity TerminateSessions compares stable against that torn read.
 //
 // Honesty note: on an unfixed tree the failure this test looks for is probabilistic -- a torn read has to
-// land during the narrow window between the writer thread's SetSessionInfo/SetUser/ResetUser calls, so this
+// land during the narrow window between the writer thread's SetSessionInfo/SetUser calls, so this
 // test can pass by luck even without the fix. TSan against TerminateSessionsRacingIdentityChurnIsDataRaceFree
 // below is the deterministic instrument for the same race.
 TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsCannotBeTrickedIntoSkippingThePrivilegeCheck) {
@@ -725,15 +725,15 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsCannotBeTrickedIntoSkipp
 
   auto &target = this->running_interpreter.interpreter;
   auto &caller = this->main_interpreter.interpreter;
-  // "admin" is a username the writer thread below never sets on the target ("bob", or logged-off in between),
+  // "admin" is a username the writer thread below never sets on the target (always "bob"),
   // so SameUser must be false on every single iteration -- there is no legitimate path to a kill here.
   caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
   // Publish the target's session identity once, from this thread, before the writer starts. Without this,
   // foreign_session_view_ is still null for however many reader iterations run before the writer's own first
   // SetSessionInfo call lands; TerminateSessions then takes the not-found branch and never reaches the
   // checker, so checker_call_count below would measure that startup gap instead of the invariant. The
-  // writer's own repeated SetSessionInfo calls simply republish the same uuid -- that is the churn under
-  // test, and it never makes the target unfindable.
+  // writer's own repeated SetSessionInfo/SetUser calls republish the same uuid and churn user_or_role_
+  // -- that is the torn-read race under test, and the session stays visible the entire time (no ResetUser).
   target.SetSessionInfo("target-session-uuid", "bob", "ts");
 
   int checker_call_count = 0;
@@ -754,7 +754,8 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsCannotBeTrickedIntoSkipp
       for (int i = 0; i < kIterations; ++i) {
         target.SetSessionInfo("target-session-uuid", "bob", "ts");
         target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
-        target.ResetUser();
+        // No ResetUser here: ResetUser clears foreign_session_view_ (LOGOFF semantic, tested by
+        // ShowSessionsOmitsLoggedOffSession). Keeping the session visible ensures checker_call_count==kIterations.
         writer_iterations.fetch_add(1, std::memory_order_relaxed);
       }
     });
@@ -893,22 +894,58 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsListsLoggedInSessions) {
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsSelfOnlyForUnprivilegedCaller) {
-  // Caller has session info published; the other interpreter does not (foreign_session_view_
-  // is null from the fixture default).  SHOW SESSIONS must return exactly one row — the
-  // caller's own — reached via same_user pointer-equality without consulting the privilege
-  // checker.  Mirrors the ShowTransactionsSelfOnly pattern where running_interpreter has no
-  // active transaction and therefore does not appear.
+  // Both interpreters are fully logged in (SetUser + SetSessionInfo, same named db). The
+  // caller is given a QueryUserOrRole whose IsAuthorized always returns false, modelling a
+  // user without TRANSACTION_MANAGEMENT on any database. The per-row privilege_checker
+  // therefore denies alice's session. The caller's own session (bob) still appears via the
+  // same_user pointer check: foreign_user_view_.store(user_or_role_) publishes the same
+  // shared_ptr object that user_or_role_ holds, so lv.get() == rv is true for bob's own row,
+  // which short-circuits before the privilege_checker is consulted.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  // Models a logged-in user who lacks TRANSACTION_MANAGEMENT. IsAuthorized always returns
+  // false, so the privilege_checker denies every row whose owner is a different user.
+  struct DenyAllUser : memgraph::query::QueryUserOrRole {
+    explicit DenyAllUser(std::string name) : memgraph::query::QueryUserOrRole{std::move(name), {}} {}
+
+    bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &, std::optional<std::string_view>,
+                      memgraph::query::UserPolicy *) const override {
+      return false;
+    }
+
+    std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
+      return std::make_shared<DenyAllUser>(*this);
+    }
+
+    std::vector<std::string> GetRolenames(std::optional<std::string>) const override { return {}; }
+#ifdef MG_ENTERPRISE
+    bool CanImpersonate(const std::string &, memgraph::query::UserPolicy *,
+                        std::optional<std::string_view>) const override {
+      return false;
+    }
+
+    std::string GetDefaultDB() const override { return std::string{memgraph::dbms::kDefaultDB}; }
+#endif
+  };
+
+  auto &running = this->running_interpreter.interpreter;
   auto &main = this->main_interpreter.interpreter;
-  main.SetUser(this->main_interpreter.auth_checker.GenQueryUser("bob", {}));
-  main.SetSessionInfo("session-main", "bob", "2026-01-01T00:00:00");
-  // running_interpreter: SetUser was called by the InterpreterFaker constructor but
-  // SetSessionInfo was never called, so foreign_session_view_ remains null and the session
-  // is unconditionally skipped by ShowSessions.
+
+  // Other session: alice, fully logged in on tenant_a.
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  running.SetSessionInfo("session-alice", "alice", "2026-01-01T00:00:00");
+
+  // Caller: bob with DenyAllUser. SetUser publishes to foreign_user_view_, so same_user
+  // fires (pointer equality) for bob's own row and bypasses the privilege_checker entirely.
+  main.SetUser(std::make_shared<DenyAllUser>("bob"));
+  main.SetSessionInfo("session-bob", "bob", "2026-01-01T00:00:00");
 
   auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
   auto const &rows = stream.GetResults();
+  // Only bob's own session appears: alice is hidden because same_user is false (different
+  // username) and the privilege_checker returns false (DenyAllUser::IsAuthorized).
   ASSERT_EQ(rows.size(), 1U);
-  EXPECT_EQ(rows[0][0].ValueString(), "session-main");
+  EXPECT_EQ(rows[0][0].ValueString(), "session-bob");
   EXPECT_EQ(rows[0][1].ValueString(), "bob");
 }
 
@@ -927,4 +964,83 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsSkipsSessionWithoutSessionInf
   auto const &rows = stream.GetResults();
   ASSERT_EQ(rows.size(), 1U);
   EXPECT_EQ(rows[0][0].ValueString(), "session-running");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsListsDbLessSessionViaDefaultDbFallback) {
+  // A session that holds no database (current_db_.ResetDB()) is still visible to a caller
+  // granted TRANSACTION_MANAGEMENT on kDefaultDB. ShowSessions computes
+  //   db_for_check = db.empty() ? kDefaultDB : db
+  // before calling the privilege_checker, so a db-less session is reachable via the fallback
+  // rather than being silently dropped. The emitted row carries an empty string for the
+  // database column, distinguishing "no database" from any named tenant.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &running = this->running_interpreter.interpreter;
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  running.SetSessionInfo("session-alice", "alice", "2026-01-01T00:00:00");
+  // Drop the db-accessor after publishing the session identity: from this point
+  // foreign_db_view().name == "" and the privilege check uses kDefaultDB as the fallback.
+  running.current_db_.ResetDB();
+
+  // The caller uses AllowEverythingAuthChecker (via Interpret), so TRANSACTION_MANAGEMENT
+  // on kDefaultDB is granted and the db-less session becomes visible.
+  auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = stream.GetResults();
+
+  bool found_alice = false;
+  for (auto const &row : rows) {
+    if (row[0].ValueString() == "session-alice") {
+      found_alice = true;
+      EXPECT_EQ(row[1].ValueString(), "alice");
+      // Empty string: the session holds no database. A named tenant would appear here instead.
+      EXPECT_EQ(row[2].ValueString(), "");
+    }
+  }
+  EXPECT_TRUE(found_alice) << "db-less session must be visible via kDefaultDB privilege fallback";
+}
+
+// NB2 regression: ResetUser() must store nullptr into foreign_session_view_ in addition to
+// foreign_user_view_, so a session that has logged off disappears from SHOW SESSIONS
+// immediately — even to an admin holding full TRANSACTION_MANAGEMENT.  Before the fix,
+// ResetUser() only cleared foreign_user_view_; foreign_session_view_ kept its stale pointer
+// and the session continued to appear in SHOW SESSIONS until the connection was dropped.
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsOmitsLoggedOffSession) {
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &running = this->running_interpreter.interpreter;
+
+  // Step 1: fully log the session in — publish both user identity and session metadata.
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("carol", {}));
+  running.SetSessionInfo("session-x", "carol", "2026-01-01T00:00:00");
+
+  // Confirm the session is visible before LOGOFF so the post-LOGOFF absence is not vacuous.
+  {
+    auto pre_stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+    bool found_pre = false;
+    for (auto const &row : pre_stream.GetResults()) {
+      if (row[0].ValueString() == "session-x") {
+        found_pre = true;
+        break;
+      }
+    }
+    EXPECT_TRUE(found_pre) << "session-x must be visible after SetUser + SetSessionInfo";
+  }
+
+  // Step 2: simulate LOGOFF — ResetUser() clears both foreign_user_view_ and
+  // foreign_session_view_, so ShowSessions will skip this interpreter entirely.
+  running.ResetUser();
+
+  // Step 3: re-run SHOW SESSIONS from a caller with AllowEverythingAuthChecker (the default
+  // injected by InterpreterFaker::Interpret), which grants every privilege check.  Even with
+  // maximum privilege, a session whose foreign_session_view_ is null must be invisible.
+  auto post_stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = post_stream.GetResults();
+
+  // Step 4: assert the logged-off session is absent from every returned row.
+  for (auto const &row : rows) {
+    EXPECT_NE(row[0].ValueString(), "session-x")
+        << "logged-off session must not appear in SHOW SESSIONS (session_id column) after ResetUser";
+    EXPECT_NE(row[1].ValueString(), "carol")
+        << "logged-off session must not appear in SHOW SESSIONS (username column) after ResetUser";
+  }
 }

@@ -7448,8 +7448,10 @@ auto ShowSessions(const std::unordered_set<Interpreter *> &interpreters, QueryUs
   };
   for (Interpreter *interpreter : interpreters) {
     auto const session_snapshot = interpreter->foreign_session_view_.load();
-    if (!session_snapshot) continue;  // mid-handshake: SetSessionInfo not yet called
+    if (!session_snapshot) continue;  // null snapshot: session is pre-login (mid-handshake) or logged off — skip
     auto const user_snapshot = interpreter->foreign_user_view_.load();
+    // Empty db means the session holds no database (db-less); db_for_check falls back to kDefaultDB for the
+    // privilege check only — the display value remains empty to reflect the true session state.
     auto db = interpreter->current_db_.foreign_db_view().name;
     auto db_for_check = db.empty() ? std::string{dbms::kDefaultDB} : db;
     if (same_user(user_snapshot, user_or_role) || privilege_checker(user_or_role, db_for_check)) {
@@ -11921,6 +11923,8 @@ void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::st
 void Interpreter::ResetUser() {
   user_or_role_.reset();
   foreign_user_view_.store(nullptr);
+  // LOGOFF: drop the published session snapshot too, so SHOW/TERMINATE SESSIONS don't see a logged-off session.
+  foreign_session_view_.store(nullptr);
   session_log_ctx_.ClearUser();
 #ifdef MG_ENTERPRISE
   if (user_resource_) {
