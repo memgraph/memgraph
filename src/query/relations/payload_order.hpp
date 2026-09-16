@@ -12,15 +12,21 @@
 /// @file
 /// The order a type's own values carry, for the types that carry one.
 ///
-/// This is not one of the relations. It is the fact two of them share: how two
+/// This is not one of the relations. It is the fact they share: how two
 /// dates sit relative to each other is one answer, and comparability reading it
 /// one way while orderability reads it another would sort a column differently
 /// from how a filter selects it. The relations differ in which types they
 /// place and in what they answer for a pair they cannot, and each states that
 /// for itself.
+///
+/// One number against another of the other numeric type is here for the same
+/// reason, and equality reads it too, since a pair it holds equal has to be a
+/// pair the other two put in one place.
 #pragma once
 
+#include <cmath>
 #include <compare>
+#include <cstdint>
 
 #include "query/typed_value.hpp"
 
@@ -77,6 +83,54 @@ template <TypedValue::Type T>
   }
 }
 
+/// The same order read from the other side.
+inline std::partial_ordering ReversedOrder(std::partial_ordering order) {
+  if (std::is_lt(order)) return std::partial_ordering::greater;
+  if (std::is_gt(order)) return std::partial_ordering::less;
+  return order;
+}
+
+/**
+ * Places an integer against a double by what each holds, rather than by reading
+ * one of them at the other's type.
+ *
+ * The usual arithmetic conversions widen the integer, which is exact only while
+ * the doubles are still spaced one apart. Past that point distinct integers
+ * arrive at one double, and a relation reading the pair that way holds them
+ * equal: equality then holds two values equal that are not equal to each other,
+ * and a sort is handed a pair it treats as interchangeable while telling the
+ * two apart, which is not a strict weak ordering.
+ *
+ * @return unordered only where the double is a NaN.
+ */
+inline std::partial_ordering PlaceIntegerAgainstDouble(int64_t whole, double other) {
+  if (std::isnan(other)) [[unlikely]]
+    return std::partial_ordering::unordered;
+
+  // One past the widest integer, exactly a double. A double outside the range it
+  // fences cannot be made into an integer at all, so the range is settled before
+  // the conversion below rather than trusted to it.
+  constexpr auto kJustPastTheWidest = 9223372036854775808.0;
+  if (other >= kJustPastTheWidest) [[unlikely]]
+    return std::partial_ordering::less;
+  if (other < -kJustPastTheWidest) [[unlikely]]
+    return std::partial_ordering::greater;
+
+  auto const truncated = static_cast<int64_t>(other);
+  if (auto const by_whole_part = whole <=> truncated; by_whole_part != 0) return by_whole_part;
+
+  // The two share a whole part, so whatever the double carries past it decides.
+  // Truncation is toward zero, so the remainder takes the double's own sign.
+  //
+  // Reading the whole part back as a double is exact either way: where the
+  // doubles are still spaced one apart it is small enough to carry, and past
+  // that point the double was already whole and the remainder is zero.
+  auto const remainder = other - static_cast<double>(truncated);
+  if (remainder > 0) return std::partial_ordering::less;
+  if (remainder < 0) return std::partial_ordering::greater;
+  return std::partial_ordering::equivalent;
+}
+
 /**
  * Orders one number against another of the other numeric type.
  *
@@ -88,8 +142,9 @@ template <TypedValue::Type T>
  * @pre One of the two is an Int and the other a Double.
  */
 inline std::partial_ordering ComparePayloadOfMixedNumbers(const TypedValue &a, const TypedValue &b) {
-  return a.type() == TypedValue::Type::Int ? a.UnsafeValueInt() <=> b.UnsafeValueDouble()
-                                           : a.UnsafeValueDouble() <=> b.UnsafeValueInt();
+  return a.type() == TypedValue::Type::Int
+             ? PlaceIntegerAgainstDouble(a.UnsafeValueInt(), b.UnsafeValueDouble())
+             : ReversedOrder(PlaceIntegerAgainstDouble(b.UnsafeValueInt(), a.UnsafeValueDouble()));
 }
 
 /// Whether the two are one Int and one Double, which is the only unlike pair of

@@ -412,6 +412,75 @@ TEST(Orderability, PlacesTheTypesComparabilityRefuses) {
   }
 }
 
+// Where an integer stops fitting in a double
+
+/// The largest integer every larger integer's double no longer tells apart. Above it the
+/// doubles thin out, so distinct integers share one.
+constexpr int64_t kWidestExactInteger = int64_t{1} << 53;
+
+TEST(Orderability, HoldsTwoLargeIntegersApartAgainstTheDoubleBetweenThem) {
+  auto const rounds_to = TypedValue(static_cast<double>(kWidestExactInteger));
+  auto const lower = Int(kWidestExactInteger);
+  auto const higher = Int(kWidestExactInteger + 1);
+
+  EXPECT_TRUE(std::is_eq(orderability::Compare(lower, rounds_to)));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(higher, rounds_to)));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(rounds_to, higher)));
+}
+
+TEST(Orderability, KeepsSharingAPositionTransitiveOverLargeIntegers) {
+  // The law reading the pair through a double breaks: two values sharing a position with a
+  // third have to share one with each other, or a sort is handed a comparator that is not a
+  // strict weak ordering and its result is decided by the algorithm rather than the order.
+  auto const between = TypedValue(static_cast<double>(kWidestExactInteger));
+  auto const lower = Int(kWidestExactInteger);
+  auto const higher = Int(kWidestExactInteger + 1);
+
+  auto const shares = [](TypedValue const &a, TypedValue const &b) { return std::is_eq(orderability::Compare(a, b)); };
+
+  EXPECT_TRUE(shares(lower, between));
+  EXPECT_FALSE(shares(higher, between)) << "two integers one apart share a position with one double";
+  EXPECT_FALSE(shares(lower, higher));
+}
+
+TEST(Orderability, PlacesAnIntegerAgainstADoubleNoIntegerCanHold) {
+  // The exact comparison cannot reach these through a conversion, since turning a double
+  // outside the integer range into one is undefined rather than merely inexact.
+  auto const widest = Int(std::numeric_limits<int64_t>::max());
+  auto const narrowest = Int(std::numeric_limits<int64_t>::min());
+
+  EXPECT_TRUE(std::is_lt(orderability::Compare(widest, TypedValue(1e300))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(narrowest, TypedValue(-1e300))));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(widest, TypedValue(std::numeric_limits<double>::infinity()))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(narrowest, TypedValue(-std::numeric_limits<double>::infinity()))));
+}
+
+TEST(Orderability, PlacesAnIntegerEitherSideOfTheFractionBesideIt) {
+  EXPECT_TRUE(std::is_lt(orderability::Compare(Int(2), TypedValue(2.5))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(Int(3), TypedValue(2.5))));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(Int(-3), TypedValue(-2.5))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(Int(-2), TypedValue(-2.5))));
+}
+
+TEST(Comparability, HoldsALargeIntegerApartFromTheDoubleItWouldRoundTo) {
+  auto const rounds_to = TypedValue(static_cast<double>(kWidestExactInteger));
+  auto const placed = comparability::Compare(Int(kWidestExactInteger + 1), rounds_to);
+  ASSERT_TRUE(placed.has_value());
+  ASSERT_NE(*placed, std::partial_ordering::unordered);
+  EXPECT_TRUE(std::is_gt(*placed));
+}
+
+TEST(Equality, HoldsALargeIntegerUnequalToTheDoubleItWouldRoundTo) {
+  // Equality has to move with the order, or a value a sort holds apart is one a grouping
+  // holds together, and the two answers are read off the same column.
+  auto const rounds_to = TypedValue(static_cast<double>(kWidestExactInteger));
+
+  EXPECT_FALSE(equality::Equal(Int(kWidestExactInteger + 1), rounds_to).ValueBool());
+  EXPECT_FALSE(equality::Equal(rounds_to, Int(kWidestExactInteger + 1)).ValueBool());
+  EXPECT_TRUE(equality::Equal(Int(kWidestExactInteger), rounds_to).ValueBool());
+  EXPECT_TRUE(equality::Equal(Int(1), TypedValue(1.0)).ValueBool());
+}
+
 TEST(Orderability, OrdersUnlikeTypesInTheOrderTheSpecificationFixes) {
   // A map first, then a node, a relationship, a list, a path, a string, a boolean, a number,
   // and a null last. The three holding a piece of the graph are left out here, since building
