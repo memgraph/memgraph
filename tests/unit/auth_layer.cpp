@@ -336,3 +336,29 @@ TEST_F(AuthLayerTest, AListedUserSetIsNotInvalidatedByAConcurrentCreate) {
   EXPECT_FALSE(layer_->Commit(tx, nullptr)) << "committed on a user list that had already changed";
   EXPECT_FALSE(layer_->Lock()->HasUser("carol"));
 }
+
+TEST_F(AuthLayerTest, AReadOnlyTransactionDoesNotSpendTheEpoch) {
+  // The epoch is what tells every session its cached permissions are stale. A transaction that only read has
+  // published nothing for them to re-read, so moving it would cost every session a refresh for no change.
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+
+  Auth::Epoch seen;
+  layer_->Lock()->UpToDate(seen);
+
+  memgraph::auth::AuthTransaction reader;
+  {
+    EXPECT_TRUE(layer_->ReadLock(&reader)->HasUsers());
+  }
+  ASSERT_TRUE(layer_->Commit(reader, nullptr));
+  EXPECT_TRUE(layer_->Lock()->UpToDate(seen)) << "a read-only transaction invalidated every session's cache";
+
+  // A transaction that did write still moves it.
+  memgraph::auth::AuthTransaction writer;
+  {
+    ASSERT_TRUE(layer_->Lock(&writer)->AddUser("bob").has_value());
+  }
+  ASSERT_TRUE(layer_->Commit(writer, nullptr));
+  EXPECT_FALSE(layer_->Lock()->UpToDate(seen));
+}

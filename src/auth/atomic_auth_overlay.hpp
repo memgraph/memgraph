@@ -90,6 +90,10 @@ class AtomicAuthOverlay {
   /// told otherwise.
   void ScanDependsOnEmptinessOnly(std::string const &prefix) const;
 
+  /// Whether this transaction wrote anything. A read-only transaction still validates what it read, but has
+  /// nothing to make durable, replicate, or invalidate other sessions' caches over.
+  bool HasWrites() const { return !write_set_.empty(); }
+
   /// Validate read-set against base and flush write-set.
   /// Returns true on success, false on conflict (base untouched).
   bool Flush();
