@@ -39,9 +39,12 @@ function setup_virtualenv () {
     fi
 
     if [[ "$use_uv" == "true" ]]; then
-        # Resolve requirements.txt into a fully pinned lockfile, then install exactly that.
         uv venv --seed --python python3 ve3 || exit 1
-        uv pip compile --python ve3/bin/python requirements.txt -o requirements.lock || exit 1
+        # The committed lockfile is the source of truth; only regenerate it when missing.
+        if [ ! -f requirements.lock ]; then
+            echo "requirements.lock not found, generating it from requirements.txt"
+            uv pip compile --python ve3/bin/python requirements.txt -o requirements.lock || exit 1
+        fi
         uv pip sync --python ve3/bin/python requirements.lock || exit 1
     else
         python3 -m venv ve3 || exit 1
@@ -87,7 +90,7 @@ function print_help () {
   echo "Usage: $0 [--skip-prep-testing] [--ci] [--uv]"
   echo "  --skip-prep-testing: Skip the preparation of the testing environment"
   echo "  --ci: Run the tests in CI mode"
-  echo "  --uv: Use uv instead of pip to set up the test virtualenv (writes tests/requirements.lock)"
+  echo "  --uv: Use uv instead of pip to set up the test virtualenv from tests/requirements.lock"
 }
 
 ci=false
