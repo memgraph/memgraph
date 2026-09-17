@@ -341,6 +341,13 @@ class PathExpand {
     std::optional<mgp::Relationship> from_parent;
   };
 
+  // A branch waiting for its turn, with the filters' verdict on it, asked once where it was found.
+  struct Queued {
+    int64_t index;
+    mgp::Node node;
+    Evaluation evaluation;
+  };
+
   static constexpr uint64_t KeyBit(const int64_t key) noexcept {
     return uint64_t{1} << (static_cast<uint64_t>(key) & 63U);
   }
@@ -349,8 +356,7 @@ class PathExpand {
   static constexpr int64_t kNoRelationship = std::numeric_limits<int64_t>::min();
 
   void RunPathScopedBfs();
-  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing,
-                    std::queue<std::pair<int64_t, mgp::Node>> &frontier);
+  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing, std::queue<Queued> &frontier);
   // Walks the parent chain rather than a visited set: the rule is scoped to this path, not the walk.
   [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
   // Rebuilds the path a branch stands for. Only emitted branches pay for it.

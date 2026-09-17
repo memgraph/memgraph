@@ -1215,7 +1215,7 @@ mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
 }
 
 void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, const bool outgoing,
-                                    std::queue<std::pair<int64_t, mgp::Node>> &frontier) {
+                                    std::queue<Queued> &frontier) {
   // Read before the loop: pushing a branch can reallocate the vector out from under a reference.
   const int64_t depth = branches_[index].depth;
   const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
@@ -1238,6 +1238,14 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
       continue;
     }
 
+    // The dequeue does nothing with a branch no filter would emit and none would expand through, so
+    // ask here instead and skip the branch, the two deep copies it holds, and the dequeue itself.
+    // The verdict goes into the queue with the branch, so the dequeue does not ask again.
+    const Evaluation next_evaluation = path_data_.helper_.Evaluate(next_vertex, next_id, depth + 1);
+    if (!next_evaluation.include && !next_evaluation.expand) {
+      continue;
+    }
+
     branches_.push_back({.node_id = next_id,
                          .relationship_id = mgp::edge_get_id(edge).as_int,
                          .parent = index,
@@ -1245,12 +1253,14 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
                          .key_bits = branches_[index].key_bits | KeyBit(key),
                          .from_parent = mgp::Relationship(edge)});
     // The loop's only node copy, and only for a branch that will be followed.
-    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, mgp::Node(next_vertex));
+    frontier.push({.index = static_cast<int64_t>(branches_.size()) - 1,
+                   .node = mgp::Node(next_vertex),
+                   .evaluation = next_evaluation});
   }
 }
 
 void Path::PathExpand::RunPathScopedBfs() {
-  std::queue<std::pair<int64_t, mgp::Node>> frontier;
+  std::queue<Queued> frontier;
   for (const auto &node : path_data_.start_nodes_) {
     if (path_data_.LimitReached()) {
       return;
@@ -1263,7 +1273,9 @@ void Path::PathExpand::RunPathScopedBfs() {
                          .depth = 0,
                          .key_bits = node_keyed ? KeyBit(node.Id().AsInt()) : 0U,
                          .from_parent = std::nullopt});
-    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, node);
+    frontier.push({.index = static_cast<int64_t>(branches_.size()) - 1,
+                   .node = node,
+                   .evaluation = path_data_.helper_.Evaluate(node, 0)});
   }
 
   while (!frontier.empty()) {
@@ -1272,13 +1284,12 @@ void Path::PathExpand::RunPathScopedBfs() {
     }
     path_data_.MaybeAbort();
 
-    auto entry = std::move(frontier.front());
+    const Queued entry = std::move(frontier.front());
     frontier.pop();
-    const int64_t index = entry.first;
-    const mgp::Node &node = entry.second;
+    const int64_t index = entry.index;
+    const mgp::Node &node = entry.node;
     const int64_t depth = branches_[index].depth;
-
-    const Evaluation evaluation = path_data_.helper_.Evaluate(node, depth);
+    const Evaluation &evaluation = entry.evaluation;
     if (evaluation.include && path_data_.helper_.PathSizeOk(depth)) {
       Emit(BranchPath(index));
       if (path_data_.LimitReached()) {
