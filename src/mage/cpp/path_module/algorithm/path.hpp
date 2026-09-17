@@ -199,13 +199,19 @@ class PathHelper {
   [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const;
   [[nodiscard]] bool StepAdmitsDirection(int64_t depth, bool outgoing) const;
 
-  [[nodiscard]] static LabelBools GetLabelBools(const mgp::Node &node, const LabelStep &step);
+  [[nodiscard]] static LabelBools GetLabelBools(mgp_vertex *vertex, const LabelStep &step);
   // A path-scoped walk re-enters a node once per path reaching it, and the verdict is the same each
   // time, so it is kept rather than re-read from storage.
-  [[nodiscard]] LabelBools CachedLabelBools(const mgp::Node &node, int64_t step_index) const;
+  [[nodiscard]] LabelBools CachedLabelBools(mgp_vertex *vertex, int64_t id, int64_t step_index) const;
 
   // Whether to return the node, and whether to walk on through it.
-  [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const;
+  // The identity and the labels are all any filter reads, so the node is borrowed rather than
+  // copied and its id is read once for all of them.
+  [[nodiscard]] Evaluation Evaluate(mgp_vertex *vertex, int64_t id, int64_t depth) const;
+
+  [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const {
+    return Evaluate(node.GetPtr(), node.Id().AsInt(), depth);
+  }
 
   bool PathSizeOk(int64_t path_size) const;
   bool PathTooBig(int64_t path_size) const;
@@ -235,9 +241,9 @@ class PathHelper {
 
  private:
   // First match wins: deny, terminator, end, allow.
-  [[nodiscard]] Evaluation EvaluateLabels(const mgp::Node &node, int64_t depth) const;
-  [[nodiscard]] Evaluation EvaluateEndAndTerminatorNodes(const mgp::Node &node, int64_t depth) const;
-  [[nodiscard]] Evaluation EvaluateNodeLists(const mgp::Node &node, int64_t depth) const;
+  [[nodiscard]] Evaluation EvaluateLabels(mgp_vertex *vertex, int64_t id, int64_t depth) const;
+  [[nodiscard]] Evaluation EvaluateEndAndTerminatorNodes(int64_t id, int64_t depth) const;
+  [[nodiscard]] Evaluation EvaluateNodeLists(int64_t id, int64_t depth) const;
 
   // The step a node at `depth`, or a relationship out of a node at `depth`, is tested against.
   [[nodiscard]] int64_t LabelStepIndexAt(int64_t depth) const;

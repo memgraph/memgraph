@@ -469,17 +469,17 @@ int64_t Path::PathHelper::LabelStepIndexAt(const int64_t depth) const {
   return position % static_cast<int64_t>(config_.label_steps.size());
 }
 
-Path::LabelBools Path::PathHelper::CachedLabelBools(const mgp::Node &node, const int64_t step_index) const {
+Path::LabelBools Path::PathHelper::CachedLabelBools(mgp_vertex *vertex, const int64_t id,
+                                                    const int64_t step_index) const {
   // A graph-wide rule reaches each node once, so a cache would only ever be written to.
   if (GlobalUniqueness()) {
-    return GetLabelBools(node, config_.label_steps[static_cast<size_t>(step_index)]);
+    return GetLabelBools(vertex, config_.label_steps[static_cast<size_t>(step_index)]);
   }
   auto &cache = label_bools_cache_[static_cast<size_t>(step_index)];
-  const int64_t id = node.Id().AsInt();
   if (const auto it = cache.find(id); it != cache.end()) {
     return it->second;
   }
-  return cache.emplace(id, GetLabelBools(node, config_.label_steps[static_cast<size_t>(step_index)])).first->second;
+  return cache.emplace(id, GetLabelBools(vertex, config_.label_steps[static_cast<size_t>(step_index)])).first->second;
 }
 
 void Path::PathHelper::SizeLabelCache() {
@@ -518,20 +518,22 @@ bool Path::PathHelper::RelationshipAdmitted(std::string_view rel_type, const boo
   return wanted_direction == RelDirection::kAny || curr_direction == wanted_direction || any_directed;
 }
 
-Path::LabelBools Path::PathHelper::GetLabelBools(const mgp::Node &node, const LabelStep &step) {
+Path::LabelBools Path::PathHelper::GetLabelBools(mgp_vertex *vertex, const LabelStep &step) {
   // A '*' in a category answers for every label, so it is the starting point rather than a lookup.
   LabelBools label_bools{.blacklisted = step.wildcards.blacklist,
                          .terminated = step.wildcards.termination,
                          .end_node = step.wildcards.end_list,
                          .whitelisted = step.wildcards.whitelist};
-  for (const auto &label : node.Labels()) {
-    FilterLabel(label, step, label_bools);
+  // Read through the borrowed handle: mgp::Labels would copy the whole vertex to iterate it.
+  const size_t count = mgp::vertex_labels_count(vertex);
+  for (size_t i = 0; i < count; ++i) {
+    FilterLabel(mgp::vertex_label_at(vertex, i).name, step, label_bools);
   }
   return label_bools;
 }
 
 // The label filter on its own. First match wins, in this order: deny, terminator, end, allow.
-Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const int64_t depth) const {
+Path::Evaluation Path::PathHelper::EvaluateLabels(mgp_vertex *vertex, const int64_t id, const int64_t depth) const {
   // An unfiltered start node bypasses the filter entirely, and so does one the sequence does not start
   // at -- there is no step to test it against. `filterStartNode` alone decides the two filters
   // alongside, so those still apply to a start node that asked to be filtered.
@@ -545,7 +547,7 @@ Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const i
   if (step.constrains_nothing) {
     return {.include = !(EndNodesOnly() || below_min_hops), .expand = true};
   }
-  const LabelBools label_bools = CachedLabelBools(node, step_index);
+  const LabelBools label_bools = CachedLabelBools(vertex, id, step_index);
 
   if (label_bools.blacklisted) {
     return {.include = false, .expand = false};
@@ -564,23 +566,21 @@ Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const i
 }
 
 // Identity counterpart of the '>' and '/' label sets.
-Path::Evaluation Path::PathHelper::EvaluateEndAndTerminatorNodes(const mgp::Node &node, const int64_t depth) const {
+Path::Evaluation Path::PathHelper::EvaluateEndAndTerminatorNodes(const int64_t id, const int64_t depth) const {
   if ((depth == 0 && !config_.filter_start_node) || depth < config_.min_hops) {
     return {.include = false, .expand = true};
   }
-  const auto id = node.Id().AsInt();
   const bool is_terminator = config_.terminator_nodes.contains(id);
   return {.include = is_terminator || config_.end_nodes.contains(id), .expand = !is_terminator};
 }
 
 // allowlistNodes / denylistNodes: a node either list rejects is neither returned nor expanded through.
-Path::Evaluation Path::PathHelper::EvaluateNodeLists(const mgp::Node &node, const int64_t depth) const {
+Path::Evaluation Path::PathHelper::EvaluateNodeLists(const int64_t id, const int64_t depth) const {
   // Exempt by position, not identity: the same node re-entered deeper in the walk is filtered.
   if (depth == 0 && !config_.filter_start_node) {
     return {};
   }
 
-  const auto id = node.Id().AsInt();
   if (config_.denylist_nodes.contains(id)) {
     return {.include = false, .expand = false};
   }
@@ -591,13 +591,13 @@ Path::Evaluation Path::PathHelper::EvaluateNodeLists(const mgp::Node &node, cons
 }
 
 // Every filter must agree before a node is returned; any one may stop the walk.
-Path::Evaluation Path::PathHelper::Evaluate(const mgp::Node &node, const int64_t depth) const {
-  Evaluation evaluation = EvaluateLabels(node, depth);
+Path::Evaluation Path::PathHelper::Evaluate(mgp_vertex *vertex, const int64_t id, const int64_t depth) const {
+  Evaluation evaluation = EvaluateLabels(vertex, id, depth);
   if (!config_.end_nodes.empty() || !config_.terminator_nodes.empty()) {
-    evaluation &= EvaluateEndAndTerminatorNodes(node, depth);
+    evaluation &= EvaluateEndAndTerminatorNodes(id, depth);
   }
   if (!config_.allowlist_nodes.empty() || !config_.denylist_nodes.empty()) {
-    evaluation &= EvaluateNodeLists(node, depth);
+    evaluation &= EvaluateNodeLists(id, depth);
   }
   return evaluation;
 }
