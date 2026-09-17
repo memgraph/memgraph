@@ -196,7 +196,16 @@ class PathHelper {
   explicit PathHelper(const mgp::Map &config, const mgp::Graph &graph, ProcedureKind kind);
 
   // Whether a relationship of this type, traversed this way out of a node at `depth`, may be followed.
-  [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const;
+  // The step a relationship out of a node at `depth` is tested against.
+  [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
+  // The step is fixed for a whole adjacency list, and resolving it from a depth costs a division by
+  // a runtime sequence length. Callers that walk a list resolve it once and pass it.
+  [[nodiscard]] bool RelationshipAdmitted(const RelStep &step, std::string_view rel_type, bool outgoing) const;
+
+  [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const {
+    return RelationshipAdmitted(RelStepAt(depth), rel_type, outgoing);
+  }
+
   [[nodiscard]] bool StepAdmitsDirection(int64_t depth, bool outgoing) const;
 
   [[nodiscard]] static LabelBools GetLabelBools(mgp_vertex *vertex, const LabelStep &step);
@@ -245,10 +254,9 @@ class PathHelper {
   [[nodiscard]] Evaluation EvaluateEndAndTerminatorNodes(int64_t id, int64_t depth) const;
   [[nodiscard]] Evaluation EvaluateNodeLists(int64_t id, int64_t depth) const;
 
-  // The step a node at `depth`, or a relationship out of a node at `depth`, is tested against.
+  // The step a node at `depth` is tested against.
   [[nodiscard]] int64_t LabelStepIndexAt(int64_t depth) const;
   void SizeLabelCache();
-  [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
 
   [[nodiscard]] bool EndNodesOnly() const { return config_.end_nodes_only; }
 
