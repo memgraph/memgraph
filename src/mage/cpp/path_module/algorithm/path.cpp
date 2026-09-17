@@ -1225,6 +1225,28 @@ mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
   return path;
 }
 
+bool Path::PathExpand::AskedBefore(const size_t hash) {
+  const size_t bits = asked_.size() * 64U;
+  if (asked_.empty()) {
+    asked_.assign(kMinAskedBits / 64U, 0);
+  } else if (asked_set_ * kAskedBitsPerKey > bits) {
+    // Too full to tell keys apart. Forgetting what it holds only makes the next ask for a
+    // neighbourhood its first again, which delays a store -- it never stores a wrong answer.
+    // At the cap the doubling below is a clear in place, which is the same safe forgetting: letting
+    // it fill instead would answer "asked before" to keys nothing asked for, and store exactly the
+    // entries the filter exists to keep out.
+    asked_.assign(std::min(asked_.size() * 2U, kMaxAskedBits / 64U), 0);
+    asked_set_ = 0;
+  }
+  const size_t bit = hash & (asked_.size() * 64U - 1U);
+  uint64_t &word = asked_[bit / 64U];
+  const uint64_t mask = uint64_t{1} << (bit % 64U);
+  const bool asked_before = (word & mask) != 0U;
+  word |= mask;
+  asked_set_ += static_cast<size_t>(!asked_before);
+  return asked_before;
+}
+
 const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNeighbours(const int64_t node_id,
                                                                                         mgp_vertex *vertex,
                                                                                         const bool outgoing,
@@ -1234,10 +1256,14 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
   if (const std::vector<AdmittedEdge> *stored = admitted_.Find(cache_key); stored != nullptr) {
     return *stored;
   }
+  // Storing costs a map node and a vector, which a walk that never comes back pays for nothing.
+  const bool worth_storing = AskedBefore(NeighbourhoodHash{}(cache_key));
 
   // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(depth);
-  std::vector<AdmittedEdge> admitted;
+  // Reused across first asks, so they settle into allocating nothing at all.
+  std::vector<AdmittedEdge> &admitted = scratch_;
+  admitted.clear();
   const BorrowedEdges edges{vertex, outgoing};
   for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     // A node whose relationships are all filtered out does no other work, so without this poll a
@@ -1257,8 +1283,11 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
     mgp::Node &next_node = nodes_.Emplace(next_id, next_vertex);
     admitted.push_back({.next_id = next_id, .relationship_id = relationship_id, .next_vertex = next_node.GetPtr()});
   }
+  if (!worth_storing) {
+    return admitted;
+  }
   // Built whole before it is published: a list cut short by a limit would be wrong for every later ask.
-  return admitted_.Emplace(cache_key, std::move(admitted));
+  return admitted_.Emplace(cache_key, admitted);
 }
 
 void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, const bool outgoing,

@@ -482,9 +482,14 @@ class PathExpand {
 
   void RunPathScopedBfs();
   void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing, std::queue<Queued> &frontier);
-  // Reads the adjacency from storage on the first ask and answers from the cache after it.
+  // Reads the adjacency from storage, and stores the answer once it has been asked for twice. The
+  // returned reference is invalidated by the next call, so a caller must finish with one answer
+  // before asking for another.
   [[nodiscard]] const std::vector<AdmittedEdge> &AdmittedNeighbours(int64_t node_id, mgp_vertex *vertex, bool outgoing,
                                                                     int64_t depth);
+  // Whether this neighbourhood has been asked for before, in one bit per key. A collision only makes
+  // a key look asked-before, which stores it one ask early -- never a wrong answer.
+  [[nodiscard]] bool AskedBefore(size_t hash);
   // Walks the parent chain rather than a visited set: the rule is scoped to this path, not the walk.
   [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
   // Rebuilds the path a branch stands for. Only emitted branches pay for it.
@@ -507,6 +512,20 @@ class PathExpand {
   // pays for itself exactly when a node is reached by more than one partial path -- which is the
   // case a path-scoped uniqueness rule creates.
   FlatMap<NeighbourhoodKey, std::vector<AdmittedEdge>, NeighbourhoodHash> admitted_;
+  // An entry is only worth storing if it is asked for again. A walk over a graph with a single route
+  // to each node never asks twice, and storing every first ask would be pure overhead there, so a
+  // first ask is answered from `scratch_` and only recorded in `asked_`. The filter starts small and
+  // doubles with the walk: a fixed size either wastes the memory of the largest walk on every small
+  // one, or fills up on a large one and answers "asked before" to keys nothing asked for -- storing
+  // exactly the entries it exists to keep out. Past the cap it stops doubling and clears at that
+  // size instead, so it never fills: a walk of any size keeps a filter that can still tell keys
+  // apart, at the price of forgetting what it held, which only ever delays a store.
+  static constexpr size_t kMinAskedBits = size_t{1} << 16U;
+  static constexpr size_t kMaxAskedBits = size_t{1} << 26U;
+  static constexpr size_t kAskedBitsPerKey = 8U;
+  std::vector<uint64_t> asked_;
+  size_t asked_set_ = 0;
+  std::vector<AdmittedEdge> scratch_;
 };
 
 class PathSubgraph {
