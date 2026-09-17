@@ -105,10 +105,9 @@ jobs:
                 ;;
             esac
 
-      - name: Refresh Jepsen Cluster
+      - name: Refresh Jepsen Cluster in background
         run: |
-          cd tests/jepsen
-          ./run.sh cluster-refresh --nodes-no $NODES_NO
+          ./tools/ci/jepsen-cluster-refresh.sh --nodes-no $NODES_NO &
 
       - name: Spin up mgbuild container
         run: |
@@ -137,6 +136,10 @@ jobs:
       - name: Copy memgraph binary
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --use-make-install --dest-dir build
+
+      - name: Wait for Jepsen Cluster
+        run: |
+          ./tools/ci/wait-for-jepsen-cluster.sh --nodes-no $NODES_NO
 
       - name: Run unit tests for Jepsen code
         run: |

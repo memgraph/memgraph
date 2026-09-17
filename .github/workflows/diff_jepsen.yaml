@@ -60,10 +60,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Refresh Jepsen Cluster
+      - name: Refresh Jepsen Cluster in background
         run: |
-          cd tests/jepsen
-          ./run.sh cluster-refresh --nodes-no 6
+          ./tools/ci/jepsen-cluster-refresh.sh --nodes-no 6 &
 
       - name: Spin up mgbuild container
         run: |
@@ -104,6 +103,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           copy --binary --use-make-install --dest-dir build
+
+      - name: Wait for Jepsen Cluster
+        run: |
+          ./tools/ci/wait-for-jepsen-cluster.sh --nodes-no 6
 
       - name: Run unit tests for Jepsen code
         run: |
