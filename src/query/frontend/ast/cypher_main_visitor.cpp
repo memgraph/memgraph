@@ -2170,6 +2170,9 @@ antlrcpp::Any CypherMainVisitor::visitCreate(MemgraphCypher::CreateContext *ctx)
 }
 
 antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedureContext *ctx) {
+  if (ctx->OPTIONAL()) {
+    throw SemanticException("OPTIONAL is supported only on a CALL subquery, not on a procedure call.");
+  }
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
   call_proc->procedure_name_ = JoinSymbolicNames(this, ctx->procedureName()->symbolicName());
@@ -4434,6 +4437,7 @@ antlrcpp::Any CypherMainVisitor::visitDeleteAllParameters(MemgraphCypher::Delete
 
 antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) {
   auto *call_subquery = storage_->Create<CallSubquery>();
+  call_subquery->optional_ = ctx->OPTIONAL() != nullptr;
 
   MG_ASSERT(ctx->cypherQuery(), "Expected query inside subquery clause");
 

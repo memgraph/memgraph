@@ -583,14 +583,14 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
 PRE_VISIT_TS(EdgeUniquenessFilter);
 
 bool PlanPrinter::PreVisit(query::plan::Apply &op) {
-  WithPrintLn([this](auto &out) { out << StartSymbol() << " Apply"; });
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   Branch(*op.subquery_);
   op.input_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::PeriodicSubquery &op) {
-  WithPrintLn([this](auto &out) { out << StartSymbol() << " PeriodicSubquery"; });
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   Branch(*op.subquery_);
   op.input_->Accept(*this);
   return false;
@@ -1647,6 +1647,7 @@ bool PlanToJsonVisitor::PreVisit(EvaluatePatternFilter &op) {
 bool PlanToJsonVisitor::PreVisit(Apply &op) {
   json self;
   self["name"] = "Apply";
+  self["on_empty_branch"] = OnEmptyBranchName(op.on_empty_branch_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -1705,6 +1706,7 @@ bool PlanToJsonVisitor::PreVisit(PeriodicCommit &op) {
 bool PlanToJsonVisitor::PreVisit(PeriodicSubquery &op) {
   json self;
   self["name"] = "PeriodicSubquery";
+  self["on_empty_branch"] = OnEmptyBranchName(op.on_empty_branch_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

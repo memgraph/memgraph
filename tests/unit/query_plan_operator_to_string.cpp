@@ -815,10 +815,25 @@ TYPED_TEST(OperatorToStringTest, RollUpApply) {
 }
 
 TYPED_TEST(OperatorToStringTest, Apply) {
-  memgraph::query::plan::Apply last_op(nullptr, nullptr, false);
+  // What the branch does with an input row it returns nothing for is otherwise invisible in EXPLAIN.
+  using memgraph::query::plan::OnEmptyBranch;
 
-  std::string expected_string{"Apply"};
-  EXPECT_EQ(last_op.ToString(&this->dba), expected_string);
+  memgraph::query::plan::Apply drop_row(nullptr, nullptr, OnEmptyBranch::kDropRow);
+  EXPECT_EQ(drop_row.ToString(&this->dba), "Apply (drop row)");
+
+  memgraph::query::plan::Apply pass_row(nullptr, nullptr, OnEmptyBranch::kPassRow);
+  EXPECT_EQ(pass_row.ToString(&this->dba), "Apply (pass row)");
+
+  memgraph::query::plan::Apply pass_row_with_nulls(nullptr, nullptr, OnEmptyBranch::kPassRowWithNulls);
+  EXPECT_EQ(pass_row_with_nulls.ToString(&this->dba), "Apply (pass row with nulls)");
+}
+
+TYPED_TEST(OperatorToStringTest, PeriodicSubquery) {
+  // `IN TRANSACTIONS` plans this sibling of Apply; it spells the mode through the same helper, so one value proves
+  // the wiring - the three spellings themselves are swept in the Apply case above.
+  memgraph::query::plan::PeriodicSubquery pass_row_with_nulls(
+      nullptr, nullptr, nullptr, memgraph::query::plan::OnEmptyBranch::kPassRowWithNulls);
+  EXPECT_EQ(pass_row_with_nulls.ToString(&this->dba), "PeriodicSubquery (pass row with nulls)");
 }
 
 TYPED_TEST(OperatorToStringTest, HashJoin) {

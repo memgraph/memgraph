@@ -2944,6 +2944,124 @@ TYPED_TEST(TestPlanner, Subqueries) {
   }
 }
 
+namespace {
+std::vector<std::string> SymbolNames(const std::vector<Symbol> &symbols) {
+  auto names = symbols | std::views::transform(&Symbol::name) | std::ranges::to<std::vector<std::string>>();
+  std::ranges::sort(names);
+  return names;
+}
+}  // namespace
+
+// `OPTIONAL CALL` differs from `CALL` only in what the Apply does with an input row the branch returned nothing
+// for, so the plan shape is identical and the mode plus the null-fill list carry the whole feature.
+TYPED_TEST(TestPlanner, OptionalSubquery) {
+  FakeDbAccessor dba;
+
+  // MATCH (n) OPTIONAL CALL (n) { MATCH (n)-[r]->(m) RETURN m } RETURN n, m
+  {
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), RETURN("m"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     OPTIONAL_CALL(CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"n"})),
+                                     RETURN("n", "m")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> branch{new ExpectScanAll(), new ExpectExpand(), new ExpectProduce()};
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+    DeleteListContent(&branch);
+
+    auto *apply = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(apply, nullptr);
+    EXPECT_EQ(apply->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
+    EXPECT_EQ(SymbolNames(apply->null_symbols_), (std::vector<std::string>{"m"}));
+
+    // The index rewriter clones the whole plan whenever it eliminates the root operator, so both new fields have to
+    // survive Clone. A dropped `on_empty_branch_` would default back to dropping the row.
+    auto const cloned = planner.plan().Clone(&this->storage);
+    auto *cloned_apply = FindOpOfType<Apply>(cloned.get());
+    ASSERT_NE(cloned_apply, nullptr);
+    EXPECT_EQ(cloned_apply->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
+    EXPECT_EQ(SymbolNames(cloned_apply->null_symbols_), (std::vector<std::string>{"m"}));
+  }
+
+  // The same query without OPTIONAL keeps dropping the row, and has nothing to null.
+  {
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), RETURN("m"));
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"n"}), RETURN("n", "m")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *apply = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(apply, nullptr);
+    EXPECT_EQ(apply->on_empty_branch_, OnEmptyBranch::kDropRow);
+    EXPECT_TRUE(apply->null_symbols_.empty());
+  }
+
+  // A unit body projects nothing, so OPTIONAL has nothing to null and the row passes either way.
+  {
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+                                  SET(PROPERTY_LOOKUP(dba, "m", dba.Property("prop")), LITERAL(1)));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     OPTIONAL_CALL(CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"n"})),
+                                     RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *apply = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(apply, nullptr);
+    EXPECT_EQ(apply->on_empty_branch_, OnEmptyBranch::kPassRow);
+    EXPECT_TRUE(apply->null_symbols_.empty());
+  }
+
+  // `RETURN *` projects the imported variable straight back out; nulling it would wipe the caller's row.
+  {
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), RETURN("*"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     OPTIONAL_CALL(CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"n"})),
+                                     RETURN("n", "m")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *apply = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(apply, nullptr);
+    EXPECT_EQ(apply->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
+    auto const names = SymbolNames(apply->null_symbols_);
+    EXPECT_THAT(names, testing::Contains("m"));
+    EXPECT_THAT(names, testing::Not(testing::Contains("n")));
+  }
+
+  // A UNION body's projection is the union's symbols, not either arm's.
+  {
+    auto *subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(IDENT("a"), AS("x"))),
+                           UNION_ALL(SINGLE_QUERY(MATCH(PATTERN(NODE("b"))), RETURN(IDENT("b"), AS("x")))));
+    auto *query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), OPTIONAL_CALL(CALL_SUBQUERY(subquery)), RETURN("n", "x")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *apply = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(apply, nullptr);
+    EXPECT_EQ(apply->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
+    EXPECT_EQ(SymbolNames(apply->null_symbols_), (std::vector<std::string>{"x"}));
+  }
+
+  // `IN TRANSACTIONS` plans a PeriodicSubquery instead, which carries the same two fields.
+  {
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), RETURN("m"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     OPTIONAL_CALL(CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(2)))),
+                                     RETURN("n", "m")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *periodic = FindOpOfType<PeriodicSubquery>(&planner.plan());
+    ASSERT_NE(periodic, nullptr);
+    EXPECT_EQ(periodic->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
+    EXPECT_EQ(SymbolNames(periodic->null_symbols_), (std::vector<std::string>{"m"}));
+  }
+}
+
 TYPED_TEST(TestPlanner, SubqueryReturnAllIncludesSubquerySymbols) {
   FakeDbAccessor dba;
   // WITH 1 AS outer CALL { WITH 2 AS tmp RETURN tmp AS inner } RETURN *

@@ -4058,6 +4058,8 @@ class CallSubquery : public memgraph::query::Clause {
   // True if `CALL (*) { ... }` was used — import every variable currently in
   // the outer scope. When set, scoped_variables_ is left empty
   bool all_variables_scoped_{false};
+  // `OPTIONAL CALL`: an input row whose body yields nothing is still emitted once, its symbols null.
+  bool optional_{false};
 
   CallSubquery *Clone(AstStorage *storage) const override {
     CallSubquery *object = storage->Create<CallSubquery>();
@@ -4068,6 +4070,7 @@ class CallSubquery : public memgraph::query::Clause {
     }
     object->has_variable_scope_ = has_variable_scope_;
     object->all_variables_scoped_ = all_variables_scoped_;
+    object->optional_ = optional_;
     return object;
   }
 
