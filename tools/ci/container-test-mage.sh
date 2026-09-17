@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # runs Python, Rust and C++ tests for MAGE inside build container
-
-source "$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../environment" && pwd )/util.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+source "$REPO_ROOT/environment/util.sh"
 
 # Color codes
 RED_BOLD='\033[1;31m'

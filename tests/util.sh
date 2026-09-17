@@ -1,8 +1,10 @@
 #!/bin/bash
 
 DISABLE_NODE=${DISABLE_NODE:-false}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$PARENT_DIR/environment/util.sh"
 
-source "$( cd "$( dirname "${BASH_SOURCE[0]}" )/../environment" && pwd )/util.sh"
 NODE_MIN_VERSION="${NODE_MIN_VERSION:-20}"
 NODE_INSTALL_VERSION="${NODE_INSTALL_VERSION:-$MG_NODE_VERSION}"
 PNPM_VERSION="${PNPM_VERSION:-10.33.4}"
