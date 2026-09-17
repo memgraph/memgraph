@@ -1181,6 +1181,12 @@ void Path::PathExpand::RunNodeGlobalBfs() {
 }
 
 bool Path::PathExpand::OnBranch(const int64_t index, const int64_t key) const {
+  // The walk below is a chain of dependent loads into a vector filled breadth-first, so a branch's
+  // parent sits a whole level away and each step is its own cache miss. The summary answers the
+  // common case -- key not on the path -- from one load, and never answers "on the path" wrongly.
+  if ((branches_[index].key_bits & KeyBit(key)) == 0) {
+    return false;
+  }
   const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
   for (int64_t i = index; i != kNoParent; i = branches_[i].parent) {
     const int64_t seen = node_keyed ? branches_[i].node_id : branches_[i].relationship_id;
@@ -1236,6 +1242,7 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
                          .relationship_id = mgp::edge_get_id(edge).as_int,
                          .parent = index,
                          .depth = depth + 1,
+                         .key_bits = branches_[index].key_bits | KeyBit(key),
                          .from_parent = mgp::Relationship(edge)});
     // The loop's only node copy, and only for a branch that will be followed.
     frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, mgp::Node(next_vertex));
@@ -1249,10 +1256,12 @@ void Path::PathExpand::RunPathScopedBfs() {
       return;
     }
     path_data_.MaybeAbort();
+    const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
     branches_.push_back({.node_id = node.Id().AsInt(),
                          .relationship_id = kNoRelationship,
                          .parent = kNoParent,
                          .depth = 0,
+                         .key_bits = node_keyed ? KeyBit(node.Id().AsInt()) : 0U,
                          .from_parent = std::nullopt});
     frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, node);
   }
