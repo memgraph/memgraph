@@ -83,6 +83,7 @@ DEFAULT_CARGO_CACHE_ENABLED="true"
 CARGO_CACHE_CONTAINER_DIR="/home/mg/.cargo"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
 DEFAULT_RUST_VERSION="1.89"
+UV_VERSION="0.8.15"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -1155,11 +1156,14 @@ build_memgraph () {
   fi
 }
 
+ensure_uv_cmd() {
+  echo "export PATH=\$HOME/.local/bin:\$PATH && { command -v uv >/dev/null || PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir uv==$UV_VERSION; }"
+}
+
 init_tests() {
   echo "Initializing tests..."
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
-  # The build images don't ship uv; install it for the mg user if it's missing.
-  local ENSURE_UV="export PATH=\$HOME/.local/bin:\$PATH && { command -v uv >/dev/null || PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir uv==0.8.15; }"
+  local ENSURE_UV="$(ensure_uv_cmd)"
   docker exec -u mg "$build_container" bash -c "$ENSURE_UV && $SETUP_MGDEPS_CACHE_ENDPOINT && cd $MGBUILD_ROOT_DIR && ./init-test --ci --uv"
   echo "...Done"
 }
@@ -2833,6 +2837,15 @@ test_mage() {
       fi
       docker cp src/mage/python/$requirements_file $build_container:/tmp/$requirements_file
       docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
+      # install_python_requirements.sh --uv installs from a lockfile whenever it
+      # finds one next to the requirements file, so ship those along too.
+      local requirements_lock="${requirements_file%.txt}.lock"
+      if [[ -f "$PROJECT_ROOT/src/mage/python/$requirements_lock" ]]; then
+        docker cp src/mage/python/$requirements_lock $build_container:/tmp/$requirements_lock
+      fi
+      if [[ -f "$PROJECT_ROOT/src/auth/reference_modules/requirements.lock" ]]; then
+        docker cp src/auth/reference_modules/requirements.lock $build_container:/tmp/auth_module-requirements.lock
+      fi
       # MAGE's deps are cp312 and memgraph embeds python 3.12, so the python
       # test phase must run under 3.12. CentOS Stream 9 defaults python3 to 3.9,
       # so install and use python3.12 there; other distros already ship 3.12 as
@@ -2842,9 +2855,18 @@ test_mage() {
         pybin="python3.12"
         docker exec -i -u root $build_container bash -c "rpm -q python3.12-pip >/dev/null 2>&1 || dnf install -y python3.12 python3.12-pip python3.12-devel"
       fi
-      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/release/package/mage/ && \
-        PYTHON=$pybin ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
-        $pybin -m pip install -r \$HOME/memgraph/src/mage/python/tests/requirements.txt --break-system-packages"
+      # MAGE's deps are installed globally (memgraph loads the modules from the
+      # interpreter it embeds), so uv targets $pybin's system environment
+      # directly instead of a virtualenv.
+      local ENSURE_UV="$(ensure_uv_cmd)"
+      local UV_ENV="export UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1 UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never"
+      local test_requirements="src/mage/python/tests/requirements.txt"
+      if [[ -f "$PROJECT_ROOT/src/mage/python/tests/requirements.lock" ]]; then
+        test_requirements="src/mage/python/tests/requirements.lock"
+      fi
+      docker exec -i -u mg $build_container bash -c "$ENSURE_UV && $UV_ENV && cd \$HOME/memgraph/release/package/mage/ && \
+        PYTHON=$pybin ./install_python_requirements.sh --ci --uv --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
+        uv pip install --python $pybin -r \$HOME/memgraph/$test_requirements"
       docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/src/mage/python/ && $pybin -m pytest ."
     ;;
     e2e)
