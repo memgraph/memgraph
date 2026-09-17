@@ -16,13 +16,7 @@ endif()
 include(GoogleTest)
 include(CheckLinkerFlag)
 
-# ~9M R_X86_64_RELATIVE relocations per test binary sit in a ~206MB .rela.dyn that ld.so reads and
-# applies in full before main(), on every one of the 200-odd test starts in a suite run. DT_RELR
-# encodes the same relocations as a bitmap and takes a few MB: measured on
-# memgraph__unit__query_expression_evaluator, .rela.dyn falls from 206MB to 0.47MB against 2.3MB of
-# .relr.dyn, and the loadable image with it, from 801MB to 601MB. Scoped to test binaries on
-# purpose: DT_RELR needs glibc 2.36 on the machine that runs it, which holds for anything building
-# the tests but not for every platform a released memgraph package has to start on.
+# reduce build directory size by compressing `.rela.dyn` section for unit tests
 check_linker_flag(CXX "LINKER:-z,pack-relative-relocs" MG_LINKER_PACKS_RELATIVE_RELOCS)
 
 set(MG_RUNTIME_LIBC_HAS_DT_RELR OFF)
