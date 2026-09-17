@@ -35,12 +35,6 @@ compile () {
   local reference=""
 
   for platform in "$@"; do
-    # --index-strategy unsafe-best-match is pip's behaviour: requirements.txt
-    # adds download.pytorch.org as an extra index and that index also mirrors
-    # PyPI packages (setuptools, filelock, ...) at versions our pins forbid, so
-    # uv's default of taking the first index that carries a package can't
-    # resolve them. --emit-index-url carries the extra index into the lock,
-    # which is where torch's +cpu/+cu130 builds come from.
     uv pip compile \
       --quiet --no-header \
       --python-version "$PYTHON_VERSION" \
@@ -68,7 +62,6 @@ compile () {
 }
 
 compile src/mage/python/requirements.txt            "$AMD64_PLATFORM" "$ARM64_PLATFORM"
-# CUDA is amd64 only; install_python_requirements.sh rejects the other arches.
 compile src/mage/python/requirements-gpu.txt        "$AMD64_PLATFORM"
 compile src/mage/python/tests/requirements.txt      "$AMD64_PLATFORM" "$ARM64_PLATFORM"
 compile src/auth/reference_modules/requirements.txt "$AMD64_PLATFORM" "$ARM64_PLATFORM"
