@@ -40,6 +40,25 @@ void RefuseIfTooDeep(const int64_t path_size) {
   }
 }
 
+// The path-scoped walk holds one branch per partial path, so under a path-scoped uniqueness rule it
+// enumerates simple paths rather than nodes -- superpolynomial in a densely connected region. `limit`
+// counts emitted paths, so a selective emission filter (a sparse `terminatorNodes`, say) leaves it
+// with nothing to stop it, and the walk then runs until a memory limit refuses an allocation, or the
+// OOM killer takes the process when none is set below what the machine can supply. Refuse first, so
+// the failure names the query rather than arriving as an allocation error or a dead server.
+//
+// Measured on a mesh topology: the widest walk that still finishes (1000 paths emitted) reaches 4.7M
+// branches, so this leaves more than a factor of two above anything that legitimately completes.
+constexpr size_t kMaxBranches = 10'000'000;
+
+void RefuseIfTooManyBranches(const size_t branches) {
+  if (branches > kMaxBranches) {
+    throw mgp::ValueException(
+        "Path expansion exceeded " + std::to_string(kMaxBranches) +
+        " partial paths; bound it with maxHops, or use uniqueness NODE_GLOBAL, which visits each node once.");
+  }
+}
+
 // An end or termination filter anywhere in the step means only those nodes are returned.
 bool StepEndsNodesOnly(const Path::LabelStep &step) {
   return !step.sets.end_list.empty() || !step.sets.termination_list.empty() || step.wildcards.end_list ||
@@ -1218,6 +1237,7 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
       continue;
     }
 
+    RefuseIfTooManyBranches(branches_.size());
     branches_.push_back({.node_id = next_id,
                          .relationship_id = mgp::edge_get_id(edge).as_int,
                          .parent = index,
