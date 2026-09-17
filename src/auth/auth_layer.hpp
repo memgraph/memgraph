@@ -23,6 +23,7 @@
 #include "auth/auth.hpp"
 #include "auth/repository.hpp"
 #include "system/transaction.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::auth {
 
@@ -168,13 +169,21 @@ class AuthLayer {
     // A read-only transaction is still validated above, because what it read can still have been invalidated. It
     // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every session's
     // cached permissions, and nothing changed for them to re-read.
-    if (tx.overlay_ && tx.overlay_->HasWrites()) locked->UpdateEpoch();
+    auto const has_writes = tx.overlay_ && tx.overlay_->HasWrites();
+    // Anything to publish or release comes from a write, so the epoch always moves with it.
+    MG_ASSERT(has_writes || (tx.pending_actions_.empty() && tx.dropped_users_.empty()),
+              "Auth transaction publishes without a store write");
+    if (has_writes) locked->UpdateEpoch();
     if (system_tx) {
       for (auto &action : tx.pending_actions_) system_tx->AddAction(std::move(action));
     }
     tx.pending_actions_.clear();
 #ifdef MG_ENTERPRISE
-    for (auto const &username : tx.dropped_users_) locked->ReleaseUserResources(username);
+    // A user dropped and recreated in the same transaction still exists, and releasing would drop the limits
+    // its profile put on the recreated user.
+    for (auto const &username : tx.dropped_users_) {
+      if (!locked->HasUser(username)) locked->ReleaseUserResources(username);
+    }
     tx.dropped_users_.clear();
 #endif
     return true;
