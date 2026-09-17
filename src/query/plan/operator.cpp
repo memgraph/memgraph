@@ -9746,7 +9746,7 @@ std::unique_ptr<LogicalOperator> Foreach::Clone(AstStorage *storage) const {
 }
 
 namespace {
-/// Writes null into every @p symbols slot on the frame, for an input row whose branch produced nothing.
+/// Writes null into every @p symbols slot on the frame.
 void NullifySymbols(Frame &frame, ExecutionContext &context, const std::vector<Symbol> &symbols) {
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
   for (const Symbol &symbol : symbols) {
@@ -9832,7 +9832,7 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
       branch_yielded_ = true;
       return true;
     }
-    // The branch is exhausted, so the input row on the frame is spent whatever happens below.
+    // The branch is exhausted, so this input row is finished either way.
     pull_input_ = true;
     subquery_->Reset();
 
@@ -10415,7 +10415,7 @@ class PeriodicSubqueryCursor : public Cursor {
         pulled_ = 0;
       }
 
-      // The branch is exhausted, so the input row on the frame is spent whatever happens below.
+      // The branch is exhausted, so this input row is finished either way.
       pull_input_ = true;
       subquery_->Reset();
 

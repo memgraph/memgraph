@@ -3101,8 +3101,7 @@ class Foreach : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
-/// What an input row becomes when its subquery branch yields no rows. Keyed on the planned branch root, never on
-/// whether the body spells a RETURN. Free-standing because both @c Apply and @c PeriodicSubquery name it.
+/// What an input row becomes when its subquery branch yields no rows.
 enum class OnEmptyBranch : uint8_t {
   kDropRow,           ///< plain `CALL` - the row is dropped, as a row-producing branch filters as well as projects
   kPassRow,           ///< a branch rooted in @c EmptyResult, which never yields - cardinality is unchanged
