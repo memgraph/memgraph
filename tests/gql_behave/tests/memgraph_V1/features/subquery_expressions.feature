@@ -3135,8 +3135,7 @@ Feature: Subquery expressions
           | 'a'  | 1 |
           | 'b'  | 0 |
 
-  # A body's only correlation may be a filter: nothing in its patterns names the caller's variable. The conjunct
-  # still has to wait for whatever binds that variable, or the branch reads an unwritten frame slot.
+  # Only the filter names the caller's variable. The conjunct must still wait for whatever binds it.
   Scenario: Test EXISTS with a body correlated only through its filter
       Given an empty graph
       And having executed:
@@ -3156,8 +3155,7 @@ Feature: Subquery expressions
           | 'C' |
           | 'D' |
 
-  # A body's WITH may rename the caller's variable before any pattern uses it, so the caller's name is missed and the
-  # new one looks like an outer dependency nothing binds.
+  # A WITH renames the caller's variable before any pattern uses it.
   Scenario: Test EXISTS with a body renaming a caller variable in WITH
       Given an empty graph
       And having executed:
@@ -3178,9 +3176,8 @@ Feature: Subquery expressions
           | 'A' |
           | 'B' |
 
-  # The caller's variable reaches the body through a WITH that imports it and a filter that reads it, never a pattern.
-  # Both spellings answer without an error while the conjunct sits too low, so each pins a direction of the wrongness:
-  # this one drops every row.
+  # The caller's variable arrives through a WITH and a filter, never a pattern.
+  # Both spellings answer without erroring when the conjunct sits too low. This one drops every row.
   Scenario: Test EXISTS with a body importing a caller variable in WITH
       Given an empty graph
       And having executed:
@@ -3198,7 +3195,7 @@ Feature: Subquery expressions
           | n   |
           | 'A' |
 
-  # ... and this one keeps every row, which over-applies any write the query goes on to make.
+  # ... and this one keeps every row.
   Scenario: Test EXISTS with a body importing a caller variable in WITH and a null test
       Given an empty graph
       And having executed:
@@ -3217,8 +3214,7 @@ Feature: Subquery expressions
           | 'A' |
           | 'C' |
 
-  # Nothing here reaches outside the body, so the whole EXISTS is a constant: the name a WITH introduces and a later
-  # pattern re-uses is the body's own, not an outer dependency nothing would ever bind.
+  # Nothing reaches outside the body, so the EXISTS is constant. The name the WITH introduces is the body's own.
   Scenario: Test EXISTS with an uncorrelated body reusing its own WITH name
       Given an empty graph
       And having executed:
@@ -3235,8 +3231,7 @@ Feature: Subquery expressions
           | 'A' |
           | 'B' |
 
-  # The twin matters here: the case above qualifies every row, so on its own it cannot tell a working constant body
-  # from one that was dropped.
+  # The case above keeps every row, so it alone cannot distinguish a working body from a dropped one.
   Scenario: Test EXISTS with an uncorrelated body reusing its own WITH name and no match
       Given an empty graph
       And having executed:
@@ -3306,7 +3301,7 @@ Feature: Subquery expressions
           | 'A' |
           | 'B' |
 
-  # The body reads a variable an OPTIONAL MATCH binds, so the conjunct belongs above that expansion, not below it.
+  # The body reads a variable an OPTIONAL MATCH binds, so the conjunct belongs above that expansion.
   Scenario: Test EXISTS in an OPTIONAL MATCH filter reading the optional variable
       Given an empty graph
       And having executed:
@@ -3329,8 +3324,7 @@ Feature: Subquery expressions
           | 'C' | null |
           | 'D' | null |
 
-  # Two caller variables: one reaches the body through a pattern, the other only through the filter, so the conjunct
-  # waits for both.
+  # Two caller variables: one through a pattern, one only through the filter. The conjunct waits for both.
   Scenario: Test EXISTS with a body correlated to two caller variables
       Given an empty graph
       And having executed:
@@ -3347,8 +3341,7 @@ Feature: Subquery expressions
           | av | bv |
           | 5  | 5  |
 
-  # The conjunct is a comparison, not the fold itself, so the symbols it waits for have to come from the body all the
-  # same.
+  # The conjunct is a comparison, not the fold itself, but its symbols still come from the body.
   Scenario: Test COUNT compared in a filter with a body correlated only through its filter
       Given an empty graph
       And having executed:
@@ -3389,8 +3382,7 @@ Feature: Subquery expressions
           | 'C' |
           | 'D' |
 
-  # The body compares against a path the comprehension binds, so its filter waits for that path. A node never equals
-  # a path, so the comprehension keeps nothing.
+  # The body compares against a path the comprehension binds. A node never equals a path, so nothing is kept.
   Scenario: Test EXISTS in a pattern comprehension filter comparing to the comprehension path
       Given an empty graph
       And having executed:
@@ -3405,7 +3397,7 @@ Feature: Subquery expressions
           | paths |
           | []    |
 
-  # The same correlation, with a comparison the body can satisfy, so the filter is shown to run rather than to vanish.
+  # The same correlation, but with a comparison the body can satisfy, so the filter is shown to run.
   Scenario: Test EXISTS in a pattern comprehension filter comparing to a node of the comprehension path
       Given an empty graph
       And having executed:
@@ -3420,7 +3412,7 @@ Feature: Subquery expressions
           | c |
           | 1 |
 
-  # The caller's variable is named only in the second UNION branch, which the body's first branch says nothing about.
+  # The caller's variable is named only in the second UNION branch.
   Scenario: Test EXISTS with a body correlated only in its second UNION branch
       Given an empty graph
       And having executed:
@@ -3438,7 +3430,7 @@ Feature: Subquery expressions
           | 'A' |
           | 'B' |
 
-  # The twin matters here too: the case above qualifies every row.
+  # The case above keeps every row, so this twin is needed.
   Scenario: Test EXISTS with a body correlated only in its second UNION branch and no match
       Given an empty graph
       And having executed:
@@ -3453,9 +3445,8 @@ Feature: Subquery expressions
           """
       Then the result should be empty
 
-  # The comprehension's filter correlates to `k`, which a sibling pattern binds - not to the comprehension's own
-  # element. Nothing in the comprehension's pattern names `k`, so the conjunct has to wait for the scan that binds it;
-  # planted any earlier, the whole filter is dropped and every `n` with an outgoing edge passes for every `k`.
+  # The comprehension's filter reads `k`, which a sibling pattern binds, not the comprehension's own element.
+  # If the conjunct is placed too early, the whole filter is dropped and every `n` with an outgoing edge passes.
   Scenario: Test EXISTS in a pattern comprehension filter comparing to a sibling-bound variable
       Given an empty graph
       And having executed:

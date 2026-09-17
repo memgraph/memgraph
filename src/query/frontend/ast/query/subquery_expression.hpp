@@ -48,7 +48,7 @@ class SubqueryExpression : public memgraph::query::Expression {
   Fold fold_{Fold::kBool};
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
-  /// The symbols the body reads that were bound outside it. Filled by @c SymbolGenerator, empty until then.
+  /// Symbols the body reads but does not declare. Set by @c SymbolGenerator.
   std::unordered_set<Symbol> external_symbols_;
 
   /// The construct a fold is written as, so a diagnostic names the spelling the user reached for. A switch, so a

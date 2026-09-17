@@ -167,9 +167,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   int in_pattern_comprehension_depth{0};
 };
 
-/// Collects used symbols, but takes a subquery's contribution from the set @c SymbolGenerator computed for its body.
-/// The base walks only the body's top-level pattern atoms: it misses a correlation carried by a `WHERE` or a `WITH`,
-/// and counts a body-declared name re-used as a later atom as an outer dependency that nothing ever binds.
+/// Takes a subquery's symbols from the set @c SymbolGenerator computed, instead of walking its body.
+/// The base walks only the body's top-level pattern atoms, so it misses a `WHERE` or `WITH` correlation and
+/// treats a name the body declared as an outer one.
 class SubqueryAwareUsedSymbolsCollector : public UsedSymbolsCollector {
  public:
   using UsedSymbolsCollector::UsedSymbolsCollector;
@@ -179,11 +179,9 @@ class SubqueryAwareUsedSymbolsCollector : public UsedSymbolsCollector {
   using UsedSymbolsCollector::Visit;
 
   bool PreVisit(SubqueryExpression &subquery) override {
-    // Kept balanced against the base's PostVisit; a nested body's externals already reached this set through it.
-    ++in_subquery_depth;
+    // The body is not walked. Its own frame already produced this set.
     for (const auto &symbol : subquery.external_symbols_) {
-      // External to the body, but still bound inside the branch an enclosing comprehension drives - so not something
-      // the conjunct can wait for. Demanding it would leave the conjunct unplantable and abort the query.
+      // Outside the body, but bound inside the comprehension's branch. Requiring it would abort the query.
       if (!comprehension_bound_.contains(symbol)) {
         symbols_.insert(symbol);
       }
@@ -192,8 +190,8 @@ class SubqueryAwareUsedSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PreVisit(PatternComprehension &pc) override {
-    // The base walks the pattern only, so a subquery in the filter or the result expression is never reached and the
-    // correlation it carries never lands here - the conjunct is then planted below the operator that binds it.
+    // The base walks only the pattern and misses a subquery in the filter or the result. Without this, the filter
+    // is placed below the scan that binds what the subquery reads.
     UsedSymbolsCollector::PreVisit(pc);
 
     auto const outer_bound = comprehension_bound_;
@@ -204,8 +202,7 @@ class SubqueryAwareUsedSymbolsCollector : public UsedSymbolsCollector {
       comprehension_bound_.insert(symbol_table_.at(*atom->identifier_));
     }
 
-    // Only the nested subqueries contribute here. Collecting identifiers as well would pull in the comprehension's
-    // own variables through a door the exclusion above does not cover.
+    // Only subqueries contribute. Collecting identifiers would also add the comprehension's own variables.
     auto const outer_only = subquery_externals_only_;
     subquery_externals_only_ = true;
     if (pc.filter_) {
@@ -220,17 +217,19 @@ class SubqueryAwareUsedSymbolsCollector : public UsedSymbolsCollector {
     return false;
   }
 
+  // `Accept` runs `PostVisit` even when `PreVisit` returns false. The body was never entered, so skip the base's
+  // decrement.
+  bool PostVisit(SubqueryExpression & /*subquery*/) override { return true; }
+
   bool Visit(Identifier &ident) override {
     if (subquery_externals_only_) return true;
     return UsedSymbolsCollector::Visit(ident);
   }
 
  private:
-  // What the comprehensions currently being walked bind themselves. Nested ones accumulate; each restores on the way
-  // out, so a sibling comprehension is unaffected.
+  // Variables bound by the enclosing comprehensions. Nested comprehensions add to this and restore on exit.
   std::unordered_set<Symbol> comprehension_bound_;
-  // Set while walking a comprehension's filter / result expression: a nested subquery still contributes, an
-  // identifier does not.
+  // When set, subqueries contribute but identifiers do not.
   bool subquery_externals_only_{false};
 };
 
@@ -657,8 +656,6 @@ struct QueryParts;
 /// One EXISTS, normalized. The pattern form fills in @c Matching's expansions and filters; the subquery form leaves
 /// those empty and carries a preprocessed body instead.
 struct SubqueryMatching : Matching {
-  /// The symbols the body reads that were bound outside it, as @c SymbolGenerator computed them.
-  std::unordered_set<Symbol> external_symbols;
   /// Which spelling this was written as.
   SubqueryKind type{SubqueryKind::kPattern};
   /// What the branch's rows are reduced to - the other axis, independent of @c type.

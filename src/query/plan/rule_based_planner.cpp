@@ -40,6 +40,10 @@ bool IsConstantLiteral(const Expression *expression) {
 /// Like UsedSymbolsCollector, but descends into a correlated subquery's body in full: a filter, a result expression
 /// or a body WHERE can correlate an outer name, and whatever restores rows below the branch (Accumulate, OrderBy)
 /// has to remember it. The base class stops at the pattern, as its other callers need.
+///
+/// Deliberately a superset of @c SubqueryExpression::external_symbols_ - it keeps the body's own names too.
+/// Do not narrow it. The Accumulate remember-list below only guards against @c output_symbols_. A dropped symbol
+/// loses a frame slot and produces a wrong answer; an extra one only copies a Null.
 class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
  public:
   using UsedSymbolsCollector::UsedSymbolsCollector;
@@ -70,11 +74,11 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
 
 /// Visitor to collect correlated-subquery result symbols from expressions.
 /// Used to track which subqueries appear inside aggregate expressions, and which ones a MERGE branch reads.
-class SubquerySymbolCollector : public HierarchicalTreeVisitor {
+class SubqueryResultSymbolCollector : public HierarchicalTreeVisitor {
  public:
   /// @param subquery_symbols Collected in visit order, so a caller that plans from them splices a deterministic chain.
-  SubquerySymbolCollector(const SymbolTable &symbol_table, std::unordered_set<Symbol> &pc_symbols,
-                          std::vector<Symbol> *subquery_symbols = nullptr)
+  SubqueryResultSymbolCollector(const SymbolTable &symbol_table, std::unordered_set<Symbol> &pc_symbols,
+                                std::vector<Symbol> *subquery_symbols = nullptr)
       : symbol_table_(symbol_table), pc_symbols_(pc_symbols), subquery_symbols_(subquery_symbols) {}
 
   using HierarchicalTreeVisitor::PostVisit;
@@ -203,7 +207,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       auto plan_subqueries_in = [&](Expression &expr, BodyPosition position) {
         std::unordered_set<Symbol> pc_symbols;
         std::vector<Symbol> subquery_symbols;
-        SubquerySymbolCollector collector(symbol_table_, pc_symbols, &subquery_symbols);
+        SubqueryResultSymbolCollector collector(symbol_table_, pc_symbols, &subquery_symbols);
         expr.Accept(collector);
         position_ = position;
         for (const auto &sym : pc_symbols) {
@@ -550,7 +554,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
     // Collect subquery result symbols used in this aggregation's expressions.
     // These must be planned BEFORE the Aggregate operator.
-    SubquerySymbolCollector collector(
+    SubqueryResultSymbolCollector collector(
         symbol_table_, pattern_comprehensions_in_aggregations_, &subqueries_in_aggregations_);
     if (aggr.expression1_) {
       aggr.expression1_->Accept(collector);
@@ -986,7 +990,7 @@ std::unordered_set<Symbol> MergeBranchComprehensions(query::Clause *clause, cons
 std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<Clause *> &clauses,
                                                               const SymbolTable &symbol_table) {
   std::unordered_set<Symbol> symbols;
-  SubquerySymbolCollector collector(symbol_table, symbols);
+  SubqueryResultSymbolCollector collector(symbol_table, symbols);
   for (auto *clause : clauses) {
     clause->Accept(collector);
   }

@@ -67,7 +67,7 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
 }
 
 void SymbolGenerator::RecordSubqueryDeclaration(const Symbol &symbol) {
-  // A symbol created while a body is open is bound inside every body open at the time, never outside one.
+  // A symbol made while bodies are open belongs to all of them.
   for (auto &frame : subquery_frames_) {
     frame.declared.insert(symbol);
   }
@@ -773,8 +773,7 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
 
 bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
   const auto &frame = subquery_frames_.back();
-  // Assigned, not merged: a simple CASE reaches its test expression once per WHEN arm, and each visit resolves the
-  // body's own names to fresh symbols. The last visit is the one the symbol table keeps.
+  // Overwrite instead of merging. A simple CASE visits its test once per WHEN arm; only the last visit is kept.
   subquery.external_symbols_.clear();
   for (const auto &symbol : frame.referenced) {
     if (!frame.declared.contains(symbol)) {
