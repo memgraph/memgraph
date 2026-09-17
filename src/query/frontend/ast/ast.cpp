@@ -396,6 +396,9 @@ constexpr utils::TypeInfo query::TransactionQueueQuery::kType{.id = utils::TypeI
                                                               .name = "TransactionQueueQuery",
                                                               .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::SessionQuery::kType{
+    .id = utils::TypeId::AST_SESSION_QUERY, .name = "SessionQuery", .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::SubqueryExpression::kType{.id = utils::TypeId::AST_SUBQUERY_EXPRESSION,
                                                            .name = "SubqueryExpression",
                                                            .superclass = &query::Expression::kType};

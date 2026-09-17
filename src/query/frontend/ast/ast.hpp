@@ -4011,6 +4011,29 @@ class TransactionQueueQuery : public memgraph::query::Query {
   }
 };
 
+class SessionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { SHOW, TERMINATE };
+
+  SessionQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::SessionQuery::Action action_;
+  std::vector<Expression *> session_id_list_;  // populated for TERMINATE; empty for SHOW
+
+  SessionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<SessionQuery>();
+    object->action_ = action_;
+    object->session_id_list_ = session_id_list_;
+    return object;
+  }
+};
+
 class AnalyzeGraphQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

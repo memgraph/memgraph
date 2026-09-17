@@ -260,6 +260,7 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
                                                  utils::Downcast<query::SettingQuery>(query) ||
                                                  utils::Downcast<query::VersionQuery>(query) ||
                                                  utils::Downcast<query::TransactionQueueQuery>(query) ||
+                                                 utils::Downcast<query::SessionQuery>(query) ||
                                                  utils::Downcast<query::UseDatabaseQuery>(query) ||
                                                  utils::Downcast<query::ShowDatabaseQuery>(query) ||
                                                  utils::Downcast<query::ShowDatabasesQuery>(query) ||
