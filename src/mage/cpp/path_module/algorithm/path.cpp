@@ -40,6 +40,20 @@ void RefuseIfTooDeep(const int64_t path_size) {
   }
 }
 
+// Below this, a failure is its own explanation; above it, the walk is large enough that what bounds
+// it is worth saying whatever the failure was.
+constexpr size_t kAdviseAboveBranches = 1'000'000;
+
+// Naming a bound the caller already gave is no advice at all, so which sentence is said depends on
+// whether the walk has an upper hop bound to begin with.
+constexpr std::string_view kUnboundedAdvice =
+    " -- give the walk an upper hop bound (maxHops, or maxLevel), or use uniqueness NODE_GLOBAL, "
+    "which visits each node once.";
+
+constexpr std::string_view kBoundedAdvice =
+    " -- lower the upper hop bound (maxHops, or maxLevel), or use uniqueness NODE_GLOBAL, which "
+    "visits each node once.";
+
 // An end or termination filter anywhere in the step means only those nodes are returned.
 bool StepEndsNodesOnly(const Path::LabelStep &step) {
   return !step.sets.end_list.empty() || !step.sets.termination_list.empty() || step.wildcards.end_list ||
@@ -1292,7 +1306,24 @@ void Path::PathExpand::RunAlgorithm() {
     RunNodeGlobalBfs();
     return;
   }
-  RunPathScopedBfs();
+  try {
+    RunPathScopedBfs();
+  } catch (const mgp::MustAbortException &) {
+    // A termination, a shutdown or a timeout is not the walk running out of room, whatever it was
+    // holding when it stopped.
+    throw;
+  } catch (const std::exception &e) {
+    const size_t held = branches_.size();
+    if (held < kAdviseAboveBranches) {
+      throw;
+    }
+    // Released first: what threw was most likely an allocation, and the message below needs one.
+    branches_ = {};
+    const std::string_view advice =
+        path_data_.helper_.MaxHops() == std::numeric_limits<int64_t>::max() ? kUnboundedAdvice : kBoundedAdvice;
+    throw mgp::ValueException(std::string{e.what()} + " (the walk was holding " + std::to_string(held) +
+                              " partial paths)" + std::string{advice});
+  }
 }
 
 namespace {
