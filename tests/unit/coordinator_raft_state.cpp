@@ -49,9 +49,6 @@ class RaftStateTest : public ::testing::Test {
 
   int32_t const coordinator_id = 21;
   uint16_t const bolt_port = 6687;
-  // Below /proc/sys/net/ipv4/ip_local_port_range, whose default low end is 32768: a fixed port
-  // inside that range is one the kernel can already have handed to some other test's outbound
-  // connection by the time this one binds, which fails the bind for reasons nothing here controls.
   uint16_t const coordinator_port = 22'345;
   uint16_t const management_port = 21'345;
 };

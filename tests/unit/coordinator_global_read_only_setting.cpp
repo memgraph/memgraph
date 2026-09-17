@@ -71,7 +71,6 @@ class CoordinatorGlobalReadOnlySettingTest : public ::testing::Test {
 
   int32_t const coordinator_id = 1;
   uint16_t const bolt_port = 6690;
-  // Kept below the 32768 ephemeral-range floor; see the note in coordinator_raft_state.cpp.
   uint16_t const coordinator_port = 22'348;
   uint16_t const management_port = 21'348;
 };
