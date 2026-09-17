@@ -2860,8 +2860,6 @@ test_mage() {
       fi
       docker cp src/mage/python/$requirements_file $build_container:/tmp/$requirements_file
       docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
-      # install_python_requirements.sh --uv installs from a lockfile whenever it
-      # finds one next to the requirements file, so ship those along too.
       local requirements_lock="${requirements_file%.txt}.lock"
       if [[ -f "$PROJECT_ROOT/src/mage/python/$requirements_lock" ]]; then
         docker cp src/mage/python/$requirements_lock $build_container:/tmp/$requirements_lock
@@ -2878,11 +2876,7 @@ test_mage() {
         pybin="python3.12"
         docker exec -i -u root $build_container bash -c "rpm -q python3.12-pip >/dev/null 2>&1 || dnf install -y python3.12 python3.12-pip python3.12-devel"
       fi
-      # MAGE's deps are installed globally (memgraph loads the modules from the
-      # interpreter it embeds), so uv targets $pybin's own environment rather
-      # than a virtualenv. mg can't write that interpreter's site-packages, and
-      # uv has no --user, so the test deps go where pip used to put them: the
-      # user site. install_python_requirements.sh makes the same call itself.
+
       local ENSURE_UV="$(ensure_uv_cmd)"
       local UV_ENV="export UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1 UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never"
       local test_requirements="src/mage/python/tests/requirements.txt"
