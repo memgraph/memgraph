@@ -382,9 +382,14 @@ class PathExpand {
 
   void RunPathScopedBfs();
   void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing, std::queue<int64_t> &frontier);
-  // Reads the adjacency from storage on the first ask and answers from the cache after it.
+  // Reads the adjacency from storage, and stores the answer once it has been asked for twice. The
+  // returned reference is invalidated by the next call, so a caller must finish with one answer
+  // before asking for another.
   [[nodiscard]] const std::vector<AdmittedEdge> &AdmittedNeighbours(int64_t node_id, mgp_vertex *vertex, bool outgoing,
                                                                     int64_t depth);
+  // Whether this neighbourhood has been asked for before, in one bit per key. A collision only makes
+  // a key look asked-before, which stores it one ask early -- never a wrong answer.
+  [[nodiscard]] bool AskedBefore(size_t hash);
   // Walks the parent chain rather than a visited set: the rule is scoped to this path, not the walk.
   [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
   // Rebuilds the path a branch stands for. Only emitted branches pay for it.
@@ -407,6 +412,12 @@ class PathExpand {
   // pays for itself exactly when a node is reached by more than one partial path -- which is the
   // case a path-scoped uniqueness rule creates.
   std::unordered_map<NeighbourhoodKey, std::vector<AdmittedEdge>, NeighbourhoodHash> admitted_;
+  // An entry is only worth storing if it is asked for again. A walk over a graph with a single route
+  // to each node never asks twice, and storing every first ask would be pure overhead there, so a
+  // first ask is answered from `scratch_` and only recorded in `asked_`.
+  static constexpr size_t kAskedBits = size_t{1} << 21U;
+  std::vector<uint64_t> asked_;
+  std::vector<AdmittedEdge> scratch_;
 };
 
 class PathSubgraph {

@@ -1230,6 +1230,18 @@ mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
   return path;
 }
 
+bool Path::PathExpand::AskedBefore(const size_t hash) {
+  if (asked_.empty()) {
+    asked_.assign(kAskedBits / 64U, 0);
+  }
+  const size_t bit = hash & (kAskedBits - 1U);
+  uint64_t &word = asked_[bit / 64U];
+  const uint64_t mask = uint64_t{1} << (bit % 64U);
+  const bool asked_before = (word & mask) != 0U;
+  word |= mask;
+  return asked_before;
+}
+
 const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNeighbours(const int64_t node_id,
                                                                                         mgp_vertex *vertex,
                                                                                         const bool outgoing,
@@ -1239,10 +1251,14 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
   if (const auto it = admitted_.find(cache_key); it != admitted_.end()) {
     return it->second;
   }
+  // Storing costs a map node and a vector, which a walk that never comes back pays for nothing.
+  const bool worth_storing = AskedBefore(NeighbourhoodHash{}(cache_key));
 
   // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(depth);
-  std::vector<AdmittedEdge> admitted;
+  // Reused across first asks, so they settle into allocating nothing at all.
+  std::vector<AdmittedEdge> &admitted = scratch_;
+  admitted.clear();
   const BorrowedEdges edges{vertex, outgoing};
   for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     // A node whose relationships are all filtered out does no other work, so without this poll a
@@ -1263,8 +1279,11 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
     admitted.push_back(
         {.next_id = next_id, .relationship_id = relationship_id, .next_vertex = node_it->second.GetPtr()});
   }
+  if (!worth_storing) {
+    return admitted;
+  }
   // Built whole before it is published: a list cut short by a limit would be wrong for every later ask.
-  return admitted_.emplace(cache_key, std::move(admitted)).first->second;
+  return admitted_.emplace(cache_key, admitted).first->second;
 }
 
 void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, const bool outgoing,
