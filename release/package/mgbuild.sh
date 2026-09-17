@@ -2879,8 +2879,10 @@ test_mage() {
         docker exec -i -u root $build_container bash -c "rpm -q python3.12-pip >/dev/null 2>&1 || dnf install -y python3.12 python3.12-pip python3.12-devel"
       fi
       # MAGE's deps are installed globally (memgraph loads the modules from the
-      # interpreter it embeds), so uv targets $pybin's system environment
-      # directly instead of a virtualenv.
+      # interpreter it embeds), so uv targets $pybin's own environment rather
+      # than a virtualenv. mg can't write that interpreter's site-packages, and
+      # uv has no --user, so the test deps go where pip used to put them: the
+      # user site. install_python_requirements.sh makes the same call itself.
       local ENSURE_UV="$(ensure_uv_cmd)"
       local UV_ENV="export UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1 UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never"
       local test_requirements="src/mage/python/tests/requirements.txt"
@@ -2889,7 +2891,7 @@ test_mage() {
       fi
       docker exec -i -u mg $build_container bash -c "$ENSURE_UV && $UV_ENV && cd \$HOME/memgraph/release/package/mage/ && \
         PYTHON=$pybin ./install_python_requirements.sh --ci --uv --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
-        uv pip install --python $pybin -r \$HOME/memgraph/$test_requirements"
+        uv pip install --python \$(command -v $pybin) --target \$($pybin -m site --user-site) -r \$HOME/memgraph/$test_requirements"
       docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/src/mage/python/ && $pybin -m pytest ."
     ;;
     e2e)
