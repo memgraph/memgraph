@@ -3,6 +3,10 @@ set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SCRIPT_NAME=${0##*/}
 PROJECT_ROOT="$SCRIPT_DIR/../.."
+# Toolchain versions live in environment/util.sh, which the containers run too,
+# so there is one place to bump them. Sourcing it is safe: the file is function
+# definitions plus those two version constants.
+source "$PROJECT_ROOT/environment/util.sh"
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
 
@@ -82,8 +86,8 @@ MGBENCH_CACHE_CONTAINER_DIR="/home/mg/.cache/mgbench"
 DEFAULT_CARGO_CACHE_ENABLED="true"
 CARGO_CACHE_CONTAINER_DIR="/home/mg/.cargo"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
-DEFAULT_RUST_VERSION="1.89"
-DEFAULT_NODE_VERSION="24.19.0"
+DEFAULT_RUST_VERSION="$MG_RUST_VERSION"
+DEFAULT_NODE_VERSION="$MG_NODE_VERSION"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -538,6 +542,15 @@ setup_host_cache_permissions() {
   fi
 }
 
+# rustup and nvm accept partial version specs ("1.89" is the newest 1.89.x), but
+# cargo/node always report all three components, so a literal compare against a
+# partial spec never matches and reinstalls the toolchain on every build.
+version_satisfies () {
+  local installed="$1" requested="$2"
+  [[ -n "$installed" ]] || return 1
+  [[ "$installed" == "$requested" || "$installed" == "$requested".* ]]
+}
+
 copy_project_files() {
   echo "Copying project files..."
   project_files=$(ls -A1 "$PROJECT_ROOT")
@@ -852,7 +865,8 @@ build_memgraph () {
   local deps_group
   echo "Installing dependencies using '$env_script' script..."
   for deps_group in TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS MEMGRAPH_TEST_DEPS MEMGRAPH_RUN_DEPS; do
-    docker exec -u root -e SUDO_USER=mg "$build_container" bash -c "$env_script check $deps_group || $env_script install $deps_group"
+    docker exec -u root -e SUDO_USER=mg -e MG_RUST_VERSION="$DEFAULT_RUST_VERSION" -e MG_NODE_VERSION="$DEFAULT_NODE_VERSION" \
+      "$build_container" bash -c "$env_script check $deps_group || $env_script install $deps_group"
   done
 
   # check rust version installed matches
@@ -862,7 +876,7 @@ build_memgraph () {
     installed_rust_ver="${BASH_REMATCH[1]}"
     echo "Found Rust version ${installed_rust_ver} in the build container"
   fi
-  if [[ "$installed_rust_ver" != "$DEFAULT_RUST_VERSION" ]]; then
+  if ! version_satisfies "$installed_rust_ver" "$DEFAULT_RUST_VERSION"; then
     echo "Installing Rust $DEFAULT_RUST_VERSION..."
     docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
   fi
@@ -873,7 +887,7 @@ build_memgraph () {
     installed_node_ver="${BASH_REMATCH[1]}"
     echo "Found Node version ${installed_node_ver} in the build container"
   fi
-  if [[ "$installed_node_ver" != "$DEFAULT_NODE_VERSION" ]]; then
+  if ! version_satisfies "$installed_node_ver" "$DEFAULT_NODE_VERSION"; then
     echo "Installing Node $DEFAULT_NODE_VERSION..."
     docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_node $DEFAULT_NODE_VERSION"
   fi

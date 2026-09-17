@@ -2,9 +2,12 @@
 
 DISABLE_NODE=${DISABLE_NODE:-false}
 
-# TODO(matt): rebuild mgbuild images with node 24 installed in mg user's directory
+# MG_NODE_VERSION is the version mgbuild provisions for the mg user; read it from
+# environment/util.sh rather than keeping a second copy that can drift from it.
+source "$( cd "$( dirname "${BASH_SOURCE[0]}" )/../environment" && pwd )/util.sh"
 NODE_MIN_VERSION="${NODE_MIN_VERSION:-20}"
-NODE_INSTALL_VERSION="${NODE_INSTALL_VERSION:-24.19.0}"
+NODE_INSTALL_VERSION="${NODE_INSTALL_VERSION:-$MG_NODE_VERSION}"
+PNPM_VERSION="${PNPM_VERSION:-10.33.4}"
 
 # True when a node on PATH is at least $1 major.
 node_major_at_least() {
@@ -40,9 +43,16 @@ setup_node() {
     exit 1
   fi
 
-  echo "Activating pinned pnpm via corepack."
-  corepack enable pnpm 2>/dev/null || corepack enable 2>/dev/null || true
-  corepack prepare pnpm@10.33.4 --activate 2>/dev/null || true
+  # pnpm is the only package manager these suites use and every project wants the
+  # same pinned version, so install it straight from npm. This used to go through
+  # corepack, which was worth it only while node bundled it: node >= 25 does not,
+  # and nothing here uses the `packageManager` field corepack exists to read.
+  # Under nvm `npm -g` writes into the active version's own prefix, so no sudo.
+  if [ "$(pnpm --version 2>/dev/null)" != "$PNPM_VERSION" ]; then
+    echo "Installing pnpm@$PNPM_VERSION."
+    npm install -g "pnpm@$PNPM_VERSION" >/dev/null 2>&1 || true
+    hash -r 2>/dev/null || true
+  fi
 
   if ! command -v pnpm >/dev/null; then
     echo "Could NOT find pnpm. Make sure pnpm is installed."
