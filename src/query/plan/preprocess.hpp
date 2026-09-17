@@ -181,9 +181,57 @@ class SubqueryAwareUsedSymbolsCollector : public UsedSymbolsCollector {
   bool PreVisit(SubqueryExpression &subquery) override {
     // Kept balanced against the base's PostVisit; a nested body's externals already reached this set through it.
     ++in_subquery_depth;
-    symbols_.insert(subquery.external_symbols_.begin(), subquery.external_symbols_.end());
+    for (const auto &symbol : subquery.external_symbols_) {
+      // External to the body, but still bound inside the branch an enclosing comprehension drives - so not something
+      // the conjunct can wait for. Demanding it would leave the conjunct unplantable and abort the query.
+      if (!comprehension_bound_.contains(symbol)) {
+        symbols_.insert(symbol);
+      }
+    }
     return false;
   }
+
+  bool PreVisit(PatternComprehension &pc) override {
+    // The base walks the pattern only, so a subquery in the filter or the result expression is never reached and the
+    // correlation it carries never lands here - the conjunct is then planted below the operator that binds it.
+    UsedSymbolsCollector::PreVisit(pc);
+
+    auto const outer_bound = comprehension_bound_;
+    if (pc.variable_) {
+      comprehension_bound_.insert(symbol_table_.at(*pc.variable_));
+    }
+    for (auto *atom : pc.pattern_->atoms_) {
+      comprehension_bound_.insert(symbol_table_.at(*atom->identifier_));
+    }
+
+    // Only the nested subqueries contribute here. Collecting identifiers as well would pull in the comprehension's
+    // own variables through a door the exclusion above does not cover.
+    auto const outer_only = subquery_externals_only_;
+    subquery_externals_only_ = true;
+    if (pc.filter_) {
+      pc.filter_->expression_->Accept(*this);
+    }
+    if (pc.resultExpr_) {
+      pc.resultExpr_->Accept(*this);
+    }
+    subquery_externals_only_ = outer_only;
+
+    comprehension_bound_ = outer_bound;
+    return false;
+  }
+
+  bool Visit(Identifier &ident) override {
+    if (subquery_externals_only_) return true;
+    return UsedSymbolsCollector::Visit(ident);
+  }
+
+ private:
+  // What the comprehensions currently being walked bind themselves. Nested ones accumulate; each restores on the way
+  // out, so a sibling comprehension is unaffected.
+  std::unordered_set<Symbol> comprehension_bound_;
+  // Set while walking a comprehension's filter / result expression: a nested subquery still contributes, an
+  // identifier does not.
+  bool subquery_externals_only_{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

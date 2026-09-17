@@ -3452,3 +3452,24 @@ Feature: Subquery expressions
           RETURN a.name AS n ORDER BY n;
           """
       Then the result should be empty
+
+  # The comprehension's filter correlates to `k`, which a sibling pattern binds - not to the comprehension's own
+  # element. Nothing in the comprehension's pattern names `k`, so the conjunct has to wait for the scan that binds it;
+  # planted any earlier, the whole filter is dropped and every `n` with an outgoing edge passes for every `k`.
+  Scenario: Test EXISTS in a pattern comprehension filter comparing to a sibling-bound variable
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          CREATE (:Movie {title: 'B'})
+          """
+      When executing query:
+          """
+          MATCH (n:Person), (k:Person)
+          WHERE size([(n)-[:KNOWS]->(c) WHERE EXISTS { MATCH (z:Movie) WHERE z.title = k.name } | c]) > 0
+          RETURN n.name AS x, k.name AS y ORDER BY x, y;
+          """
+      Then the result should be, in order:
+          | x   | y   |
+          | 'A' | 'B' |
