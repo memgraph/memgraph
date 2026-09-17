@@ -41,18 +41,25 @@ setup_node() {
     exit 1
   fi
 
+  local npm_out
   if [ "$(pnpm --version 2>/dev/null)" != "$PNPM_VERSION" ]; then
     echo "Installing pnpm@$PNPM_VERSION."
-    npm install -g "pnpm@$PNPM_VERSION" >/dev/null 2>&1 || true
+    if ! npm_out="$(npm install -g "pnpm@$PNPM_VERSION" 2>&1)"; then
+      echo "ERROR: failed to install pnpm@$PNPM_VERSION:"
+      echo "$npm_out"
+      exit 1
+    fi
     hash -r 2>/dev/null || true
   fi
 
-  if ! command -v pnpm >/dev/null; then
-    echo "Could NOT find pnpm. Make sure pnpm is installed."
+  local pnpm_version
+  pnpm_version="$(pnpm --version 2>/dev/null || true)"
+  if [ "$pnpm_version" != "$PNPM_VERSION" ]; then
+    echo "ERROR: expected pnpm $PNPM_VERSION, found ${pnpm_version:-none}."
     exit 1
   fi
   echo "NODE VERSION: $(node --version)"
-  echo "PNPM VERSION: $(pnpm --version)"
+  echo "PNPM VERSION: $pnpm_version"
   if ! node_major_at_least "$NODE_MIN_VERSION"; then
     echo "ERROR: It's required to have node >= $NODE_MIN_VERSION, found $(node --version)."
     exit 1
