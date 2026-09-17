@@ -207,6 +207,25 @@ TEST_F(AuthLayerTest, DroppingAUserInATransactionHoldsItsResourcesUntilCommit) {
   EXPECT_EQ(held.use_count(), 1) << "resources still held after COMMIT";
 }
 
+TEST_F(AuthLayerTest, RecreatingADroppedUserKeepsItsResources) {
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+  auto held = resources_.GetUser("alice");
+  ASSERT_EQ(held.use_count(), 2);
+
+  memgraph::auth::AuthTransaction tx;
+  {
+    auto locked = layer_->Lock(&tx);
+    ASSERT_TRUE(locked->RemoveUser("alice"));
+    ASSERT_TRUE(locked->AddUser("alice").has_value());
+  }
+
+  ASSERT_TRUE(layer_->Commit(tx, nullptr));
+  EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
+  EXPECT_EQ(held.use_count(), 2) << "resources released for a user the transaction recreated";
+}
+
 TEST_F(AuthLayerTest, AbandoningATransactionLeavesDroppedUsersResourcesIntact) {
   {
     ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
