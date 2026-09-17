@@ -7446,7 +7446,7 @@ auto ShowSessions(const std::unordered_set<Interpreter *> &interpreters, QueryUs
     if (lv && rv) return *lv == *rv;
     return false;
   };
-  for (Interpreter *interpreter : interpreters) {
+  for (const Interpreter *interpreter : interpreters) {
     auto const session_snapshot = interpreter->foreign_session_view_.load();
     if (!session_snapshot) continue;  // null snapshot: session is pre-login (mid-handshake) or logged off — skip
     auto const user_snapshot = interpreter->foreign_user_view_.load();
