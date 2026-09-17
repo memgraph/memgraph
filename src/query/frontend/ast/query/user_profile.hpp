@@ -104,4 +104,23 @@ class UserProfileQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+/// True for the actions that change a profile. The rest are the SHOW family, which only read.
+inline bool IsUserProfileWrite(UserProfileQuery::Action action) {
+  switch (action) {
+    case UserProfileQuery::Action::CREATE:
+    case UserProfileQuery::Action::UPDATE:
+    case UserProfileQuery::Action::DROP:
+    case UserProfileQuery::Action::SET:
+    case UserProfileQuery::Action::CLEAR:
+      return true;
+    case UserProfileQuery::Action::SHOW_ALL:
+    case UserProfileQuery::Action::SHOW_ONE:
+    case UserProfileQuery::Action::SHOW_USERS:
+    case UserProfileQuery::Action::SHOW_FOR:
+    case UserProfileQuery::Action::SHOW_RESOURCE_USAGE:
+      return false;
+  }
+  return false;
+}
+
 }  // namespace memgraph::query
