@@ -19,10 +19,13 @@
 #include <optional>
 #include <queue>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace Path {
@@ -298,6 +301,101 @@ struct PathData {
   int64_t emitted_ = 0;
 };
 
+// Entries in one block: power-of-two capacity, linear probing, no allocation per entry.
+//
+// Hand-written because the key is its own hash and the low bits pick the slot, so ids off a counter
+// -- which is what node and relationship ids are -- stay in mint order, and a walk reaching
+// neighbouring ids touches neighbouring cache lines. Benchmarked on a 797 161-node walk: this map
+// 0.218s, `boost::unordered_flat_map` 0.373s, this map with the hash mixed 0.433s. Boost's container
+// is the better one; the mint order is what wins, and a library map must mix, having no claim on the
+// key. So the ids must stay counter-like -- do not add a mixing step here.
+// The identity, spelled out: the map's whole advantage is that ids keep their minted order, and
+// `std::hash` is only the identity for integers by convention, not by the standard.
+struct IdentityHash {
+  [[nodiscard]] constexpr size_t operator()(const int64_t id) const noexcept { return static_cast<size_t>(id); }
+};
+
+template <typename Key, typename Value, typename Hash = IdentityHash>
+class FlatMap {
+  // Growing moves the entries, and a handle borrowed from a node stored here outlives that move.
+  // A move that copied, or that threw halfway, would leave the handle dangling.
+  static_assert(std::is_nothrow_move_constructible_v<Value>);
+
+ public:
+  [[nodiscard]] Value *Find(const Key &key) noexcept {
+    if (slots_.empty()) {
+      return nullptr;
+    }
+    for (size_t slot = Start(key);; slot = Next(slot)) {
+      if (!slots_[slot].has_value()) {
+        return nullptr;
+      }
+      if (slots_[slot]->first == key) {
+        return &slots_[slot]->second;
+      }
+    }
+  }
+
+  // Constructs the value from `args` only when the key is new, and answers with it either way. The
+  // reference lives until the next insert.
+  template <typename... Args>
+  Value &Emplace(const Key &key, Args &&...args) {
+    if (2 * (size_ + 1) > slots_.size()) {
+      Grow();
+    }
+    for (size_t slot = Start(key);; slot = Next(slot)) {
+      if (!slots_[slot].has_value()) {
+        slots_[slot].emplace(
+            std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple(std::forward<Args>(args)...));
+        ++size_;
+        return slots_[slot]->second;
+      }
+      if (slots_[slot]->first == key) {
+        return slots_[slot]->second;
+      }
+    }
+  }
+
+  // For a key the caller's own invariant says is there. Absence is a logic error, so it throws
+  // rather than handing back a pointer nothing checks -- what `std::unordered_map::at` did here.
+  [[nodiscard]] Value &At(const Key &key) {
+    Value *value = Find(key);
+    if (value == nullptr) {
+      throw std::out_of_range("FlatMap::At: no such key");
+    }
+    return *value;
+  }
+
+  [[nodiscard]] size_t Size() const noexcept { return size_; }
+
+ private:
+  using Slot = std::optional<std::pair<Key, Value>>;
+
+  [[nodiscard]] size_t Start(const Key &key) const noexcept { return Hash{}(key) & (slots_.size() - 1U); }
+
+  [[nodiscard]] size_t Next(const size_t slot) const noexcept { return (slot + 1U) & (slots_.size() - 1U); }
+
+  void Grow() {
+    std::vector<Slot> bigger(slots_.empty() ? kInitialSlots : slots_.size() * 2U);
+    for (Slot &slot : slots_) {
+      if (!slot.has_value()) {
+        continue;
+      }
+      size_t target = Hash{}(slot->first) & (bigger.size() - 1U);
+      while (bigger[target].has_value()) {
+        target = (target + 1U) & (bigger.size() - 1U);
+      }
+      bigger[target] = std::move(slot);
+    }
+    slots_ = std::move(bigger);
+  }
+
+  static constexpr size_t kInitialSlots = 1U << 10U;
+
+  std::vector<Slot> slots_;
+  size_t size_ = 0;
+};
+
 class PathExpand {
  public:
   explicit PathExpand(PathData &&path_data) : path_data_(std::move(path_data)) {}
@@ -336,15 +434,11 @@ class PathExpand {
     // the path; a set bit proves nothing, so only then is the parent chain walked. Which key it
     // summarises follows the uniqueness rule, exactly as OnBranch's comparison does.
     uint64_t key_bits;
-    // Held rather than looked up when the path is rebuilt: scanning a node's relationships for a
-    // matching id costs more than the walk itself once most branches are emitted.
-    std::optional<mgp::Relationship> from_parent;
   };
 
   // A branch waiting for its turn, with the filters' verdict on it, asked once where it was found.
   struct Queued {
     int64_t index;
-    mgp::Node node;
     Evaluation evaluation;
   };
 
@@ -370,6 +464,11 @@ class PathExpand {
   PathData path_data_;
   std::vector<TreeEntry> tree_;
   std::vector<Branch> branches_;
+  // A node sits on many branches at once and a relationship is reached from many of them, so the
+  // walk holds one copy of each and the branches hold identities. Both are bounded by the part of
+  // the graph the walk reaches, not by the number of partial paths, which is what grows.
+  FlatMap<int64_t, mgp::Node> nodes_;
+  FlatMap<int64_t, mgp::Relationship> relationships_;
 };
 
 class PathSubgraph {

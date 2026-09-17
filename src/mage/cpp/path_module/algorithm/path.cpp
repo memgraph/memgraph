@@ -1209,7 +1209,7 @@ mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
   // Roots are seeded in start-node order before anything expands, so a root's index is its start node's.
   mgp::Path path{path_data_.start_nodes_[static_cast<size_t>(chain.front())]};
   for (size_t step = 1; step < chain.size(); ++step) {
-    path.Expand(*branches_[chain[step]].from_parent);
+    path.Expand(relationships_.At(branches_[chain[step]].relationship_id));
   }
   return path;
 }
@@ -1246,16 +1246,17 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
       continue;
     }
 
+    // Copied only the first time the walk reaches this relationship or this node; every later
+    // branch through them adds nothing but its own forty bytes.
+    const int64_t relationship_id = mgp::edge_get_id(edge).as_int;
+    relationships_.Emplace(relationship_id, edge);
+    nodes_.Emplace(next_id, next_vertex);
     branches_.push_back({.node_id = next_id,
-                         .relationship_id = mgp::edge_get_id(edge).as_int,
+                         .relationship_id = relationship_id,
                          .parent = index,
                          .depth = depth + 1,
-                         .key_bits = branches_[index].key_bits | KeyBit(key),
-                         .from_parent = mgp::Relationship(edge)});
-    // The loop's only node copy, and only for a branch that will be followed.
-    frontier.push({.index = static_cast<int64_t>(branches_.size()) - 1,
-                   .node = mgp::Node(next_vertex),
-                   .evaluation = next_evaluation});
+                         .key_bits = branches_[index].key_bits | KeyBit(key)});
+    frontier.push({.index = static_cast<int64_t>(branches_.size()) - 1, .evaluation = next_evaluation});
   }
 }
 
@@ -1267,15 +1268,14 @@ void Path::PathExpand::RunPathScopedBfs() {
     }
     path_data_.MaybeAbort();
     const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
+    nodes_.Emplace(node.Id().AsInt(), node);
     branches_.push_back({.node_id = node.Id().AsInt(),
                          .relationship_id = kNoRelationship,
                          .parent = kNoParent,
                          .depth = 0,
-                         .key_bits = node_keyed ? KeyBit(node.Id().AsInt()) : 0U,
-                         .from_parent = std::nullopt});
-    frontier.push({.index = static_cast<int64_t>(branches_.size()) - 1,
-                   .node = node,
-                   .evaluation = path_data_.helper_.Evaluate(node, 0)});
+                         .key_bits = node_keyed ? KeyBit(node.Id().AsInt()) : 0U});
+    frontier.push(
+        {.index = static_cast<int64_t>(branches_.size()) - 1, .evaluation = path_data_.helper_.Evaluate(node, 0)});
   }
 
   while (!frontier.empty()) {
@@ -1284,11 +1284,14 @@ void Path::PathExpand::RunPathScopedBfs() {
     }
     path_data_.MaybeAbort();
 
-    const Queued entry = std::move(frontier.front());
+    const Queued entry = frontier.front();
     frontier.pop();
     const int64_t index = entry.index;
-    const mgp::Node &node = entry.node;
+    // Read before anything expands: pushing a branch can reallocate the vector.
     const int64_t depth = branches_[index].depth;
+    const int64_t node_id = branches_[index].node_id;
+    // The node table only ever grows, so a handle taken from it stays good across an expansion.
+    mgp_vertex *vertex = nodes_.At(node_id).GetPtr();
     const Evaluation &evaluation = entry.evaluation;
     if (evaluation.include && path_data_.helper_.PathSizeOk(depth)) {
       Emit(BranchPath(index));
@@ -1302,10 +1305,10 @@ void Path::PathExpand::RunPathScopedBfs() {
     }
 
     if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
-      ExpandBranch(index, node.GetPtr(), false, frontier);
+      ExpandBranch(index, vertex, false, frontier);
     }
     if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
-      ExpandBranch(index, node.GetPtr(), true, frontier);
+      ExpandBranch(index, vertex, true, frontier);
     }
   }
 }
@@ -1339,6 +1342,8 @@ void Path::PathExpand::RunAlgorithm() {
     }
     // Released first: what threw was most likely an allocation, and the message below needs one.
     branches_ = {};
+    relationships_ = {};
+    nodes_ = {};
     const std::string_view advice =
         path_data_.helper_.MaxHops() == std::numeric_limits<int64_t>::max() ? kUnboundedAdvice : kBoundedAdvice;
     throw mgp::ValueException(std::string{e.what()} + " (the walk was holding " + std::to_string(held) +
