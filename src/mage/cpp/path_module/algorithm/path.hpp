@@ -344,9 +344,6 @@ class PathExpand {
     // the path; a set bit proves nothing, so only then is the parent chain walked. Which key it
     // summarises follows the uniqueness rule, exactly as OnBranch's comparison does.
     uint64_t key_bits;
-    // Held rather than looked up when the path is rebuilt: scanning a node's relationships for a
-    // matching id costs more than the walk itself once most branches are emitted.
-    std::optional<mgp::Relationship> from_parent;
   };
 
   static constexpr uint64_t KeyBit(const int64_t key) noexcept {
@@ -357,8 +354,7 @@ class PathExpand {
   static constexpr int64_t kNoRelationship = std::numeric_limits<int64_t>::min();
 
   void RunPathScopedBfs();
-  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing,
-                    std::queue<std::pair<int64_t, mgp::Node>> &frontier);
+  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing, std::queue<int64_t> &frontier);
   // Walks the parent chain rather than a visited set: the rule is scoped to this path, not the walk.
   [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
   // Rebuilds the path a branch stands for. Only emitted branches pay for it.
@@ -372,6 +368,11 @@ class PathExpand {
   PathData path_data_;
   std::vector<TreeEntry> tree_;
   std::vector<Branch> branches_;
+  // A node sits on many branches at once and a relationship is reached from many of them, so the
+  // walk holds one copy of each and the branches hold identities. Both are bounded by the part of
+  // the graph the walk reaches, not by the number of partial paths, which is what grows.
+  std::unordered_map<int64_t, mgp::Node> nodes_;
+  std::unordered_map<int64_t, mgp::Relationship> relationships_;
 };
 
 class PathSubgraph {

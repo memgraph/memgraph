@@ -1217,13 +1217,13 @@ mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
   // Roots are seeded in start-node order before anything expands, so a root's index is its start node's.
   mgp::Path path{path_data_.start_nodes_[static_cast<size_t>(chain.front())]};
   for (size_t step = 1; step < chain.size(); ++step) {
-    path.Expand(*branches_[chain[step]].from_parent);
+    path.Expand(relationships_.at(branches_[chain[step]].relationship_id));
   }
   return path;
 }
 
 void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, const bool outgoing,
-                                    std::queue<std::pair<int64_t, mgp::Node>> &frontier) {
+                                    std::queue<int64_t> &frontier) {
   // Read before the loop: pushing a branch can reallocate the vector out from under a reference.
   const int64_t depth = branches_[index].depth;
   const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
@@ -1258,32 +1258,34 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
     }
 
     RefuseIfTooManyBranches(branches_.size());
+    // Copied only the first time the walk reaches this relationship or this node; every later
+    // branch through them adds nothing but its own forty bytes.
+    relationships_.try_emplace(relationship_id, edge);
+    nodes_.try_emplace(next_id, next_vertex);
     branches_.push_back({.node_id = next_id,
                          .relationship_id = relationship_id,
                          .parent = index,
                          .depth = depth + 1,
-                         .key_bits = branches_[index].key_bits | KeyBit(key),
-                         .from_parent = mgp::Relationship(edge)});
-    // The loop's only node copy, and only for a branch that will be followed.
-    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, mgp::Node(next_vertex));
+                         .key_bits = branches_[index].key_bits | KeyBit(key)});
+    frontier.push(static_cast<int64_t>(branches_.size()) - 1);
   }
 }
 
 void Path::PathExpand::RunPathScopedBfs() {
-  std::queue<std::pair<int64_t, mgp::Node>> frontier;
+  std::queue<int64_t> frontier;
   for (const auto &node : path_data_.start_nodes_) {
     if (path_data_.LimitReached()) {
       return;
     }
     path_data_.MaybeAbort();
     const int64_t root_key = IsNodeUniqueness(path_data_.helper_.GetUniqueness()) ? node.Id().AsInt() : kNoRelationship;
+    nodes_.try_emplace(node.Id().AsInt(), node);
     branches_.push_back({.node_id = node.Id().AsInt(),
                          .relationship_id = kNoRelationship,
                          .parent = kNoParent,
                          .depth = 0,
-                         .key_bits = KeyBit(root_key),
-                         .from_parent = std::nullopt});
-    frontier.emplace(static_cast<int64_t>(branches_.size()) - 1, node);
+                         .key_bits = KeyBit(root_key)});
+    frontier.push(static_cast<int64_t>(branches_.size()) - 1);
   }
 
   while (!frontier.empty()) {
@@ -1292,13 +1294,15 @@ void Path::PathExpand::RunPathScopedBfs() {
     }
     path_data_.MaybeAbort();
 
-    auto entry = std::move(frontier.front());
+    const int64_t index = frontier.front();
     frontier.pop();
-    const int64_t index = entry.first;
-    const mgp::Node &node = entry.second;
+    // Read before anything expands: pushing a branch can reallocate the vector.
     const int64_t depth = branches_[index].depth;
+    const int64_t node_id = branches_[index].node_id;
+    // The node table only ever grows, so a handle taken from it stays good across an expansion.
+    mgp_vertex *vertex = nodes_.at(node_id).GetPtr();
 
-    const Evaluation evaluation = path_data_.helper_.Evaluate(node, depth);
+    const Evaluation evaluation = path_data_.helper_.Evaluate(vertex, node_id, depth);
     if (evaluation.include && path_data_.helper_.PathSizeOk(depth)) {
       Emit(BranchPath(index));
       if (path_data_.LimitReached()) {
@@ -1311,10 +1315,10 @@ void Path::PathExpand::RunPathScopedBfs() {
     }
 
     if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
-      ExpandBranch(index, node.GetPtr(), false, frontier);
+      ExpandBranch(index, vertex, false, frontier);
     }
     if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
-      ExpandBranch(index, node.GetPtr(), true, frontier);
+      ExpandBranch(index, vertex, true, frontier);
     }
   }
 }
