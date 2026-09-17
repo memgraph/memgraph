@@ -11680,23 +11680,41 @@ void Interpreter::Commit() {
     // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
     // the whole time the user held the transaction open.
     if (auth_transaction_) {
-      utils::OnScopeExit const clear_auth_tx([this]() { auth_transaction_.reset(); });
+      // Covers every exit of this block, a throw included. Gives the status back as ACTIVE, which is what both
+      // exits below expect: each makes the ACTIVE -> IDLE transition itself and clears `current_transaction_`
+      // under it. The status half is a no-op until the claim below lands, since only STARTED_COMMITTING is ours
+      // to give back.
+      utils::OnScopeExit const clear_auth_tx([this]() {
+        auth_transaction_.reset();
+        auto expected = TransactionStatus::STARTED_COMMITTING;
+        while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
+          if (expected == TransactionStatus::VERIFYING) {
+            // A verifier holds the status and restores STARTED_COMMITTING when it is done reading.
+            expected = TransactionStatus::STARTED_COMMITTING;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+          }
+          // Never claimed: the claim below threw before it landed. Nothing to give back.
+          break;
+        }
+      });
 
       // Termination is cooperative: TERMINATE TRANSACTIONS only marks the status, and refusing to go ahead is the
       // committer's job. The data path does this below; an auth transaction released its accessor and never gets
       // there, so it has to refuse for itself, before the flush makes anything durable.
       //
-      // VERIFYING means a terminator is mid-decision, so wait for the answer rather than reading past it: it
-      // resolves to TERMINATED or back to ACTIVE within one call. Unlike the data path this does not claim the
-      // status, so a terminate arriving after this point still succeeds and is not honoured until the next
-      // statement -- claiming it would oblige every exit below, and both cleanup loops, to release it.
-      while (true) {
-        auto const status = transaction_status_.load(std::memory_order_acquire);
-        if (status == TransactionStatus::TERMINATED) {
+      // Claiming the status, rather than only reading it, is what makes the refusal binding: a terminate
+      // arriving after this point fails its ACTIVE -> VERIFYING compare-exchange and reports that it killed
+      // nothing, instead of reporting a kill for a transaction that goes on to commit. VERIFYING means a
+      // terminator is mid-decision, so wait for the answer rather than reading past it: it resolves to
+      // TERMINATED or back to ACTIVE within one call.
+      auto claimed = TransactionStatus::ACTIVE;
+      while (!transaction_status_.compare_exchange_weak(claimed, TransactionStatus::STARTED_COMMITTING)) {
+        if (claimed == TransactionStatus::TERMINATED) {
           throw memgraph::utils::BasicException(
               "Aborting transaction commit because the transaction was requested to stop from other session. ");
         }
-        if (status != TransactionStatus::VERIFYING) break;
+        claimed = TransactionStatus::ACTIVE;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       // A coordinator commits role changes through Raft and has no replication state for a system transaction to
