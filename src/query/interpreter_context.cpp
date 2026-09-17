@@ -238,8 +238,12 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
       continue;
     }
 
-    // foreign_db_view(), not name(): IDLE sessions can't be pinned by the ACTIVE→VERIFYING CAS, so name() would race.
-    // Authorization is check-time-only; the target may USE DATABASE before termination — closes the cross-tenant hole.
+    // foreign_db_view(), not name(): IDLE sessions can't be pinned by the ACTIVE→VERIFYING CAS, so a raw name()
+    // read would tear against a concurrent USE DATABASE — foreign_db_view() closes that memory-safety hole.
+    // Authorization is check-time-only: a target that runs USE DATABASE after this check is still terminated
+    // (termination is by session uuid, not by database), so at worst a session is closed against a database the
+    // caller no longer holds privilege on — an availability effect, not a data-access escalation. This is the
+    // same check-time property as the pre-existing TERMINATE TRANSACTIONS path.
     auto const target_user_snapshot = target->foreign_user_view_.load();
     if (!SameUser(target_user_snapshot, user_or_role)) {
       // A dbless session has no tenant; kDefaultDB lets a default-db admin still terminate it.

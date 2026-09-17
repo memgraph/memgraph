@@ -513,6 +513,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
+      // Mirror ArmRead_: honour a terminate requested during the SSL handshake before arming. The handshake
+      // wait is otherwise unbounded (no application-level timer), so a session terminated mid-handshake would
+      // only close on the OS TCP timeout. IsConnected() above guarantees DoShutdown() acts on the SSL socket.
+      if (terminate_requested_.load(std::memory_order_acquire)) {
+        DoShutdown();
+        return;
+      }
       read_armed_ = true;
       socket->async_handshake(
           boost::asio::ssl::stream_base::server,
