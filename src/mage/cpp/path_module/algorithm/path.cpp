@@ -1243,6 +1243,14 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
       continue;
     }
 
+    // The dequeue does nothing with a branch no filter would emit and none would expand through, so
+    // ask here instead and skip the branch, the two deep copies it holds, and the dequeue itself.
+    // The label half of the verdict is cached per node, so asking twice costs one lookup.
+    const Evaluation next_evaluation = path_data_.helper_.Evaluate(next_vertex, next_id, depth + 1);
+    if (!next_evaluation.include && !next_evaluation.expand) {
+      continue;
+    }
+
     RefuseIfTooManyBranches(branches_.size());
     branches_.push_back({.node_id = next_id,
                          .relationship_id = mgp::edge_get_id(edge).as_int,
