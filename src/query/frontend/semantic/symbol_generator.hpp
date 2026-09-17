@@ -16,6 +16,7 @@
 #pragma once
 
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 #include "query/exceptions.hpp"
@@ -190,6 +191,12 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool has_delete{false};
   };
 
+  /// One subquery body still being visited. Its external symbols are what it referenced minus what it declared.
+  struct SubqueryFrame {
+    std::unordered_set<Symbol> referenced;
+    std::unordered_set<Symbol> declared;
+  };
+
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   /// The positions an EXISTS may appear in - the ones the planner has a splice point for. Default-deny, because an
@@ -214,6 +221,11 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
+  // Every open subquery body declares a symbol created while it is open, and references one an identifier in it
+  // resolves to. Both are no-ops outside a body.
+  void RecordSubqueryDeclaration(const Symbol &symbol);
+  void RecordSubqueryReference(const Symbol &symbol);
+
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
   void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &);
@@ -228,6 +240,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
   // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
   std::unordered_set<Symbol> create_clause_symbols_;
+  // The subquery bodies currently open, outermost first.
+  std::vector<SubqueryFrame> subquery_frames_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups

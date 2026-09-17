@@ -62,7 +62,21 @@ std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
   auto const &symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scopes_.back().symbols[name] = symbol;
+  RecordSubqueryDeclaration(symbol);
   return symbol;
+}
+
+void SymbolGenerator::RecordSubqueryDeclaration(const Symbol &symbol) {
+  // A symbol created while a body is open is bound inside every body open at the time, never outside one.
+  for (auto &frame : subquery_frames_) {
+    frame.declared.insert(symbol);
+  }
+}
+
+void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
+  for (auto &frame : subquery_frames_) {
+    frame.referenced.insert(symbol);
+  }
 }
 
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
@@ -577,6 +591,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
+  RecordSubqueryReference(symbol);
   ident.MapTo(symbol);
   return true;
 }
@@ -751,11 +766,22 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
+  subquery_frames_.emplace_back();
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(SubqueryExpression & /*subquery*/) {
+bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
+  const auto &frame = subquery_frames_.back();
+  // Assigned, not merged: a simple CASE reaches its test expression once per WHEN arm, and each visit resolves the
+  // body's own names to fresh symbols. The last visit is the one the symbol table keeps.
+  subquery.external_symbols_.clear();
+  for (const auto &symbol : frame.referenced) {
+    if (!frame.declared.contains(symbol)) {
+      subquery.external_symbols_.insert(symbol);
+    }
+  }
+  subquery_frames_.pop_back();
   scopes_.pop_back();
   return true;
 }

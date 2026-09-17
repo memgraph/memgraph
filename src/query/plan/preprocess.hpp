@@ -167,6 +167,25 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   int in_pattern_comprehension_depth{0};
 };
 
+/// Collects used symbols, but takes a subquery's contribution from the set @c SymbolGenerator computed for its body.
+/// The base walks only the body's top-level pattern atoms: it misses a correlation carried by a `WHERE` or a `WITH`,
+/// and counts a body-declared name re-used as a later atom as an outer dependency that nothing ever binds.
+class SubqueryAwareUsedSymbolsCollector : public UsedSymbolsCollector {
+ public:
+  using UsedSymbolsCollector::UsedSymbolsCollector;
+
+  using UsedSymbolsCollector::PostVisit;
+  using UsedSymbolsCollector::PreVisit;
+  using UsedSymbolsCollector::Visit;
+
+  bool PreVisit(SubqueryExpression &subquery) override {
+    // Kept balanced against the base's PostVisit; a nested body's externals already reached this set through it.
+    ++in_subquery_depth;
+    symbols_.insert(subquery.external_symbols_.begin(), subquery.external_symbols_.end());
+    return false;
+  }
+};
+
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define PREPROCESS_DEFINE_ID_TYPE(name)                                                                       \
   class name final {                                                                                          \
@@ -590,6 +609,8 @@ struct QueryParts;
 /// One EXISTS, normalized. The pattern form fills in @c Matching's expansions and filters; the subquery form leaves
 /// those empty and carries a preprocessed body instead.
 struct SubqueryMatching : Matching {
+  /// The symbols the body reads that were bound outside it, as @c SymbolGenerator computed them.
+  std::unordered_set<Symbol> external_symbols;
   /// Which spelling this was written as.
   SubqueryKind type{SubqueryKind::kPattern};
   /// What the branch's rows are reduced to - the other axis, independent of @c type.

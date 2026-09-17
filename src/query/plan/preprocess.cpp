@@ -518,7 +518,7 @@ void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbo
 // and properties to be used with indexing.
 void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
   using Bound = PropertyFilter::Bound;
-  UsedSymbolsCollector collector(symbol_table);
+  SubqueryAwareUsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
   auto make_filter = [&collector, &expr](FilterInfo::Type type) { return FilterInfo{type, expr, collector.symbols_}; };
   auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup, auto *&ident) -> bool {
@@ -1258,6 +1258,7 @@ bool SubqueryMatchingCollector::PreVisit(SubqueryExpression &op) {
   SubqueryMatching subquery_matching;
   subquery_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
   subquery_matching.fold = op.fold_;
+  subquery_matching.external_symbols = op.external_symbols_;
 
   if (op.HasPattern()) {
     std::vector<Pattern *> patterns;

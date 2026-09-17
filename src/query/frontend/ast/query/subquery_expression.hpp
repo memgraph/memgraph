@@ -12,6 +12,7 @@
 #pragma once
 
 #include <string_view>
+#include <unordered_set>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/query/expression.hpp"
@@ -47,6 +48,8 @@ class SubqueryExpression : public memgraph::query::Expression {
   Fold fold_{Fold::kBool};
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
+  /// The symbols the body reads that were bound outside it. Filled by @c SymbolGenerator, empty until then.
+  std::unordered_set<Symbol> external_symbols_;
 
   /// The construct a fold is written as, so a diagnostic names the spelling the user reached for. A switch, so a
   /// third fold fails to compile rather than reporting itself as an EXISTS.
@@ -74,6 +77,7 @@ class SubqueryExpression : public memgraph::query::Expression {
       object->content_ = std::monostate{};
     }
     object->symbol_pos_ = symbol_pos_;
+    object->external_symbols_ = external_symbols_;
     return object;
   }
 
