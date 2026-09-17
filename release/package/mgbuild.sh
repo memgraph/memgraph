@@ -3,9 +3,6 @@ set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SCRIPT_NAME=${0##*/}
 PROJECT_ROOT="$SCRIPT_DIR/../.."
-# Toolchain versions live in environment/util.sh, which the containers run too,
-# so there is one place to bump them. Sourcing it is safe: the file is function
-# definitions plus those two version constants.
 source "$PROJECT_ROOT/environment/util.sh"
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
