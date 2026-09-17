@@ -279,3 +279,41 @@ Feature: Indices
             | m.b |
             | 'c' |
             | 'm' |
+
+    Scenario: A correlated pattern comprehension returns the unindexed result
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:L {id: 1}), (b:L {id: 2}), (c:L {id: 1})
+            CREATE (a)-[:E]->(b), (a)-[:E]->(c), (b)-[:E]->(c);
+            """
+        And with new index :L(id)
+        When executing query:
+            """
+            MATCH (m:L) RETURN m.id AS id, size([ (n:L {id: m.id})-[]-(q) | q ]) AS c ORDER BY id, c;
+            """
+        Then the result should be:
+            | id | c |
+            | 1  | 4 |
+            | 1  | 4 |
+            | 2  | 2 |
+
+    Scenario: A correlated pattern comprehension over an edge property returns the unindexed result
+        Given an empty graph
+        And having executed:
+            """
+            CREATE EDGE INDEX ON :E(w);
+            """
+        And having executed:
+            """
+            CREATE (a:L {w: 1}), (b:L {w: 2})
+            CREATE (a)-[:E {w: 1}]->(b), (a)-[:E {w: 2}]->(b);
+            """
+        When executing query:
+            """
+            MATCH (m:L) RETURN m.w AS w, size([ ()-[r:E {w: m.w}]->() | r ]) AS c ORDER BY w;
+            """
+        Then the result should be:
+            | w | c |
+            | 1 | 1 |
+            | 2 | 1 |
