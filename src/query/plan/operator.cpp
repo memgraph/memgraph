@@ -9836,6 +9836,9 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
     pull_input_ = true;
     subquery_->Reset();
 
+    // Already emitted this row through the branch, so go back to pulling input.
+    if (branch_yielded_) continue;
+
     switch (self_.on_empty_branch_) {
       case OnEmptyBranch::kDropRow:
         break;
@@ -9843,8 +9846,6 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
         // The branch projects nothing, so it can't filter; the input row passes either way.
         return true;
       case OnEmptyBranch::kPassRowWithNulls:
-        // A row the branch already emitted is owed nothing more; only an empty branch needs the null-padded row.
-        if (branch_yielded_) break;
         NullifySymbols(frame, context, self_.null_symbols_);
         return true;
     }
@@ -10418,6 +10419,9 @@ class PeriodicSubqueryCursor : public Cursor {
       pull_input_ = true;
       subquery_->Reset();
 
+      // Already emitted this row through the branch, so go back to pulling input.
+      if (branch_yielded_) continue;
+
       switch (self_.on_empty_branch_) {
         case OnEmptyBranch::kDropRow:
           break;
@@ -10425,8 +10429,6 @@ class PeriodicSubqueryCursor : public Cursor {
           // The branch projects nothing, so it can't filter; the input row passes either way.
           return true;
         case OnEmptyBranch::kPassRowWithNulls:
-          // A row the branch already emitted is owed nothing more; only an empty branch needs the null-padded row.
-          if (branch_yielded_) break;
           NullifySymbols(frame, context, self_.null_symbols_);
           return true;
       }
