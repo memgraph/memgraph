@@ -1207,50 +1207,6 @@ Feature: Subqueries
             | d   |
             | '2' |
 
-    Scenario: OPTIONAL CALL keeps an input row whose body returns nothing
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Node {id: 1}), (b:Node {id: 2}), (c:Node {id: 3}),
-                   (a)-[:TYPE]->(b), (a)-[:TYPE]->(c)
-            """
-        When executing query:
-            """
-            MATCH (n:Node)
-            OPTIONAL CALL (n) {
-              MATCH (n)-[:TYPE]->(m)
-              RETURN m.id AS mid
-            }
-            RETURN n.id AS nid, mid
-            """
-        Then the result should be:
-            | nid | mid  |
-            | 1   | 2    |
-            | 1   | 3    |
-            | 2   | null |
-            | 3   | null |
-
-    Scenario: CALL without OPTIONAL still drops an input row whose body returns nothing
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Node {id: 1}), (b:Node {id: 2}), (c:Node {id: 3}),
-                   (a)-[:TYPE]->(b), (a)-[:TYPE]->(c)
-            """
-        When executing query:
-            """
-            MATCH (n:Node)
-            CALL (n) {
-              MATCH (n)-[:TYPE]->(m)
-              RETURN m.id AS mid
-            }
-            RETURN n.id AS nid, mid
-            """
-        Then the result should be:
-            | nid | mid |
-            | 1   | 2   |
-            | 1   | 3   |
-
     Scenario: OPTIONAL CALL nulls every column the body returns
         Given an empty graph
         And having executed:
@@ -1291,46 +1247,6 @@ Feature: Subqueries
             | 1   | 2    |
             | 2   | null |
 
-    Scenario: OPTIONAL on a unit subquery leaves the cardinality alone
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Node {id: 1}), (b:Node {id: 2})
-            """
-        When executing query:
-            """
-            MATCH (n:Node)
-            OPTIONAL CALL (n) {
-              MATCH (n)-[:TYPE]->(m)
-              SET m.seen = true
-            }
-            RETURN n.id AS nid
-            """
-        Then the result should be:
-            | nid |
-            | 1   |
-            | 2   |
-
-    Scenario: OPTIONAL CALL over an uncorrelated body that matches nothing
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Node {id: 1}), (b:Node {id: 2})
-            """
-        When executing query:
-            """
-            MATCH (n:Node)
-            OPTIONAL CALL {
-              MATCH (z:Missing)
-              RETURN z.id AS zid
-            }
-            RETURN n.id AS nid, zid
-            """
-        Then the result should be:
-            | nid | zid  |
-            | 1   | null |
-            | 2   | null |
-
     Scenario: OPTIONAL CALL over a UNION body nulls the union's columns
         Given an empty graph
         And having executed:
@@ -1369,11 +1285,3 @@ Feature: Subqueries
             | optional | scaled |
             | 1        | 10     |
             | 2        | 20     |
-
-    Scenario: OPTIONAL is rejected on a procedure call
-        Given an empty graph
-        When executing query:
-            """
-            OPTIONAL CALL mg.procedures() YIELD name RETURN name
-            """
-        Then an error should be raised

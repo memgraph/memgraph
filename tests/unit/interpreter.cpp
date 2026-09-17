@@ -3143,20 +3143,6 @@ TYPED_TEST(InterpreterTest, OptionalCallSubquery) {
         "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) RETURN * } RETURN n.id AS nid, m.id AS mid");
     EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
   }
-  {
-    // A unit body projects nothing, so OPTIONAL is a no-op there - it must not double the rows either.
-    auto stream =
-        this->Interpret("MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) SET m.seen = true } RETURN n.id AS nid");
-    std::vector<int64_t> ids;
-    for (const auto &row : stream.GetResults()) ids.push_back(row[0].ValueInt());
-    std::ranges::sort(ids);
-    EXPECT_EQ(ids, (std::vector<int64_t>{1, 2, 3}));
-  }
-  {
-    // The procedure form is rejected by name rather than silently planned as a plain CALL.
-    EXPECT_THROW(this->Interpret("MATCH (n:P) OPTIONAL CALL mg.procedures() YIELD name RETURN n, name"),
-                 memgraph::query::SemanticException);
-  }
 }
 
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {

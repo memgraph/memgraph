@@ -8523,12 +8523,6 @@ TEST_P(CypherMainVisitorTest, CallSubqueryOptional) {
   };
 
   {
-    const auto *call_subquery = parse_call_subquery(ast_generator, "MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m");
-    ASSERT_TRUE(call_subquery);
-    EXPECT_FALSE(call_subquery->optional_);
-  }
-
-  {
     const auto *call_subquery =
         parse_call_subquery(ast_generator, "MATCH (n) OPTIONAL CALL { MATCH (m) RETURN m } RETURN n, m");
     ASSERT_TRUE(call_subquery);

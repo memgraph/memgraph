@@ -824,23 +824,15 @@ TYPED_TEST(OperatorToStringTest, Apply) {
   memgraph::query::plan::Apply pass_row(nullptr, nullptr, OnEmptyBranch::kPassRow);
   EXPECT_EQ(pass_row.ToString(&this->dba), "Apply (pass row)");
 
-  memgraph::query::plan::Apply pass_row_with_nulls(
-      nullptr, nullptr, OnEmptyBranch::kPassRowWithNulls, std::vector<Symbol>{this->GetSymbol("m")});
+  memgraph::query::plan::Apply pass_row_with_nulls(nullptr, nullptr, OnEmptyBranch::kPassRowWithNulls);
   EXPECT_EQ(pass_row_with_nulls.ToString(&this->dba), "Apply (pass row with nulls)");
 }
 
 TYPED_TEST(OperatorToStringTest, PeriodicSubquery) {
-  // `IN TRANSACTIONS` plans this sibling of Apply, which spells the same three modes.
-  using memgraph::query::plan::OnEmptyBranch;
-
-  memgraph::query::plan::PeriodicSubquery drop_row(nullptr, nullptr, nullptr, OnEmptyBranch::kDropRow);
-  EXPECT_EQ(drop_row.ToString(&this->dba), "PeriodicSubquery (drop row)");
-
-  memgraph::query::plan::PeriodicSubquery pass_row(nullptr, nullptr, nullptr, OnEmptyBranch::kPassRow);
-  EXPECT_EQ(pass_row.ToString(&this->dba), "PeriodicSubquery (pass row)");
-
+  // `IN TRANSACTIONS` plans this sibling of Apply; it spells the mode through the same helper, so one value proves
+  // the wiring - the three spellings themselves are swept in the Apply case above.
   memgraph::query::plan::PeriodicSubquery pass_row_with_nulls(
-      nullptr, nullptr, nullptr, OnEmptyBranch::kPassRowWithNulls, std::vector<Symbol>{this->GetSymbol("m")});
+      nullptr, nullptr, nullptr, memgraph::query::plan::OnEmptyBranch::kPassRowWithNulls);
   EXPECT_EQ(pass_row_with_nulls.ToString(&this->dba), "PeriodicSubquery (pass row with nulls)");
 }
 

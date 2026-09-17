@@ -2974,6 +2974,14 @@ TYPED_TEST(TestPlanner, OptionalSubquery) {
     ASSERT_NE(apply, nullptr);
     EXPECT_EQ(apply->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
     EXPECT_EQ(SymbolNames(apply->null_symbols_), (std::vector<std::string>{"m"}));
+
+    // The index rewriter clones the whole plan whenever it eliminates the root operator, so both new fields have to
+    // survive Clone. A dropped `on_empty_branch_` would default back to dropping the row.
+    auto const cloned = planner.plan().Clone(&this->storage);
+    auto *cloned_apply = FindOpOfType<Apply>(cloned.get());
+    ASSERT_NE(cloned_apply, nullptr);
+    EXPECT_EQ(cloned_apply->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
+    EXPECT_EQ(SymbolNames(cloned_apply->null_symbols_), (std::vector<std::string>{"m"}));
   }
 
   // The same query without OPTIONAL keeps dropping the row, and has nothing to null.
@@ -3051,23 +3059,6 @@ TYPED_TEST(TestPlanner, OptionalSubquery) {
     ASSERT_NE(periodic, nullptr);
     EXPECT_EQ(periodic->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
     EXPECT_EQ(SymbolNames(periodic->null_symbols_), (std::vector<std::string>{"m"}));
-  }
-
-  // The index rewriter clones the whole plan whenever it eliminates the root operator, so both new fields have to
-  // survive Clone. A dropped `on_empty_branch_` would default back to dropping the row.
-  {
-    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), RETURN("m"));
-    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                     OPTIONAL_CALL(CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"n"})),
-                                     RETURN("n", "m")));
-
-    auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    auto const cloned = planner.plan().Clone(&this->storage);
-    auto *apply = FindOpOfType<Apply>(cloned.get());
-    ASSERT_NE(apply, nullptr);
-    EXPECT_EQ(apply->on_empty_branch_, OnEmptyBranch::kPassRowWithNulls);
-    EXPECT_EQ(SymbolNames(apply->null_symbols_), (std::vector<std::string>{"m"}));
   }
 }
 
