@@ -25,6 +25,29 @@ include(CheckLinkerFlag)
 # the tests but not for every platform a released memgraph package has to start on.
 check_linker_flag(CXX "LINKER:-z,pack-relative-relocs" MG_HAVE_PACK_RELATIVE_RELOCS)
 
+set(MG_RUNTIME_LIBC_HAS_DT_RELR OFF)
+execute_process(COMMAND ldd --version
+                OUTPUT_VARIABLE mg_ldd_out ERROR_QUIET
+                RESULT_VARIABLE mg_ldd_rc OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(mg_ldd_rc EQUAL 0 AND mg_ldd_out MATCHES "GLIBC|GNU libc")
+    string(REGEX REPLACE "\n.*" "" mg_ldd_line "${mg_ldd_out}")
+    # glibc prints the bare version last on that line, after any distribution's own packaging string.
+    string(REGEX MATCHALL "[0-9]+\\.[0-9]+" mg_ldd_vers "${mg_ldd_line}")
+    if(mg_ldd_vers)
+        list(GET mg_ldd_vers -1 mg_libc_version)
+        if(mg_libc_version VERSION_GREATER_EQUAL 2.36)
+            set(MG_RUNTIME_LIBC_HAS_DT_RELR ON)
+        endif()
+        message(STATUS "Runtime libc reports glibc ${mg_libc_version}; DT_RELR usable: ${MG_RUNTIME_LIBC_HAS_DT_RELR}")
+    endif()
+endif()
+
+if(MG_LINKER_PACKS_RELATIVE_RELOCS AND MG_RUNTIME_LIBC_HAS_DT_RELR)
+    set(MG_HAVE_PACK_RELATIVE_RELOCS ON)
+else()
+    set(MG_HAVE_PACK_RELATIVE_RELOCS OFF)
+endif()
+
 function(add_unit_test exec_name)
     set(options CUSTOM_MAIN DISCOVER_TESTS)
     set(oneValueArgs "")
