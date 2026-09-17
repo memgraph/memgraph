@@ -1089,10 +1089,6 @@ build_memgraph () {
     additional_options="$additional_options -DMG_PYTHON_REWRITE_DT_NEEDED=OFF"
   fi
 
-  # Build profiling (tools/build_profile). launcher.cmake arms the per-step
-  # wrapper only while MG_BUILD_PROFILE_LOG is set at configure time; the
-  # build step below then runs through profile.sh, which samples the machine,
-  # writes the report and removes the CMAKE_PROJECT_INCLUDE cache entry again.
   local profile_dir=""
   if [[ "$profile" == "true" ]]; then
     profile_dir="$MGBUILD_ROOT_DIR/build_profile_results/$(date +%Y%m%d_%H%M%S)"
