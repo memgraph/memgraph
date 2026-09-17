@@ -170,9 +170,12 @@ class AuthLayer {
     // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every session's
     // cached permissions, and nothing changed for them to re-read.
     auto const has_writes = tx.overlay_ && tx.overlay_->HasWrites();
+    auto nothing_to_publish = tx.pending_actions_.empty();
+#ifdef MG_ENTERPRISE
+    nothing_to_publish = nothing_to_publish && tx.dropped_users_.empty();
+#endif
     // Anything to publish or release comes from a write, so the epoch always moves with it.
-    MG_ASSERT(has_writes || (tx.pending_actions_.empty() && tx.dropped_users_.empty()),
-              "Auth transaction publishes without a store write");
+    MG_ASSERT(has_writes || nothing_to_publish, "Auth transaction publishes without a store write");
     if (has_writes) locked->UpdateEpoch();
     if (system_tx) {
       for (auto &action : tx.pending_actions_) system_tx->AddAction(std::move(action));
