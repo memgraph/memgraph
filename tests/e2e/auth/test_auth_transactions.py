@@ -111,6 +111,23 @@ def test_a_profile_query_is_rejected_as_the_first_statement(cursor):
         execute(cursor, "CREATE PROFILE early")
 
 
+def test_profile_reads_are_allowed_in_a_data_transaction(cursor):
+    # Only writes cannot be isolated. A profile query is not an auth query, so this is an ordinary data
+    # transaction, and rejecting the SHOW family here would take away what works outside one.
+    execute(cursor, "CREATE PROFILE readable LIMIT sessions 1")
+    execute(cursor, "BEGIN")
+    assert any(row[0] == "readable" for row in execute(cursor, "SHOW PROFILES"))
+    execute(cursor, "COMMIT")
+    execute(cursor, "DROP PROFILE readable")
+
+
+def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
+    # The write half of the same guard: unchanged, and the reason the guard exists.
+    execute(cursor, "BEGIN")
+    with pytest.raises(mgclient.DatabaseError):
+        execute(cursor, "CREATE PROFILE unwritable LIMIT sessions 1")
+
+
 def test_a_terminated_auth_transaction_cannot_commit(cursor):
     # Termination is cooperative: TERMINATE marks the transaction, and the committer is responsible for refusing
     # to go ahead. An auth transaction releases the data accessor, so it takes a different commit path from a data
