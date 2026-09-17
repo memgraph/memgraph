@@ -1609,6 +1609,7 @@ TYPED_TEST(PrintToJsonTest, Apply) {
 
   this->Check(make_apply(OnEmptyBranch::kDropRow).get(), expected("drop row"));
   this->Check(make_apply(OnEmptyBranch::kPassRow).get(), expected("pass row"));
+  this->Check(make_apply(OnEmptyBranch::kPassRowWithNulls).get(), expected("pass row with nulls"));
 }
 
 TYPED_TEST(PrintToJsonTest, RollUpApply) {

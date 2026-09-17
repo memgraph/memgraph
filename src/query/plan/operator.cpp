@@ -9745,19 +9745,34 @@ std::unique_ptr<LogicalOperator> Foreach::Clone(AstStorage *storage) const {
   return object;
 }
 
+namespace {
+/// Writes null into every @p symbols slot on the frame, for an input row whose branch produced nothing.
+void NullifySymbols(Frame &frame, ExecutionContext &context, const std::vector<Symbol> &symbols) {
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+  for (const Symbol &symbol : symbols) {
+    frame_writer.Write(symbol, TypedValue(context.evaluation_context.memory));
+  }
+}
+}  // namespace
+
 std::string_view OnEmptyBranchName(OnEmptyBranch on_empty_branch) {
   switch (on_empty_branch) {
     case OnEmptyBranch::kDropRow:
       return "drop row";
     case OnEmptyBranch::kPassRow:
       return "pass row";
+    case OnEmptyBranch::kPassRowWithNulls:
+      return "pass row with nulls";
   }
   LOG_FATAL("Unhandled OnEmptyBranch");
 }
 
 Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-             OnEmptyBranch on_empty_branch)
-    : input_(input ? input : std::make_shared<Once>()), subquery_(subquery), on_empty_branch_(on_empty_branch) {}
+             OnEmptyBranch on_empty_branch, std::vector<Symbol> null_symbols)
+    : input_(input ? input : std::make_shared<Once>()),
+      subquery_(subquery),
+      on_empty_branch_(on_empty_branch),
+      null_symbols_(std::move(null_symbols)) {}
 
 std::string Apply::ToString(const DbAccessor * /*dba*/) const {
   return fmt::format("Apply ({})", OnEmptyBranchName(on_empty_branch_));
@@ -9795,6 +9810,7 @@ std::unique_ptr<LogicalOperator> Apply::Clone(AstStorage *storage) const {
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
   object->on_empty_branch_ = on_empty_branch_;
+  object->null_symbols_ = null_symbols_;
   return object;
 }
 
@@ -9804,15 +9820,19 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   while (true) {
     AbortCheck(context);
-    if (pull_input_ && !input_->Pull(frame, context)) {
-      return false;
-    };
+    if (pull_input_) {
+      if (!input_->Pull(frame, context)) {
+        return false;
+      }
+      pull_input_ = false;
+      branch_yielded_ = false;
+    }
 
     if (subquery_->Pull(frame, context)) {
-      // if successful, next Pull from this should not pull_input_
-      pull_input_ = false;
+      branch_yielded_ = true;
       return true;
     }
+    // The branch is exhausted, so the input row on the frame is spent whatever happens below.
     pull_input_ = true;
     subquery_->Reset();
 
@@ -9821,6 +9841,11 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
         break;
       case OnEmptyBranch::kPassRow:
         // The branch projects nothing, so it can't filter; the input row passes either way.
+        return true;
+      case OnEmptyBranch::kPassRowWithNulls:
+        // A row the branch already emitted is owed nothing more; only an empty branch needs the null-padded row.
+        if (branch_yielded_) break;
+        NullifySymbols(frame, context, self_.null_symbols_);
         return true;
     }
   }
@@ -9835,6 +9860,7 @@ void Apply::ApplyCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
   pull_input_ = true;
+  branch_yielded_ = false;
 }
 
 IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> main_branch,
@@ -10304,11 +10330,12 @@ std::unique_ptr<LogicalOperator> PeriodicCommit::Clone(AstStorage *storage) cons
 
 PeriodicSubquery::PeriodicSubquery(const std::shared_ptr<LogicalOperator> input,
                                    const std::shared_ptr<LogicalOperator> subquery, Expression *commit_frequency,
-                                   OnEmptyBranch on_empty_branch)
+                                   OnEmptyBranch on_empty_branch, std::vector<Symbol> null_symbols)
     : input_(input ? input : std::make_shared<Once>()),
       subquery_(subquery),
       commit_frequency_(commit_frequency),
-      on_empty_branch_(on_empty_branch) {}
+      on_empty_branch_(on_empty_branch),
+      null_symbols_(std::move(null_symbols)) {}
 
 std::string PeriodicSubquery::ToString(const DbAccessor * /*dba*/) const {
   return fmt::format("PeriodicSubquery ({})", OnEmptyBranchName(on_empty_branch_));
@@ -10359,6 +10386,8 @@ class PeriodicSubqueryCursor : public Cursor {
       if (pull_input_) {
         if (input_->Pull(frame, context)) {
           pulled_++;
+          pull_input_ = false;
+          branch_yielded_ = false;
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
@@ -10372,8 +10401,7 @@ class PeriodicSubqueryCursor : public Cursor {
       }
 
       if (subquery_->Pull(frame, context)) {
-        // if successful, next Pull from this should not pull_input_
-        pull_input_ = false;
+        branch_yielded_ = true;
         return true;
       }
 
@@ -10386,6 +10414,7 @@ class PeriodicSubqueryCursor : public Cursor {
         pulled_ = 0;
       }
 
+      // The branch is exhausted, so the input row on the frame is spent whatever happens below.
       pull_input_ = true;
       subquery_->Reset();
 
@@ -10394,6 +10423,11 @@ class PeriodicSubqueryCursor : public Cursor {
           break;
         case OnEmptyBranch::kPassRow:
           // The branch projects nothing, so it can't filter; the input row passes either way.
+          return true;
+        case OnEmptyBranch::kPassRowWithNulls:
+          // A row the branch already emitted is owed nothing more; only an empty branch needs the null-padded row.
+          if (branch_yielded_) break;
+          NullifySymbols(frame, context, self_.null_symbols_);
           return true;
       }
     }
@@ -10408,6 +10442,7 @@ class PeriodicSubqueryCursor : public Cursor {
     input_->Reset();
     subquery_->Reset();
     pull_input_ = true;
+    branch_yielded_ = false;
     commit_frequency_.reset();
     pulled_ = 0;
   }
@@ -10417,6 +10452,8 @@ class PeriodicSubqueryCursor : public Cursor {
   const PeriodicSubquery &self_;
   UniqueCursorPtr input_;
   UniqueCursorPtr subquery_;
+  /// Whether the input row now on the frame has already been emitted through the branch.
+  bool branch_yielded_{false};
   bool pull_input_{true};
   uint64_t pulled_{0};
   std::optional<uint64_t> commit_frequency_;
@@ -10435,6 +10472,7 @@ std::unique_ptr<LogicalOperator> PeriodicSubquery::Clone(AstStorage *storage) co
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
   object->on_empty_branch_ = on_empty_branch_;
+  object->null_symbols_ = null_symbols_;
   object->commit_frequency_ = commit_frequency_;
   return object;
 }

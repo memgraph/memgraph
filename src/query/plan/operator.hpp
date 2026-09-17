@@ -3104,8 +3104,9 @@ class Foreach : public memgraph::query::plan::LogicalOperator {
 /// What an input row becomes when its subquery branch yields no rows. Keyed on the planned branch root, never on
 /// whether the body spells a RETURN. Free-standing because both @c Apply and @c PeriodicSubquery name it.
 enum class OnEmptyBranch : uint8_t {
-  kDropRow,  ///< the row is dropped, as a row-producing branch filters as well as projects
-  kPassRow,  ///< a branch rooted in @c EmptyResult, which never yields - cardinality is unchanged
+  kDropRow,           ///< plain `CALL` - the row is dropped, as a row-producing branch filters as well as projects
+  kPassRow,           ///< a branch rooted in @c EmptyResult, which never yields - cardinality is unchanged
+  kPassRowWithNulls,  ///< `OPTIONAL CALL` - the row is emitted once, the branch's own symbols set to null
 };
 
 /// EXPLAIN spelling of @c OnEmptyBranch.
@@ -3122,8 +3123,10 @@ class Apply : public memgraph::query::plan::LogicalOperator {
 
   Apply() = default;
 
+  /// @param null_symbols The symbols the branch introduces; only read for @c OnEmptyBranch::kPassRowWithNulls.
+  /// Empty is legitimate: a body that projects only what it imported has nothing of its own to null.
   Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-        OnEmptyBranch on_empty_branch);
+        OnEmptyBranch on_empty_branch, std::vector<Symbol> null_symbols = {});
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -3139,6 +3142,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
   OnEmptyBranch on_empty_branch_{OnEmptyBranch::kDropRow};
+  std::vector<Symbol> null_symbols_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -3154,6 +3158,8 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     const Apply &self_;
     UniqueCursorPtr input_;
     UniqueCursorPtr subquery_;
+    /// Whether the input row now on the frame has already been emitted through the branch.
+    bool branch_yielded_{false};
     bool pull_input_{true};
   };
 };
@@ -3313,8 +3319,10 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
 
   PeriodicSubquery() = default;
 
+  /// @param null_symbols The symbols the branch introduces; only read for @c OnEmptyBranch::kPassRowWithNulls.
+  /// Empty is legitimate: a body that projects only what it imported has nothing of its own to null.
   PeriodicSubquery(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-                   Expression *commit_frequency, OnEmptyBranch on_empty_branch);
+                   Expression *commit_frequency, OnEmptyBranch on_empty_branch, std::vector<Symbol> null_symbols = {});
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -3331,6 +3339,7 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
   Expression *commit_frequency_{nullptr};
   OnEmptyBranch on_empty_branch_{OnEmptyBranch::kDropRow};
+  std::vector<Symbol> null_symbols_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };

@@ -3088,6 +3088,77 @@ TYPED_TEST(InterpreterTest, ListWithSubtractionKeepsBinaryMinus) {
   EXPECT_EQ(list[1].ValueInt(), 3);
 }
 
+// `OPTIONAL CALL ( ) { ... }` keeps an input row whose body returned nothing, with the body's own symbols null -
+// the same contract as OPTIONAL MATCH. Every expectation here was measured against Neo4j 2026.02.2.
+TYPED_TEST(InterpreterTest, OptionalCallSubquery) {
+  // 1 -> 2 and 1 -> 3, so node 1 exercises the branch that yields several rows and then runs out, while nodes 2
+  // and 3 exercise the branch that yields nothing at all.
+  this->Interpret("CREATE (a:P {id: 1}), (b:P {id: 2}), (c:P {id: 3}), (a)-[:R]->(b), (a)-[:R]->(c)");
+
+  using Row = std::pair<int64_t, std::optional<int64_t>>;
+  auto pairs = [](const auto &stream) {
+    std::vector<Row> out;
+    for (const auto &row : stream.GetResults()) {
+      auto const is_null = row[1].type() == memgraph::communication::bolt::Value::Type::Null;
+      out.emplace_back(row[0].ValueInt(), is_null ? std::nullopt : std::optional<int64_t>{row[1].ValueInt()});
+    }
+    std::ranges::sort(out);
+    return out;
+  };
+
+  {
+    auto stream = this->Interpret(
+        "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) RETURN m.id AS mid } RETURN n.id AS nid, mid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  {
+    // Without OPTIONAL the rows that produced nothing are still dropped.
+    auto stream =
+        this->Interpret("MATCH (n:P) CALL (n) { MATCH (n)-[:R]->(m) RETURN m.id AS mid } RETURN n.id AS nid, mid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}}));
+  }
+  {
+    // An uncorrelated body that matches nothing nulls every row rather than emptying the result.
+    auto stream =
+        this->Interpret("MATCH (n:P) OPTIONAL CALL { MATCH (z:Missing) RETURN z.id AS zid } RETURN n.id AS nid, zid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, std::nullopt}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  {
+    // A UNION body's projected symbols are what get nulled.
+    auto stream = this->Interpret(
+        "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) WHERE m.id = 2 RETURN m.id AS v "
+        "UNION MATCH (n)-[:R]->(m) WHERE m.id = 3 RETURN m.id AS v } RETURN n.id AS nid, v");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    // `IN TRANSACTIONS` plans a different operator with the same contract. On-disk storage has no periodic commit.
+    auto stream = this->Interpret(
+        "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) RETURN m.id AS mid } IN TRANSACTIONS OF 1 ROWS "
+        "RETURN n.id AS nid, mid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  {
+    // `RETURN *` projects the imported variable back out; nulling it would wipe the caller's own row.
+    auto stream = this->Interpret(
+        "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) RETURN * } RETURN n.id AS nid, m.id AS mid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  {
+    // A unit body projects nothing, so OPTIONAL is a no-op there - it must not double the rows either.
+    auto stream =
+        this->Interpret("MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) SET m.seen = true } RETURN n.id AS nid");
+    std::vector<int64_t> ids;
+    for (const auto &row : stream.GetResults()) ids.push_back(row[0].ValueInt());
+    std::ranges::sort(ids);
+    EXPECT_EQ(ids, (std::vector<int64_t>{1, 2, 3}));
+  }
+  {
+    // The procedure form is rejected by name rather than silently planned as a plain CALL.
+    EXPECT_THROW(this->Interpret("MATCH (n:P) OPTIONAL CALL mg.procedures() YIELD name RETURN n, name"),
+                 memgraph::query::SemanticException);
+  }
+}
+
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};

@@ -360,6 +360,21 @@ TEST(PlannerV2Errors, RootUnsatisfiableSurfacesAsPlannerBug) {
   }
 }
 
+// Lowering ignores clause fields it does not handle, so every new AST flag needs its own guard: without one
+// `OPTIONAL CALL` would lower to a plain `CALL` and silently drop the rows it is supposed to keep.
+TEST_F(PlannerV2PipelineTest, OptionalCallSubqueryIsRejected) {
+  auto *optional_call = ParseQuery("OPTIONAL CALL { RETURN 1 AS x } RETURN x;");
+  ASSERT_NE(optional_call, nullptr);
+  auto optional_symbols = MakeSymbolTable(optional_call);
+  EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols), NotYetImplemented);
+
+  // The same body without OPTIONAL is inside plan_v2's supported scope, so the guard keys on the flag alone.
+  auto *plain_call = ParseQuery("CALL { RETURN 1 AS x } RETURN x;");
+  ASSERT_NE(plain_call, nullptr);
+  auto plain_symbols = MakeSymbolTable(plain_call);
+  EXPECT_NO_THROW(ConvertToEgraph(*plain_call, plain_symbols));
+}
+
 TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
   // Guards the compact-SymbolTable contract: ConvertToLogicalOperator returns a
   // compact SymbolTable alongside the plan, PlanQuery installs it as the
