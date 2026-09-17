@@ -33,7 +33,7 @@ on:
         default: ''
       profile_build:
         type: boolean
-        description: "Profile the memgraph build with tools/build_profile and upload the results as a build_profile_* artifact. Disables ccache for the build."
+        description: "Profile the memgraph build"
         default: false
       ref:
         description: 'Branch or commit ref to run the workflow on'

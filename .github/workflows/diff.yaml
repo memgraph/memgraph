@@ -75,7 +75,7 @@ on:
       profile_build:
         type: boolean
         default: false
-        description: "Profile every memgraph build (per-step peak memory/CPU, machine memory over time) and upload the results as build_profile_* artifacts. Disables ccache for those builds."
+        description: "Profile every memgraph build"
   workflow_call:
     inputs:
       community_core:
@@ -145,7 +145,7 @@ on:
       profile_build:
         type: boolean
         default: false
-        description: "Profile every memgraph build (per-step peak memory/CPU, machine memory over time) and upload the results as build_profile_* artifacts. Disables ccache for those builds."
+        description: "Profile every memgraph build"
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
