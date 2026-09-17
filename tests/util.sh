@@ -1,9 +1,10 @@
 #!/bin/bash
 
 DISABLE_NODE=${DISABLE_NODE:-false}
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARENT_DIR="$(dirname "$SCRIPT_DIR")"
-source "$PARENT_DIR/environment/util.sh"
+_TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_REPO_ROOT="$(dirname "$_TESTS_DIR")"
+source "$_REPO_ROOT/environment/util.sh"
+unset _TESTS_DIR _REPO_ROOT
 
 NODE_MIN_VERSION="${NODE_MIN_VERSION:-20}"
 NODE_INSTALL_VERSION="${NODE_INSTALL_VERSION:-$MG_NODE_VERSION}"
