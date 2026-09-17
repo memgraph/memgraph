@@ -326,10 +326,18 @@ class PathExpand {
     int64_t relationship_id;  // kNoRelationship on a start node
     int64_t parent;           // index into branches_, kNoParent on a start node
     int64_t depth;
+    // The keys on this branch's path, one bit per `key & 63`. A clear bit proves its key is not on
+    // the path; a set bit proves nothing, so only then is the parent chain walked. Which key it
+    // summarises follows the uniqueness rule, exactly as OnBranch's comparison does.
+    uint64_t key_bits;
     // Held rather than looked up when the path is rebuilt: scanning a node's relationships for a
     // matching id costs more than the walk itself once most branches are emitted.
     std::optional<mgp::Relationship> from_parent;
   };
+
+  static constexpr uint64_t KeyBit(const int64_t key) noexcept {
+    return uint64_t{1} << (static_cast<uint64_t>(key) & 63U);
+  }
 
   static constexpr int64_t kNoParent = -1;
   static constexpr int64_t kNoRelationship = std::numeric_limits<int64_t>::min();
