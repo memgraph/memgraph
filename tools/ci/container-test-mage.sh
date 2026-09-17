@@ -2,6 +2,9 @@
 set -euo pipefail
 
 # runs Python, Rust and C++ tests for MAGE inside build container
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+source "$REPO_ROOT/environment/util.sh"
 
 # Color codes
 RED_BOLD='\033[1;31m'
@@ -13,9 +16,7 @@ CI=false
 CACHE_PRESENT=false
 CUDA=false
 ARCH=amd
-# Keep in sync with DEFAULT_RUST_VERSION in release/package/mgbuild.sh; the
-# images' default rustc is too old for bindgen 0.71's generated bindings.
-RUST_VERSION=1.89
+RUST_VERSION="$MG_RUST_VERSION"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --container-name)
