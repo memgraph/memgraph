@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -180,6 +181,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
   auto ttl_job = [this]() {
     const memory::DbArenaScope db_arena_scope{storage_ptr_->DbArenaPool()};
+    // Configuration stays recovered and reportable; only the sweep is suppressed.
+    if (!FLAGS_storage_ttl_enabled) return;
     // Check if we're a main instance - only main instances should run TTL
     if (!user_check_()) return;
 

@@ -45,6 +45,8 @@ def collect_snapshot_and_wal(test_dir, memgraph, mgconsole, port, force):
             "--storage-snapshot-on-exit=true",
             "--storage-wal-enabled=true",
             "--storage-snapshot-interval-sec=1000",
+            # Keep the sweeper from eating TTL entities out of the fixture while it is being recorded.
+            "--storage-ttl-enabled=false",
         ]
 
         with memgraph_server(memgraph, data_dir, port, logger, extra_args), open(cypher_file, "rb") as input_cypher:
