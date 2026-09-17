@@ -23,7 +23,7 @@ include(CheckLinkerFlag)
 # .relr.dyn, and the loadable image with it, from 801MB to 601MB. Scoped to test binaries on
 # purpose: DT_RELR needs glibc 2.36 on the machine that runs it, which holds for anything building
 # the tests but not for every platform a released memgraph package has to start on.
-check_linker_flag(CXX "LINKER:-z,pack-relative-relocs" MG_HAVE_PACK_RELATIVE_RELOCS)
+check_linker_flag(CXX "LINKER:-z,pack-relative-relocs" MG_LINKER_PACKS_RELATIVE_RELOCS)
 
 set(MG_RUNTIME_LIBC_HAS_DT_RELR OFF)
 execute_process(COMMAND ldd --version
