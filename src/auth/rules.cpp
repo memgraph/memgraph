@@ -175,8 +175,11 @@ std::vector<std::string> AllUsernames(Repository const &repo) {
 }
 
 // Unlike the listings around it, an unreadable record here is fatal rather than skipped. This feeds
-// SystemRecoveryRpc, so a skipped role would leave a replica recovering with a role the main has, and its
+// SystemRecoveryRpc, so a skipped role would leave a replica recovering without a role the main has, and its
 // permission decisions would diverge silently. A failed recovery is the better outcome.
+//
+// AllUsers goes into that same RPC and skips instead. That is not a considered difference, only the older
+// behaviour kept: the argument above applies to a user just as well. Making both fatal is the open question.
 std::vector<Role> AllRoles(Repository const &repo) {
   std::vector<Role> ret;
   repo.ForEachRole([&](auto rolename, auto const &value) {
