@@ -71,11 +71,15 @@ if [[ -z "$PYTHON" ]]; then
   fi
 fi
 echo "Installing MAGE python requirements with: $PYTHON ($($PYTHON --version 2>&1))"
+# uv wants an unambiguous interpreter: given a bare name it treats --python as a
+# request and can prefer a uv-managed install over the one on PATH.
+PYTHON_BIN="$(command -v "$PYTHON")"
 
 export PIP_BREAK_SYSTEM_PACKAGES=1
 export PIP_DEFAULT_TIMEOUT=120
 export PIP_RETRIES=8
 
+UV_TARGET_ARGS=()
 if [[ "$USE_UV" == "true" ]]; then
   if ! command -v uv >/dev/null 2>&1; then
     echo "--uv requested but uv is not on PATH" >&2
@@ -96,9 +100,27 @@ if [[ "$USE_UV" == "true" ]]; then
   # needs pip's behaviour to resolve them.
   export UV_INDEX_STRATEGY=unsafe-best-match
   export UV_HTTP_TIMEOUT="$PIP_DEFAULT_TIMEOUT"
+
+  # pip quietly falls back to a user install when the global site-packages isn't
+  # writable, which is how MAGE's deps have always landed when this runs as an
+  # unprivileged user (mg in CI, memgraph from the deb postinst). uv rejects
+  # --user outright and fails on the permission error instead, so make the same
+  # choice explicitly. Run as root, the global site stays the target.
+  system_site="$("$PYTHON_BIN" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+  probe="$system_site"
+  while [[ ! -e "$probe" && "$probe" != "/" ]]; do
+    probe="$(dirname "$probe")"
+  done
+  if [[ ! -w "$probe" ]]; then
+    user_site="$("$PYTHON_BIN" -m site --user-site)"
+    echo "$system_site is not writable; installing into the user site $user_site"
+    mkdir -p "$user_site"
+    UV_TARGET_ARGS=(--target "$user_site")
+  fi
 fi
 
-# Installs into $PYTHON's global site-packages, with either pip or uv.
+# Installs into the interpreter memgraph embeds - its global site-packages, or
+# its user site when UV_TARGET_ARGS says that isn't writable - with pip or uv.
 pip_install () {
   if [[ "$USE_UV" != "true" ]]; then
     $PYTHON -m pip install "$@"
@@ -111,7 +133,7 @@ pip_install () {
     [[ "$arg" == "--no-cache-dir" ]] && continue
     args+=("$arg")
   done
-  uv pip install --python "$PYTHON" "${args[@]}"
+  uv pip install --python "$PYTHON_BIN" ${UV_TARGET_ARGS[@]+"${UV_TARGET_ARGS[@]}"} "${args[@]}"
 }
 
 # A committed lockfile next to a requirements file pins the whole dependency
