@@ -515,6 +515,11 @@ class DbAccessor final {
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
+                                    const storage::PropertyValue value, size_t num_chunks) {
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, value, view, num_chunks)};
+  }
+
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
                                     const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
                                     const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
                                     size_t num_chunks) {

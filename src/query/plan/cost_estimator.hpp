@@ -732,7 +732,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         // has to be, since the plan outlives the term that was current when it was costed.
         auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
         auto const resolved = range.ResolveAtPlantime(parameters, mapper);
-        if (!resolved) return db_accessor_->EdgesCount(edge_type, property);
         return db_accessor_->EdgesCount(edge_type, property, resolved->lower_, resolved->upper_);
       }
       case Type::RANGE:
@@ -780,7 +779,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         // has to be, since the plan outlives the term that was current when it was costed.
         auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
         auto const resolved = range.ResolveAtPlantime(parameters, mapper);
-        if (!resolved) return db_accessor_->EdgesCount(property);
         return db_accessor_->EdgesCount(property, resolved->lower_, resolved->upper_);
       }
       case Type::RANGE:

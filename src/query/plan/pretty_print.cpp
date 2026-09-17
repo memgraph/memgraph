@@ -870,6 +870,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypeProperty &op) {
   self["name"] = "ScanParallelByEdgeTypeProperty";
   self["edge_type"] = ToJson(op.edge_type_, *dba_);
   self["property"] = ToJson(op.property_, *dba_);
+  self["expression_range"] = ToJson(op.expression_range_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 
@@ -884,6 +885,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeProperty &op) {
   json self;
   self["name"] = "ScanParallelByEdgeProperty";
   self["property"] = ToJson(op.property_, *dba_);
+  self["expression_range"] = ToJson(op.expression_range_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 

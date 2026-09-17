@@ -2072,7 +2072,7 @@ class ScanParallelByEdgeTypeProperty : public memgraph::query::plan::ScanParalle
   ScanParallelByEdgeTypeProperty() = default;
   ScanParallelByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                                  Symbol state_symbol, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                                 ExpressionRange expression_range = ExpressionRange::IsNotNull());
+                                 ExpressionRange expression_range);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
@@ -2093,8 +2093,7 @@ class ScanParallelByEdgeProperty : public memgraph::query::plan::ScanParallel {
 
   ScanParallelByEdgeProperty() = default;
   ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
-                             Symbol state_symbol, storage::PropertyId property,
-                             ExpressionRange expression_range = ExpressionRange::IsNotNull());
+                             Symbol state_symbol, storage::PropertyId property, ExpressionRange expression_range);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
