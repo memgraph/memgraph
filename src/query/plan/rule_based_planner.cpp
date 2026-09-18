@@ -37,6 +37,15 @@ bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
 
+/// Whether @p expression names nothing, so it holds the same value for every row of a group and is not a grouping
+/// key of its own. Wider than @c IsConstantLiteral, which only knows a bare literal or parameter: `1 + 1`, `[]` and
+/// `size([1, 2])` are equally row-independent.
+bool ReferencesNoSymbol(Expression *expression, const SymbolTable &symbol_table) {
+  UsedSymbolsCollector collector{symbol_table};
+  expression->Accept(collector);
+  return collector.symbols_.empty();
+}
+
 /// Like UsedSymbolsCollector, but descends into a correlated subquery's body in full: a filter, a result expression
 /// or a body WHERE can correlate an outer name, and whatever restores rows below the branch (Accumulate, OrderBy)
 /// has to remember it. The base class stops at the pattern, as its other callers need.
@@ -451,18 +460,28 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool PreVisit(IfOperator &if_operator) override {
     if_operator.condition_->Accept(*this);
-    bool has_aggr = has_aggregation_.back();
+    bool const condition_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
     if_operator.then_expression_->Accept(*this);
-    has_aggr = has_aggr || has_aggregation_.back();
+    bool const then_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
     if_operator.else_expression_->Accept(*this);
-    has_aggr = has_aggr || has_aggregation_.back();
+    bool const else_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
+    bool const has_aggr = condition_aggr || then_aggr || else_aggr;
+    if (has_aggr) {
+      // Same rule as a binary operator holding an aggregation: a part that does not aggregate is evaluated once per
+      // group, so it has to be a grouping key. A part that names nothing is the same for every row and is exempt.
+      std::array<std::pair<bool, Expression *>, 3> const parts{{{condition_aggr, if_operator.condition_},
+                                                                {then_aggr, if_operator.then_expression_},
+                                                                {else_aggr, if_operator.else_expression_}}};
+      for (auto const &[part_aggr, part] : parts) {
+        if (!part_aggr && !ReferencesNoSymbol(part, symbol_table_)) {
+          group_by_.emplace_back(part);
+        }
+      }
+    }
     has_aggregation_.emplace_back(has_aggr);
-    // TODO: Once we allow aggregations here, insert appropriate stuff in
-    // group_by.
-    MG_ASSERT(!has_aggr, "Currently aggregations in CASE are not allowed");
     return false;
   }
 
@@ -533,8 +552,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   bool PostVisit(Aggregation &aggr) override {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
-    aggregations_.emplace_back(
-        Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.op_, symbol, aggr.distinct_});
     // Aggregation expression1_ is optional in COUNT(*), and COLLECT_MAP and PROJECT_LISTS use two expressions, so we
     // can have 0, 1 or 2 elements on the has_aggregation_stack for this Aggregation expression.
     if (aggr.op_ == Aggregation::Op::COLLECT_MAP || aggr.op_ == Aggregation::Op::PROJECT_LISTS ||
@@ -544,6 +561,13 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       has_aggregation_.back() = true;
     else
       has_aggregation_.emplace_back(true);
+    // A simple CASE shares one test node across its arms, so the same node is reached once per arm. It writes a
+    // single symbol, so compute it once.
+    if (std::ranges::any_of(aggregations_, [&symbol](auto const &element) { return element.output_sym == symbol; })) {
+      return true;
+    }
+    aggregations_.emplace_back(
+        Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.op_, symbol, aggr.distinct_});
     // Possible optimization is to skip remembering symbols inside aggregation.
     // If and when implementing this, don't forget that Accumulate needs *all*
     // the symbols, including those inside aggregation.

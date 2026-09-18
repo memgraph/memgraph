@@ -96,8 +96,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   bool PreVisit(Aggregation &) override;
   bool PostVisit(Aggregation &) override;
-  bool PreVisit(IfOperator &) override;
-  bool PostVisit(IfOperator &) override;
   bool PreVisit(All &) override;
   bool PreVisit(Single &) override;
   bool PreVisit(Any &) override;
@@ -182,8 +180,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     // Match. Identifiers created by naming vertices, edges and paths are *not*
     // stored in here.
     std::vector<Identifier *> identifiers_in_match;
-    // Number of nested IfOperators.
-    int num_if_operators{0};
     std::unordered_set<std::string> prev_return_names{};
     std::unordered_set<std::string> curr_return_names{};
     bool has_periodic_commit{false};
@@ -228,6 +224,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
   // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
   std::unordered_set<Symbol> create_clause_symbols_;
+  // Aggregation nodes already given a symbol. A simple CASE shares its test node across arms, so one node is
+  // reached once per arm and must keep the symbol from its first visit.
+  std::unordered_set<Aggregation *> visited_aggregations_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
