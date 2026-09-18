@@ -893,6 +893,11 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   auto &scope = scopes_.back();
+  if ((scope.in_create || scope.in_merge) && node_atom.label_term_) {
+    throw SemanticException(
+        "Only label conjunctions are allowed when creating or merging a node; '|', '!' and '%' are for MATCH and "
+        "expressions.");
+  }
   auto check_node_semantic = [&node_atom, &scope, this]() {
     const auto &node_name = node_atom.identifier_->name_;
     if ((scope.in_create || scope.in_merge) && node_atom.HasLabelsOrProperties() && HasSymbol(node_name)) {

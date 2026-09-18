@@ -3089,7 +3089,7 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
   if (ctx->nodeLabelExpression()) {
     auto parts = std::any_cast<LabelExpressionParts>(ctx->nodeLabelExpression()->accept(this));
     node->labels_ = std::move(parts.labels);
-    node->label_expression_ = parts.disjunction;
+    node->label_term_ = std::move(parts.term);
   }
   if (ctx->properties()) {
     // This can return either properties or parameters
@@ -3151,29 +3151,119 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
   return labels;
 }
 
+namespace {
+
+/// The single `labelName` a term stands for, or nullptr when the term uses an operator or parentheses.
+MemgraphCypher::LabelNameContext *PlainLabelLeaf(MemgraphCypher::LabelTermContext *term) {
+  if (term->labelTermAnd().size() != 1U) return nullptr;
+  auto *conjunction = term->labelTermAnd().front();
+  if (conjunction->labelTermNot().size() != 1U) return nullptr;
+  auto *negation = conjunction->labelTermNot().front();
+  if (negation->labelTermAtom() == nullptr) return nullptr;
+  return negation->labelTermAtom()->labelName();
+}
+
+/// `A|(B|C)` and `A|B|C` name the same disjunction, so the tree is kept flat. Nothing else is folded:
+/// the tree stays as written so that EXPLAIN does too.
+void AppendFlattened(LabelTerm::Kind kind, LabelTerm child, std::vector<LabelTerm> &out) {
+  if (child.kind != kind) {
+    out.push_back(std::move(child));
+    return;
+  }
+  for (auto &grandchild : child.children) {
+    out.push_back(std::move(grandchild));
+  }
+}
+
+LabelTerm Combine(LabelTerm::Kind kind, std::vector<LabelTerm> children) {
+  if (children.size() == 1U) return std::move(children.front());
+  return LabelTerm{.kind = kind, .children = std::move(children)};
+}
+
+}  // namespace
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermContext *ctx) {
+  std::vector<LabelTerm> children;
+  for (auto *conjunction : ctx->labelTermAnd()) {
+    AppendFlattened(LabelTerm::Kind::Or, LabelTermFrom(conjunction), children);
+  }
+  return Combine(LabelTerm::Kind::Or, std::move(children));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermAndContext *ctx) {
+  std::vector<LabelTerm> children;
+  for (auto *negation : ctx->labelTermNot()) {
+    AppendFlattened(LabelTerm::Kind::And, LabelTermFrom(negation), children);
+  }
+  return Combine(LabelTerm::Kind::And, std::move(children));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermNotContext *ctx) {
+  if (ctx->labelTermNot() == nullptr) return LabelTermFrom(ctx->labelTermAtom());
+  std::vector<LabelTerm> child;
+  child.push_back(LabelTermFrom(ctx->labelTermNot()));
+  return LabelTerm{.kind = LabelTerm::Kind::Not, .children = std::move(child)};
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermAtomContext *ctx) {
+  if (ctx->labelTerm() != nullptr) return LabelTermFrom(ctx->labelTerm());
+  if (ctx->labelName() == nullptr) return LabelTerm{.kind = LabelTerm::Kind::Wildcard};
+
+  std::vector<LabelTerm> leaves;
+  for (const auto &label : LabelsFromLabelName(ctx->labelName())) {
+    const auto *label_ix = std::get_if<LabelIx>(&label);
+    if (label_ix == nullptr) {
+      throw SemanticException("Property lookups can't be combined with label operators.");
+    }
+    leaves.push_back(LabelTerm{.kind = LabelTerm::Kind::Label, .label = *label_ix});
+  }
+  // A `$param` bound to a list names several labels at once, which is a conjunction here just as it is
+  // in a colon chain.
+  return Combine(LabelTerm::Kind::And, std::move(leaves));
+}
+
 antlrcpp::Any CypherMainVisitor::visitNodeLabelExpression(MemgraphCypher::NodeLabelExpressionContext *ctx) {
-  // TODO(label-expressions): the grammar now parses the whole operator set; until the term tree lands this
-  // accepts only the two shapes that were parseable before it -- a colon chain, and one top-level '|'.
-  std::vector<QueryLabelType> labels;
-  bool disjunction = false;
-  for (auto *term : ctx->labelTerm()) {
-    for (auto *conjunction : term->labelTermAnd()) {
-      if (conjunction->labelTermNot().size() != 1U) {
-        throw SyntaxException("Label operators ('&', '|', '!', '%') are not supported yet.");
+  const auto &terms = ctx->labelTerm();
+
+  // Two or more colon segments is the legacy ':A:B' conjunction, where each segment has to be a bare
+  // label. That is also the rule against mixing ':' with the operators.
+  if (terms.size() > 1U) {
+    std::vector<QueryLabelType> labels;
+    for (auto *term : terms) {
+      auto *leaf = PlainLabelLeaf(term);
+      if (leaf == nullptr) {
+        throw SyntaxException(
+            "Can't mix ':' with label operators ('&', '|', '!', '%') in one label expression; use either ':A:B' or "
+            "'A&B'.");
       }
-      auto *atom = conjunction->labelTermNot().front()->labelTermAtom();
-      if (atom == nullptr || atom->labelName() == nullptr) {
-        throw SyntaxException("Label operators ('&', '|', '!', '%') are not supported yet.");
-      }
-      auto leaf_labels = LabelsFromLabelName(atom->labelName());
+      auto leaf_labels = LabelsFromLabelName(leaf);
       labels.insert(labels.end(), leaf_labels.begin(), leaf_labels.end());
     }
-    disjunction |= term->labelTermAnd().size() > 1U;
+    return LabelExpressionParts{.labels = std::move(labels)};
   }
-  if (disjunction && ctx->labelTerm().size() > 1U) {
-    throw SyntaxException("Label operators ('&', '|', '!', '%') are not supported yet.");
+
+  // A bare label keeps the path it has always taken, including the `variable.prop` leaf that only CREATE
+  // accepts.
+  if (auto *leaf = PlainLabelLeaf(terms.front()); leaf != nullptr) {
+    return LabelExpressionParts{.labels = LabelsFromLabelName(leaf)};
   }
-  return LabelExpressionParts{std::move(labels), disjunction};
+
+  auto term = LabelTermFrom(terms.front());
+  // A conjunction of plain labels is exactly what `labels_` means, so normalise into it: '(A)', 'A&B' and
+  // ':A:B' then reach the planner as one and the same thing.
+  if (term.kind == LabelTerm::Kind::Label) {
+    return LabelExpressionParts{.labels = {term.label}};
+  }
+  if (term.kind == LabelTerm::Kind::And && !term.children.empty() &&
+      std::ranges::all_of(term.children, [](const LabelTerm &child) { return child.kind == LabelTerm::Kind::Label; })) {
+    std::vector<QueryLabelType> labels;
+    labels.reserve(term.children.size());
+    for (const auto &child : term.children) {
+      labels.emplace_back(child.label);
+    }
+    return LabelExpressionParts{.labels = std::move(labels)};
+  }
+  return LabelExpressionParts{.term = std::move(term)};
 }
 
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {
@@ -3754,10 +3844,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aC
   auto *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
   if (ctx->nodeLabelExpression()) {
     auto parts = std::any_cast<LabelExpressionParts>(ctx->nodeLabelExpression()->accept(this));
-    if (parts.disjunction) {
-      throw SyntaxException("Label operators ('&', '|', '!', '%') are not supported yet.");
-    }
-    expression = storage_->Create<LabelsTest>(expression, parts.labels);
+    expression = LowerLabelTerm(*storage_, expression, parts.labels, parts.term);
   }
   return expression;
 }

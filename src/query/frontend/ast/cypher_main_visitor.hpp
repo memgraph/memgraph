@@ -23,6 +23,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -42,11 +43,11 @@ struct ParsingContext {
   bool is_query_cached = false;
 };
 
-/// What one label expression contributed: the labels it names, and whether they are to be read as a
-/// disjunction rather than as the usual conjunction.
+/// What one label expression contributed. `labels` is the conjunction every plain form normalises into;
+/// `term` is set instead, and only, for a shape a conjunction cannot express.
 struct LabelExpressionParts {
   std::vector<QueryLabelType> labels;
-  bool disjunction{false};
+  std::optional<LabelTerm> term;
 };
 
 template <typename LabelOrEdgeTypeIx>
@@ -1496,6 +1497,13 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /// The labels one `labelName` leaf stands for. A `$param` bound to a list stands for several, read as a
   /// conjunction, which is what the colon form has always done with such a parameter.
   std::vector<QueryLabelType> LabelsFromLabelName(MemgraphCypher::LabelNameContext *ctx);
+
+  /// Build the label term one parsed operator expression stands for, flattening nested `&`/`|` and
+  /// dropping parentheses. Nothing else is simplified: `!!A` and `A&!A` survive as written.
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAndContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermNotContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAtomContext *ctx);
 
   ParsingContext context_;
   AstStorage *storage_;
