@@ -3277,12 +3277,14 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabelExpression(MemgraphCypher::NodeLa
   }
 
   auto term = LabelTermFrom(terms.front());
-  // A conjunction of plain labels is exactly what `labels_` means, so normalise into it: '(A)', 'A&B' and
-  // ':A:B' then reach the planner as one and the same thing.
+  // A conjunction of plain labels is exactly what `labels_` means, so normalise into it: a write clause
+  // reads the labels straight off `NodeAtom::labels_`, and '(A)', 'A&B' and ':A:B' then reach the
+  // planner as one and the same thing. An empty conjunction -- a `$param` bound to an empty list --
+  // normalises too, so '(n:($p))' constrains no more than '(n:$p)' does.
   if (term.kind == LabelTerm::Kind::Label) {
     return LabelExpressionParts{.labels = {term.label}};
   }
-  if (term.kind == LabelTerm::Kind::And && !term.children.empty() &&
+  if (term.kind == LabelTerm::Kind::And &&
       std::ranges::all_of(term.children, [](const LabelTerm &child) { return child.kind == LabelTerm::Kind::Label; })) {
     std::vector<QueryLabelType> labels;
     labels.reserve(term.children.size());

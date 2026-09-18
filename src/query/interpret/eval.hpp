@@ -43,6 +43,28 @@
 
 namespace memgraph::query {
 
+/// Test a label term against one already-fetched vertex. `has_label` answers for a single label and
+/// `has_any_label` for the `%` wildcard; both read the vertex the caller evaluated once.
+/// An operator with no operands comes from a `$param` bound to an empty list: every label of none is
+/// one the vertex has, and no label satisfies a choice of none.
+template <typename HasLabel, typename HasAnyLabel>
+bool EvalLabelTerm(const LabelTerm &term, const HasLabel &has_label, const HasAnyLabel &has_any_label) {
+  auto holds = [&](const LabelTerm &child) { return EvalLabelTerm(child, has_label, has_any_label); };
+  switch (term.kind) {
+    case LabelTerm::Kind::Label:
+      return has_label(term.label);
+    case LabelTerm::Kind::Wildcard:
+      return has_any_label();
+    case LabelTerm::Kind::Not:
+      return !holds(term.children.front());
+    case LabelTerm::Kind::And:
+      return std::ranges::all_of(term.children, holds);
+    case LabelTerm::Kind::Or:
+      return std::ranges::any_of(term.children, holds);
+  }
+  LOG_FATAL("Unexpected LabelTerm::Kind");
+}
+
 class VirtualNode;
 class VirtualEdge;
 
@@ -671,7 +693,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             return TypedValue(false, ctx_->memory);
           }
         }
-        if (labels_test.any_label_) {
+        auto has_any_label = [&] {
           auto labels = vertex.Labels(view_);
           if (labels == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
             // The same MERGE hack as above: an `OLD` view the node does not have yet reads as `NEW`.
@@ -689,9 +711,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                 throw QueryRuntimeException("Unexpected error when accessing labels.");
             }
           }
-          if (labels->empty()) {
-            return TypedValue(false, ctx_->memory);
-          }
+          return !labels->empty();
+        };
+
+        if (labels_test.any_label_ && !has_any_label()) {
+          return TypedValue(false, ctx_->memory);
+        }
+        if (labels_test.term_ && !EvalLabelTerm(*labels_test.term_, has_label, has_any_label)) {
+          return TypedValue(false, ctx_->memory);
         }
         return TypedValue(true, ctx_->memory);
       }
@@ -704,8 +731,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           }
           throw QueryRuntimeException("Expected a node, but got {}.", expression_result.type());
         }
-        throw QueryRuntimeException("Only nodes and relationships can be tested for labels or types, got {}.",
-                                    expression_result.type());
+        throw QueryRuntimeException("Only nodes have labels, got {}.", expression_result.type());
     }
   }
 

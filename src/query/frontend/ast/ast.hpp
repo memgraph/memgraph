@@ -1196,13 +1196,16 @@ class LabelsTest : public Expression {
 
   /// Whether this asks only that the value is a node. Such a test yields null for a null, true for a vertex,
   /// and raises for any other type.
-  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty() && !any_label_; }
+  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty() && !any_label_ && !term_; }
 
   Expression *expression_{nullptr};
   std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
   std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
                                                  // one of the labels in "inner" vector
   bool any_label_{false};                        // The `%` wildcard: the label set has to be non-empty.
+  /// A label expression the fields above cannot express, held whole because the subject must not be
+  /// duplicated. Set only when `expression_` is not an `Identifier`; see `LowerLabelTerm`.
+  std::optional<LabelTerm> term_;
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1219,6 +1222,7 @@ class LabelsTest : public Expression {
       }
     }
     object->any_label_ = any_label_;
+    if (term_) object->term_ = term_->Clone(storage);
     return object;
   }
 

@@ -569,11 +569,12 @@ namespace {
 
 Expression *LowerLabelTermNode(AstStorage &storage, Expression *subject, const LabelTerm &term) {
   // Each leaf gets its own copy of the subject, so the lowering reads exactly as the same query written
-  // by hand with `AND`/`OR`/`NOT` would.
+  // by hand with `AND`/`OR`/`NOT` would. Only an identifier gets this far -- see `LowerLabelTerm`.
   auto leaf_subject = [&] { return subject->Clone(&storage); };
-  auto fold = [&]<typename Operator>(auto &&empty_value) -> Expression * {
-    // Only a `$param` bound to an empty list reaches an operator with no operands.
-    if (term.children.empty()) return storage.Create<PrimitiveLiteral>(empty_value);
+  auto fold = [&]<typename Operator>() -> Expression * {
+    // A `$param` bound to an empty list names no label, so it constrains nothing beyond the subject
+    // being a node. A bare node test says that and keeps null propagation and the type error.
+    if (term.children.empty()) return storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{});
     Expression *folded = LowerLabelTermNode(storage, subject, term.children.front());
     for (const auto &child : term.children | rv::drop(1)) {
       folded = storage.Create<Operator>(folded, LowerLabelTermNode(storage, subject, child));
@@ -594,8 +595,7 @@ Expression *LowerLabelTermNode(AstStorage &storage, Expression *subject, const L
     case LabelTerm::Kind::Or:
       // A disjunction of plain labels stays one LabelsTest holding one OR group: that is the shape index
       // selection already turns into a union of per-label scans.
-      if (r::all_of(term.children, [](const LabelTerm &child) { return child.kind == LabelTerm::Kind::Label; }) &&
-          !term.children.empty()) {
+      if (r::all_of(term.children, [](const LabelTerm &child) { return child.kind == LabelTerm::Kind::Label; })) {
         auto labels = std::vector<LabelIx>{};
         labels.reserve(term.children.size());
         for (const auto &child : term.children) {
@@ -603,11 +603,9 @@ Expression *LowerLabelTermNode(AstStorage &storage, Expression *subject, const L
         }
         return storage.Create<LabelsTest>(leaf_subject(), std::move(labels), /*label_expression=*/true);
       }
-      // No label satisfies an empty disjunction.
-      return fold.template operator()<OrOperator>(false);
+      return fold.template operator()<OrOperator>();
     case LabelTerm::Kind::And:
-      // Every label of none is one the node has, so an empty conjunction holds.
-      return fold.template operator()<AndOperator>(true);
+      return fold.template operator()<AndOperator>();
   }
   // No default label above, so a kind added without a case here is a compile error.
   LOG_FATAL("Unexpected LabelTerm::Kind");
@@ -621,6 +619,14 @@ Expression *LowerLabelTerm(AstStorage &storage, Expression *subject, const std::
   // labels behind.
   DMG_ASSERT(conjunction.empty() || !term, "A label expression is either a conjunction or a term, never both");
   if (!term) return storage.Create<LabelsTest>(subject, conjunction);
+  // Desugaring copies the subject once per leaf. That is only sound for an identifier: any other
+  // expression may hold a pattern whose anonymous identifiers the parser has not filled in yet, and
+  // would in any case be evaluated once per leaf. Everything else keeps the term whole.
+  if (!utils::Downcast<Identifier>(subject)) {
+    auto *test = storage.Create<LabelsTest>(subject, std::vector<LabelIx>{});
+    test->term_ = *term;
+    return test;
+  }
   return LowerLabelTermNode(storage, subject, *term);
 }
 
