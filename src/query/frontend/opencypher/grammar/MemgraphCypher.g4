@@ -195,6 +195,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SERVER_SIDE_PARAMETERS
                       | SERVICE_URL
                       | SESSION
+                      | SESSIONS
                       | SETTING
                       | SETTINGS
                       | SNAPSHOT
@@ -289,6 +290,7 @@ query : cypherQuery
       | showConfigQuery
       | showQueryCallableMappingsQuery
       | transactionQueueQuery
+      | sessionQuery
       | multiDatabaseQuery
       | useDatabase
       | showDatabase
@@ -458,6 +460,10 @@ transactionQueueQuery : showTransactions
                       | terminateTransactions
                       ;
 
+sessionQuery : terminateSessions
+             | showSessions
+             ;
+
 showTransactions : SHOW transactionStatusList? TRANSACTIONS ;
 
 transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
@@ -465,6 +471,10 @@ transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
 transactionStatus : RUNNING | COMMITTING | ABORTING ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
+
+terminateSessions : TERMINATE SESSIONS sessionIdList ;
+
+showSessions : SHOW SESSIONS ;
 
 loadCsv : LOAD CSV FROM csvFile
          ( WITH CONFIG configsMap=configMap ) ?
@@ -815,6 +825,10 @@ versionQuery : SHOW VERSION ;
 transactionIdList : transactionId ( ',' transactionId )* ;
 
 transactionId : literal ;
+
+sessionIdList : sessionId ( ',' sessionId )* ;
+
+sessionId : literal ;
 
 multiDatabaseQuery : createDatabase
                    | dropDatabase

@@ -12,8 +12,10 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <atomic>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -400,8 +402,10 @@ class Interpreter final {
     std::string login_timestamp;
   };
 
-  std::shared_ptr<QueryUserOrRole>
-      user_or_role_{};  // Deep copy is not needed here, since it is only used in the current thread
+  // Owning-thread only: written/read by SetUser/ResetUser/SetSessionInfo on the same thread.
+  // Foreign threads must use the snapshots below — a cross-thread read races a non-atomic shared_ptr (UAF if ResetUser
+  // runs concurrently).
+  std::shared_ptr<QueryUserOrRole> user_or_role_{};
 #ifdef MG_ENTERPRISE
   // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
   // (basic-auth passthrough) sessions, which carry full WRITE; sessions with coordinator roles recompute their mask
@@ -419,6 +423,11 @@ class Interpreter final {
   SessionInfo session_info_;
   // Leaf lock for session_info_; only the foreign GetActiveUsersInfo reader locks (owning-thread reads serialized).
   mutable std::mutex session_info_mutex_;
+  // Published snapshots of user_or_role_ and session_info_ for foreign readers; atomic<shared_ptr> makes
+  // load() refcount-safe (raw ptr/relaxed atomic reintroduces UAF). Keep WHOLE: operator== checks username+rolenames
+  // jointly.
+  std::atomic<std::shared_ptr<QueryUserOrRole>> foreign_user_view_{};
+  std::atomic<std::shared_ptr<const SessionInfo>> foreign_session_view_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
