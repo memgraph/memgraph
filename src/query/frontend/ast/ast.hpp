@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
@@ -1153,6 +1154,26 @@ class AllPropertiesLookup : public Expression {
 
 using QueryLabelType = std::variant<LabelIx, Expression *>;
 
+/// A label expression that a plain conjunction of labels cannot express: `&`, `|`, `!`, `%` and
+/// parentheses over label leaves. Deliberately not a `Tree`. `LowerLabelTerm` turns it into ordinary
+/// boolean operators over `LabelsTest` before anything past the parser sees it, so the planner and the
+/// evaluator learn no new shape.
+struct LabelTerm {
+  enum class Kind : uint8_t { Label, Wildcard, And, Or, Not };
+
+  Kind kind{Kind::Label};
+  LabelIx label{};                  ///< `Kind::Label` only.
+  std::vector<LabelTerm> children;  ///< `And`/`Or`: the operands. `Not`: exactly one.
+
+  LabelTerm Clone(AstStorage *storage) const;
+};
+
+/// Build a boolean expression over `subject` from a normalised label expression: `conjunction` is the
+/// plain `:A:B` part and `term` the operator part, at most one of which a parse produces. Every leaf
+/// becomes a `LabelsTest`, so the planner's existing label machinery still sees the parts it can index.
+Expression *LowerLabelTerm(AstStorage &storage, Expression *subject, const std::vector<QueryLabelType> &conjunction,
+                           const std::optional<LabelTerm> &term);
+
 class LabelsTest : public Expression {
  public:
   static const utils::TypeInfo kType;
@@ -1175,12 +1196,13 @@ class LabelsTest : public Expression {
 
   /// Whether this asks only that the value is a node. Such a test yields null for a null, true for a vertex,
   /// and raises for any other type.
-  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty(); }
+  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty() && !any_label_; }
 
   Expression *expression_{nullptr};
   std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
   std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
                                                  // one of the labels in "inner" vector
+  bool any_label_{false};                        // The `%` wildcard: the label set has to be non-empty.
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1196,6 +1218,7 @@ class LabelsTest : public Expression {
         object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
       }
     }
+    object->any_label_ = any_label_;
     return object;
   }
 
@@ -1765,7 +1788,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
 
   /// Whether this atom states anything about the node beyond naming it.
   bool HasLabelsOrProperties() const {
-    if (!labels_.empty()) return true;
+    if (!labels_.empty() || label_term_) return true;
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       return !properties->empty();
     }
@@ -1776,7 +1799,9 @@ class NodeAtom : public memgraph::query::PatternAtom {
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
-  bool label_expression_{false};
+  /// Set only when the label expression is not a plain conjunction of labels; a plain conjunction, the
+  /// `:A:B` form included, is normalised into `labels_`.
+  std::optional<LabelTerm> label_term_;
 
   NodeAtom *Clone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
@@ -1798,7 +1823,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     } else {
       object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
     }
-    object->label_expression_ = label_expression_;
+    if (label_term_) object->label_term_ = label_term_->Clone(storage);
     return object;
   }
 
