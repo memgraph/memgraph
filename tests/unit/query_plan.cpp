@@ -3609,8 +3609,9 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInReturnDrivesEdgeTypeProp
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     auto *fake_lookup = PROPERTY_LOOKUP(dba, "fake", outer);
     std::list<BaseOpChecker *> input{new ExpectScanAll()};
-    std::list<BaseOpChecker *> branch{new ExpectScanAllByEdgeTypePropertyValue(edge_type, property, fake_lookup),
-                                      new ExpectProduce()};
+    std::list<BaseOpChecker *> branch{
+        new ExpectScanAllByEdgeTypeProperty(edge_type, property, ExpressionRange::Equal(fake_lookup)),
+        new ExpectProduce()};
     CheckPlan(planner.plan(), symbol_table, ExpectRollUpApply(input, branch), ExpectProduce());
     DeleteListContent(&input);
     DeleteListContent(&branch);
@@ -3618,9 +3619,10 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInReturnDrivesEdgeTypeProp
     // The checker compares expressions by type hash, so pin the seek key: it must read the outer row.
     auto *rollup = FindOpOfType<RollUpApply>(&planner.plan());
     ASSERT_NE(rollup, nullptr);
-    auto *scan = FindOpOfType<ScanAllByEdgeTypePropertyValue>(rollup->list_collection_branch_.get());
+    auto *scan = FindOpOfType<ScanAllByEdgeTypeProperty>(rollup->list_collection_branch_.get());
     ASSERT_NE(scan, nullptr);
-    auto *seek = memgraph::utils::Downcast<memgraph::query::PropertyLookup>(scan->expression_);
+    ASSERT_TRUE(scan->expression_range_.lower_.has_value());
+    auto *seek = memgraph::utils::Downcast<memgraph::query::PropertyLookup>(scan->expression_range_.lower_->value());
     ASSERT_NE(seek, nullptr) << "seek key is not a PropertyLookup";
     auto *seek_on = memgraph::utils::Downcast<memgraph::query::Identifier>(seek->expression_);
     ASSERT_NE(seek_on, nullptr);
