@@ -634,9 +634,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex: {
         const auto &vertex = expression_result.ValueVertex();
-        for (const auto &label : labels_test.labels_) {
-          auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+        auto has_label = [&](const LabelIx &label) {
+          auto result = vertex.HasLabel(view_, GetLabel(label));
+          if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
             // This is a very nasty and temporary hack in order to make MERGE
             // work. The old storage had the following logic when returning an
             // `OLD` view: `return old ? old : new`. That means that if the
@@ -644,10 +644,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             // we simulate that behavior.
             // TODO: Remove once MERGE is
             // reimplemented.
-            has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+            result = vertex.HasLabel(storage::View::NEW, GetLabel(label));
           }
-          if (!has_label) {
-            switch (has_label.error()) {
+          if (!result) {
+            switch (result.error()) {
               case storage::Error::DELETED_OBJECT:
                 throw QueryRuntimeException("Trying to access labels on a deleted node.");
               case storage::Error::NONEXISTENT_OBJECT:
@@ -658,42 +658,38 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                 throw QueryRuntimeException("Unexpected error when accessing labels.");
             }
           }
-          if (!*has_label) {
+          return *result;
+        };
+
+        for (const auto &label : labels_test.labels_) {
+          if (!has_label(label)) {
             return TypedValue(false, ctx_->memory);
           }
         }
         for (const auto &or_labels_pattern : labels_test.or_labels_) {
-          bool has_at_least_one_label = false;
-          for (const auto &label : or_labels_pattern) {
-            auto has_label = vertex.HasLabel(view_, GetLabel(label));
-            if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-              // This is a very nasty and temporary hack in order to make MERGE
-              // work. The old storage had the following logic when returning an
-              // `OLD` view: `return old ? old : new`. That means that if the
-              // `OLD` view didn't exist, it returned the NEW view. With this hack
-              // we simulate that behavior.
-              // TODO: Remove once MERGE is
-              // reimplemented.
-              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-            }
-            if (!has_label) {
-              switch (has_label.error()) {
-                case storage::Error::DELETED_OBJECT:
-                  throw QueryRuntimeException("Trying to access labels on a deleted node.");
-                case storage::Error::NONEXISTENT_OBJECT:
-                  throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-                case storage::Error::SERIALIZATION_ERROR:
-                case storage::Error::VERTEX_HAS_EDGES:
-                case storage::Error::PROPERTIES_DISABLED:
-                  throw QueryRuntimeException("Unexpected error when accessing labels.");
-              }
-            }
-            if (*has_label) {
-              has_at_least_one_label = true;
-              break;
+          if (!std::ranges::any_of(or_labels_pattern, has_label)) {
+            return TypedValue(false, ctx_->memory);
+          }
+        }
+        if (labels_test.any_label_) {
+          auto labels = vertex.Labels(view_);
+          if (labels == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+            // The same MERGE hack as above: an `OLD` view the node does not have yet reads as `NEW`.
+            labels = vertex.Labels(storage::View::NEW);
+          }
+          if (!labels) {
+            switch (labels.error()) {
+              case storage::Error::DELETED_OBJECT:
+                throw QueryRuntimeException("Trying to access labels on a deleted node.");
+              case storage::Error::NONEXISTENT_OBJECT:
+                throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+              case storage::Error::SERIALIZATION_ERROR:
+              case storage::Error::VERTEX_HAS_EDGES:
+              case storage::Error::PROPERTIES_DISABLED:
+                throw QueryRuntimeException("Unexpected error when accessing labels.");
             }
           }
-          if (!has_at_least_one_label) {
+          if (labels->empty()) {
             return TypedValue(false, ctx_->memory);
           }
         }
@@ -708,7 +704,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           }
           throw QueryRuntimeException("Expected a node, but got {}.", expression_result.type());
         }
-        throw QueryRuntimeException("Only nodes have labels.");
+        throw QueryRuntimeException("Only nodes and relationships can be tested for labels or types, got {}.",
+                                    expression_result.type());
     }
   }
 
