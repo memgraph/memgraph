@@ -551,6 +551,82 @@ Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggre
              "expression2 is obligatory in COLLECT_MAP, PROJECT_LISTS and DERIVE, and invalid otherwise");
 }
 
+LabelTerm LabelTerm::Clone(AstStorage *storage) const {
+  LabelTerm object;
+  object.kind = kind;
+  if (kind == Kind::Label) object.label = storage->GetLabelIx(label.name);
+  object.children.reserve(children.size());
+  for (const auto &child : children) {
+    object.children.push_back(child.Clone(storage));
+  }
+  return object;
+}
+
+namespace {
+
+Expression *LowerLabelTermNode(AstStorage &storage, Expression *subject, const LabelTerm &term) {
+  // Each leaf gets its own copy of the subject, so the lowering reads exactly as the same query written
+  // by hand with `AND`/`OR`/`NOT` would. Only an identifier gets this far -- see `LowerLabelTerm`.
+  auto leaf_subject = [&] { return subject->Clone(&storage); };
+  auto fold = [&]<typename Operator>() -> Expression * {
+    // A `$param` bound to an empty list names no label, so it constrains nothing beyond the subject
+    // being a node. A bare node test says that and keeps null propagation and the type error.
+    if (term.children.empty()) return storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{});
+    Expression *folded = LowerLabelTermNode(storage, subject, term.children.front());
+    for (const auto &child : term.children | rv::drop(1)) {
+      folded = storage.Create<Operator>(folded, LowerLabelTermNode(storage, subject, child));
+    }
+    return folded;
+  };
+
+  switch (term.kind) {
+    case LabelTerm::Kind::Label:
+      return storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{term.label});
+    case LabelTerm::Kind::Wildcard: {
+      auto *test = storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{});
+      test->any_label_ = true;
+      return test;
+    }
+    case LabelTerm::Kind::Not:
+      return storage.Create<NotOperator>(LowerLabelTermNode(storage, subject, term.children.front()));
+    case LabelTerm::Kind::Or:
+      // A disjunction of plain labels stays one LabelsTest holding one OR group: that is the shape index
+      // selection already turns into a union of per-label scans.
+      if (r::all_of(term.children, [](const LabelTerm &child) { return child.kind == LabelTerm::Kind::Label; })) {
+        auto labels = std::vector<LabelIx>{};
+        labels.reserve(term.children.size());
+        for (const auto &child : term.children) {
+          labels.push_back(child.label);
+        }
+        return storage.Create<LabelsTest>(leaf_subject(), std::move(labels), /*label_expression=*/true);
+      }
+      return fold.template operator()<OrOperator>();
+    case LabelTerm::Kind::And:
+      return fold.template operator()<AndOperator>();
+  }
+  // No default label above, so a kind added without a case here is a compile error.
+  LOG_FATAL("Unexpected LabelTerm::Kind");
+}
+
+}  // namespace
+
+Expression *LowerLabelTerm(AstStorage &storage, Expression *subject, const std::vector<QueryLabelType> &conjunction,
+                           const std::optional<LabelTerm> &term) {
+  // At most one of the two is populated: a plain conjunction never needs a term, and a term never leaves
+  // labels behind.
+  DMG_ASSERT(conjunction.empty() || !term, "A label expression is either a conjunction or a term, never both");
+  if (!term) return storage.Create<LabelsTest>(subject, conjunction);
+  // Desugaring copies the subject once per leaf. That is only sound for an identifier: any other
+  // expression may hold a pattern whose anonymous identifiers the parser has not filled in yet, and
+  // would in any case be evaluated once per leaf. Everything else keeps the term whole.
+  if (!utils::Downcast<Identifier>(subject)) {
+    auto *test = storage.Create<LabelsTest>(subject, std::vector<LabelIx>{});
+    test->term_ = *term;
+    return test;
+  }
+  return LowerLabelTermNode(storage, subject, *term);
+}
+
 auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {
   auto paths_copy = std::vector<memgraph::query::PropertyIx>{};
   paths_copy.reserve(path.size());

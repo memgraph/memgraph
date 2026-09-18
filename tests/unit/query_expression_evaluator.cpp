@@ -1147,6 +1147,54 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
   }
 }
 
+// `%` asks whether the node carries any label at all, and says nothing about which.
+TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
+  auto labelled = this->dba.InsertVertex();
+  ASSERT_TRUE(labelled.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  auto bare = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+
+  auto *identifier = this->storage.template Create<Identifier>("n");
+  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+
+  auto wildcard = [&] {
+    auto *op = this->storage.template Create<LabelsTest>(identifier, std::vector<LabelIx>{});
+    op->any_label_ = true;
+    return op;
+  };
+
+  {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue(labelled));
+    EXPECT_EQ(this->Eval(wildcard()).ValueBool(), true);
+    // A wildcard alongside labels demands both.
+    auto *with_label =
+        this->storage.template Create<LabelsTest>(identifier, std::vector<LabelIx>{this->storage.GetLabelIx("ANIMAL")});
+    with_label->any_label_ = true;
+    EXPECT_EQ(this->Eval(with_label).ValueBool(), true);
+    auto *with_missing_label =
+        this->storage.template Create<LabelsTest>(identifier, std::vector<LabelIx>{this->storage.GetLabelIx("PLANT")});
+    with_missing_label->any_label_ = true;
+    EXPECT_EQ(this->Eval(with_missing_label).ValueBool(), false);
+  }
+  {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue(bare));
+    EXPECT_EQ(this->Eval(wildcard()).ValueBool(), false);
+    // The wildcard is what such a test asks, so it is not the "is this a node" test.
+    EXPECT_FALSE(wildcard()->IsNodeTest());
+  }
+  {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue());
+    EXPECT_TRUE(this->Eval(wildcard()).IsNull());
+    // Null in, null out, through the negation a lowered `!%` puts on top.
+    auto *negated = this->storage.template Create<NotOperator>(wildcard());
+    EXPECT_TRUE(this->Eval(negated).IsNull());
+  }
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
   // Setup: Create edge with TYPE_A
   auto from_vertex = this->dba.InsertVertex();
