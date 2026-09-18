@@ -1355,11 +1355,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> 
 
   // STEP 1) ensure everything in GC is gone
 
-  // 1.a) old garbage_undo_buffers are safe to remove
-  //      we are the only transaction, no one is reading those unlinked deltas
-  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
-
-  // 1.b.0) old committed_transactions_ and waiting_gc_deltas_ need minimal unlinking + remove + clear
+  // 1.a) old committed_transactions_ and waiting_gc_deltas_ need minimal unlinking + remove + clear
   //      must be done before this transactions delta unlinking
   auto linked_undo_buffers = std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>{};
   mem_storage->committed_transactions_.WithLock(
@@ -1367,8 +1363,8 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> 
   mem_storage->waiting_gc_deltas_.WithLock(
       [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
-  // 1.b.1) unlink, gathering the removals. These belong to other transactions, so each is read
-  //        using its own record of what its property writes were on, not this transaction's.
+  // 1.b) unlink, gathering the removals. These belong to other transactions, so each is read
+  //      using its own record of what its property writes were on, not this transaction's.
   for (auto &gc_deltas : linked_undo_buffers) {
     auto const arming_scope = arming.for_deltas_of(gc_deltas.wrote_properties_on_);
     UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
@@ -1378,7 +1374,9 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> 
   auto const arming_scope = arming.for_deltas_of(transaction_.wrote_properties_on);
   UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
 
-  // STEP 3) clear all deltas after unlinking is complete
+  // STEP 3) clear all deltas after unlinking is complete. The graveyard is freed here too: an unlink walk
+  //         follows `next` into blocks an earlier abort left there, so they must outlive both walks above.
+  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
   linked_undo_buffers.clear();
   transaction_.deltas.clear();
 }
