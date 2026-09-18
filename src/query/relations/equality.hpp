@@ -50,6 +50,17 @@ TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, Typ
 bool HoldsANull(const TypedValue &value);
 bool HoldsANull(const storage::PropertyValue &value);
 
+/// Whether the value is equal to itself.
+///
+/// Equality is reflexive for almost every value, and the exceptions are the two
+/// it cannot decide: a Null, which leaves the pair undecided, and a NaN, which
+/// it holds equal to nothing. A container keyed by equivalence finds either
+/// again, because finding an entry again is what equivalence is for, so a
+/// caller reading such a container for an equality has to ask this first. An
+/// equality against a value that is not equal to itself keeps no row, whichever
+/// way the query is answered.
+bool EqualsItself(const TypedValue &value);
+
 /// Whether two values are equal, or Null where that cannot be decided.
 ///
 /// The answer carries the memory resource `a` was allocated from, since the two

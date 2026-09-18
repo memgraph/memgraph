@@ -21,6 +21,11 @@ static const auto kSmallestBool = PropertyValue(false);
 // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
 static const auto kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
+// A NaN sorts above every other number and alongside every other NaN, so one of
+// them names the point a range over the numbers has to stop at: every
+// comparison against a NaN is false, and a range built from a comparison must
+// not reach one.
+static const auto kSmallestNaN = PropertyValue(std::numeric_limits<double>::quiet_NaN());
 static const auto kSmallestString = PropertyValue("");
 static const auto kSmallestList = PropertyValue(std::vector<PropertyValue>());
 static const auto kSmallestMap = PropertyValue(PropertyValue::map_t{});
@@ -36,10 +41,16 @@ static const auto kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
 static const auto kSmallestVectorIndexId = PropertyValue(
     PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{}, .vector = utils::small_vector<float>{}});
+/// A value no stored value sorts above, used to fence a scan that has no upper
+/// bound of its own.
+///
+/// The coordinates are NaNs rather than infinities because a NaN is placed after
+/// every number, so a point holding one sorts above a point holding an infinity
+/// and would fall outside a fence built from the latter.
 static const auto kLargestProperty = PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d,
-                                                           std::numeric_limits<double>::infinity(),
-                                                           std::numeric_limits<double>::infinity(),
-                                                           std::numeric_limits<double>::infinity()});
+                                                           std::numeric_limits<double>::quiet_NaN(),
+                                                           std::numeric_limits<double>::quiet_NaN(),
+                                                           std::numeric_limits<double>::quiet_NaN()});
 
 // We statically verify that the ordering of the property values holds.
 static_assert(PropertyValue::Type::Null < PropertyValue::Type::Bool);
