@@ -1413,10 +1413,10 @@ std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expressi
   ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view, nullptr, &context.number_of_hops};
 
   auto value = expression->Accept(evaluator);
-  // Both keep no row, so this scan has to find none. A Null nested in a list or a map counts: the
-  // lookup below compares by a relation holding a Null equal to a Null, and would report a match
-  // the filter does not.
-  if (relations::equality::HoldsANull(value) || !value.IsPropertyValue()) {
+  // Both keep no row, so this scan has to find none. A Null or a NaN nested in a list or a map
+  // counts: the lookup below compares by a relation holding each of them equal to itself so that
+  // it can find an entry again, and would report a match the filter does not.
+  if (!relations::equality::EqualsItself(value) || !value.IsPropertyValue()) {
     return std::nullopt;
   }
   return value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());

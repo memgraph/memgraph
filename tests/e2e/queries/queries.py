@@ -368,5 +368,38 @@ def test_equality_against_a_nan_keeps_no_row_however_the_scan_is_planned(memgrap
     assert [count(q) for q, _ in queries_and_answers] == expected
 
 
+def test_an_edge_equality_against_a_nan_keeps_no_row_however_the_scan_is_planned(memgraph):
+    """An edge property-value scan converts the sought value itself and reads the
+    equality from the index. A NaN is equal to nothing, itself included, so the
+    filter the scan stands in for keeps no row, while the index holds two NaNs
+    alongside each other so that it can find an entry again. The scan has to
+    answer as the filter does rather than as the index orders."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("CREATE (a:From), (b:To);")
+    memgraph.execute("MATCH (a:From), (b:To) UNWIND range(1, 5) AS i CREATE (a)-[:T {p: toFloat(i)}]->(b);")
+    memgraph.execute("MATCH (a:From), (b:To) UNWIND range(1, 3) AS i CREATE (a)-[:T {p: sqrt(-1)}]->(b);")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    # Each paired with what it must answer. The last two are what the scan must
+    # still find, so a predicate answering nothing at all would not pass here.
+    queries_and_answers = [
+        ("MATCH ()-[r:T]->() WHERE r.p = sqrt(-1) RETURN count(r) AS c;", 0),
+        ("MATCH ()-[r:T]->() WHERE r.p IN [sqrt(-1)] RETURN count(r) AS c;", 0),
+        ("MATCH ()-[r:T]->() WHERE r.p IN [1.0, sqrt(-1)] RETURN count(r) AS c;", 1),
+        ("MATCH ()-[r:T]->() WHERE r.p = 1.0 RETURN count(r) AS c;", 1),
+        ("MATCH ()-[r:T]->() WHERE r.p IS NOT NULL RETURN count(r) AS c;", 8),
+    ]
+    expected = [answer for _, answer in queries_and_answers]
+
+    assert [count(q) for q, _ in queries_and_answers] == expected
+
+    memgraph.execute("CREATE EDGE INDEX ON :T(p);")
+
+    assert [count(q) for q, _ in queries_and_answers] == expected
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
