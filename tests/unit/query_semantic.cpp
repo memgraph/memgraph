@@ -1393,6 +1393,75 @@ TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoun
                          RETURN("n")))));
 }
 
+// `SubqueryExpression::external_symbols_` is the contract filter placement rests on: exactly the symbols the body
+// reads that were created outside it. Too few plants the conjunct below the operator that binds the outer variable, so
+// the branch reads an unwritten frame slot - an abort, or a silently wrong answer. Too many leaves the conjunct
+// unplantable and `PlanMatching` aborts with "Expected to generate all filters". Asserted directly here, because a
+// behave scenario can only observe this set through a distant planner symptom.
+// All three folds share the node, so each shape is rerun as EXISTS, COUNT and COLLECT.
+TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
+  auto names = [](const std::unordered_set<Symbol> &symbols) {
+    std::vector<std::string> out;
+    out.reserve(symbols.size());
+    std::ranges::transform(symbols, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+  using Names = std::vector<std::string>;
+
+  auto check_shapes = [&](auto make_subquery) {
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (x) WHERE x = a } RETURN a
+      // Correlated only through the body's WHERE. The top-level atom walk this replaced saw nothing here and left the
+      // set empty, which is what planted the conjunct too low.
+      auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { WITH a AS q MATCH (q)-[r]->(m) RETURN m } RETURN a
+      // The caller's variable arrives through a WITH and is renamed before any pattern uses it. `q` is the body's own.
+      auto *subquery = make_subquery(QUERY(
+          SINGLE_QUERY(WITH(NEXPR("q", IDENT("a"))), MATCH(PATTERN(NODE("q"), EDGE("r"), NODE("m"))), RETURN("m"))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (p)-[r]->(f) MATCH (f)-[r2]->(g) } RETURN a
+      // `f` is declared by the first MATCH and re-used as an atom of the second. The atom walk counted it as an outer
+      // dependency nothing binds, so the conjunct was never extracted at all.
+      auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"), EDGE("r"), NODE("f"))),
+                                                        MATCH(PATTERN(NODE("f"), EDGE("r2"), NODE("g"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (b) WHERE EXISTS { MATCH (c) WHERE c = b } } RETURN a
+      // Declaration is tracked by creation site, so a name the OUTER body declared is external to the inner one and
+      // internal to the outer one. Nothing here reaches the caller, so the outer set is empty.
+      auto *inner = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("c"))), WHERE(EQ(IDENT("c"), IDENT("b"))))));
+      auto *outer = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("b"))), WHERE(inner))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(outer), RETURN("a"))));
+      EXPECT_EQ(names(inner->external_symbols_), Names{"b"});
+      EXPECT_EQ(names(outer->external_symbols_), Names{});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (x) RETURN x UNION MATCH (y) WHERE y = a RETURN y } RETURN a
+      // The correlation lives only in the second UNION branch. Both branches feed the one frame.
+      auto *subquery = make_subquery(
+          QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), RETURN(IDENT("x"), AS("r"))),
+                UNION(SINGLE_QUERY(
+                    MATCH(PATTERN(NODE("y"))), WHERE(EQ(IDENT("y"), IDENT("a"))), RETURN(IDENT("y"), AS("r"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+  };
+
+  check_shapes([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
+  check_shapes([this](auto *subquery) { return COUNT_SUBQUERY(subquery); });
+  check_shapes([this](auto *subquery) { return COLLECT_SUBQUERY(subquery); });
+}
+
 // The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
 // fixed order - so a refusal can change identity when an earlier rung moves. Every position gets a case, allowed or
 // refused, and the refused ones assert the message.

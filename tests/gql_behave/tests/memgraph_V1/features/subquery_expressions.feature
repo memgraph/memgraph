@@ -3464,3 +3464,97 @@ Feature: Subquery expressions
       Then the result should be, in order:
           | x   | y   |
           | 'A' | 'B' |
+
+  # The body reads the path the comprehension itself binds. That symbol is bound inside the comprehension's own branch,
+  # so demanding it from outside would make the conjunct unplantable - the subtraction is what keeps this answerable.
+  Scenario: Test EXISTS in a pattern comprehension filter reading the comprehension's own path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (n:Person)
+          WHERE size([p = (n)-[:KNOWS]->(c) WHERE EXISTS { MATCH (a:Person) WHERE a = nodes(p)[0] } | p]) > 0
+          RETURN n.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'A' |
+
+  # The list fold reaches the same machinery as the bool and count ones, correlated through the body's WHERE.
+  Scenario: Test COLLECT with a body correlated through its filter
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          WHERE size(COLLECT { MATCH (x:Person)-[:KNOWS]->(z) WHERE x.name = a.name RETURN x }) > 0
+          RETURN a.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'A' |
+
+  # `CALL (a) {}` copies the caller's symbol into the imported scope without declaring it, so a body inside that scope
+  # must still read it as external. This is the shape the frame stack exists for: it passes before this change too, so
+  # it does not pin the fix - it guards the design, and fails if the frame is ever replaced by a scope-index test.
+  Scenario: Test EXISTS correlated to a variable imported by a scoped CALL
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          CALL (a) { MATCH (n:Person) WHERE EXISTS { MATCH (m:Person)-[:KNOWS]->(z) WHERE m.name = a.name } RETURN n }
+          RETURN a.name AS x, count(n) AS c ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   | c |
+          | 'A' | 3 |
+
+  # A simple CASE visits its test expression once per WHEN arm, so the body is symbol-generated more than once. Only
+  # the last visit's external set survives, and it has to be the right one.
+  Scenario: Test a simple CASE whose test is a correlated EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          WHERE CASE EXISTS { MATCH (x:Person)-[:KNOWS]->(z) WHERE x.name = a.name } WHEN true THEN true ELSE false END
+          RETURN a.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'A' |
+
+  # The one correlation spelling the old atom walk already handled, so it passes before this change as well. It pins
+  # nothing new - it is the regression guard that the rewrite did not lose what the walk already got right.
+  Scenario: Test EXISTS with a body correlated through a pattern property map
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE EXISTS { MATCH (m:Person {name: a.name})-[:KNOWS]->(z) }
+          RETURN a.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'A' |
