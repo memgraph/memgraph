@@ -720,11 +720,11 @@ int main(int argc, char **argv) {
 #else
         if (maybe_username && maybe_password) {
 #endif
-          ah->CreateUser(maybe_username, maybe_password, nullptr);
+          ah->CreateUser(maybe_username, maybe_password, nullptr, nullptr);
         } else if (maybe_pass_file) {
           const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
           if (!username.empty() && !password.empty()) {
-            ah->CreateUser(username, password, nullptr);
+            ah->CreateUser(username, password, nullptr, nullptr);
           }
         }
       };
