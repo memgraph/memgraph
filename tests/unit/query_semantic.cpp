@@ -9,9 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <sstream>
+#include <string>
+#include <unordered_set>
 #include <variant>
+#include <vector>
 
 #include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
@@ -1350,6 +1355,42 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExpression) {
     auto symbol = *collector.symbols_.begin();
     ASSERT_EQ(symbol.name(), "n");
   }
+}
+
+// A MATCH stashes the identifiers in its pattern property maps and variable-length bounds, and resolves them once the
+// whole clause has been visited - so they can reference a variable bound later in the same MATCH. That deferred
+// resolution used to ask "is this name visible anywhere" while writing into one scope, so inside an un-imported
+// `CALL {}` it silently bound the name to a default-constructed Symbol instead of reporting it. The scoped and
+// `CALL (*)` spellings import the name and must keep working.
+TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoundary) {
+  auto body_reading_m = [this] {
+    auto *node = NODE("n");
+    std::get<0>(node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("m");
+    return SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n"));
+  };
+
+  // MATCH (m) CALL { MATCH (n {prop: m}) RETURN n } RETURN n - `m` is never imported.
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(body_reading_m()), RETURN("n")))),
+      UnboundVariableError);
+
+  // MATCH (m) CALL (m) { ... } RETURN n - imported by name.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(body_reading_m(), {"m"}), RETURN("n")))));
+
+  // MATCH (m) CALL (*) { ... } RETURN n - imported wholesale.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED_ALL(body_reading_m()), RETURN("n")))));
+
+  // MATCH (m) MATCH (n {prop: m}) RETURN n - no subquery boundary at all, still resolves.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         MATCH(PATTERN([this] {
+                           auto *node = NODE("n");
+                           std::get<0>(node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("m");
+                           return node;
+                         }())),
+                         RETURN("n")))));
 }
 
 // The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
