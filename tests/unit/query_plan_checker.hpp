@@ -259,6 +259,17 @@ using ExpectCreateNode = OpChecker<CreateNode>;
 using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
+
+/// `ExpectScanAll` accepts any derived scan, `ScanAllByLabel` included, so it cannot tell a full scan
+/// from an index scan. Use this where the point of the test is that no index was used.
+class ExpectScanAllAndNoIndex : public OpChecker<ScanAll> {
+ public:
+  void ExpectOp(ScanAll &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.GetTypeInfo().name, std::string_view{ScanAll::kType.name})
+        << "expected a plain ScanAll, got '" << scan_all.GetTypeInfo().name << "'";
+  }
+};
+
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
 
 class ExpectScanAllByEdgeId : public OpChecker<ScanAllByEdgeId> {

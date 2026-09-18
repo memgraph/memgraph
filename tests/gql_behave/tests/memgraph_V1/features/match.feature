@@ -1304,3 +1304,76 @@ Feature: Match
             MATCH (n) SET n:X&Y RETURN labels(n) AS v;
             """
         Then an error should be raised
+
+    Scenario: A label expression over a pattern expression
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:R]->(:B {n: 'b'})
+            """
+        When executing query:
+            """
+            MATCH (n:A) RETURN [(n)-->(m) | m][0]:!A AS v1, [(n)-->(m) | m][0]:B|C AS v2;
+            """
+        Then the result should be:
+            | v1   | v2   |
+            | true | true |
+
+    Scenario: A label expression over an anonymous pattern expression
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:R]->(:B {n: 'b'})
+            """
+        When executing query:
+            """
+            RETURN exists(()-->()):!A AS v;
+            """
+        Then an error should be raised
+
+    Scenario: Two disjunctions over one node are both tested
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:(A|B)&(B|C)) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'b'  |
+
+    Scenario: A disjunction subsumed by an earlier one still holds
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:(A|B|C)&(A|B)) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'b'  |
+
+    Scenario: A disjunction that subsumes an earlier one does not widen it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:(A|B)&(A|B|C)) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'b'  |

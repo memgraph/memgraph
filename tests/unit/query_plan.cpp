@@ -5258,12 +5258,14 @@ TYPED_TEST(TestPlanner, LabelConjunctionOperatorUsesBestLabelIndex) {
   dba.SetIndexCount(label1_id, 100);
   dba.SetIndexCount(label2_id, 1);
 
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE_WITH_LABELS("n", std::vector<std::string>{"Label1", "Label2"}, false))), RETURN("n")));
+  // Written with '&', so the term path is what gets exercised, not the ':A:B' AST.
+  auto *node = NODE_WITH_TERM("n", LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label2")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
+  // Label2 is the more selective of the two, so it is the one to scan by.
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label2_id), ExpectFilter(), ExpectProduce());
 }
 
 // A negation and a wildcard name no label to scan by, so both scan everything and filter.
@@ -5279,8 +5281,42 @@ TYPED_TEST(TestPlanner, LabelNegationAndWildcardScanAll) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllAndNoIndex(), ExpectFilter(), ExpectProduce());
   }
+}
+
+// A wildcard names no label for index selection to erase, so it has to survive as its own filter above
+// the index scan a sibling label earns. Guards the two `any_label_` checks in preprocess.cpp.
+TYPED_TEST(TestPlanner, WildcardSurvivesIndexSelection) {
+  // MATCH (n:Label1&%) RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  dba.SetIndexCount(label1_id, 1);
+
+  auto *node = NODE_WITH_TERM("n", LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_WILDCARD()));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), ExpectFilter(), ExpectProduce());
+}
+
+// Two disjunctions over one node are separate conjuncts: a label they share still has to be tested by
+// both, so neither may be folded into the other.
+TYPED_TEST(TestPlanner, OverlappingDisjunctionsStaySeparateFilters) {
+  // MATCH (n:(Label1|Label2)&(Label2|Label3)) RETURN n
+  FakeDbAccessor dba;
+
+  auto *node = NODE_WITH_TERM("n",
+                              LABEL_TERM_AND(LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label2")),
+                                             LABEL_TERM_OR(LABEL_TERM_LEAF("Label2"), LABEL_TERM_LEAF("Label3"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Both disjunctions survive; neither is folded into the other. With no index there is nothing to
+  // scan by, so they land in one Filter as two conjuncts.
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
 // A mixed term still hands index selection the disjunction it can use, and keeps the rest as a filter.
