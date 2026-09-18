@@ -9996,7 +9996,8 @@ class HashJoinCursor : public Cursor {
             ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
-        if (!relations::equality::HoldsANull(right_value) && hashtable_.contains(right_value)) {
+        // The rule the table was built under, asked again of the side probing it.
+        if (relations::equality::EqualsItself(right_value) && hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
           right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
           common_value_found_ = true;
@@ -10045,11 +10046,14 @@ class HashJoinCursor : public Cursor {
           ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
-      // A join keeps a pair only where the equality it stands for is true, and
-      // an equality against a value holding a Null is never true. Such a row
-      // joins with nothing, so it is not offered to the table at all. The
-      // filter this join replaced would have dropped it too.
-      if (!relations::equality::HoldsANull(left_value)) {
+      // A join keeps a pair only where the equality it stands for is true, and a
+      // value not equal to itself is equal to nothing at all: a Null leaves the
+      // pair undecided, and a NaN answers false against everything. Such a row
+      // joins with nothing, so it is not offered to the table at all. The table
+      // keys by a relation that holds both of them equal to themselves, so that
+      // it can find an entry again, and answering the join from that would keep
+      // rows the filter this join replaced would have dropped.
+      if (relations::equality::EqualsItself(left_value)) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }
     }

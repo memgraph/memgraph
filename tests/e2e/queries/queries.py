@@ -401,5 +401,32 @@ def test_an_edge_equality_against_a_nan_keeps_no_row_however_the_scan_is_planned
     assert [count(q) for q, _ in queries_and_answers] == expected
 
 
+def test_a_hash_join_over_a_nan_keeps_no_row_however_the_join_is_planned(memgraph):
+    """A hash join reads its table by equivalence, which holds two NaNs alike so
+    that a lookup can find an entry again. What the join answers is an equality,
+    and a NaN is equal to nothing, itself included, so a pair of them joins no
+    rows whichever way the planner chooses to answer."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute("CREATE (:X {v: sqrt(-1)}), (:Y {v: sqrt(-1)});")
+    memgraph.execute("CREATE (:X {v: 7.0}), (:Y {v: 7.0});")
+
+    def count(query):
+        rows = list(memgraph.execute_and_fetch(query))
+        return rows[0]["c"] if rows else 0
+
+    joined = "MATCH (a:X), (b:Y) WHERE a.v = b.v RETURN count(*) AS c;"
+    # The same question asked so that a filter reads the equality instead.
+    filtered = "MATCH (a:X) WITH a MATCH (b:Y) WITH a, b WHERE a.v = b.v RETURN count(*) AS c;"
+
+    # Naming the operator the test is here for: without it the join is answered
+    # some other way and the test asks nothing.
+    plan = "\n".join(row["QUERY PLAN"] for row in memgraph.execute_and_fetch(f"EXPLAIN {joined}"))
+    assert "HashJoin" in plan, plan
+
+    # Only the pair holding 7.0 joins: no equality against a NaN is true.
+    assert count(filtered) == 1
+    assert count(joined) == 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
