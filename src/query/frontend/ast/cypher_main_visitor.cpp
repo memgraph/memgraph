@@ -3114,14 +3114,10 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
   } else {
     anonymous_identifiers.push_back(&node->identifier_);
   }
-  if (ctx->nodeLabels()) {
-    node->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
-  }
-  if (ctx->labelExpression()) {
-    auto labels_set = std::any_cast<std::unordered_set<LabelIx>>(ctx->labelExpression()->accept(this));
-    node->labels_.reserve(labels_set.size());
-    node->labels_.insert(node->labels_.end(), labels_set.begin(), labels_set.end());
-    node->label_expression_ = true;
+  if (ctx->nodeLabelExpression()) {
+    auto parts = std::any_cast<LabelExpressionParts>(ctx->nodeLabelExpression()->accept(this));
+    node->labels_ = std::move(parts.labels);
+    node->label_expression_ = parts.disjunction;
   }
   if (ctx->properties()) {
     // This can return either properties or parameters
@@ -3134,56 +3130,78 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
   return node;
 }
 
-antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
+std::vector<QueryLabelType> CypherMainVisitor::LabelsFromLabelName(MemgraphCypher::LabelNameContext *ctx) {
   std::vector<QueryLabelType> labels;
-  for (auto *node_label : ctx->nodeLabel()) {
-    auto *label_name = node_label->labelName();
-    if (label_name->symbolicName()) {
-      labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
-    } else if (label_name->parameter()) {
-      // If we have a parameter, we have to resolve it.
-      const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
-      const auto &param_property = parameters_->AtTokenPosition(param_lookup->token_position_);
+  if (ctx->symbolicName()) {
+    labels.emplace_back(AddLabel(std::any_cast<std::string>(ctx->symbolicName()->accept(this))));
+  } else if (ctx->parameter()) {
+    // If we have a parameter, we have to resolve it.
+    const auto *param_lookup = std::any_cast<ParameterLookup *>(ctx->parameter()->accept(this));
+    const auto &param_property = parameters_->AtTokenPosition(param_lookup->token_position_);
 
-      if (param_property.IsString()) {
-        const auto &label_name = param_property.ValueString();
-        labels.emplace_back(storage_->GetLabelIx(label_name));
-      } else if (param_property.IsList()) {
-        const auto labels_list = param_property.ValueList();
-        for (const auto &label_name : labels_list) {
-          if (!label_name.IsString()) {
-            throw SyntaxException("Dynamic node labels must be of type STRING!");
-          }
-          labels.emplace_back(storage_->GetLabelIx(label_name.ValueString()));
+    if (param_property.IsString()) {
+      labels.emplace_back(storage_->GetLabelIx(param_property.ValueString()));
+    } else if (param_property.IsList()) {
+      const auto labels_list = param_property.ValueList();
+      for (const auto &label_name : labels_list) {
+        if (!label_name.IsString()) {
+          throw SyntaxException("Dynamic node labels must be of type STRING!");
         }
-      } else {
-        throw SyntaxException("Parameter for dynamic node labels must be of type STRING or LIST[STRING]");
+        labels.emplace_back(storage_->GetLabelIx(label_name.ValueString()));
       }
-
-      // We can't cache queries with label parameters because these parameters are resolved during the parsing stage.
-      // The same parameter could be resolved to different values if the user changes its value.
-      query_info_.is_cacheable = false;
     } else {
-      auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
-      users_identifiers.insert(variable);
-      auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
-      for (auto *lookup : label_name->propertyLookup()) {
-        auto key = std::any_cast<PropertyIx>(lookup->accept(this));
-        auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
-        expression = property_lookup;
-      }
-      labels.emplace_back(expression);
+      throw SyntaxException("Parameter for dynamic node labels must be of type STRING or LIST[STRING]");
     }
+
+    // We can't cache queries with label parameters because these parameters are resolved during the parsing stage.
+    // The same parameter could be resolved to different values if the user changes its value.
+    query_info_.is_cacheable = false;
+  } else {
+    auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
+    users_identifiers.insert(variable);
+    auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
+    for (auto *lookup : ctx->propertyLookup()) {
+      auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+      auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
+      expression = property_lookup;
+    }
+    labels.emplace_back(expression);
   }
   return labels;
 }
 
-antlrcpp::Any CypherMainVisitor::visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) {
-  std::unordered_set<LabelIx> labels;
-  for (auto *label : ctx->symbolicName()) {
-    labels.emplace(AddLabel(std::any_cast<std::string>(label->accept(this))));
+antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
+  std::vector<QueryLabelType> labels;
+  for (auto *node_label : ctx->nodeLabel()) {
+    auto leaf_labels = LabelsFromLabelName(node_label->labelName());
+    labels.insert(labels.end(), leaf_labels.begin(), leaf_labels.end());
   }
   return labels;
+}
+
+antlrcpp::Any CypherMainVisitor::visitNodeLabelExpression(MemgraphCypher::NodeLabelExpressionContext *ctx) {
+  // TODO(label-expressions): the grammar now parses the whole operator set; until the term tree lands this
+  // accepts only the two shapes that were parseable before it -- a colon chain, and one top-level '|'.
+  std::vector<QueryLabelType> labels;
+  bool disjunction = false;
+  for (auto *term : ctx->labelTerm()) {
+    for (auto *conjunction : term->labelTermAnd()) {
+      if (conjunction->labelTermNot().size() != 1U) {
+        throw SyntaxException("Label operators ('&', '|', '!', '%') are not supported yet.");
+      }
+      auto *atom = conjunction->labelTermNot().front()->labelTermAtom();
+      if (atom == nullptr || atom->labelName() == nullptr) {
+        throw SyntaxException("Label operators ('&', '|', '!', '%') are not supported yet.");
+      }
+      auto leaf_labels = LabelsFromLabelName(atom->labelName());
+      labels.insert(labels.end(), leaf_labels.begin(), leaf_labels.end());
+    }
+    disjunction |= term->labelTermAnd().size() > 1U;
+  }
+  if (disjunction && ctx->labelTerm().size() > 1U) {
+    throw SyntaxException("Label operators ('&', '|', '!', '%') are not supported yet.");
+  }
+  return LabelExpressionParts{std::move(labels), disjunction};
 }
 
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {
@@ -3762,9 +3780,12 @@ antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(MemgraphCypher::List
 
 antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aContext *ctx) {
   auto *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
-  if (ctx->nodeLabels()) {
-    auto labels = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
-    expression = storage_->Create<LabelsTest>(expression, labels);
+  if (ctx->nodeLabelExpression()) {
+    auto parts = std::any_cast<LabelExpressionParts>(ctx->nodeLabelExpression()->accept(this));
+    if (parts.disjunction) {
+      throw SyntaxException("Label operators ('&', '|', '!', '%') are not supported yet.");
+    }
+    expression = storage_->Create<LabelsTest>(expression, parts.labels);
   }
   return expression;
 }

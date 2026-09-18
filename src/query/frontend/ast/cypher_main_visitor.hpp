@@ -42,6 +42,13 @@ struct ParsingContext {
   bool is_query_cached = false;
 };
 
+/// What one label expression contributed: the labels it names, and whether they are to be read as a
+/// disjunction rather than as the usual conjunction.
+struct LabelExpressionParts {
+  std::vector<QueryLabelType> labels;
+  bool disjunction{false};
+};
+
 template <typename LabelOrEdgeTypeIx>
 struct VectorIndexLabelsInfo {
   storage::VectorMatchMode mode;
@@ -919,9 +926,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) override;
 
   /**
-   * @return vector<LabelIx>
+   * @return vector<QueryLabelType>
    */
-  antlrcpp::Any visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) override;
+  antlrcpp::Any visitNodeLabelExpression(MemgraphCypher::NodeLabelExpressionContext *ctx) override;
 
   /**
    * @return unordered_map<PropertyIx, Expression*>
@@ -1505,6 +1512,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   LabelIx AddLabel(const std::string &name);
   PropertyIx AddProperty(const std::string &name);
   EdgeTypeIx AddEdgeType(const std::string &name);
+
+  /// The labels one `labelName` leaf stands for. A `$param` bound to a list stands for several, read as a
+  /// conjunction, which is what the colon form has always done with such a parameter.
+  std::vector<QueryLabelType> LabelsFromLabelName(MemgraphCypher::LabelNameContext *ctx);
 
   ParsingContext context_;
   AstStorage *storage_;

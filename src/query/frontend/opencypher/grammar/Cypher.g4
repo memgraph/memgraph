@@ -171,7 +171,7 @@ patternElement : ( nodePattern ( patternElementChain )* )
                | ( '(' patternElement ')' )
                ;
 
-nodePattern : '(' ( variable )? ( nodeLabels | labelExpression )? ( properties )? ')' ;
+nodePattern : '(' ( variable )? ( nodeLabelExpression )? ( properties )? ')' ;
 
 patternElementChain : relationshipPattern nodePattern ;
 
@@ -203,7 +203,25 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelExpression: ':' symbolicName ( '|' symbolicName )+ ;
+// A whole label expression: one or more colon-introduced terms. Two or more terms is the legacy
+// ':A:B' conjunction, and the visitor then requires every term to be a bare label. Operator forms
+// ('&', '|', '!', '%', parentheses) live in a single term.
+nodeLabelExpression : ( ':' labelTerm )+ ;
+
+// Precedence, loosest first: '|' < '&' < '!' < atom. The '|' loop is non-greedy so that a list or
+// pattern comprehension can still claim its trailing projection pipe, as Cypher requires.
+labelTerm : labelTermAnd ( '|' labelTermAnd )*? ;
+
+labelTermAnd : labelTermNot ( '&' labelTermNot )* ;
+
+labelTermNot : '!' labelTermNot
+             | labelTermAtom
+             ;
+
+labelTermAtom : labelName
+              | '%'
+              | '(' labelTerm ')'
+              ;
 
 labelName : symbolicName
           | parameter
@@ -242,7 +260,7 @@ expression3 : ( ( '+' | '-' ) )* expression2a ;
 
 stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression6) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
 
-expression2a : expression2b ( nodeLabels )? ;
+expression2a : expression2b ( nodeLabelExpression )? ;
 
 expression2b : atom ( memberAccess )* ;
 
