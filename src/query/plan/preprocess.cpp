@@ -863,32 +863,25 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         filter.or_labels = labels_test->or_labels_;
         all_filters_.emplace_back(filter);
       } else {
-        // Add these labels to existing LabelsTest
-        // First cover OR expressions in LabelsTest
+        // Add these labels to the existing LabelsTest.
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        // Each OR group is a conjunct of its own, so groups are kept whole: a label an earlier group
+        // already names still has to be tested by this one. Only an identical group is redundant.
         auto &existing_or_labels = existing_labels_test->or_labels_;
-        std::unordered_set<LabelIx> as_set;
-        for (const auto &label_vec : existing_or_labels) {
-          for (const auto &label : label_vec) {
-            as_set.insert(label);
-          }
-        }
-
-        auto before_count = as_set.size();
-        for (auto &label_vec : labels_test->or_labels_) {
-          std::erase_if(label_vec, [&](const auto &label) { return !as_set.insert(label).second; });
-        }
-        if (as_set.size() != before_count) {
-          for (const auto &label_vec : labels_test->or_labels_) {
+        auto as_group = [](const std::vector<LabelIx> &labels) {
+          return std::unordered_set(labels.begin(), labels.end());
+        };
+        for (const auto &label_vec : labels_test->or_labels_) {
+          auto group = as_group(label_vec);
+          if (std::ranges::none_of(existing_or_labels, [&](const auto &e) { return as_group(e) == group; })) {
             existing_or_labels.push_back(label_vec);
           }
-          it->or_labels = existing_or_labels;
         }
+        it->or_labels = existing_or_labels;
 
-        // Then cover AND expressions in LabelsTest
         auto &existing_labels = existing_labels_test->labels_;
-        as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
-        before_count = as_set.size();
+        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto before_count = as_set.size();
         as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
         if (as_set.size() != before_count) {
           existing_labels = std::vector(as_set.begin(), as_set.end());
@@ -1048,14 +1041,6 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
           // First cover OR expressions in LabelsTest
           auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
           auto &existing_or_labels = existing_labels_test->or_labels_;
-          std::unordered_set<LabelIx> as_set;
-          for (const auto &label_vec : existing_or_labels) {
-            for (const auto &label : label_vec) {
-              as_set.insert(label);
-            }
-          }
-
-          auto before_count = as_set.size();
           // If symbol isn't already seen in this OR expression emplace back new vector of or labels
           std::vector<LabelIx> *or_labels_vec = nullptr;
           auto existing_or_labels_vec_it = already_seen_symbols.find(identifier->symbol_pos_);
@@ -1066,14 +1051,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
           } else {
             or_labels_vec = existing_or_labels_vec_it->second;
           }
+          // Dedupe within this group only: a label an earlier group already names is a separate
+          // conjunct there, and dropping it here would weaken this one.
+          auto as_set = std::unordered_set(or_labels_vec->begin(), or_labels_vec->end());
           for (auto &label : labels_test->labels_) {
             if (as_set.insert(label).second) {
               or_labels_vec->push_back(label);
             }
           }
-          if (as_set.size() != before_count) {
-            it->or_labels = existing_or_labels;
-          }
+          it->or_labels = existing_or_labels;
         }
       }
       // cleanup all already_seen_symbols vectors that are empty
