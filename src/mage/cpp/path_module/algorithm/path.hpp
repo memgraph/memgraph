@@ -196,16 +196,33 @@ class PathHelper {
   explicit PathHelper(const mgp::Map &config, const mgp::Graph &graph, ProcedureKind kind);
 
   // Whether a relationship of this type, traversed this way out of a node at `depth`, may be followed.
-  [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const;
+  // The step a relationship out of a node at `depth` is tested against.
+  [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
+  // Identifies that step, so two depths testing against the same step can share an answer.
+  [[nodiscard]] int64_t RelStepIndexAt(int64_t depth) const;
+  // The step is fixed for a whole adjacency list, and resolving it from a depth costs a division by
+  // a runtime sequence length. Callers that walk a list resolve it once and pass it.
+  [[nodiscard]] bool RelationshipAdmitted(const RelStep &step, std::string_view rel_type, bool outgoing) const;
+
+  [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const {
+    return RelationshipAdmitted(RelStepAt(depth), rel_type, outgoing);
+  }
+
   [[nodiscard]] bool StepAdmitsDirection(int64_t depth, bool outgoing) const;
 
-  [[nodiscard]] static LabelBools GetLabelBools(const mgp::Node &node, const LabelStep &step);
+  [[nodiscard]] static LabelBools GetLabelBools(mgp_vertex *vertex, const LabelStep &step);
   // A path-scoped walk re-enters a node once per path reaching it, and the verdict is the same each
   // time, so it is kept rather than re-read from storage.
-  [[nodiscard]] LabelBools CachedLabelBools(const mgp::Node &node, int64_t step_index) const;
+  [[nodiscard]] LabelBools CachedLabelBools(mgp_vertex *vertex, int64_t id, int64_t step_index) const;
 
   // Whether to return the node, and whether to walk on through it.
-  [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const;
+  // The identity and the labels are all any filter reads, so the node is borrowed rather than
+  // copied and its id is read once for all of them.
+  [[nodiscard]] Evaluation Evaluate(mgp_vertex *vertex, int64_t id, int64_t depth) const;
+
+  [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const {
+    return Evaluate(node.GetPtr(), node.Id().AsInt(), depth);
+  }
 
   bool PathSizeOk(int64_t path_size) const;
   bool PathTooBig(int64_t path_size) const;
@@ -235,14 +252,13 @@ class PathHelper {
 
  private:
   // First match wins: deny, terminator, end, allow.
-  [[nodiscard]] Evaluation EvaluateLabels(const mgp::Node &node, int64_t depth) const;
-  [[nodiscard]] Evaluation EvaluateEndAndTerminatorNodes(const mgp::Node &node, int64_t depth) const;
-  [[nodiscard]] Evaluation EvaluateNodeLists(const mgp::Node &node, int64_t depth) const;
+  [[nodiscard]] Evaluation EvaluateLabels(mgp_vertex *vertex, int64_t id, int64_t depth) const;
+  [[nodiscard]] Evaluation EvaluateEndAndTerminatorNodes(int64_t id, int64_t depth) const;
+  [[nodiscard]] Evaluation EvaluateNodeLists(int64_t id, int64_t depth) const;
 
-  // The step a node at `depth`, or a relationship out of a node at `depth`, is tested against.
+  // The step a node at `depth` is tested against.
   [[nodiscard]] int64_t LabelStepIndexAt(int64_t depth) const;
   void SizeLabelCache();
-  [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
 
   [[nodiscard]] bool EndNodesOnly() const { return config_.end_nodes_only; }
 
@@ -326,17 +342,54 @@ class PathExpand {
     int64_t relationship_id;  // kNoRelationship on a start node
     int64_t parent;           // index into branches_, kNoParent on a start node
     int64_t depth;
-    // Held rather than looked up when the path is rebuilt: scanning a node's relationships for a
-    // matching id costs more than the walk itself once most branches are emitted.
-    std::optional<mgp::Relationship> from_parent;
+    // The keys on this branch's path, one bit per `key & 63`. A clear bit proves its key is not on
+    // the path; a set bit proves nothing, so only then is the parent chain walked. Which key it
+    // summarises follows the uniqueness rule, exactly as OnBranch's comparison does.
+    uint64_t key_bits;
   };
+
+  static constexpr uint64_t KeyBit(const int64_t key) noexcept {
+    return uint64_t{1} << (static_cast<uint64_t>(key) & 63U);
+  }
 
   static constexpr int64_t kNoParent = -1;
   static constexpr int64_t kNoRelationship = std::numeric_limits<int64_t>::min();
 
+  // A relationship the step admits, and the node it leads to. The handle points into `nodes_`, whose
+  // elements keep their addresses as it grows.
+  struct AdmittedEdge {
+    int64_t next_id;
+    int64_t relationship_id;
+    mgp_vertex *next_vertex;
+  };
+
+  // What a node's adjacency answers depends only on the step and the direction, never on the path
+  // that arrived, so the answer is shared by every branch that asks it.
+  struct NeighbourhoodKey {
+    int64_t node_id;
+    int64_t step_index;
+    bool outgoing;
+    bool operator==(const NeighbourhoodKey &other) const = default;
+  };
+
+  struct NeighbourhoodHash {
+    size_t operator()(const NeighbourhoodKey &key) const noexcept {
+      size_t hash = std::hash<int64_t>{}(key.node_id);
+      hash ^= std::hash<int64_t>{}(key.step_index) + 0x9e3779b9UL + (hash << 6U) + (hash >> 2U);
+      return hash ^ static_cast<size_t>(key.outgoing);
+    }
+  };
+
   void RunPathScopedBfs();
-  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing,
-                    std::queue<std::pair<int64_t, mgp::Node>> &frontier);
+  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing, std::queue<int64_t> &frontier);
+  // Reads the adjacency from storage, and stores the answer once it has been asked for twice. The
+  // returned reference is invalidated by the next call, so a caller must finish with one answer
+  // before asking for another.
+  [[nodiscard]] const std::vector<AdmittedEdge> &AdmittedNeighbours(int64_t node_id, mgp_vertex *vertex, bool outgoing,
+                                                                    int64_t depth);
+  // Whether this neighbourhood has been asked for before, in one bit per key. A collision only makes
+  // a key look asked-before, which stores it one ask early -- never a wrong answer.
+  [[nodiscard]] bool AskedBefore(size_t hash);
   // Walks the parent chain rather than a visited set: the rule is scoped to this path, not the walk.
   [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
   // Rebuilds the path a branch stands for. Only emitted branches pay for it.
@@ -350,6 +403,21 @@ class PathExpand {
   PathData path_data_;
   std::vector<TreeEntry> tree_;
   std::vector<Branch> branches_;
+  // A node sits on many branches at once and a relationship is reached from many of them, so the
+  // walk holds one copy of each and the branches hold identities. Both are bounded by the part of
+  // the graph the walk reaches, not by the number of partial paths, which is what grows.
+  std::unordered_map<int64_t, mgp::Node> nodes_;
+  std::unordered_map<int64_t, mgp::Relationship> relationships_;
+  // Bounded by the part of the graph the walk reaches times the length of the step sequence, so it
+  // pays for itself exactly when a node is reached by more than one partial path -- which is the
+  // case a path-scoped uniqueness rule creates.
+  std::unordered_map<NeighbourhoodKey, std::vector<AdmittedEdge>, NeighbourhoodHash> admitted_;
+  // An entry is only worth storing if it is asked for again. A walk over a graph with a single route
+  // to each node never asks twice, and storing every first ask would be pure overhead there, so a
+  // first ask is answered from `scratch_` and only recorded in `asked_`.
+  static constexpr size_t kAskedBits = size_t{1} << 21U;
+  std::vector<uint64_t> asked_;
+  std::vector<AdmittedEdge> scratch_;
 };
 
 class PathSubgraph {
