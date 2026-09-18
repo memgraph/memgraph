@@ -3209,27 +3209,6 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
         [&](auto &waiting_list) { waiting_list.splice(waiting_list.begin(), std::move(local_waiting)); });
   }
 
-  {
-    auto guard = std::unique_lock{engine_lock_};
-    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
-
-    // Deltas from previous GC runs or from aborts can be cleaned up here
-    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      guard.unlock();
-      if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
-        // We know no transaction is active, it is safe to simply delete all the garbage undos
-        // Nothing can be reading them
-        garbage_undo_buffers.clear();
-      } else {
-        // garbage_undo_buffers is ordered, pop until we can't
-        while (!garbage_undo_buffers.empty() &&
-               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
-          garbage_undo_buffers.pop_front();
-        }
-      }
-    });
-  }
-
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
@@ -3422,6 +3401,27 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // some were not able to be collected, add them back to committed_transactions_ for the next GC run
     committed_transactions_.WithLock([&linked_undo_buffers](auto &committed_transactions) {
       committed_transactions.splice(committed_transactions.begin(), std::move(linked_undo_buffers));
+    });
+  }
+
+  {
+    auto guard = std::unique_lock{engine_lock_};
+    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
+
+    // Deltas from previous GC runs or from aborts can be cleaned up here
+    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+      guard.unlock();
+      if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
+        // We know no transaction is active, it is safe to simply delete all the garbage undos
+        // Nothing can be reading them
+        garbage_undo_buffers.clear();
+      } else {
+        // garbage_undo_buffers is ordered, pop until we can't
+        while (!garbage_undo_buffers.empty() &&
+               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
+          garbage_undo_buffers.pop_front();
+        }
+      }
     });
   }
 
