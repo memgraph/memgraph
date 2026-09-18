@@ -15,10 +15,13 @@
 // covered only by whole queries. `Admits` is the clearest case: an index range is emitted or
 // withheld on its answer, and no operator reaches it at all.
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -263,6 +266,103 @@ TEST(Orderability, SortsANullAfterEverything) {
   EXPECT_TRUE(std::is_eq(orderability::Compare(null, null)));
 }
 
+TEST(Orderability, PlacesANaNWhereComparabilityStillWillNot) {
+  // The two relations part company here on purpose. A sort needs a position for
+  // every pair; `<` must answer that it has none, since a NaN is unordered
+  // against everything IEEE hands it. Placing a NaN for the sort must not put an
+  // order behind the comparison operators.
+  auto const nan = TypedValue(std::nan(""));
+
+  // A Double is a type comparability admits, so it answers rather than
+  // declining, and what it answers is that it has no order for the pair.
+  EXPECT_FALSE(comparability::Places(nan));
+  EXPECT_EQ(comparability::Compare(nan, TypedValue(1.0)), std::partial_ordering::unordered);
+  EXPECT_EQ(comparability::Compare(nan, nan), std::partial_ordering::unordered);
+
+  EXPECT_TRUE(std::is_eq(orderability::Compare(nan, nan)));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(nan, TypedValue(1.0))));
+}
+
+TEST(Orderability, PlacesTwoNaNsTogether) {
+  // A sort needs an answer for every pair it is handed, and IEEE gives none for
+  // a NaN. Two of them share one position, so a sort may treat them as the same
+  // value without treating either as the same value as a number.
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_TRUE(std::is_eq(orderability::Compare(nan, nan)));
+}
+
+TEST(Orderability, PlacesANaNAfterEveryNumber) {
+  // Including after an infinity, which is the only number a NaN could plausibly
+  // be put before.
+  auto const nan = TypedValue(std::nan(""));
+  for (auto const number : {std::numeric_limits<double>::lowest(),
+                            -1.0,
+                            0.0,
+                            1.0,
+                            std::numeric_limits<double>::max(),
+                            std::numeric_limits<double>::infinity()}) {
+    EXPECT_TRUE(std::is_gt(orderability::Compare(nan, TypedValue(number)))) << "not after " << number;
+    EXPECT_TRUE(std::is_lt(orderability::Compare(TypedValue(number), nan))) << "not after " << number;
+  }
+}
+
+TEST(Orderability, PlacesANaNAfterAnIntegerToo) {
+  // An integer against a double is the one pair of unlike types this relation
+  // orders, and it reaches a different arm from the pair of doubles above.
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(nan, Int(1))));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(Int(1), nan)));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(nan, Int(std::numeric_limits<int64_t>::max()))));
+}
+
+TEST(Orderability, PlacesTwoPointsHoldingANaNTogether) {
+  // Two values are equivalent exactly where they share a position under this
+  // relation, so a pair equivalence holds alike and this one leaves unplaced
+  // would put the two relations at odds, and a sort keyed by one would disagree
+  // with a grouping keyed by the other.
+  auto const nan = std::nan("");
+  auto const flat = TypedValue(Point2d{Cartesian_2d, 1.0, nan});
+  auto const respelled = TypedValue(Point2d{Cartesian_2d, 1.0, -nan});
+  auto const solid = TypedValue(Point3d{Cartesian_3d, 1.0, 2.0, nan});
+
+  ASSERT_TRUE(equivalence::Equivalent(flat, respelled));
+  EXPECT_TRUE(std::is_eq(orderability::Compare(flat, respelled)));
+  EXPECT_TRUE(std::is_eq(orderability::Compare(solid, solid)));
+}
+
+TEST(Orderability, PlacesAPointHoldingANaNAfterOneThatDoesNot) {
+  auto const nan = std::nan("");
+  auto const holding = TypedValue(Point2d{Cartesian_2d, 1.0, nan});
+  auto const whole = TypedValue(Point2d{Cartesian_2d, 1.0, 2.0});
+
+  EXPECT_TRUE(std::is_gt(orderability::Compare(holding, whole)));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(whole, holding)));
+}
+
+TEST(Orderability, SortsAColumnHoldingANaN) {
+  // What the relation is for, and the reason a position for every pair is not a
+  // nicety. A sort reads "no position" as "neither comes first", which makes a
+  // NaN interchangeable with every number while no two numbers are with each
+  // other. That is not a strict weak ordering, and a standard sort handed one
+  // is free to do anything at all rather than merely order the column oddly.
+  auto const nan = std::nan("");
+  auto column = std::vector<TypedValue>{TypedValue(3.0),
+                                        TypedValue(nan),
+                                        TypedValue(1.0),
+                                        TypedValue(-nan),
+                                        TypedValue(2.0),
+                                        TypedValue(std::numeric_limits<double>::infinity())};
+
+  std::ranges::sort(column,
+                    [](TypedValue const &a, TypedValue const &b) { return std::is_lt(orderability::Compare(a, b)); });
+
+  auto const numbers_in_order =
+      std::ranges::is_sorted(column | std::views::take(4), {}, [](auto const &value) { return value.ValueDouble(); });
+  EXPECT_TRUE(numbers_in_order) << "the numbers did not come out in order";
+  EXPECT_TRUE(std::isnan(column[4].ValueDouble())) << "a NaN did not land after every number";
+  EXPECT_TRUE(std::isnan(column[5].ValueDouble())) << "a NaN did not land after every number";
+}
+
 TEST(Orderability, PlacesTheTypesComparabilityRefuses) {
   for (auto const type : {Type::Enum, Type::Point2d, Type::Point3d}) {
     auto const pair = PairOf(type);
@@ -318,10 +418,17 @@ TEST(Orderability, CompareOfListsReadsTheRelationAgainForEachElement) {
   EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(one.ValueList(), one_and_a_half.ValueList())));
 }
 
-TEST(Orderability, CompareOfListsLeavesAnElementItCannotPlaceUnordered) {
+TEST(Orderability, CompareOfListsPlacesAnElementComparabilityCannot) {
+  // A list is ordered by its elements, so an element with no position would
+  // leave the list with none either, and a sort over a column of lists is no
+  // better defined than a sort over a column of numbers holding a NaN.
   auto const nan = ListOf({TypedValue(std::nan(""))});
   auto const number = ListOf({TypedValue(1.0)});
-  EXPECT_EQ(orderability::CompareOfLists(nan.ValueList(), number.ValueList()), std::partial_ordering::unordered);
+  auto const another_nan = ListOf({TypedValue(-std::nan(""))});
+
+  EXPECT_TRUE(std::is_gt(orderability::CompareOfLists(nan.ValueList(), number.ValueList())));
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(number.ValueList(), nan.ValueList())));
+  EXPECT_TRUE(std::is_eq(orderability::CompareOfLists(nan.ValueList(), another_nan.ValueList())));
 }
 
 TEST(Orderability, CompareOfListsRefusesAnElementPairItHasNoOrderFor) {
@@ -475,14 +582,78 @@ TEST(Equivalence, HoldsEveryValueEquivalentToItself) {
   }
 }
 
-TEST(Equivalence, HoldsNoNaNEquivalentToItself) {
-  // The one value the property above does not reach. A double is equivalent as a double
-  // compares, which leaves each NaN its own group under DISTINCT and its own key in a hash
-  // container. Two of them still hash alike, so the lookup reaches the comparison and fails it.
+TEST(Equivalence, HoldsANaNEquivalentToItself) {
+  // The one value the property above does not reach through a pair. Equality answers false for a
+  // NaN against itself, and taking that answer would leave each NaN its own group under DISTINCT
+  // and a key a hash container could never find again.
   auto const nan = TypedValue(std::nan(""));
-  EXPECT_FALSE(equivalence::Equivalent(nan, nan));
-  EXPECT_FALSE(equivalence::Equivalent(ListOf({nan}), ListOf({nan})));
-  EXPECT_EQ(equivalence::Hash(nan), equivalence::Hash(nan));
+  EXPECT_TRUE(equivalence::Equivalent(nan, nan));
+  EXPECT_TRUE(equivalence::Equivalent(ListOf({nan}), ListOf({nan})));
+  EXPECT_TRUE(equivalence::Equivalent(MapOf({{"a", nan}}), MapOf({{"a", nan}})));
+  EXPECT_TRUE(equivalence::Equivalent(ListOf({ListOf({nan})}), ListOf({ListOf({nan})})));
+}
+
+TEST(Equivalence, HoldsAPointHoldingANaNEquivalentToItself) {
+  // A point holds its coordinates as doubles and compares them together, so one
+  // holding a NaN is no more equal to itself than the NaN is. Storage reads a
+  // point when it asks whether a value equals itself, and the two layers spell
+  // that question separately, so each has to answer it the same way.
+  auto const nan = std::nan("");
+  auto const flat = TypedValue(Point2d{Cartesian_2d, 1.0, nan});
+  auto const solid = TypedValue(Point3d{Cartesian_3d, 1.0, 2.0, nan});
+
+  EXPECT_FALSE(equality::EqualsItself(flat));
+  EXPECT_FALSE(equality::EqualsItself(solid));
+
+  EXPECT_TRUE(equivalence::Equivalent(flat, flat));
+  EXPECT_TRUE(equivalence::Equivalent(solid, solid));
+  EXPECT_TRUE(equivalence::Equivalent(ListOf({flat}), ListOf({flat})));
+  EXPECT_EQ(equivalence::Hash(flat), equivalence::Hash(TypedValue(Point2d{Cartesian_2d, 1.0, -nan})));
+}
+
+TEST(Equivalence, HoldsAPointHoldingANaNEquivalentToNoOther) {
+  auto const nan = std::nan("");
+  auto const flat = TypedValue(Point2d{Cartesian_2d, 1.0, nan});
+
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{Cartesian_2d, 1.0, 2.0})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{Cartesian_2d, 2.0, nan})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point2d{WGS84_2d, 1.0, nan})));
+  EXPECT_FALSE(equivalence::Equivalent(flat, TypedValue(Point3d{Cartesian_3d, 1.0, nan, 3.0})));
+}
+
+TEST(Equivalence, HoldsANaNEquivalentToNoOtherNumber) {
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_FALSE(equivalence::Equivalent(nan, TypedValue(1.0)));
+  EXPECT_FALSE(equivalence::Equivalent(TypedValue(1.0), nan));
+  EXPECT_FALSE(equivalence::Equivalent(nan, Int(1)));
+  EXPECT_FALSE(equivalence::Equivalent(nan, TypedValue()));
+  EXPECT_FALSE(equivalence::Equivalent(ListOf({nan}), ListOf({TypedValue(1.0)})));
+  EXPECT_FALSE(equivalence::Equivalent(ListOf({TypedValue(1.0)}), ListOf({nan})));
+}
+
+TEST(Equivalence, HashesTwoNaNsAlikeWhateverBitsEachCarries) {
+  // A NaN is written in more than one bit pattern, and a hash over the bits tells them apart.
+  // Equivalence holds them alike, so the hash has to as well or the lookup never reaches the
+  // comparison.
+  auto const nan = TypedValue(std::nan(""));
+  auto const negated = TypedValue(-std::nan(""));
+  auto const computed = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  ASSERT_TRUE(equivalence::Equivalent(nan, negated));
+  ASSERT_TRUE(equivalence::Equivalent(nan, computed));
+  EXPECT_EQ(equivalence::Hash(nan), equivalence::Hash(negated));
+  EXPECT_EQ(equivalence::Hash(nan), equivalence::Hash(computed));
+  EXPECT_EQ(equivalence::Hash(ListOf({nan})), equivalence::Hash(ListOf({negated})));
+}
+
+TEST(Equivalence, LeavesEqualityAnsweringAsItDidOverANaN) {
+  // Equivalence holding two NaNs alike is not equality doing so: `=` still answers false, which
+  // is what a NaN being equal to nothing means.
+  auto const nan = TypedValue(std::nan(""));
+  auto const equality_result = equality::Equal(nan, nan);
+  ASSERT_EQ(equality_result.type(), TypedValue::Type::Bool);
+  EXPECT_FALSE(equality_result.ValueBool());
+  EXPECT_FALSE(equality::EqualsItself(nan));
 }
 
 TEST(Equivalence, HashesEquivalentValuesAlike) {

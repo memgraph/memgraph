@@ -591,6 +591,83 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverValuesHoldingANaN) {
+  // A membership test asks equality of each element, and a NaN is equal to
+  // nothing, itself included, so a list holding one holds nothing a NaN is a
+  // member of. The set the operator caches the list in answers by equivalence,
+  // which holds two NaNs alike so that a hash container can find an entry
+  // again, so a lookup there reports a member the equality has none of.
+  auto const nan = [this] {
+    return this->storage.template Create<PrimitiveLiteral>(std::numeric_limits<double>::quiet_NaN());
+  };
+  auto const number = [this](double value) { return this->storage.template Create<PrimitiveLiteral>(value); };
+  auto const list_of = [this](std::vector<Expression *> elements) {
+    return this->storage.template Create<ListLiteral>(std::move(elements));
+  };
+  auto const in = [this](Expression *probe, Expression *list) {
+    return this->storage.template Create<InListOperator>(probe, list);
+  };
+  // Filling the set and reading an already-filled one are different paths
+  // through the operator, and every row after the first takes the second.
+  auto const eval_twice_through_one_collector = [this](InListOperator *op) {
+    FrameChangeCollector collector;
+    collector.AddInListKey(memgraph::utils::GetFrameChangeId(*op));
+    ExpressionEvaluator caching{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+    auto const filling_the_set = op->Accept(caching);
+    auto const reading_it = op->Accept(caching);
+    EXPECT_EQ(filling_the_set.type(), reading_it.type());
+    return reading_it;
+  };
+
+  {
+    // The sought value and the only element are both NaNs.
+    auto *op = in(nan(), list_of({nan()}));
+    EXPECT_EQ(this->Eval(op).ValueBool(), false);
+    EXPECT_EQ(eval_twice_through_one_collector(op).ValueBool(), false);
+  }
+  {
+    // A number beside the NaN still answers for itself, so the whole list is
+    // not simply being refused.
+    auto *sought_nan = in(nan(), list_of({number(1.0), nan()}));
+    EXPECT_EQ(this->Eval(sought_nan).ValueBool(), false);
+    EXPECT_EQ(eval_twice_through_one_collector(sought_nan).ValueBool(), false);
+
+    auto *sought_number = in(number(1.0), list_of({number(1.0), nan()}));
+    EXPECT_EQ(this->Eval(sought_number).ValueBool(), true);
+    EXPECT_EQ(eval_twice_through_one_collector(sought_number).ValueBool(), true);
+
+    auto *absent_number = in(number(2.0), list_of({number(1.0), nan()}));
+    EXPECT_EQ(this->Eval(absent_number).ValueBool(), false);
+    EXPECT_EQ(eval_twice_through_one_collector(absent_number).ValueBool(), false);
+  }
+  {
+    // A list holding no NaN keeps the set exact, and a NaN sought in one is
+    // absent rather than undecided, so the lookup answers it without the loop.
+    auto *op = in(nan(), list_of({number(1.0), number(2.0)}));
+    EXPECT_EQ(this->Eval(op).ValueBool(), false);
+    EXPECT_EQ(eval_twice_through_one_collector(op).ValueBool(), false);
+  }
+  {
+    // A NaN below the top level of an element is no more a member than one at
+    // it, and the walk has to reach it.
+    auto *op = in(list_of({nan()}), list_of({list_of({nan()})}));
+    EXPECT_EQ(this->Eval(op).ValueBool(), false);
+    EXPECT_EQ(eval_twice_through_one_collector(op).ValueBool(), false);
+  }
+  {
+    // A point carries its coordinates as doubles, so one holding a NaN is a
+    // member of nothing either.
+    auto const nan_point = [this] {
+      return this->storage.template Create<PrimitiveLiteral>(
+          memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
+              memgraph::storage::CoordinateReferenceSystem::WGS84_2d, std::numeric_limits<double>::quiet_NaN(), 1.0}));
+    };
+    auto *op = in(nan_point(), list_of({nan_point()}));
+    EXPECT_EQ(this->Eval(op).ValueBool(), false);
+    EXPECT_EQ(eval_twice_through_one_collector(op).ValueBool(), false);
+  }
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, InListOperatorWhereTheSoughtValueIsNullOnALaterRow) {
   // A filter reads one membership test over every row, so a row whose sought
   // value is Null arrives after rows that filled the set. That row takes the
