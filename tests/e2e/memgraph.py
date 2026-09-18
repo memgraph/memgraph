@@ -313,6 +313,29 @@ class MemgraphInstanceRunner:
                     except Exception as e:
                         pass
 
+            # /proc/<pid>/wchan above is the main thread's; per-thread wchans distinguish a
+            # thread parked in a join or a condition variable from one blocked elsewhere.
+            task_dir = f"{proc_dir}/task"
+            try:
+                tids = sorted(os.listdir(task_dir), key=int)
+            except Exception:
+                tids = []
+            if tids:
+                print(f"\n/proc/{self.proc_mg.pid}/task/*")
+                print("tid\tcomm\tstate\twchan")
+                for tid in tids:
+                    fields = {}
+                    for field in ("comm", "wchan", "stat"):
+                        try:
+                            with open(f"{task_dir}/{tid}/{field}", "r") as f:
+                                fields[field] = f.read().strip()
+                        except Exception:
+                            fields[field] = "?"
+                    # stat is "pid (comm) state ...". Every field after the comm is numeric, so the
+                    # last ')' closes the comm even when the thread name itself contains one.
+                    state = fields["stat"].rpartition(")")[2].split()
+                    print(f"{tid}\t{fields['comm']}\t{state[0] if state else '?'}\t{fields['wchan']}")
+
         print("=" * 80 + "\n")
 
     # If the method with socket is ok, remove this TODO: (andi)
