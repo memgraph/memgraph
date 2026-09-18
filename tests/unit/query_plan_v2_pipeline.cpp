@@ -18,6 +18,7 @@
 // Per-operator round-trip coverage lives at the converter layer, not here; one
 // representative round-trip guards the parser->pipeline path.
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <sstream>
@@ -371,22 +372,43 @@ TEST_F(PlannerV2PipelineTest, OptionalCallSubqueryIsRejected) {
   EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols), NotYetImplemented);
 }
 
-// A label expression lowers to `LabelsTest` under boolean operators, none of which plan_v2 can read yet,
-// and a pattern carrying one is a MATCH, which it cannot read either. Both have to keep saying so: a
-// silent lowering would drop the label test and answer with rows the query excludes. When MATCH does land
-// here, `NodeAtom::label_term_` needs its own guard, and this test is where that shows.
+// A label expression lowers to `LabelsTest`, which plan_v2 cannot read yet. It has to keep saying so: a
+// silent lowering would drop the label test and answer with rows the query excludes. The thrown feature
+// is asserted, not just the throw, because a query can fail here for an unrelated missing clause.
 TEST_F(PlannerV2PipelineTest, LabelExpressionsAreRejected) {
-  for (const auto *query : {"MATCH (n:A&B) RETURN n;",
-                            "MATCH (n:A|B) RETURN n;",
-                            "MATCH (n:!A) RETURN n;",
-                            "MATCH (n:%) RETURN n;",
-                            "UNWIND [1] AS n RETURN n:A|B AS v;",
-                            "UNWIND [1] AS n RETURN n:!A AS v;",
-                            "UNWIND [1] AS n RETURN n:% AS v;"}) {
+  // `WITH`, not `UNWIND [1]`: a list literal is itself unsupported and would throw before the RETURN.
+  for (const auto *query : {"WITH 1 AS n RETURN n:A|B AS v;",
+                            "WITH 1 AS n RETURN n:A&B AS v;",
+                            "WITH 1 AS n RETURN n:!A AS v;",
+                            "WITH 1 AS n RETURN n:% AS v;",
+                            "WITH 1 AS n RETURN n:(A|B)&!C AS v;"}) {
     auto *parsed = ParseQuery(query);
     ASSERT_NE(parsed, nullptr) << query;
     auto symbols = MakeSymbolTable(parsed);
-    EXPECT_THROW(ConvertToEgraph(*parsed, symbols), NotYetImplemented) << query;
+    try {
+      ConvertToEgraph(*parsed, symbols);
+      ADD_FAILURE() << "expected a refusal for " << query;
+    } catch (const NotYetImplemented &e) {
+      EXPECT_THAT(e.what(), ::testing::HasSubstr("LabelsTest")) << query;
+    }
+  }
+}
+
+// A pattern carrying a label expression is a MATCH, which plan_v2 cannot read either -- so these throw
+// for the clause, not for the label term. When MATCH does land here, `NodeAtom::label_term_` needs its
+// own guard and these rows are where that shows: they will start passing for the wrong reason.
+TEST_F(PlannerV2PipelineTest, LabelExpressionPatternsAreRejectedWithTheirClause) {
+  for (const auto *query :
+       {"MATCH (n:A&B) RETURN n;", "MATCH (n:A|B) RETURN n;", "MATCH (n:!A) RETURN n;", "MATCH (n:%) RETURN n;"}) {
+    auto *parsed = ParseQuery(query);
+    ASSERT_NE(parsed, nullptr) << query;
+    auto symbols = MakeSymbolTable(parsed);
+    try {
+      ConvertToEgraph(*parsed, symbols);
+      ADD_FAILURE() << "expected a refusal for " << query;
+    } catch (const NotYetImplemented &e) {
+      EXPECT_THAT(e.what(), ::testing::HasSubstr("Match")) << query;
+    }
   }
 }
 
