@@ -98,8 +98,17 @@ TEST(TypeBands, FenceAScanAboveEveryValueItCouldHold) {
   // A scan with no upper bound of its own is fenced at kLargestProperty, so a
   // value sorting above it is handed back by no such scan. A NaN is placed after
   // every number, which a point's coordinates are, so a point holding one is the
-  // value most likely to escape the fence.
+  // value most likely to escape the fence. Every type has to be named here, the
+  // one the order ends with above all, since a fence of any earlier type leaves
+  // every value of that last one above it.
   auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const nan_coordinate = std::numeric_limits<float>::quiet_NaN();
+  auto const vector_index_id = [](std::initializer_list<float> coordinates) {
+    auto vector = memgraph::utils::small_vector<float>{};
+    for (auto const coordinate : coordinates) vector.push_back(coordinate);
+    return PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{1},
+                                                          .vector = std::move(vector)});
+  };
 
   for (auto const &value : {kSmallestProperty,
                             kSmallestBool,
@@ -116,7 +125,13 @@ TEST(TypeBands, FenceAScanAboveEveryValueItCouldHold) {
                             PropertyValue(nan),
                             PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, nan, nan}),
                             PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, nan, nan, nan}),
-                            PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, nan, 2.0})}) {
+                            PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, nan, 2.0}),
+                            kSmallestVectorIndexId,
+                            vector_index_id({}),
+                            vector_index_id({0.0F}),
+                            vector_index_id({1.0F, 2.0F, 3.0F}),
+                            vector_index_id({std::numeric_limits<float>::infinity()}),
+                            vector_index_id({nan_coordinate})}) {
     EXPECT_FALSE(kLargestProperty < value) << "a value sorts above the fence a bounded scan stops at";
   }
 
@@ -124,6 +139,11 @@ TEST(TypeBands, FenceAScanAboveEveryValueItCouldHold) {
   // not exclude one.
   EXPECT_TRUE(kSmallestProperty < kLargestProperty);
   EXPECT_TRUE(kSmallestPoint3d < kLargestProperty);
+  EXPECT_TRUE(kSmallestVectorIndexId < kLargestProperty);
+
+  // A stored vector index id decodes with no coordinates until they are read
+  // back from the vector index, so the fence has to sit above that spelling too.
+  EXPECT_TRUE(vector_index_id({}) < kLargestProperty);
 }
 
 TEST(ComparableBounds, HoldsNoNaNInTheStretchAroundANumber) {

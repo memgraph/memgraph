@@ -44,13 +44,14 @@ static const auto kSmallestVectorIndexId = PropertyValue(
 /// A value no stored value sorts above, used to fence a scan that has no upper
 /// bound of its own.
 ///
-/// The coordinates are NaNs rather than infinities because a NaN is placed after
-/// every number, so a point holding one sorts above a point holding an infinity
-/// and would fall outside a fence built from the latter.
-static const auto kLargestProperty = PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d,
-                                                           std::numeric_limits<double>::quiet_NaN(),
-                                                           std::numeric_limits<double>::quiet_NaN(),
-                                                           std::numeric_limits<double>::quiet_NaN()});
+/// It takes the type the order ends with, since a value of any other type sorts
+/// below every value of that one. Two of these are placed by their coordinates,
+/// and a NaN is placed after every number, so one coordinate holding a NaN sorts
+/// above a vector holding none and above the empty vector a stored one decodes
+/// to before its coordinates are read back.
+static const auto kLargestProperty = PropertyValue(
+    PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{},
+                                     .vector = utils::small_vector<float>{std::numeric_limits<float>::quiet_NaN()}});
 
 // The types below are placed in the order their enumerators are numbered in, so
 // the numbering is checked here rather than trusted. The three that pack a
