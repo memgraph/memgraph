@@ -58,9 +58,13 @@ struct SnapshotDurabilityInfo {
 /// @param uuid UUID of the Snapshot files. If not empty, fetch only Snapshot
 /// file with the specified UUID. Otherwise, fetch only Snapshot files in the
 /// snapshot_directory.
+/// @param unreadable_candidates_out If non-null, incremented for each regular file that could not be
+/// read/decoded as a valid durability file (used by RecoverData to distinguish an empty directory
+/// from one whose durability files are present but unusable).
 /// @return List of snapshot files defined with its path and UUID.
 std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                                    std::string_view uuid = "");
+                                                                    std::string_view uuid = "",
+                                                                    std::size_t *unreadable_candidates_out = nullptr);
 
 /// Used to capture a WAL's data related to durability
 struct WalDurabilityInfo {
@@ -91,11 +95,15 @@ struct WalDurabilityInfo {
 /// @param current_seq_num Sequence number of the WAL file which is currently
 /// being written. If specified, load only finalized WAL files, i.e. WAL files
 /// with seq_num < current_seq_num.
+/// @param unreadable_candidates_out If non-null, incremented for each regular file that could not be
+/// read/decoded as a valid durability file (used by RecoverData to distinguish an empty directory
+/// from one whose durability files are present but unusable).
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
                                                           std::string_view uuid = "",
-                                                          std::optional<size_t> current_seq_num = {});
+                                                          std::optional<size_t> current_seq_num = {},
+                                                          std::size_t *unreadable_candidates_out = nullptr);
 
 bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 
