@@ -90,6 +90,11 @@ def execute_test(memgraph_binary: Path, test_directory, test_type, write_expecte
 
     extra_args = [
         "--data-recovery-on-startup",
+        # The fixtures enable TTL and carry entities whose `ttl` value is already in the past, so the
+        # sweeper deletes them whenever it happens to fire inside the second this server is up. Its
+        # schedule is an absolute lattice recovered from the fixture, so the hit is rare and random.
+        # Suppress the sweep; the recovered TTL configuration is still dumped and still asserted on.
+        "--storage-ttl-enabled=false",
         f"--monitoring-port={MONITORING_PORT}",
         f"--metrics-port={METRICS_PORT}",
     ]

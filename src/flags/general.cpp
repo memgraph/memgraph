@@ -207,6 +207,11 @@ DEFINE_bool(storage_delta_on_identical_property_update, true,
 DEFINE_bool(storage_backup_dir_enabled, true,
             "Controls whether .old dir will be used to store latest snapshot and WAL files.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_ttl_enabled, true,
+            "Controls whether the TTL background job sweeps expired vertices and edges. The TTL configuration is "
+            "still recovered and reported when this is false; only the sweep is suppressed.");
+
 // RocksDB flags
 // The info log flags are defined in mg-kvstore (kvstore/rocksdb_options.hpp) because they apply to every RocksDB
 // instance, not just the disk storage one.

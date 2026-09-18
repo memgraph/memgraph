@@ -116,6 +116,8 @@ DECLARE_bool(storage_light_edge);
 DECLARE_bool(storage_delta_on_identical_property_update);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_backup_dir_enabled);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_ttl_enabled);
 
 // RocksDB flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

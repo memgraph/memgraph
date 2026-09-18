@@ -12,3 +12,13 @@
 # To verify
 
 1. Run `./runner.py`
+
+# TTL in the fixtures
+
+A `ttl` property is a **microsecond** timestamp, the unit the sweeper compares against. The existing
+fixtures were authored with `4102444800` — year 2100 read as seconds, but 1970 read as microseconds —
+so their TTL entities are permanently expired. New datasets should use `4102444800000000` instead.
+
+Both `record_durability.py` and `runner.py` pass `--storage-ttl-enabled=false` so the sweeper can
+never fire inside the second a fixture is being recorded or recovered. The TTL *configuration* is
+still recovered and dumped, so `ENABLE TTL ...` remains part of what the expected dumps assert.
