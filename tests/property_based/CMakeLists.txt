@@ -42,3 +42,6 @@ target_link_libraries(${test_prefix}relation_laws mg-query typed_value_generator
 
 add_property_based_test(storage_relation_laws.cpp)
 target_link_libraries(${test_prefix}storage_relation_laws mg::storage value_generators)
+
+add_property_based_test(order_agreement.cpp)
+target_link_libraries(${test_prefix}order_agreement mg-query mg::storage value_generators)
