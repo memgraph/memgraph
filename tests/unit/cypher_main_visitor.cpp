@@ -9970,3 +9970,354 @@ TEST_P(CypherMainVisitorTest, KeywordsCanBeUsedAsLabels) {
     ASSERT_TRUE(query);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Label expressions: `&`, `|`, `!`, `%` and parentheses.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// A parsed label term as text, so a test states the whole shape in one string: `A`, `%`, `!A`,
+/// `&(A,B)`, `|(A,&(B,C))`.
+std::string TermToString(const LabelTerm &term) {
+  switch (term.kind) {
+    case LabelTerm::Kind::Label:
+      return term.label.name;
+    case LabelTerm::Kind::Wildcard:
+      return "%";
+    case LabelTerm::Kind::Not:
+      return "!" + TermToString(term.children.front());
+    case LabelTerm::Kind::And:
+    case LabelTerm::Kind::Or: {
+      std::string out = term.kind == LabelTerm::Kind::And ? "&(" : "|(";
+      for (size_t i = 0; i < term.children.size(); ++i) {
+        if (i != 0U) out += ",";
+        out += TermToString(term.children[i]);
+      }
+      return out + ")";
+    }
+  }
+}
+
+/// A lowered label expression as text, in the same notation, with one labels test reading as
+/// `A`, `A:B` (conjunction), `(A|B)` (one OR group) and `%` for the wildcard.
+std::string LoweredToString(Expression *expression) {
+  if (auto *test = dynamic_cast<LabelsTest *>(expression)) {
+    std::vector<std::string> parts;
+    for (const auto &label : test->labels_) parts.push_back(label.name);
+    for (const auto &group : test->or_labels_) {
+      std::string names;
+      for (const auto &label : group) {
+        if (!names.empty()) names += "|";
+        names += label.name;
+      }
+      parts.push_back("(" + names + ")");
+    }
+    if (test->any_label_) parts.emplace_back("%");
+    std::string out;
+    for (const auto &part : parts) {
+      if (!out.empty()) out += ":";
+      out += part;
+    }
+    return out.empty() ? "<node>" : out;
+  }
+  if (auto *negation = dynamic_cast<NotOperator *>(expression)) {
+    return "!" + LoweredToString(negation->expression_);
+  }
+  if (auto *conjunction = dynamic_cast<AndOperator *>(expression)) {
+    return "&(" + LoweredToString(conjunction->expression1_) + "," + LoweredToString(conjunction->expression2_) + ")";
+  }
+  if (auto *disjunction = dynamic_cast<OrOperator *>(expression)) {
+    return "|(" + LoweredToString(disjunction->expression1_) + "," + LoweredToString(disjunction->expression2_) + ")";
+  }
+  return "<other>";
+}
+
+NodeAtom *FirstCreatedOrMergedNode(Query *query) {
+  auto *single_query = dynamic_cast<CypherQuery *>(query)->single_query_;
+  auto *clause = single_query->clauses_[0];
+  if (auto *create = dynamic_cast<Create *>(clause)) {
+    return dynamic_cast<NodeAtom *>(create->patterns_[0]->atoms_[0]);
+  }
+  return dynamic_cast<NodeAtom *>(dynamic_cast<Merge *>(clause)->pattern_->atoms_[0]);
+}
+
+NodeAtom *FirstMatchedNode(Query *query) {
+  auto *single_query = dynamic_cast<CypherQuery *>(query)->single_query_;
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  return dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[0]);
+}
+
+Expression *FirstReturnedExpression(Query *query) {
+  auto *single_query = dynamic_cast<CypherQuery *>(query)->single_query_;
+  auto *ret = dynamic_cast<Return *>(single_query->clauses_.back());
+  return ret->body_.named_expressions[0]->expression_;
+}
+
+}  // namespace
+
+// A plain conjunction, however it is spelled, normalises into `labels_` so the planner keeps seeing
+// what ':A:B' has always produced. Everything else becomes a term.
+TEST_P(CypherMainVisitorTest, LabelExpressionNormalisesConjunctions) {
+  auto &ast_generator = *GetParam();
+  for (const auto *pattern : {"(n:A:B)", "(n:A&B)", "(n :A & B)", "(n:(A&B))", "(n:A&(B))", "(n:`A`&`B`)"}) {
+    auto *node = FirstMatchedNode(ast_generator.ParseQuery(fmt::format("MATCH {} RETURN 1", pattern)));
+    EXPECT_FALSE(node->label_term_) << pattern;
+    EXPECT_THAT(node->labels_, UnorderedElementsAre(ast_generator.Label("A"), ast_generator.Label("B"))) << pattern;
+  }
+  for (const auto *pattern : {"(n:A)", "(n:(A))", "(n:((A)))"}) {
+    auto *node = FirstMatchedNode(ast_generator.ParseQuery(fmt::format("MATCH {} RETURN 1", pattern)));
+    EXPECT_FALSE(node->label_term_) << pattern;
+    EXPECT_THAT(node->labels_, UnorderedElementsAre(ast_generator.Label("A"))) << pattern;
+  }
+}
+
+// Precedence, loosest first: '|' < '&' < '!' < atom. Nothing is simplified beyond flattening, so
+// '!!A' and 'A&!A' survive as written.
+TEST_P(CypherMainVisitorTest, LabelExpressionPrecedence) {
+  auto &ast_generator = *GetParam();
+  const std::vector<std::pair<std::string, std::string>> cases{
+      {"(n:A|B)", "|(A,B)"},
+      {"(n:!A)", "!A"},
+      {"(n:%)", "%"},
+      {"(n:!%)", "!%"},
+      {"(n:A|B&C)", "|(A,&(B,C))"},
+      {"(n:A&B|C)", "|(&(A,B),C)"},
+      {"(n:!A&B)", "&(!A,B)"},
+      {"(n:!A|B)", "|(!A,B)"},
+      {"(n:!!A)", "!!A"},
+      {"(n:! !A)", "!!A"},
+      {"(n:!(A&B))", "!&(A,B)"},
+      {"(n:(A|B)&!C)", "&(|(A,B),!C)"},
+      {"(n:A|B|C)", "|(A,B,C)"},
+      {"(n:A|(B|C))", "|(A,B,C)"},
+      {"(n:A&%)", "&(A,%)"},
+      {"(n:%&!%)", "&(%,!%)"},
+      {"(n:A&!A)", "&(A,!A)"},
+  };
+  for (const auto &[pattern, expected] : cases) {
+    auto *node = FirstMatchedNode(ast_generator.ParseQuery(fmt::format("MATCH {} RETURN 1", pattern)));
+    ASSERT_TRUE(node->label_term_) << pattern;
+    EXPECT_EQ(TermToString(*node->label_term_), expected) << pattern;
+    EXPECT_TRUE(node->labels_.empty()) << pattern;
+  }
+}
+
+TEST_P(CypherMainVisitorTest, LabelExpressionKeepsProperties) {
+  auto &ast_generator = *GetParam();
+  auto *node = FirstMatchedNode(ast_generator.ParseQuery("MATCH (n:A&B {n:'ab'}) RETURN 1"));
+  EXPECT_THAT(node->labels_, UnorderedElementsAre(ast_generator.Label("A"), ast_generator.Label("B")));
+  EXPECT_EQ(std::get<0>(node->properties_).size(), 1U);
+
+  auto *with_term = FirstMatchedNode(ast_generator.ParseQuery("MATCH (n:A|B {n:'ab'}) RETURN 1"));
+  ASSERT_TRUE(with_term->label_term_);
+  EXPECT_EQ(std::get<0>(with_term->properties_).size(), 1U);
+}
+
+// A `$param` resolves at parse time as it always has: a string names one label, a list names a
+// conjunction of them, and either way the query stops being cacheable. Not a TEST_P: the generators
+// above carry no parameters.
+TEST(CypherMainVisitorParameterTest, LabelExpressionParameterLeaf) {
+  auto parse = [](const std::string &query,
+                  const memgraph::storage::ExternalPropertyValue &value,
+                  AstStorage &storage,
+                  bool *is_cacheable) {
+    ::frontend::opencypher::Parser parser(query);
+    Parameters parameters;
+    // Which token index the parser hands `$p` is the lexer's business, so every position carries the
+    // same value.
+    for (int position = 0; position < 64; ++position) parameters.Add(position, value);
+    ParsingContext context;
+    CypherMainVisitor visitor(context, &storage, &parameters);
+    visitor.visit(parser.tree());
+    *is_cacheable = visitor.GetQueryInfo().is_cacheable;
+    return visitor.query();
+  };
+
+  {
+    AstStorage storage;
+    bool is_cacheable = true;
+    auto *node = FirstMatchedNode(
+        parse("MATCH (n:A&$p) RETURN 1", memgraph::storage::ExternalPropertyValue("B"), storage, &is_cacheable));
+    EXPECT_FALSE(node->label_term_);
+    EXPECT_THAT(node->labels_, UnorderedElementsAre(storage.GetLabelIx("A"), storage.GetLabelIx("B")));
+    EXPECT_FALSE(is_cacheable);
+  }
+  {
+    AstStorage storage;
+    bool is_cacheable = true;
+    auto list = memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
+        memgraph::storage::ExternalPropertyValue("B"), memgraph::storage::ExternalPropertyValue("C")});
+    auto *node = FirstMatchedNode(parse("MATCH (n:A&$p) RETURN 1", list, storage, &is_cacheable));
+    EXPECT_FALSE(node->label_term_);
+    EXPECT_THAT(node->labels_,
+                UnorderedElementsAre(storage.GetLabelIx("A"), storage.GetLabelIx("B"), storage.GetLabelIx("C")));
+    EXPECT_FALSE(is_cacheable);
+  }
+  {
+    AstStorage storage;
+    bool is_cacheable = true;
+    auto *node = FirstMatchedNode(
+        parse("MATCH (n:$p|C) RETURN 1", memgraph::storage::ExternalPropertyValue("A"), storage, &is_cacheable));
+    ASSERT_TRUE(node->label_term_);
+    EXPECT_EQ(TermToString(*node->label_term_), "|(A,C)");
+    EXPECT_FALSE(is_cacheable);
+  }
+}
+
+// In expression position a label expression lowers straight into boolean operators over labels tests.
+TEST_P(CypherMainVisitorTest, LabelExpressionInExpressionPosition) {
+  auto &ast_generator = *GetParam();
+  const std::vector<std::pair<std::string, std::string>> cases{
+      {"n:A", "A"},
+      {"n:A:B", "A:B"},
+      {"n:A&B", "A:B"},
+      {"n:A|B", "(A|B)"},
+      {"n:!A", "!A"},
+      {"n:%", "%"},
+      {"n:!%", "!%"},
+      {"n:(A|B)&!C", "&((A|B),!C)"},
+      {"n:A|B&C", "|(A,&(B,C))"},
+      {"n:A&%", "&(A,%)"},
+  };
+  for (const auto &[expression, expected] : cases) {
+    auto *query = ast_generator.ParseQuery(fmt::format("MATCH (n) RETURN {} AS v", expression));
+    EXPECT_EQ(LoweredToString(FirstReturnedExpression(query)), expected) << expression;
+    CheckRWType(query, kRead);
+  }
+}
+
+// A label expression binds tighter than every Cypher operator around it.
+TEST_P(CypherMainVisitorTest, LabelExpressionBindsTighterThanOperators) {
+  auto &ast_generator = *GetParam();
+  {
+    auto *equality = dynamic_cast<EqualOperator *>(
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:A&B = true AS v")));
+    ASSERT_TRUE(equality);
+    EXPECT_EQ(LoweredToString(equality->expression1_), "A:B");
+  }
+  {
+    auto *disjunction = dynamic_cast<OrOperator *>(
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:A|B OR n.n = 'c' AS v")));
+    ASSERT_TRUE(disjunction);
+    EXPECT_EQ(LoweredToString(disjunction->expression1_), "(A|B)");
+  }
+  {
+    auto *negation = dynamic_cast<NotOperator *>(
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN NOT n:!A AS v")));
+    ASSERT_TRUE(negation);
+    EXPECT_EQ(LoweredToString(negation->expression_), "!A");
+  }
+  {
+    // '%' after a complete term cannot continue it, so it stays modulo.
+    auto *modulo =
+        dynamic_cast<ModOperator *>(FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:A % 2 AS v")));
+    ASSERT_TRUE(modulo);
+    EXPECT_EQ(LoweredToString(modulo->expression1_), "A");
+  }
+  {
+    // '!=' still wins by maximal munch.
+    auto *inequality = dynamic_cast<NotEqualOperator *>(
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:A != true AS v")));
+    ASSERT_TRUE(inequality);
+    EXPECT_EQ(LoweredToString(inequality->expression1_), "A");
+  }
+}
+
+// The last top-level '|' before ']' belongs to the comprehension, whatever the whitespace. Everywhere
+// else a '|' after a label is a disjunction.
+TEST_P(CypherMainVisitorTest, LabelExpressionComprehensionPipe) {
+  auto &ast_generator = *GetParam();
+  // Filter `x:A`, projection `x.n`: one pipe, and the comprehension claims it.
+  {
+    auto *comprehension = dynamic_cast<ListComprehension *>(
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN [x IN [n] WHERE x:A|x.n] AS v")));
+    ASSERT_TRUE(comprehension);
+    ASSERT_TRUE(comprehension->expression_);
+    EXPECT_EQ(LoweredToString(comprehension->where_->expression_), "A");
+  }
+  // Filter `x:A|B`, projection `y`: the last pipe is the projection, the one before it a disjunction.
+  {
+    auto *comprehension = dynamic_cast<ListComprehension *>(FirstReturnedExpression(
+        ast_generator.ParseQuery("MATCH (n) WITH n, 7 AS y RETURN [x IN [n] WHERE x:A|B|y] AS v")));
+    ASSERT_TRUE(comprehension);
+    ASSERT_TRUE(comprehension->expression_);
+    EXPECT_EQ(LoweredToString(comprehension->where_->expression_), "(A|B)");
+  }
+  // Parentheses force a disjunction and leave the comprehension without a projection.
+  {
+    auto *comprehension = dynamic_cast<ListComprehension *>(
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN [x IN [n] WHERE x:(A|B)] AS v")));
+    ASSERT_TRUE(comprehension);
+    EXPECT_FALSE(comprehension->expression_);
+    EXPECT_EQ(LoweredToString(comprehension->where_->expression_), "(A|B)");
+  }
+  // Outside a comprehension nothing can claim the pipe, so it is always a disjunction.
+  for (const auto *expression : {"[n:A|B]", "[n:A|C, 1]", "{k: n:A|C}"}) {
+    auto *query = ast_generator.ParseQuery(fmt::format("MATCH (n) RETURN {} AS v", expression));
+    ASSERT_TRUE(query) << expression;
+  }
+  {
+    auto *query = ast_generator.ParseQuery("MATCH (n) RETURN CASE WHEN n:A|B THEN 1 ELSE 0 END AS v");
+    auto *case_expression = dynamic_cast<IfOperator *>(FirstReturnedExpression(query));
+    ASSERT_TRUE(case_expression);
+    EXPECT_EQ(LoweredToString(case_expression->condition_), "(A|B)");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, LabelExpressionRejectsMixingWithColon) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"MATCH (n:A:B&C) RETURN 1",
+                            "MATCH (n:A&B:C) RETURN 1",
+                            "MATCH (n:A|B:C) RETURN 1",
+                            "MATCH (n:A:!B) RETURN 1",
+                            "MATCH (n:A:%) RETURN 1",
+                            "CREATE (n:X:Y&Z)",
+                            "MATCH (n) RETURN n:A:B|C AS v"}) {
+    EXPECT_THROW(ast_generator.ParseQuery(query), SyntaxException) << query;
+  }
+}
+
+// A conjunction is what CREATE and MERGE take, however it is spelled. Refusing the rest is the symbol
+// generator's job, so that half is pinned in the symbol-generator suite.
+TEST_P(CypherMainVisitorTest, LabelExpressionConjunctionInWrites) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"CREATE (n:X&Y)", "CREATE (n:(X&Y))", "MERGE (n:(A&B) {n:'ab'})"}) {
+    auto *created = FirstCreatedOrMergedNode(ast_generator.ParseQuery(query));
+    EXPECT_FALSE(created->label_term_) << query;
+    EXPECT_EQ(created->labels_.size(), 2U) << query;
+  }
+}
+
+TEST_P(CypherMainVisitorTest, LabelExpressionRejectsPropertyLookupLeaf) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE (n:A&x.y)"), SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("MATCH (n) RETURN n:A|x.y AS v"), SemanticException);
+}
+
+// SET and REMOVE take the colon form only, so an operator there is a syntax error.
+TEST_P(CypherMainVisitorTest, LabelExpressionNotAcceptedBySetOrRemove) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"MATCH (n) SET n:X&Y",
+                            "MATCH (n) SET n:X|Y",
+                            "MATCH (n) SET n:!X",
+                            "MATCH (n) SET n:(X)",
+                            "MATCH (n) REMOVE n:A&B",
+                            "MATCH (n) REMOVE n:A|B",
+                            "MATCH (n) REMOVE n:!A"}) {
+    EXPECT_THROW(ast_generator.ParseQuery(query), SyntaxException) << query;
+  }
+  EXPECT_TRUE(ast_generator.ParseQuery("MATCH (n) SET n:X:Y"));
+  EXPECT_TRUE(ast_generator.ParseQuery("MATCH (n) REMOVE n:X:Y"));
+}
+
+TEST_P(CypherMainVisitorTest, LabelExpressionSyntaxErrors) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"MATCH (n:()) RETURN 1",
+                            "MATCH (n:A&) RETURN 1",
+                            "MATCH (n:|A) RETURN 1",
+                            "MATCH (n A&B) RETURN 1",
+                            "MATCH (n) WHERE (n:A)&B RETURN 1"}) {
+    EXPECT_THROW(ast_generator.ParseQuery(query), SyntaxException) << query;
+  }
+}
