@@ -4958,6 +4958,13 @@ std::optional<std::string> LoweredLabelExpressionName(Expression *expression) {
     if (!lhs || !rhs) return std::nullopt;
     return fmt::format("({} OR {})", *lhs, *rhs);
   }
+  // Only a conjunction nested under `OR` or `NOT` gets here; a top-level one is already split apart.
+  if (auto *conjunction = utils::Downcast<AndOperator>(expression)) {
+    auto lhs = LoweredLabelExpressionName(conjunction->expression1_);
+    auto rhs = LoweredLabelExpressionName(conjunction->expression2_);
+    if (!lhs || !rhs) return std::nullopt;
+    return fmt::format("({} AND {})", *lhs, *rhs);
+  }
   return std::nullopt;
 }
 
