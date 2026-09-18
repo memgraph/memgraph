@@ -371,6 +371,25 @@ TEST_F(PlannerV2PipelineTest, OptionalCallSubqueryIsRejected) {
   EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols), NotYetImplemented);
 }
 
+// A label expression lowers to `LabelsTest` under boolean operators, none of which plan_v2 can read yet,
+// and a pattern carrying one is a MATCH, which it cannot read either. Both have to keep saying so: a
+// silent lowering would drop the label test and answer with rows the query excludes. When MATCH does land
+// here, `NodeAtom::label_term_` needs its own guard, and this test is where that shows.
+TEST_F(PlannerV2PipelineTest, LabelExpressionsAreRejected) {
+  for (const auto *query : {"MATCH (n:A&B) RETURN n;",
+                            "MATCH (n:A|B) RETURN n;",
+                            "MATCH (n:!A) RETURN n;",
+                            "MATCH (n:%) RETURN n;",
+                            "UNWIND [1] AS n RETURN n:A|B AS v;",
+                            "UNWIND [1] AS n RETURN n:!A AS v;",
+                            "UNWIND [1] AS n RETURN n:% AS v;"}) {
+    auto *parsed = ParseQuery(query);
+    ASSERT_NE(parsed, nullptr) << query;
+    auto symbols = MakeSymbolTable(parsed);
+    EXPECT_THROW(ConvertToEgraph(*parsed, symbols), NotYetImplemented) << query;
+  }
+}
+
 TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
   // Guards the compact-SymbolTable contract: ConvertToLogicalOperator returns a
   // compact SymbolTable alongside the plan, PlanQuery installs it as the
