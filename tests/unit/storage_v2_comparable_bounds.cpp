@@ -98,8 +98,17 @@ TEST(TypeBands, FenceAScanAboveEveryValueItCouldHold) {
   // A scan with no upper bound of its own is fenced at kLargestProperty, so a
   // value sorting above it is handed back by no such scan. A NaN is placed after
   // every number, which a point's coordinates are, so a point holding one is the
-  // value most likely to escape the fence.
+  // value most likely to escape the fence. Every type has to be named here, the
+  // one the order ends with above all, since a fence of any earlier type leaves
+  // every value of that last one above it.
   auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const nan_coordinate = std::numeric_limits<float>::quiet_NaN();
+  auto const vector_index_id = [](std::initializer_list<float> coordinates) {
+    auto vector = memgraph::utils::small_vector<float>{};
+    for (auto const coordinate : coordinates) vector.push_back(coordinate);
+    return PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{1},
+                                                          .vector = std::move(vector)});
+  };
 
   for (auto const &value : {kSmallestProperty,
                             kSmallestBool,
@@ -116,7 +125,13 @@ TEST(TypeBands, FenceAScanAboveEveryValueItCouldHold) {
                             PropertyValue(nan),
                             PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, nan, nan}),
                             PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, nan, nan, nan}),
-                            PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, nan, 2.0})}) {
+                            PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, nan, 2.0}),
+                            kSmallestVectorIndexId,
+                            vector_index_id({}),
+                            vector_index_id({0.0F}),
+                            vector_index_id({1.0F, 2.0F, 3.0F}),
+                            vector_index_id({std::numeric_limits<float>::infinity()}),
+                            vector_index_id({nan_coordinate})}) {
     EXPECT_FALSE(kLargestProperty < value) << "a value sorts above the fence a bounded scan stops at";
   }
 
@@ -124,6 +139,11 @@ TEST(TypeBands, FenceAScanAboveEveryValueItCouldHold) {
   // not exclude one.
   EXPECT_TRUE(kSmallestProperty < kLargestProperty);
   EXPECT_TRUE(kSmallestPoint3d < kLargestProperty);
+  EXPECT_TRUE(kSmallestVectorIndexId < kLargestProperty);
+
+  // A stored vector index id decodes with no coordinates until they are read
+  // back from the vector index, so the fence has to sit above that spelling too.
+  EXPECT_TRUE(vector_index_id({}) < kLargestProperty);
 }
 
 TEST(ComparableBounds, HoldsNoNaNInTheStretchAroundANumber) {
@@ -203,6 +223,28 @@ TEST(TypeBands, RunOneAfterAnotherWithNoGapAndNoOverlap) {
   }
 }
 
+TEST(WholeStretchMarker, IsTheBoundPairTheStretchFunctionsHandBack) {
+  // A range covering one whole stretch is written as that stretch's own bounds,
+  // whose two ends are of different types by construction. Telling that pair
+  // apart from a user-written range that merely reaches the same value is what
+  // lets a scan keep one and reject the other.
+  for (auto const &[type, smallest] : EveryTypeAndItsSmallest()) {
+    auto const lower = LowerBoundComparableWith(smallest);
+    auto const upper = UpperBoundComparableWith(smallest);
+    ASSERT_TRUE(lower.has_value()) << "type " << static_cast<unsigned>(type);
+    ASSERT_TRUE(upper.has_value()) << "type " << static_cast<unsigned>(type);
+    EXPECT_TRUE(BoundsMarkAWholeStretch(*lower, *upper)) << "type " << static_cast<unsigned>(type);
+
+    // The same two values, written the way a user's range would be, are not it.
+    EXPECT_FALSE(BoundsMarkAWholeStretch(memgraph::utils::MakeBoundExclusive(lower->value()), *upper));
+    EXPECT_FALSE(BoundsMarkAWholeStretch(*lower, memgraph::utils::MakeBoundInclusive(upper->value())));
+  }
+
+  // An ordinary range within one type is not the marker either.
+  EXPECT_FALSE(BoundsMarkAWholeStretch(memgraph::utils::MakeBoundInclusive(PropertyValue(int64_t{1})),
+                                       memgraph::utils::MakeBoundExclusive(PropertyValue(int64_t{9}))));
+}
+
 TEST(HoldsANaN, FindsANaNWhereverAValueCarriesOne) {
   auto const nan = std::numeric_limits<double>::quiet_NaN();
 
@@ -225,6 +267,19 @@ TEST(HoldsANaN, FindsANaNWhereverAValueCarriesOne) {
   EXPECT_FALSE(HoldsANaN(PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)})));
   EXPECT_FALSE(HoldsANaN(PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0})));
   EXPECT_FALSE(HoldsANaN(kSmallestEnum));
+}
+
+TEST(TypeBands, PlaceAPackedListWhereABoxedListGoes) {
+  // The three packed representations are numbered above the points rather than
+  // beside the list, so nothing about the numbering says where they belong. Each
+  // holds what a boxed list holds, so a range over one has to read the band a
+  // list is kept in.
+  for (auto const type : {PropertyValueType::IntList, PropertyValueType::DoubleList, PropertyValueType::NumericList}) {
+    EXPECT_EQ(LowerBoundForType(type), LowerBoundForType(PropertyValueType::List))
+        << "packed type " << static_cast<unsigned>(type) << " starts somewhere a list does not";
+    EXPECT_EQ(UpperBoundForType(type), UpperBoundForType(PropertyValueType::List))
+        << "packed type " << static_cast<unsigned>(type) << " ends somewhere a list does not";
+  }
 }
 
 TEST(HoldsANull, FindsANullWhereverAValueCarriesOne) {
