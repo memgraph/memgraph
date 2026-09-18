@@ -920,8 +920,20 @@ void InMemoryReplicationHandlers::WalFilesHandler(
       storage->Clear(record_progress);
     }
 
-    // Read here because we don't know names of new WAL files
-    old_wal_files = utils::GetFilesFromDir(current_wal_directory);
+    // Read here because we don't know names of new WAL files. This listing names the stale
+    // pre-reset WALs the end-of-handler cleanup removes; proceeding with an incomplete one would
+    // report success while leaving them to corrupt the replica's next restart. Fail the RPC
+    // instead, so the main re-drives recovery.
+    auto maybe_old_wal_files = utils::TryGetFilesFromDir(current_wal_directory);
+    if (!maybe_old_wal_files) {
+      spdlog::error("Couldn't list the old WAL files of db {}; failing the recovery for MAIN to retry.",
+                    storage->name());
+      heartbeat.Stop();
+      rpc::SendFinalResponse(
+          storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder, storage->name());
+      return;
+    }
+    old_wal_files = *std::move(maybe_old_wal_files);
   }
 
   const auto wal_file_number = req.file_number;
@@ -1079,8 +1091,19 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
       storage->Clear(record_progress);
     }
 
-    // Read here because we don't know the name of the new WAL file
-    old_wal_files = utils::GetFilesFromDir(current_wal_directory);
+    // Read here because we don't know the name of the new WAL file. This listing names the stale
+    // pre-reset WALs the end-of-handler cleanup removes; proceeding with an incomplete one would
+    // report success while leaving them to corrupt the replica's next restart. Fail the RPC
+    // instead, so the main re-drives recovery.
+    auto maybe_old_wal_files = utils::TryGetFilesFromDir(current_wal_directory);
+    if (!maybe_old_wal_files) {
+      spdlog::error("Couldn't list the old WAL files of db {}; failing the recovery for MAIN to retry.",
+                    storage->name());
+      heartbeat.Stop();
+      rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
+      return;
+    }
+    old_wal_files = *std::move(maybe_old_wal_files);
   }
 
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
