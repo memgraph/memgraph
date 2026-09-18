@@ -422,7 +422,7 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
   if (range.type_ == PropertyRangeType::INVALID) {
     return {std::nullopt, std::nullopt, false};
   } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    lower_bound = LowerBoundForType(PropertyValueType::Bool);
+    upper_bound = UpperBoundForNonNulls();
   } else if (range.type_ == PropertyRangeType::BOUNDED) {
     // We have to fix the bounds that the user provided to us. If the user
     // provided only one bound we should make sure that only values of that type

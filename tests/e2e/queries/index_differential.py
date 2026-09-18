@@ -63,6 +63,11 @@ MIXED_VALUES = [
     "sqrt(-1)",
 ]
 
+# The same column for the tests that hand values back rather than counting them.
+# A point is left out of it because the driver aborts on decoding one, which is
+# its own defect and not one of these; every test that only counts rows keeps it.
+ORDERED_VALUES = [value for value in MIXED_VALUES if not value.startswith("point(")]
+
 ORDERED_COMPARISONS = ["<", "<=", ">", ">="]
 
 
@@ -210,6 +215,95 @@ def test_the_string_predicates_answer_as_the_filter_does(memgraph):
         probes, without_index, with_index
     )
     assert any(count > 0 for count in without_index)
+
+
+def _comparable(value):
+    """A NaN is not equal to itself, so comparing two orders that both hold one
+    would fail on values that arrived in the same place. Rows are compared by how
+    they read instead, which tells two NaNs apart from anything else but not from
+    each other."""
+    return repr(value)
+
+
+def _ordered(memgraph, query):
+    return [_comparable(row["v"]) for row in memgraph.execute_and_fetch(query)]
+
+
+def _order_agrees(memgraph, values, queries, index_statements):
+    """Run each ORDER BY with no index, then with one, and hand back both."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    for value in values:
+        memgraph.execute(f"CREATE (:O {{p: {value}}});")
+
+    without_index = [_ordered(memgraph, q) for q in queries]
+    for statement in index_statements:
+        memgraph.execute(statement)
+    with_index = [_ordered(memgraph, q) for q in queries]
+    return without_index, with_index
+
+
+def test_a_sort_a_scan_cannot_stand_in_for_is_kept(memgraph):
+    """An index walks the column in the order storage keeps values in, and a sort
+    reads the order the query layer gives them. The two are not one order, so a
+    plan may drop the sort only where they agree about the column. Where it drops
+    the sort anyway, the same query hands back its rows in one order with an
+    index and another without."""
+    queries = [
+        "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
+        "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p DESC;",
+    ]
+
+    without_index, with_index = _order_agrees(memgraph, ORDERED_VALUES, queries, ["CREATE INDEX ON :O(p);"])
+
+    assert with_index == without_index, (
+        "an index changed the order rows come back in:\n"
+        f"  without an index: {without_index}\n"
+        f"  with one:         {with_index}"
+    )
+
+
+def test_a_sort_over_temporal_kinds_is_kept(memgraph):
+    """One stored type carries the four temporal kinds and tells them apart by
+    the enumeration they are declared in, where a sort gives each its own
+    place."""
+    values = [
+        "duration('P1D')",
+        "date('2020-01-01')",
+        "localTime('12:00:00')",
+        "localDateTime('2020-01-01T12:00:00')",
+    ]
+    queries = ["MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;"]
+
+    without_index, with_index = _order_agrees(memgraph, values, queries, ["CREATE INDEX ON :O(p);"])
+
+    assert with_index == without_index, (
+        "an index changed the order of a temporal column:\n"
+        f"  without an index: {without_index}\n"
+        f"  with one:         {with_index}"
+    )
+
+
+def test_a_sort_a_scan_can_stand_in_for_is_still_dropped(memgraph):
+    """The other half, so the guard is not simply keeping every sort.
+
+    A scan for one value hands back entries that all hold it, so whatever order
+    they arrive in is already the order a sort would put them in, whatever type
+    the value turns out to be. That is the case a plan can still answer from the
+    walk without knowing the type, and it is the one asserted here.
+
+    A bounded range is not, and deliberately so: a query is cached with its terms
+    stripped out, so the type of the value standing in for a bound is not settled
+    when the plan is, and one settled by an integer today would be reused for a
+    date tomorrow. Such a scan keeps its sort."""
+    values = ["1", "2", "3", "10", "20"]
+    queries = ["MATCH (n:O) WHERE n.p = 2 RETURN n.p AS v ORDER BY n.p;"]
+
+    without_index, with_index = _order_agrees(memgraph, values, queries, ["CREATE INDEX ON :O(p);"])
+    assert with_index == without_index
+    assert without_index[0] == [_comparable(2)]
+
+    plan = "\n".join(row["QUERY PLAN"] for row in memgraph.execute_and_fetch(f"EXPLAIN {queries[0]}"))
+    assert "OrderBy" not in plan, f"the sort was kept where the scan can stand in for it:\n{plan}"
 
 
 if __name__ == "__main__":
