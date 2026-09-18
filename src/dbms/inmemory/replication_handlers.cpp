@@ -12,6 +12,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/progress_heartbeat.hpp"
@@ -230,8 +231,6 @@ void LogWrongMain(utils::UUID const &current_main_uuid, const utils::UUID &main_
 }
 
 }  // namespace
-
-TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
 
 void InMemoryReplicationHandlers::Register(
     dbms::DbmsHandler *dbms_handler,
@@ -479,8 +478,9 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
 
     // Abort prev txn if needed
     // It could happen that the main instance died before sending finalize for the previous commit and then
-    // the new instance becomes main and sends prepare
-    DestroyReplAccessor(&heartbeat);
+    // the new instance becomes main and sends prepare. Scoped to this tenant so an RPC for storage A cannot
+    // abort a different tenant's still-pending 2PC (that would strand it and reply commit-OK falsely).
+    AbortTwoPCForTenant(storage->uuid(), &heartbeat);
     auto &repl_storage_state = storage->repl_storage_state_;
 
     if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
@@ -510,8 +510,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     heartbeat.Stop();
 
     if (deltas_res) {
-      two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
-      two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
+      dbms::TwoPCCommitCache::Store(
+          std::move(deltas_res->commit_acc), req.durability_commit_timestamp, storage->uuid());
       res.success = true;
     }
   }
@@ -541,27 +541,34 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
 
+  // Extract the cached accessor out of the slot; everything that walks its deltas or touches
+  // engine_lock_ happens below, on the local, with the cache's internal lock already released --
+  // see TwoPCCommitCache::TakeMatching's declaration comment for the mismatch-leaves-it-populated
+  // contract.
+  auto extracted = dbms::TwoPCCommitCache::TakeMatching(req.durability_commit_timestamp);
+
   // In this handler, we can either commit or abort. If cached accessor is nullptr, it is impossible we should commit
   // because replying to prepare happens after assignment to the accessor
   // If cached accessor is nullptr, and we should abort (e.g. exception was thrown while processing deltas), we can
   // safely return here OK because it means that the abort already happened while destructing accessor during
   // ReadAndApplyDeltasSingleTxn
-  if (!two_pc_cache_.commit_accessor_) {
+  if (!extracted.accessor && !extracted.mismatched_durability_commit_timestamp) {
     spdlog::warn("Cached commit accessor became invalid between two phases");
     storage::replication::FinalizeCommitRes const res(true);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
-  if (req.durability_commit_timestamp != two_pc_cache_.durability_commit_timestamp_) {
+  if (extracted.mismatched_durability_commit_timestamp) {
     spdlog::warn("Trying to finalize txn with ldt {} but the last prepared txn is with ldt {}",
                  req.durability_commit_timestamp,
-                 two_pc_cache_.durability_commit_timestamp_);
+                 *extracted.mismatched_durability_commit_timestamp);
     storage::replication::FinalizeCommitRes const res(true);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
+  auto commit_accessor = std::move(extracted.accessor);
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   if (req.decision) {
@@ -574,20 +581,20 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     // This has another consequence. A WAL file will contain deltas with commit ts e.g 100 although the last durable
     // timestamp for the transaction which commits these deltas will be different because of the fact that we are
     // taking here another commit timestamp.
-    auto &commit_ts = two_pc_cache_.commit_accessor_->GetCommitTimestamp();
+    auto &commit_ts = commit_accessor->GetCommitTimestamp();
     DMG_ASSERT(commit_ts.has_value(), "Commit ts without a value");
     auto guard = std::lock_guard{mem_storage->engine_lock_};
     // Mark the old commit ts as finished before emplacing the new one
     mem_storage->commit_log_->MarkFinished(*commit_ts);
     commit_ts.emplace(mem_storage->GetCommitTimestamp());
-    two_pc_cache_.commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
+    commit_accessor->FinalizeCommitPhase(req.durability_commit_timestamp);
     spdlog::trace("Finalized txn on replica");
   } else {
-    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
+    commit_accessor->AbortAndResetCommitTs();
     spdlog::trace("Aborted txn on replica");
   }
 
-  two_pc_cache_.commit_accessor_.reset();
+  commit_accessor.reset();
   if (mem_storage->wal_file_) {
     mem_storage->FinalizeWalFile();
   }
@@ -596,28 +603,35 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
-void InMemoryReplicationHandlers::DestroyReplAccessor(rpc::ProgressHeartbeat *heartbeat) {
-  if (two_pc_cache_.commit_accessor_) {
+void InMemoryReplicationHandlers::DestroyReplAccessor() {
+  // Extract under the cache's internal lock, then abort the local outside it -- AbortAndResetCommitTs()
+  // walks the transaction's deltas and must not run with the cache mutex held.
+  auto accessor = dbms::TwoPCCommitCache::TakeAny();
+  if (accessor) {
+    accessor->AbortAndResetCommitTs();
+  }
+}
+
+void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid, rpc::ProgressHeartbeat *heartbeat) {
+  // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
+  // pending 2PC for a different tenant would be wrongly dropped. See TwoPCCommitCache::TakeForTenant's
+  // declaration comment for why the comparison uses the uuid captured at populate time, not one
+  // re-derived from the accessor.
+  auto accessor = dbms::TwoPCCommitCache::TakeForTenant(uuid);
+  if (accessor) {
+    // on_progress is reported per delta undone: an interrupted 2PC's abort is O(deltas), and the RPC
+    // pre-abort callers run it inside a handler whose peer is timing them.
     auto const on_progress = [heartbeat]() -> storage::ProgressCallback {
       if (heartbeat == nullptr) return {};
       return [heartbeat] { heartbeat->RecordProgress(); };
     }();
-    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs(on_progress);
-    two_pc_cache_.commit_accessor_.reset();
-  }
-}
-
-void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid) {
-  // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
-  // pending 2PC for a different tenant would be wrongly dropped. uuid() == storage_->uuid().
-  if (two_pc_cache_.commit_accessor_ && two_pc_cache_.commit_accessor_->uuid() == uuid) {
-    DestroyReplAccessor();
+    accessor->AbortAndResetCommitTs(on_progress);
   }
 }
 
 void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage,
                                                        rpc::ProgressHeartbeat *heartbeat) {
-  DestroyReplAccessor(heartbeat);
+  AbortTwoPCForTenant(storage->uuid(), heartbeat);
   if (storage->wal_file_) {
     storage->wal_file_->FinalizeWal();
     storage->wal_file_.reset();
