@@ -62,15 +62,7 @@ std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
   auto const &symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scopes_.back().symbols[name] = symbol;
-  RecordSubqueryDeclaration(symbol);
   return symbol;
-}
-
-void SymbolGenerator::RecordSubqueryDeclaration(const Symbol &symbol) {
-  // A symbol made while bodies are open belongs to all of them.
-  for (auto &frame : subquery_frames_) {
-    frame.declared.insert(symbol);
-  }
 }
 
 void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
@@ -773,7 +765,7 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
-  subquery_frames_.emplace_back();
+  subquery_frames_.emplace_back(SubqueryFrame{.declared_from = symbol_table_->max_position()});
 
   return true;
 }
@@ -783,7 +775,7 @@ bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
   // Overwrite instead of merging. A simple CASE visits its test once per WHEN arm; only the last visit is kept.
   subquery.external_symbols_.clear();
   for (const auto &symbol : frame.referenced) {
-    if (!frame.declared.contains(symbol)) {
+    if (symbol.position() < frame.declared_from) {
       subquery.external_symbols_.insert(symbol);
     }
   }
