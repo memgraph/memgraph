@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.contains([{a: 1}], {b: 1}) AS result;
+
+output:
+  - result: false

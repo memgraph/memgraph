@@ -482,7 +482,9 @@ void Collections::Contains(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
       return;
     }
     for (size_t i = 0; i < list.Size(); i++) {
-      if (list[i] == value) {
+      // The searched-for value is the subject, the element what it is matched against - the opposite
+      // way round from IndexOf. See Value::Matches.
+      if (value.Matches(list[i])) {
         contains_value = true;
         break;
       }
@@ -581,7 +583,7 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
-  auto arguments = mgp::List(args);
+  const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
     if (arguments[0].IsNull()) {
@@ -589,13 +591,16 @@ void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
       return;
     }
     const mgp::List list = arguments[0].ValueList();
-    const std::unordered_set<mgp::Value> set(list.begin(), list.end());
 
-    mgp::List return_list;
-    for (const auto &elem : set) {
-      return_list.AppendExtend(elem);
+    // Drops repeats but keeps the first of each value, so [1, 1.0] stays [1] and [1.0, 1] stays [1.0].
+    std::unordered_set<mgp::Value> seen;
+    mgp::List deduped;
+    for (const auto &element : list) {
+      if (seen.insert(element).second) {
+        deduped.AppendExtend(element);
+      }
     }
-    result.SetValue(std::move(return_list));
+    result.SetValue(std::move(deduped));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
@@ -834,6 +839,39 @@ void Collections::Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_res
     }
 
     result.SetValue(std::move(duplicates));
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}
+
+// NOLINTNEXTLINE(misc-unused-parameters)
+void Collections::IndexOf(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+  try {
+    // Neither a null list nor a null search value has a position, the same two cases Contains answers
+    // false to.
+    if (arguments[0].IsNull() || arguments[1].IsNull()) {
+      result.SetValue(static_cast<int64_t>(-1));
+      return;
+    }
+
+    const mgp::List list = arguments[0].ValueList();
+    const mgp::Value &value = arguments[1];
+
+    for (size_t i = 0; i < list.Size(); i++) {
+      // The element is the subject here, the searched-for value what it is matched against. Contains
+      // asks the same question the other way round, which is what makes the two disagree over a map
+      // holding a null. See Value::Matches.
+      if (list[i].Matches(value)) {
+        result.SetValue(static_cast<int64_t>(i));
+        return;
+      }
+    }
+    result.SetValue(static_cast<int64_t>(-1));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());

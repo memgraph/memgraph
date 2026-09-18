@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.index_of([date('2020-01-01'), date('2021-01-01')], date('2021-01-01')) AS result;
+
+output:
+  - result: 1
