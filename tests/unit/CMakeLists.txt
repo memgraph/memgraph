@@ -1461,3 +1461,15 @@ add_unit_test(utils_queued_byte_source
     SOURCES utils_queued_byte_source.cpp
     LINK_TARGETS mg-utils
 )
+
+# Per-test PROCESSORS, TIMEOUT and RESOURCE_GROUPS, measured rather than guessed.
+# Included last so that every test it names already exists. A property set by
+# hand above wins: test_properties.cmake does not name those tests.
+include(${CMAKE_CURRENT_SOURCE_DIR}/test_properties.cmake)
+
+# The disk claims above do nothing unless ctest is given this specification, and
+# a RESOURCE_GROUPS property with no specification is ignored silently rather
+# than reported. Setting it here writes it into the generated CTestTestfile, so
+# it applies to a plain ctest run from anywhere in the build tree and no caller
+# has to remember a command-line flag.
+set(CTEST_RESOURCE_SPEC_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ctest_resources.json)
