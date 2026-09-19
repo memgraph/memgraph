@@ -543,11 +543,6 @@ class DbAccessor final {
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                      const storage::PropertyValue value) {
-    return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
-  }
-
-  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
@@ -555,10 +550,6 @@ class DbAccessor final {
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
     return EdgesIterable(accessor_->Edges(property, view));
-  }
-
-  EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
-    return EdgesIterable(accessor_->Edges(property, value, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property,

@@ -289,10 +289,11 @@ class PropertyFilter {
   };
 
   /// True when an edge index scan admits rows the filter rejects, so the original expression must
-  /// be retained as a post-filter. An edge scan ranges upwards from a single bound with no ceiling,
-  /// so even a prefix match reads past the prefix and on into the types that sort after strings.
+  /// be retained as a post-filter. An edge scan bounds a prefix match above as well as below, and
+  /// those two bounds span exactly the strings carrying the prefix, so STARTS_WITH has nothing
+  /// left to check. The rest have no bound narrower than the whole string type.
   static constexpr bool RequiresPostFilterOnEdgeScan(Type t) {
-    return t == Type::REGEX_MATCH || t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+    return t == Type::REGEX_MATCH || t == Type::CONTAINS || t == Type::ENDS_WITH;
   }
 
   /// True when a node index scan admits rows the filter rejects, so the original expression must be
@@ -311,15 +312,6 @@ class PropertyFilter {
   /// same for the whole execution.
   static constexpr bool IsStringPredicate(Type t) {
     return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH || t == Type::REGEX_MATCH;
-  }
-
-  /// True when the index seek key is built from this filter's value expression, rather than being a
-  /// constant span of the property's type. Such a scan can only run where that expression's symbols
-  /// are bound, so a Cartesian above it has to be converted into an IndexedJoin. On an edge scan
-  /// STARTS_WITH both keeps its post-filter and seeks on its value, creating that dependency without
-  /// its expression ever being removed, so removal alone cannot be used to detect it.
-  static constexpr bool SeeksOnValue(Type t) {
-    return t == Type::EQUAL || t == Type::RANGE || t == Type::IN || t == Type::STARTS_WITH;
   }
 
   /// Construct with Expression being the equality or regex match check.
