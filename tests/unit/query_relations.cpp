@@ -429,6 +429,41 @@ TEST(Orderability, OrdersUnlikeTypesInTheOrderTheSpecificationFixes) {
   }
 }
 
+TEST(Orderability, PlacesNoTypeTheSpecificationDoesNotNameAboveANaN) {
+  // The specification names a map, a node, a relationship, a list, a path, a string, a boolean,
+  // a number and a null, and forbids seating any other type above a NaN. A NaN is the largest
+  // number, so the whole gap between the numbers and the null is closed to the rest, and each of
+  // them sits below the strings.
+  constexpr Type kNamed[] = {Type::Map,
+                             Type::Vertex,
+                             Type::Edge,
+                             Type::List,
+                             Type::Path,
+                             Type::String,
+                             Type::Bool,
+                             Type::Int,
+                             Type::Double,
+                             Type::Null};
+  auto const not_a_number = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  for (auto const type : kEveryType) {
+    if (std::ranges::contains(kNamed, type)) continue;
+    auto const value = AValueOfType(type);
+    if (!value) continue;
+    EXPECT_TRUE(std::is_lt(orderability::Compare(*value, not_a_number)))
+        << "a value of type " << static_cast<unsigned>(type) << " was placed above a NaN";
+  }
+}
+
+TEST(Orderability, PlacesADateBelowAString) {
+  // The pair the rule above is most easily broken on, and the one the reference implementation
+  // answers this way.
+  auto const date = AValueOfType(Type::Date);
+  ASSERT_TRUE(date.has_value());
+  EXPECT_TRUE(std::is_lt(orderability::Compare(*date, TypedValue("a"))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(TypedValue("a"), *date)));
+}
+
 TEST(Orderability, PlacesAnIntegerAndADoubleAlikeAgainstAThirdType) {
   // The two numeric types share one position. Were they to sit apart, a column holding 1 and
   // 1.0 would put them on either side of every string, while a comparison holds them equal.
