@@ -926,13 +926,13 @@ TEST(PropertyValue, Less) {
   std::vector<PropertyValue> data{
       PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}}),
       PropertyValue(vec),
+      PropertyValue{enum_val},
+      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
       PropertyValue("nandare"),
       PropertyValue(true),
       PropertyValue(123),
       PropertyValue(123.5),
-      PropertyValue{enum_val},
-      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
-      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
       PropertyValue(),
   };
   for (size_t i = 0; i < data.size(); ++i) {
@@ -956,13 +956,13 @@ TEST(PropertyValue, ExternalLess) {
   std::vector<ExternalPropertyValue> data{
       ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}}),
       ExternalPropertyValue(vec),
+      ExternalPropertyValue{enum_val},
+      ExternalPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      ExternalPropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
       ExternalPropertyValue("nandare"),
       ExternalPropertyValue(true),
       ExternalPropertyValue(123),
       ExternalPropertyValue(123.5),
-      ExternalPropertyValue{enum_val},
-      ExternalPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
-      ExternalPropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
       ExternalPropertyValue(),
   };
   for (size_t i = 0; i < data.size(); ++i) {
