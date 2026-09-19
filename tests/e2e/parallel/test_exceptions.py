@@ -289,18 +289,28 @@ class TestArithmeticExceptions:
 
 
 class TestOrderByExceptions:
-    """Test exceptions during ORDER BY in parallel execution."""
+    """Test ORDER BY over a column of several types in parallel execution."""
 
     @pytest.mark.parametrize(
         "origin",
         [ExceptionOrigin.FIRST, ExceptionOrigin.LAST, ExceptionOrigin.MIDDLE, ExceptionOrigin.EVERY_OTHER],
     )
-    def test_order_by_mixed_types_exception(self, memgraph, origin):
-        """Ordering mixed types should raise exception if not handled gracefully."""
-        setup_with_type_error(memgraph, 10, origin)
+    def test_order_by_mixed_types_places_every_string_before_every_number(self, memgraph, origin):
+        """A sort has a position for every pair, so a mixed column is ordered rather than refused."""
+        error_positions = setup_with_type_error(memgraph, 10, origin)
 
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p AS p ORDER BY p"))
+        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p AS p ORDER BY p"))
+
+        values = [row["p"] for row in result]
+        assert len(values) == 10
+
+        strings = [value for value in values if isinstance(value, str)]
+        numbers = [value for value in values if not isinstance(value, str)]
+        assert len(strings) == len(error_positions)
+        # A string is placed below every number, so the two do not interleave.
+        assert values == strings + numbers
+        assert strings == sorted(strings)
+        assert numbers == sorted(numbers)
 
     def test_order_by_all_strings_no_exception(self, memgraph):
         """Ordering all strings should work without exception."""
