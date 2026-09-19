@@ -27,6 +27,12 @@ auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
 
 auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>>;
 
+/// The end of every value that is not a null.
+///
+/// A null sits above everything, so asking a column only to be non-null is a
+/// range reaching from the start of the order up to here.
+auto UpperBoundForNonNulls() -> utils::Bound<PropertyValue>;
+
 /// The stretch of the stored order a comparison against `value` can answer over.
 ///
 /// A range reads an index by fencing it to this stretch, so it has to hold every value the

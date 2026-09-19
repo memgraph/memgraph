@@ -77,6 +77,90 @@ inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
          (a == PropertyValueType::Double && b == PropertyValueType::Int) || (IsAnyListType(a) && IsAnyListType(b));
 }
 
+/// The runs the stored order is made of, lowest first.
+///
+/// A stored value sits in exactly one of these, and a range fenced to one type
+/// runs from that type's own stretch up to the next, so this sequence is the
+/// only statement of where a type sits: a comparison of two unlike values reads
+/// it, both ends of such a range are read off it, and a type cannot move for one
+/// without moving for the other.
+///
+/// The sequence is the one a sort reads. A plan is allowed to drop a sort
+/// because a scan already walked its column, and that holds only where the two
+/// agree, so the agreement is arranged here rather than checked for later.
+enum class Stretch : std::uint8_t {
+  Map,
+  /// The boxed list and the three representations that pack a list's elements.
+  List,
+  /// The four kinds a date, a time, a date and time, and a duration are held in,
+  /// which the stored type orders among themselves.
+  ///
+  /// These and the three below them are types the specification does not name,
+  /// and it forbids seating one above a NaN. A NaN is the largest number, so
+  /// they sit below the strings rather than above the numbers.
+  Temporal,
+  ZonedTemporal,
+  Enum,
+  Point2d,
+  Point3d,
+  String,
+  Bool,
+  /// One stretch for both numeric types, which are ordered against each other as
+  /// the numbers they are rather than by their types.
+  Number,
+  /// A stretch nothing is stored in, naming where the numbers stop. Every
+  /// comparison against a NaN is false, so a range built from one must not reach
+  /// the NaNs, which sort above every other number.
+  AboveEveryNumber,
+  /// Carried by no user value, and placed below the nulls so that a null stays
+  /// last of everything.
+  VectorIndexId,
+  Null,
+  /// Nothing begins above the last stretch, so it has no upper bound.
+  Count,
+};
+
+/// The stretch a type's values are kept in.
+///
+/// The switch has no default, so a type added to the value has to be placed
+/// before this compiles.
+constexpr Stretch StretchOf(PropertyValueType type) {
+  switch (type) {
+    using enum PropertyValueType;
+    case Map:
+      return Stretch::Map;
+    // The representations that pack a list's elements hold what a boxed list
+    // holds, so they are kept where a list is kept.
+    case List:
+    case NumericList:
+    case IntList:
+    case DoubleList:
+      return Stretch::List;
+    case String:
+      return Stretch::String;
+    case Bool:
+      return Stretch::Bool;
+    case Int:
+    case Double:
+      return Stretch::Number;
+    case TemporalData:
+      return Stretch::Temporal;
+    case ZonedTemporalData:
+      return Stretch::ZonedTemporal;
+    case Enum:
+      return Stretch::Enum;
+    case Point2d:
+      return Stretch::Point2d;
+    case Point3d:
+      return Stretch::Point3d;
+    case VectorIndexId:
+      return Stretch::VectorIndexId;
+    case Null:
+      return Stretch::Null;
+  }
+  return Stretch::Null;
+}
+
 /// Orders two doubles, giving a NaN the place it has nowhere else: after every
 /// number, and alongside another NaN.
 ///
@@ -1064,17 +1148,14 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
   const size_t size2 = second.ListSizeUnchecked();
   const size_t common = std::min(size1, size2);
 
-  auto extract_type = [](const std::optional<std::variant<int64_t, double>> &val,
-                         const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
-
-                         auto index) {
-    if (val) {
-      if (std::holds_alternative<int64_t>(*val)) {
-        return PropertyValueType::Int;
-      }
-      return PropertyValueType::Double;
-    }
-    return list.ValueListUnchecked()[index].type();
+  // Where an element read against another holds nothing the other can be read
+  // against, the two are placed by where their types sit, as any other such pair
+  // is.
+  auto stretch_at = [](const std::optional<std::variant<int64_t, double>> &val,
+                       const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
+                       auto index) {
+    if (val) return Stretch::Number;
+    return StretchOf(list.ValueListUnchecked()[index].type());
   };
 
   // Element by element, and only then by length, which is how a list is ordered
@@ -1085,9 +1166,7 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
     const auto val2 = GetNumericValueAt(second, i);
 
     if (!val1 || !val2) {
-      const auto val1_type = extract_type(val1, first, i);
-      const auto val2_type = extract_type(val2, second, i);
-      return val1_type <=> val2_type;
+      return stretch_at(val1, first, i) <=> stretch_at(val2, second, i);
     }
 
     // Read through the exact comparison, which orders two integers by every bit
@@ -1105,22 +1184,13 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
   return size1 <=> size2;
 }
 
-// Note: this function is only used for backwards compatibility with the old list types
-// It is not used for new list types
+/// Places two values whose types hold nothing the other can be read against, by
+/// where each type sits in the stored order.
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 inline std::weak_ordering CompareIncompatibleTypes(
     const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
     const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
-  auto first_is_list = first.IsAnyList();
-  auto second_is_list = second.IsAnyList();
-  if (first_is_list || second_is_list) {
-    // One is a list, one is not - use the original type comparison logic
-    // but normalize list types to the original List type for comparison
-    auto first_type_for_comparison = first_is_list ? PropertyValueType::List : first.type();
-    auto second_type_for_comparison = second_is_list ? PropertyValueType::List : second.type();
-    return first_type_for_comparison <=> second_type_for_comparison;
-  }
-  return first.type() <=> second.type();
+  return StretchOf(first.type()) <=> StretchOf(second.type());
 }
 
 /// Orders two values, which is the order an index holds its entries in.

@@ -924,16 +924,16 @@ TEST(PropertyValue, Less) {
   auto map = PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<PropertyValue> data{
-      PropertyValue(),
-      PropertyValue(true),
-      PropertyValue(123),
-      PropertyValue(123.5),
-      PropertyValue("nandare"),
-      PropertyValue(vec),
       PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}}),
+      PropertyValue(vec),
       PropertyValue{enum_val},
       PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+      PropertyValue("nandare"),
+      PropertyValue(true),
+      PropertyValue(123),
+      PropertyValue(123.5),
+      PropertyValue(),
   };
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
@@ -954,16 +954,16 @@ TEST(PropertyValue, ExternalLess) {
   auto map = ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<ExternalPropertyValue> data{
-      ExternalPropertyValue(),
-      ExternalPropertyValue(true),
-      ExternalPropertyValue(123),
-      ExternalPropertyValue(123.5),
-      ExternalPropertyValue("nandare"),
-      ExternalPropertyValue(vec),
       ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}}),
+      ExternalPropertyValue(vec),
       ExternalPropertyValue{enum_val},
       ExternalPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       ExternalPropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+      ExternalPropertyValue("nandare"),
+      ExternalPropertyValue(true),
+      ExternalPropertyValue(123),
+      ExternalPropertyValue(123.5),
+      ExternalPropertyValue(),
   };
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
