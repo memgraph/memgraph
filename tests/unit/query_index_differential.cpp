@@ -313,12 +313,11 @@ TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoes) {
   EXPECT_EQ(without_index.front(), static_cast<int64_t>(kMixedValues.size()));
 }
 
-TEST_F(IndexDifferentialTest, ASortAScanCannotStandInForIsKept) {
-  // An index walks the column in the order storage keeps values in, and a sort
-  // reads the order the query layer gives them. A plan may drop the sort only
-  // where the two agree about the column. Where it drops the sort anyway, the
-  // same query hands back its rows in one order with an index and another
-  // without.
+TEST_F(IndexDifferentialTest, AnIndexWalksAMixedColumnInTheOrderASortReadsIt) {
+  // A plan drops a sort when the scan beneath it already walked the column. That
+  // answers the sort only where an index walks a column of many types in the
+  // order the sort would have put it in, so a column holding one of each is
+  // where the two would part company if they ever did.
   auto const queries = std::vector<std::string>{
       "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
       "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p DESC;",
@@ -329,9 +328,10 @@ TEST_F(IndexDifferentialTest, ASortAScanCannotStandInForIsKept) {
   EXPECT_EQ(with_index, without_index) << "an index changed the order rows come back in";
 }
 
-TEST_F(IndexDifferentialTest, ASortOverTemporalKindsIsKept) {
-  // One stored type carries the four temporal kinds and tells them apart by the
-  // enumeration they are declared in, where a sort gives each its own place.
+TEST_F(IndexDifferentialTest, AnIndexWalksTheTemporalKindsInTheOrderASortReadsThem) {
+  // One stored type carries four of the date and time kinds and tells them apart
+  // before anything else, so a column of all four is walked kind by kind. A sort
+  // gives each kind its own place, and the two placements are the same one.
   auto const values = std::vector<std::string>{
       "duration('P1D')",
       "date('2020-01-01')",
@@ -345,31 +345,30 @@ TEST_F(IndexDifferentialTest, ASortOverTemporalKindsIsKept) {
   EXPECT_EQ(with_index, without_index) << "an index changed the order of a temporal column";
 }
 
-TEST_F(IndexDifferentialTest, ASortAScanCanStandInForIsStillDropped) {
-  // The other half, so the guard above is not simply keeping every sort.
+TEST_F(IndexDifferentialTest, AScanStandsInForTheSortItMatches) {
+  // The other half, so that agreeing on an order is not paid for by sorting
+  // anyway.
   //
-  // A scan for one value hands back entries that all hold it, so whatever order
-  // they arrive in is already the order a sort would put them in, whatever type
-  // the value turns out to be. That is the case a plan can still answer from the
-  // walk without knowing the type.
-  //
-  // A bounded range is not, and deliberately so: a query is cached with its
-  // terms stripped out, so the type of the value standing in for a bound is not
-  // settled when the plan is, and one settled by an integer today would be
-  // reused for a date tomorrow. Such a scan keeps its sort.
-  auto const values = std::vector<std::string>{"1", "2", "3", "10", "20"};
-  auto const query = std::string{"MATCH (n:O) WHERE n.p = 2 RETURN n.p AS v ORDER BY n.p;"};
+  // A query is cached with its terms stripped out, so the type a bound will hold
+  // is not settled when the plan is. The walk answers the sort whatever that
+  // type turns out to be, which is what lets the sort go in every one of these.
+  for (auto const *predicate : {"n.p = 2", "n.p > 1", "n.p >= 2 AND n.p < 100", "n.p IS NOT NULL"}) {
+    SCOPED_TRACE(predicate);
+    auto const query = "MATCH (n:O) WHERE " + std::string{predicate} + " RETURN n.p AS v ORDER BY n.p;";
 
-  auto const [without_index, with_index] = OrderAgrees(values, {query}, {"CREATE INDEX ON :O(p);"});
-  EXPECT_EQ(with_index, without_index);
-  ASSERT_EQ(without_index.front().size(), 1U);
+    auto const [without_index, with_index] =
+        OrderAgrees({"1", "2", "3", "10", "20"}, {query}, {"CREATE INDEX ON :O(p);"});
+    EXPECT_EQ(with_index, without_index);
 
-  auto plan = std::string{};
-  for (auto const &row : interpreter.Interpret("EXPLAIN " + query).GetResults()) {
-    plan += row.front().ValueString() + "\n";
+    auto plan = std::string{};
+    for (auto const &row : interpreter.Interpret("EXPLAIN " + query).GetResults()) {
+      plan += row.front().ValueString() + "\n";
+    }
+    EXPECT_EQ(plan.find("OrderBy"), std::string::npos) << "the sort was kept where the scan can stand in for it:\n"
+                                                       << plan;
+
+    Run("DROP INDEX ON :O(p);");
   }
-  EXPECT_EQ(plan.find("OrderBy"), std::string::npos) << "the sort was kept where the scan can stand in for it:\n"
-                                                     << plan;
 }
 
 TEST_F(IndexDifferentialTest, TheStringPredicatesAnswerAsTheFilterDoes) {
