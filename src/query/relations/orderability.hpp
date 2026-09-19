@@ -82,10 +82,13 @@ namespace detail {
 /// The specification fixes the run a user sees: a map, a node, a relationship, a
 /// list, a path, a string, a boolean, a number, and a null last. The types it
 /// does not name are placed around that run rather than inside it, which leaves
-/// every pair it does name where it asks for. The ones carrying no order of
-/// their own join the structures at the bottom, beside whichever they resemble;
-/// the ones carrying an order join the scalars, between the numbers and the
-/// null.
+/// every pair it does name where it asks for.
+///
+/// It also says where they may not go: a type it does not name must not sit
+/// above a NaN. A NaN is the largest number, so that rules out the whole gap
+/// between the numbers and the null, and every unnamed type is seated below the
+/// strings instead. A date read against a string, a number and a NaN comes back
+/// first, which is the order the reference implementation gives.
 ///
 /// The two numeric types share a position, and that is load-bearing rather than
 /// a convenience: an integer and a double holding the same number are equal, so
@@ -118,28 +121,28 @@ constexpr unsigned PositionOf(TypedValue::Type type) {
       return 8;
     case Function:
       return 9;
-    case String:
+    case Date:
       return 10;
-    case Bool:
+    case LocalTime:
       return 11;
+    case LocalDateTime:
+      return 12;
+    case ZonedDateTime:
+      return 13;
+    case Duration:
+      return 14;
+    case Enum:
+      return 15;
+    case Point2d:
+      return 16;
+    case Point3d:
+      return 17;
+    case String:
+      return 18;
+    case Bool:
+      return 19;
     case Int:
     case Double:
-      return 12;
-    case Date:
-      return 13;
-    case LocalTime:
-      return 14;
-    case LocalDateTime:
-      return 15;
-    case ZonedDateTime:
-      return 16;
-    case Duration:
-      return 17;
-    case Enum:
-      return 18;
-    case Point2d:
-      return 19;
-    case Point3d:
       return 20;
     case Null:
       return 21;
