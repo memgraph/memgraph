@@ -242,12 +242,11 @@ def _order_agrees(memgraph, values, queries, index_statements):
     return without_index, with_index
 
 
-def test_a_sort_a_scan_cannot_stand_in_for_is_kept(memgraph):
-    """An index walks the column in the order storage keeps values in, and a sort
-    reads the order the query layer gives them. The two are not one order, so a
-    plan may drop the sort only where they agree about the column. Where it drops
-    the sort anyway, the same query hands back its rows in one order with an
-    index and another without."""
+def test_an_index_walks_a_mixed_column_in_the_order_a_sort_reads_it(memgraph):
+    """A plan drops a sort when the scan beneath it already walked the column.
+    That answers the sort only where an index walks a column of many types in the
+    order the sort would have put it in, so a column holding one of each is where
+    the two would part company if they ever did."""
     queries = [
         "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
         "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p DESC;",
@@ -262,10 +261,11 @@ def test_a_sort_a_scan_cannot_stand_in_for_is_kept(memgraph):
     )
 
 
-def test_a_sort_over_temporal_kinds_is_kept(memgraph):
-    """One stored type carries the four temporal kinds and tells them apart by
-    the enumeration they are declared in, where a sort gives each its own
-    place."""
+def test_an_index_walks_the_temporal_kinds_in_the_order_a_sort_reads_them(memgraph):
+    """One stored type carries four of the date and time kinds and tells them
+    apart before anything else, so a column of all four is walked kind by kind. A
+    sort gives each kind its own place, and the two placements are the same
+    one."""
     values = [
         "duration('P1D')",
         "date('2020-01-01')",
@@ -283,24 +283,28 @@ def test_a_sort_over_temporal_kinds_is_kept(memgraph):
     )
 
 
-def test_a_sort_a_scan_can_stand_in_for_is_still_dropped(memgraph):
-    """The other half, so the guard is not simply keeping every sort.
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "n.p = 2",
+        "n.p > 1",
+        "n.p >= 2 AND n.p < 100",
+        "n.p IS NOT NULL",
+    ],
+)
+def test_a_scan_stands_in_for_the_sort_it_matches(memgraph, predicate):
+    """The other half, so that agreeing on an order is not paid for by sorting
+    anyway.
 
-    A scan for one value hands back entries that all hold it, so whatever order
-    they arrive in is already the order a sort would put them in, whatever type
-    the value turns out to be. That is the case a plan can still answer from the
-    walk without knowing the type, and it is the one asserted here.
+    A query is cached with its terms stripped out, so the type a bound will hold
+    is not settled when the plan is. The walk answers the sort whatever that type
+    turns out to be, which is what lets the sort go in every one of these."""
+    queries = [f"MATCH (n:O) WHERE {predicate} RETURN n.p AS v ORDER BY n.p;"]
 
-    A bounded range is not, and deliberately so: a query is cached with its terms
-    stripped out, so the type of the value standing in for a bound is not settled
-    when the plan is, and one settled by an integer today would be reused for a
-    date tomorrow. Such a scan keeps its sort."""
-    values = ["1", "2", "3", "10", "20"]
-    queries = ["MATCH (n:O) WHERE n.p = 2 RETURN n.p AS v ORDER BY n.p;"]
-
-    without_index, with_index = _order_agrees(memgraph, values, queries, ["CREATE INDEX ON :O(p);"])
+    without_index, with_index = _order_agrees(
+        memgraph, ["1", "2", "3", "10", "20"], queries, ["CREATE INDEX ON :O(p);"]
+    )
     assert with_index == without_index
-    assert without_index[0] == [_comparable(2)]
 
     plan = "\n".join(row["QUERY PLAN"] for row in memgraph.execute_and_fetch(f"EXPLAIN {queries[0]}"))
     assert "OrderBy" not in plan, f"the sort was kept where the scan can stand in for it:\n{plan}"
