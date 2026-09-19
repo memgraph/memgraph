@@ -24,10 +24,12 @@
 #include "query/db_accessor.hpp"
 #include "query/graph.hpp"
 #include "query/relations/comparability.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/point.hpp"
+#include "tests/unit/typed_value_shapes.hpp"
 
 using memgraph::query::TypedValue;
 using memgraph::query::TypedValueException;
@@ -50,34 +52,7 @@ class AllTypesFixture : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
-  void SetUp() override {
-    values_.emplace_back(TypedValue());
-    values_.emplace_back(true);
-    values_.emplace_back(42);
-    values_.emplace_back(3.14);
-    values_.emplace_back("something");
-    values_.emplace_back(std::vector<TypedValue>{
-        TypedValue(true), TypedValue("something"), TypedValue(42), TypedValue(0.5), TypedValue()});
-    values_.emplace_back(std::map<std::string, TypedValue>{{"a", TypedValue(true)},
-                                                           {"b", TypedValue("something")},
-                                                           {"c", TypedValue(42)},
-                                                           {"d", TypedValue(0.5)},
-                                                           {"e", TypedValue()}});
-    auto vertex = dba.InsertVertex();
-    values_.emplace_back(vertex);
-    auto edge = dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et"));
-    values_.emplace_back(*edge);
-    values_.emplace_back(memgraph::query::Path(dba.InsertVertex()));
-    memgraph::query::Graph graph{memgraph::utils::NewDeleteResource()};
-    graph.InsertVertex(vertex);
-    graph.InsertEdge(*edge);
-    values_.emplace_back(std::move(graph));
-    values_.emplace_back(Enum{EnumTypeId{2}, EnumValueId{42}});
-    values_.emplace_back(Point2d{Cartesian_2d, 1.0, 2.0});
-    values_.emplace_back(Point2d{WGS84_2d, 1.0, 2.0});
-    values_.emplace_back(Point3d{Cartesian_3d, 1.0, 2.0, 3.0});
-    values_.emplace_back(Point3d{WGS84_3d, 1.0, 2.0, 3.0});
-  }
+  void SetUp() override { values_ = memgraph::test::shapes::EveryTypedValueShape(&dba); }
 
   void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
@@ -573,10 +548,27 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
       }
     };
 
+    // Which pairs of temporal values an addition or a subtraction accepts is a
+    // matrix `valid` does not describe, and each accepted pair has a test of
+    // its own.
+    auto is_temporal = [](const TypedValue &value) {
+      switch (value.type()) {
+        case TypedValue::Type::Date:
+        case TypedValue::Type::LocalTime:
+        case TypedValue::Type::LocalDateTime:
+        case TypedValue::Type::ZonedDateTime:
+        case TypedValue::Type::Duration:
+          return true;
+        default:
+          return false;
+      }
+    };
+
     for (const TypedValue &a : this->values_) {
       for (const TypedValue &b : this->values_) {
         if (always_valid(a) || always_valid(b)) continue;
         if (valid(a) && valid(b)) continue;
+        if (is_temporal(a) || is_temporal(b)) continue;
         EXPECT_THROW(op(a, b), TypedValueException);
         EXPECT_THROW(op(b, a), TypedValueException);
       }
@@ -869,15 +861,19 @@ TYPED_TEST(TypedValueLogicTest, LogicalXor) {
 TYPED_TEST(AllTypesFixture, CopyConstruction) {
   for (auto const &value : this->values_) {
     auto cpy = value;
-    if (value.IsNull()) {
-      EXPECT_PROP_ISNULL(cpy);
-    } else if (value.IsGraph()) {
-      // not comparable
-    } else if (value.IsList() || value.IsMap()) {
-      // Both hold a Null, so equality cannot decide that the copy is the same
-      // value: it answers Null. Equivalence is the relation that does decide,
-      // and the one that has to, since a hash container is keyed by it.
-      EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value));
+    if (value.IsGraph()) continue;  // A graph is not compared.
+
+    // Equivalence decides that the copy is the same value whatever it holds, and
+    // it is the relation that has to, since a hash container is keyed by it.
+    EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value))
+        << "a copy of a value of type " << static_cast<unsigned>(value.type()) << " is not equivalent to it";
+
+    // Equality answers each of its three ways here, and which one it gives says
+    // what the value holds: a NaN settles the question false wherever it sits,
+    // a Null with no NaN beside it leaves the question open.
+    if (memgraph::test::shapes::HoldsANaN(value)) {
+      EXPECT_PROP_FALSE(cpy == value);
+    } else if (memgraph::query::relations::equality::HoldsANull(value)) {
       EXPECT_PROP_ISNULL(cpy == value);
     } else {
       EXPECT_PROP_EQ(cpy, value);
