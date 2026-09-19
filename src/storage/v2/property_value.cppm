@@ -339,200 +339,104 @@ class PropertyValueImpl {
   explicit PropertyValueImpl(list_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, list_v{.val_ = list_t{std::move(value), alloc}} {}
 
+ private:
+  /// Reads a list into the form a packed list holds its numbers in.
+  ///
+  /// The whole run is built before the value owns any of it. An element of the
+  /// wrong type, or an integer too wide for the packed form, leaves the
+  /// conversion part way through, and a value whose constructor has not
+  /// returned is never destroyed, so anything it had already taken would not be
+  /// given back.
+  static auto PackedAsNumbers(list_t const &value, allocator_type const &alloc) -> numeric_list_t {
+    auto packed = numeric_list_t{alloc};
+    packed.reserve(value.size());
+    std::transform(
+        value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> std::variant<int, double> {
+          if (elem.IsDouble()) {
+            return elem.ValueDouble();
+          }
+          if (elem.IsInt()) {
+            return PackedForAList(elem.ValueInt());
+          }
+          throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+        });
+    return packed;
+  }
+
+  static auto PackedAsIntegers(list_t const &value, allocator_type const &alloc) -> int_list_t {
+    auto packed = int_list_t{alloc};
+    packed.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> int {
+      if (elem.IsInt()) {
+        return PackedForAList(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
+    });
+    return packed;
+  }
+
+  static auto PackedAsDoubles(list_t const &value, allocator_type const &alloc) -> double_list_t {
+    auto packed = double_list_t{alloc};
+    packed.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> double {
+      if (elem.IsDouble()) {
+        return elem.ValueDouble();
+      }
+      if (elem.IsInt()) {
+        return static_cast<double>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
+    });
+    return packed;
+  }
+
+ public:
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t const &value) : alloc_{value.get_allocator()} {
-    type_ = Type::NumericList;
-    alloc_trait::construct(alloc_, &numeric_list_v.val_);
-
-    numeric_list_v.val_.reserve(value.size());
-    std::transform(value.begin(),
-                   value.end(),
-                   std::back_inserter(numeric_list_v.val_),
-                   [](const auto &elem) -> std::variant<int, double> {
-                     if (elem.IsDouble()) {
-                       return elem.ValueDouble();
-                     }
-                     if (elem.IsInt()) {
-                       return PackedForAList(elem.ValueInt());
-                     }
-                     throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
-                   });
-  }
-
-  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t &&value) : alloc_{value.get_allocator()} {
-    type_ = Type::NumericList;
-    alloc_trait::construct(alloc_, &numeric_list_v.val_);
-
-    numeric_list_v.val_.reserve(value.size());
-    std::transform(value.begin(),
-                   value.end(),
-                   std::back_inserter(numeric_list_v.val_),
-                   [](const auto &elem) -> std::variant<int, double> {
-                     if (elem.IsDouble()) {
-                       return elem.ValueDouble();
-                     }
-                     if (elem.IsInt()) {
-                       return PackedForAList(elem.ValueInt());
-                     }
-                     throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
-                   });
-  }
-
   explicit PropertyValueImpl(NumericListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    auto packed = PackedAsNumbers(value, alloc);
     type_ = Type::NumericList;
-    alloc_trait::construct(alloc_, &numeric_list_v.val_);
-
-    numeric_list_v.val_.reserve(value.size());
-    std::transform(value.begin(),
-                   value.end(),
-                   std::back_inserter(numeric_list_v.val_),
-                   [](const auto &elem) -> std::variant<int, double> {
-                     if (elem.IsDouble()) {
-                       return elem.ValueDouble();
-                     }
-                     if (elem.IsInt()) {
-                       return PackedForAList(elem.ValueInt());
-                     }
-                     throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
-                   });
+    alloc_trait::construct(alloc_, &numeric_list_v.val_, std::move(packed));
   }
 
-  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t &&value, allocator_type const &alloc) : alloc_{alloc} {
-    type_ = Type::NumericList;
-    alloc_trait::construct(alloc_, &numeric_list_v.val_);
+  explicit PropertyValueImpl(NumericListTag tag, list_t const &value)
+      : PropertyValueImpl{tag, value, value.get_allocator()} {}
 
-    numeric_list_v.val_.reserve(value.size());
-    std::transform(value.begin(),
-                   value.end(),
-                   std::back_inserter(numeric_list_v.val_),
-                   [](const auto &elem) -> std::variant<int, double> {
-                     if (elem.IsDouble()) {
-                       return elem.ValueDouble();
-                     }
-                     if (elem.IsInt()) {
-                       return PackedForAList(elem.ValueInt());
-                     }
-                     throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
-                   });
-  }
+  explicit PropertyValueImpl(NumericListTag tag, list_t &&value)
+      : PropertyValueImpl{tag, value, value.get_allocator()} {}
+
+  explicit PropertyValueImpl(NumericListTag tag, list_t &&value, allocator_type const &alloc)
+      : PropertyValueImpl{tag, value, alloc} {}
 
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(IntListTag /*tag*/, list_t const &value) : alloc_{value.get_allocator()} {
-    type_ = Type::IntList;
-    alloc_trait::construct(alloc_, &int_list_v.val_);
-
-    int_list_v.val_.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
-      if (elem.IsInt()) {
-        return PackedForAList(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
-    });
-  }
-
-  explicit PropertyValueImpl(IntListTag /*tag*/, list_t &&value) : alloc_{value.get_allocator()} {
-    type_ = Type::IntList;
-    alloc_trait::construct(alloc_, &int_list_v.val_);
-
-    int_list_v.val_.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
-      if (elem.IsInt()) {
-        return PackedForAList(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
-    });
-  }
-
   explicit PropertyValueImpl(IntListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    auto packed = PackedAsIntegers(value, alloc);
     type_ = Type::IntList;
-    alloc_trait::construct(alloc_, &int_list_v.val_);
-
-    int_list_v.val_.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
-      if (elem.IsInt()) {
-        return PackedForAList(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
-    });
+    alloc_trait::construct(alloc_, &int_list_v.val_, std::move(packed));
   }
 
-  explicit PropertyValueImpl(IntListTag /*tag*/, list_t &&value, allocator_type const &alloc) : alloc_{alloc} {
-    type_ = Type::IntList;
-    alloc_trait::construct(alloc_, &int_list_v.val_);
+  explicit PropertyValueImpl(IntListTag tag, list_t const &value)
+      : PropertyValueImpl{tag, value, value.get_allocator()} {}
 
-    int_list_v.val_.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
-      if (elem.IsInt()) {
-        return PackedForAList(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
-    });
-  }
+  explicit PropertyValueImpl(IntListTag tag, list_t &&value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
+
+  explicit PropertyValueImpl(IntListTag tag, list_t &&value, allocator_type const &alloc)
+      : PropertyValueImpl{tag, value, alloc} {}
 
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t const &value) : alloc_{value.get_allocator()} {
-    type_ = Type::DoubleList;
-    alloc_trait::construct(alloc_, &double_list_v.val_);
-
-    double_list_v.val_.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
-      if (elem.IsDouble()) {
-        return elem.ValueDouble();
-      }
-      if (elem.IsInt()) {
-        return static_cast<double>(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
-    });
-  }
-
-  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t &&value) : alloc_{value.get_allocator()} {
-    type_ = Type::DoubleList;
-    alloc_trait::construct(alloc_, &double_list_v.val_);
-
-    double_list_v.val_.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
-      if (elem.IsDouble()) {
-        return elem.ValueDouble();
-      }
-      if (elem.IsInt()) {
-        return static_cast<double>(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
-    });
-  }
-
   explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    auto packed = PackedAsDoubles(value, alloc);
     type_ = Type::DoubleList;
-    alloc_trait::construct(alloc_, &double_list_v.val_);
-
-    double_list_v.val_.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
-      if (elem.IsDouble()) {
-        return elem.ValueDouble();
-      }
-      if (elem.IsInt()) {
-        return static_cast<double>(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
-    });
+    alloc_trait::construct(alloc_, &double_list_v.val_, std::move(packed));
   }
 
-  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t &&value, allocator_type const &alloc) : alloc_{alloc} {
-    type_ = Type::DoubleList;
-    alloc_trait::construct(alloc_, &double_list_v.val_);
+  explicit PropertyValueImpl(DoubleListTag tag, list_t const &value)
+      : PropertyValueImpl{tag, value, value.get_allocator()} {}
 
-    double_list_v.val_.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
-      if (elem.IsDouble()) {
-        return elem.ValueDouble();
-      }
-      if (elem.IsInt()) {
-        return static_cast<double>(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
-    });
-  }
+  explicit PropertyValueImpl(DoubleListTag tag, list_t &&value)
+      : PropertyValueImpl{tag, value, value.get_allocator()} {}
+
+  explicit PropertyValueImpl(DoubleListTag tag, list_t &&value, allocator_type const &alloc)
+      : PropertyValueImpl{tag, value, alloc} {}
 
   /// @throw std::bad_alloc
   explicit PropertyValueImpl(map_t const &value) : alloc_{value.get_allocator()}, map_v{.val_ = value} {}
