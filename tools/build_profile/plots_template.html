@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>__TITLE__</title>
+<style>
+ body{font:13px system-ui,sans-serif;margin:16px 20px;color:#222;background:#fff}
+ h1{font-size:18px;margin:0 0 4px} h2{font-size:15px;margin:22px 0 6px}
+ .sub{color:#555;margin-bottom:8px} .hint{color:#666;font-size:12px;margin-bottom:10px}
+ canvas{display:block;width:100%;cursor:crosshair}
+ .tip{position:fixed;pointer-events:none;background:#fff;border:1px solid #888;padding:6px 8px;
+      font:12px ui-monospace,monospace;white-space:pre;box-shadow:0 2px 8px rgba(0,0,0,.25);display:none;z-index:9}
+ .legend span{display:inline-block;margin-right:14px} .sw{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px}
+ .controls{margin:4px 0 6px;color:#444} .controls label{margin-right:16px}
+ .tbl{border-collapse:collapse;font-size:12px} .tbl th,.tbl td{padding:3px 10px;border-bottom:1px solid #e4e4e4;text-align:left} .tbl td.n,.tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+</style></head><body>
+<h1>__TITLE__</h1>
+<div class="sub">__SUBTITLE__</div>
+<div class="hint">Scroll to zoom the time axis, drag to pan, double-click to reset. Hover for values. The demand series sum the peaks of the steps running at each instant, so they bound the measured usage from above.</div>
+
+<h2>Memory vs build time</h2>
+<div class="controls"><label><input type="checkbox" id="showAvail"> show machine available memory</label>
+<span class="legend"><span><i class="sw" style="background:#9ecae1"></i>build (used above baseline)</span><span><i class="sw" style="background:#e6550d"></i>anon demand</span><span><i class="sw" style="background:#fdae6b"></i>rss demand</span><span><i class="sw" style="background:#756bb1"></i>cgroup</span><span><i class="sw" style="background:#31a354"></i>available</span></span></div>
+<canvas id="mem" height="280"></canvas>
+
+<h2>Running steps</h2>
+<div class="legend"><span><i class="sw" style="background:#4c78a8"></i>compile</span><span><i class="sw" style="background:#f58518"></i>link</span><span><i class="sw" style="background:#bab0ac"></i>other (scan, custom)</span></div>
+<canvas id="conc" height="150"></canvas>
+
+<h2>Step timeline</h2>
+<div class="controls"><label>colour by <select id="mode"><option value="kind">kind</option><option value="mem">peak memory</option><option value="anon">anon memory</option></select></label>
+<span class="legend" id="flameLegend"></span></div>
+<canvas id="flame"></canvas>
+
+<h2>Custom commands</h2>
+<div class="hint">Everything that is neither a compile, a module scan nor a link, grouped by the program it really runs (cmake's -E and -P front ends are looked through).</div>
+<table id="customTable" class="tbl">
+  <thead><tr><th></th><th>program</th><th class="n">steps</th><th class="n">wall Σ</th><th class="n">cpu Σ</th><th class="n">peak MiB</th><th class="n">anon MiB</th><th>heaviest step</th></tr></thead>
+  <tbody id="customBody"></tbody>
+</table>
+
+<h2>Memory vs wall time, per step</h2>
+<div class="controls"><label>memory <select id="scMetric"><option value="a">anon peak (the step's own memory)</option><option value="p">RSS peak (includes shared file-backed pages)</option></select></label>
+<span class="hint">Log time axis. Dashed lines are the configured per-job budgets; anon is what each extra concurrent job costs the machine.</span></div>
+<canvas id="scatter" height="340"></canvas>
+
+<div class="tip" id="tip"></div>
+<script>const D = __DATA__;</script>
+<script>
+const KC = {compile: '#4c78a8', link: '#f58518', scan: '#bab0ac', custom: '#54a24b'};
+// Custom steps get a colour per program, most frequent first; the rest share KC.custom.
+const CUSTOM_PALETTE = ['#2ca02c', '#9467bd', '#17becf', '#e377c2', '#bcbd22', '#8c564b', '#7f7f7f'];
+const customCounts = {};
+for (const s of D.steps) {
+  if (s.k === 'custom') {
+    customCounts[s.x] = (customCounts[s.x] || 0) + 1;
+  }
+}
+const customOrder = Object.keys(customCounts).sort((a, b) => customCounts[b] - customCounts[a]);
+const customColor = {};
+customOrder.slice(0, CUSTOM_PALETTE.length).forEach((x, i) => {
+  customColor[x] = CUSTOM_PALETTE[i];
+});
+const kc = k => KC[k] || '#b279a2';
+const stepColor = s => (s.k === 'custom' ? (customColor[s.x] || KC.custom) : kc(s.k));
+
+const L = 70;
+const R = 18;
+let view = {a: 0, b: D.duration};
+let hoverT = null;
+const tip = document.getElementById('tip');
+const charts = [];
+
+function fmtT(sec) {
+  if (sec >= 3600) {
+    return (sec / 3600).toFixed(2) + 'h';
+  }
+  if (sec >= 60) {
+    return (sec / 60).toFixed(1) + 'm';
+  }
+  return sec.toFixed(sec < 10 ? 2 : 1) + 's';
+}
+const fmtM = m => (m >= 1024 ? (m / 1024).toFixed(2) + ' GiB' : Math.round(m) + ' MiB');
+
+const NICE_STEPS = [1, 2, 2.5, 4, 5, 8, 10];
+function niceMax(v) {
+  if (v <= 0) {
+    return 1;
+  }
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const m = v / p;
+  return (NICE_STEPS.find(step => m <= step) || 10) * p;
+}
+
+const TICK_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400];
+function timeTicks(a, b, n) {
+  const raw = (b - a) / n;
+  const st = TICK_STEPS.find(c => c >= raw) || Math.ceil(raw / 3600) * 3600;
+  const out = [];
+  for (let t = Math.ceil(a / st) * st; t <= b; t += st) {
+    out.push(+t.toFixed(6));
+  }
+  return out;
+}
+
+function setup(id, height) {
+  const c = document.getElementById(id);
+  if (height) {
+    c.setAttribute('height', height);
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.parentNode.clientWidth || 1000;
+  const h = +c.getAttribute('height');
+  c.width = w * dpr;
+  c.height = h * dpr;
+  c.style.height = h + 'px';
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return {c, ctx, w, h};
+}
+const xOf = w => {
+  const pw = w - L - R;
+  return t => L + (t - view.a) / (view.b - view.a) * pw;
+};
+const tOf = (w, x) => view.a + (x - L) / (w - L - R) * (view.b - view.a);
+
+function drawHoverLine(ctx, X, top, bottom) {
+  if (hoverT === null || hoverT < view.a || hoverT > view.b) {
+    return;
+  }
+  ctx.strokeStyle = '#333';
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(X(hoverT), top);
+  ctx.lineTo(X(hoverT), bottom);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// Axes and grid for a time-based chart. `pad` is {top, bottom}; `axis` is
+// {max, fmt, ticks} for the y axis. Returns the x and y mapping functions.
+function frame(ctx, w, h, pad, axis) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = '11px system-ui,sans-serif';
+  ctx.fillStyle = '#444';
+  ctx.strokeStyle = '#e4e4e4';
+  ctx.lineWidth = 1;
+  const ph = h - pad.top - pad.bottom;
+  const Y = v => pad.top + ph - ph * v / axis.max;
+  for (let i = 0; i <= axis.ticks; i++) {
+    const v = axis.max * i / axis.ticks;
+    ctx.beginPath();
+    ctx.moveTo(L, Y(v));
+    ctx.lineTo(w - R, Y(v));
+    ctx.stroke();
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(axis.fmt(v), L - 6, Y(v));
+  }
+  const X = xOf(w);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (const t of timeTicks(view.a, view.b, Math.max(4, (w - L - R) / 90))) {
+    const x = X(t);
+    ctx.beginPath();
+    ctx.moveTo(x, pad.top);
+    ctx.lineTo(x, pad.top + ph);
+    ctx.stroke();
+    ctx.fillText('+' + fmtT(t), x, pad.top + ph + 4);
+  }
+  ctx.strokeStyle = '#999';
+  ctx.beginPath();
+  ctx.moveTo(L, pad.top);
+  ctx.lineTo(L, pad.top + ph);
+  ctx.lineTo(w - R, pad.top + ph);
+  ctx.stroke();
+  drawHoverLine(ctx, X, pad.top, pad.top + ph);
+  return {X, Y};
+}
+
+// The samples inside the current view, plus one on each side so lines reach the edges.
+function inView(samples) {
+  let i0 = 0;
+  let i1 = samples.length - 1;
+  while (i0 < samples.length - 1 && samples[i0 + 1].t < view.a) {
+    i0++;
+  }
+  while (i1 > 0 && samples[i1 - 1].t > view.b) {
+    i1--;
+  }
+  return samples.slice(i0, i1 + 1);
+}
+
+function tracePath(ctx, pts) {
+  ctx.beginPath();
+  pts.forEach((pt, i) => (i ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1])));
+}
+function line(ctx, pts, color, dash) {
+  if (pts.length < 2) {
+    return;
+  }
+  tracePath(ctx, pts);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash(dash || []);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+function area(ctx, pts, color, baseY) {
+  if (pts.length < 2) {
+    return;
+  }
+  tracePath(ctx, pts);
+  ctx.lineTo(pts[pts.length - 1][0], baseY);
+  ctx.lineTo(pts[0][0], baseY);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.45;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+function showTip(text, e) {
+  if (!text) {
+    tip.style.display = 'none';
+    return;
+  }
+  tip.textContent = text;
+  tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8) + 'px';
+  tip.style.top = (e.clientY + 14) + 'px';
+}
+
+// --- memory chart -----------------------------------------------------------
+const memC = setup('mem');
+function drawMem() {
+  const {ctx, w, h} = memC;
+  const S = inView(D.samples);
+  const showAvail = document.getElementById('showAvail').checked;
+  let yMax = 0;
+  for (const s of S) {
+    yMax = Math.max(yMax, s.b, s.ad, s.rd, s.cg || 0);
+    if (showAvail) {
+      yMax = Math.max(yMax, s.v, s.u);
+    }
+  }
+  if (showAvail) {
+    yMax = Math.max(yMax, D.mem_total);
+  }
+  const {X, Y} = frame(ctx, w, h, {top: 10, bottom: 24}, {max: niceMax(yMax * 1.05), fmt: fmtM, ticks: 5});
+  const pts = f => S.map(s => [X(s.t), Y(f(s))]);
+  area(ctx, pts(s => s.b), '#9ecae1', Y(0));
+  line(ctx, pts(s => s.b), '#3182bd');
+  line(ctx, pts(s => s.rd), '#fdae6b', [5, 3]);
+  line(ctx, pts(s => s.ad), '#e6550d', [5, 3]);
+  const withCgroup = S.filter(s => s.cg != null);
+  if (withCgroup.length) {
+    line(ctx, withCgroup.map(s => [X(s.t), Y(s.cg)]), '#756bb1');
+  }
+  if (showAvail) {
+    line(ctx, pts(s => s.v), '#31a354');
+    line(ctx, pts(s => s.u), '#636363', [2, 2]);
+    line(ctx, [[L, Y(D.mem_total)], [w - R, Y(D.mem_total)]], '#c00', [2, 4]);
+    ctx.fillStyle = '#c00';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('MemTotal ' + fmtM(D.mem_total), w - R - 4, Y(D.mem_total) - 2);
+  }
+}
+function memTip(x) {
+  const t = tOf(memC.w, x);
+  if (t < view.a || t > view.b || !D.samples.length) {
+    return null;
+  }
+  let s = D.samples[0];
+  for (const q of D.samples) {
+    if (Math.abs(q.t - t) < Math.abs(s.t - t)) {
+      s = q;
+    }
+  }
+  const lines = [
+    `+${fmtT(s.t)}`,
+    `build (used - baseline)  ${fmtM(s.b)}`,
+    `machine used             ${fmtM(s.u)}`,
+    `machine available        ${fmtM(s.v)}`,
+  ];
+  if (s.cg != null) {
+    lines.push(`cgroup                   ${fmtM(s.cg)}`);
+  }
+  lines.push(`anon demand              ${fmtM(s.ad)}`, `rss demand               ${fmtM(s.rd)}`,
+             `running: ${s.nc} compile, ${s.nl} link, ${s.no} other`);
+  return lines.join('\n');
+}
+charts.push({c: memC, draw: drawMem, tip: memTip});
+
+// --- concurrency chart ------------------------------------------------------
+const concC = setup('conc');
+function drawConc() {
+  const {ctx, w, h} = concC;
+  const S = inView(D.samples);
+  const yMax = niceMax(Math.max(1, ...S.map(s => s.nc + s.nl + s.no)));
+  const {X, Y} = frame(ctx, w, h, {top: 8, bottom: 24}, {max: yMax, fmt: v => String(Math.round(v)), ticks: 4});
+  if (S.length < 2) {
+    return;
+  }
+  const stack = [
+    [() => 0, s => s.nc, '#4c78a8'],
+    [s => s.nc, s => s.nc + s.nl, '#f58518'],
+    [s => s.nc + s.nl, s => s.nc + s.nl + s.no, '#bab0ac'],
+  ];
+  for (const [lo, hi, color] of stack) {
+    tracePath(ctx, S.map(s => [X(s.t), Y(hi(s))]));
+    for (let i = S.length - 1; i >= 0; i--) {
+      ctx.lineTo(X(S[i].t), Y(lo(S[i])));
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.8;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+charts.push({c: concC, draw: drawConc, tip: memTip});
+
+// --- flame chart ------------------------------------------------------------
+const ROW = 13;
+const FTOP = 6;
+const FBOT = 24;
+const flameC = setup('flame', FTOP + D.lanes * ROW + FBOT);
+const byLane = [];
+for (const s of D.steps) {
+  if (!byLane[s.l]) {
+    byLane[s.l] = [];
+  }
+  byLane[s.l].push(s);
+}
+byLane.forEach(l => l.sort((a, b) => a.s - b.s));
+const maxP = Math.max(1, ...D.steps.map(s => s.p));
+const maxA = Math.max(1, ...D.steps.map(s => s.a));
+const heat = f => `hsl(${Math.round(220 - 220 * Math.min(1, f))},75%,${Math.round(60 - 15 * Math.min(1, f))}%)`;
+const flameMode = () => document.getElementById('mode').value;
+function flameColor(s) {
+  const m = flameMode();
+  if (m === 'kind') {
+    return stepColor(s);
+  }
+  if (m === 'mem') {
+    return heat(s.p / maxP);
+  }
+  return heat(s.a / maxA);
+}
+const swatch = (color, text) => `<span><i class="sw" style="background:${color}"></i>${text}</span>`;
+function drawFlameLegend() {
+  const m = flameMode();
+  const el = document.getElementById('flameLegend');
+  if (m !== 'kind') {
+    const mx = m === 'mem' ? maxP : maxA;
+    el.innerHTML = [0, 0.25, 0.5, 0.75, 1].map(f => swatch(heat(f), fmtM(mx * f))).join('');
+    return;
+  }
+  const items = Object.entries(KC).filter(([k]) => k !== 'custom').map(([k, c]) => swatch(c, k));
+  for (const x of customOrder.slice(0, CUSTOM_PALETTE.length)) {
+    items.push(swatch(customColor[x], x));
+  }
+  if (customOrder.length > CUSTOM_PALETTE.length) {
+    items.push(swatch(KC.custom, 'other custom'));
+  }
+  el.innerHTML = items.join('');
+}
+// Step name inside its bar, truncated to what fits (about 5.2 px per character at 10 px).
+function drawStepLabel(ctx, s, x0, y, wd) {
+  if (wd <= 42) {
+    return;
+  }
+  const label = s.n.split('/').pop();
+  const fits = Math.max(1, Math.floor((wd - 10) / 5.2));
+  ctx.fillStyle = '#fff';
+  ctx.fillText(label.length * 5.2 > wd - 6 ? label.slice(0, fits) + '…' : label, x0 + 3, y + ROW / 2);
+}
+function drawLaneNumbers(ctx) {
+  ctx.fillStyle = '#444';
+  ctx.textAlign = 'right';
+  for (let i = 0; i < D.lanes; i++) {
+    if (D.lanes <= 40 || i % 5 === 0) {
+      ctx.fillText(String(i + 1), L - 6, FTOP + i * ROW + ROW / 2);
+    }
+  }
+}
+function drawFlameAxis(ctx, w, X) {
+  const yb = FTOP + D.lanes * ROW;
+  ctx.fillStyle = '#444';
+  ctx.font = '11px system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.strokeStyle = '#999';
+  ctx.beginPath();
+  ctx.moveTo(L, yb);
+  ctx.lineTo(w - R, yb);
+  ctx.stroke();
+  for (const t of timeTicks(view.a, view.b, Math.max(4, (w - L - R) / 90))) {
+    const x = X(t);
+    ctx.beginPath();
+    ctx.moveTo(x, yb);
+    ctx.lineTo(x, yb + 4);
+    ctx.stroke();
+    ctx.fillText('+' + fmtT(t), x, yb + 6);
+  }
+  drawHoverLine(ctx, X, 0, yb);
+}
+function drawFlame() {
+  const {ctx, w, h} = flameC;
+  ctx.clearRect(0, 0, w, h);
+  const X = xOf(w);
+  ctx.font = '10px system-ui,sans-serif';
+  ctx.textBaseline = 'middle';
+  drawLaneNumbers(ctx);
+  ctx.textAlign = 'left';
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(L, 0, w - L - R, h);
+  ctx.clip();
+  for (const s of D.steps) {
+    const x0 = X(s.s);
+    const x1 = X(s.s + s.d);
+    if (x1 < L || x0 > w - R) {
+      continue;
+    }
+    const y = FTOP + s.l * ROW;
+    const wd = Math.max(x1 - x0, 1);
+    ctx.fillStyle = flameColor(s);
+    ctx.fillRect(x0, y + 1, wd, ROW - 2);
+    if (s.e) {
+      ctx.strokeStyle = '#d00';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x0 + 0.5, y + 1.5, wd - 1, ROW - 3);
+    }
+    drawStepLabel(ctx, s, x0, y, wd);
+  }
+  ctx.restore();
+  drawFlameAxis(ctx, w, X);
+}
+function stepTip(s, withStart) {
+  const lines = [s.n];
+  let where = `kind ${s.k}`;
+  if (s.g) {
+    where += `   target ${s.g}`;
+  }
+  if (s.x) {
+    where += `   via ${s.x}`;
+  }
+  lines.push(where);
+  const timing = withStart ? `start +${fmtT(s.s)}   ` : '';
+  lines.push(`${timing}wall ${fmtT(s.d)}   cpu ${fmtT(s.c)}`, `peak ${fmtM(s.p)}   anon ${fmtM(s.a)}`);
+  if (s.m) {
+    lines.push(s.m);
+  }
+  if (s.e) {
+    lines.push(`EXIT ${s.e}`);
+  }
+  return lines.join('\n');
+}
+function flameTip(x, y) {
+  const t = tOf(flameC.w, x);
+  const lane = byLane[Math.floor((y - FTOP) / ROW)];
+  if (!lane) {
+    return null;
+  }
+  const s = lane.find(step => step.s <= t && t <= step.s + step.d);
+  return s ? stepTip(s, true) : null;
+}
+charts.push({c: flameC, draw: drawFlame, tip: flameTip});
+
+// --- scatter ----------------------------------------------------------------
+const scC = setup('scatter');
+let scPts = [];
+function drawScatterAxes(ctx, w, X, Y, top, ph, yMax, xmin, xmax) {
+  ctx.font = '11px system-ui,sans-serif';
+  ctx.strokeStyle = '#e4e4e4';
+  ctx.fillStyle = '#444';
+  for (let i = 0; i <= 5; i++) {
+    const v = yMax * i / 5;
+    ctx.beginPath();
+    ctx.moveTo(L, Y(v));
+    ctx.lineTo(w - R, Y(v));
+    ctx.stroke();
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(fmtM(v), L - 6, Y(v));
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let e = Math.floor(Math.log10(xmin)); e <= Math.ceil(Math.log10(xmax)); e++) {
+    for (const m of [1, 2, 5]) {
+      const v = m * Math.pow(10, e);
+      if (v < xmin || v > xmax) {
+        continue;
+      }
+      ctx.beginPath();
+      ctx.moveTo(X(v), top);
+      ctx.lineTo(X(v), top + ph);
+      ctx.stroke();
+      ctx.fillText(fmtT(v), X(v), top + ph + 4);
+    }
+  }
+  ctx.strokeStyle = '#999';
+  ctx.beginPath();
+  ctx.moveTo(L, top);
+  ctx.lineTo(L, top + ph);
+  ctx.lineTo(w - R, top + ph);
+  ctx.stroke();
+}
+function drawBudgets(ctx, w, Y) {
+  const budgets = [[D.budget_compile, KC.compile, 'compile budget'], [D.budget_link, KC.link, 'link budget']];
+  for (const [b, color, name] of budgets) {
+    if (!b) {
+      continue;
+    }
+    line(ctx, [[L, Y(b)], [w - R, Y(b)]], color, [4, 4]);
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(name + ' ' + fmtM(b), L + 6, Y(b) - 2);
+  }
+}
+function drawScatter() {
+  const {ctx, w, h} = scC;
+  ctx.clearRect(0, 0, w, h);
+  const top = 10;
+  const ph = h - top - 26;
+  const pw = w - L - R;
+  const xs = D.steps.map(s => s.d);
+  const xmin = Math.max(0.01, Math.min(...xs));
+  const xmax = Math.max(...xs) * 1.1;
+  const X = v => L + (Math.log10(v) - Math.log10(xmin)) / (Math.log10(xmax) - Math.log10(xmin)) * pw;
+  const useAnon = document.getElementById('scMetric').value === 'a';
+  const mv = s => (useAnon ? s.a : s.p);
+  const yMax = niceMax(Math.max(useAnon ? maxA : maxP, D.budget_compile, D.budget_link) * 1.05);
+  const Y = v => top + ph - ph * v / yMax;
+  drawScatterAxes(ctx, w, X, Y, top, ph, yMax, xmin, xmax);
+  drawBudgets(ctx, w, Y);
+  scPts = [];
+  ctx.globalAlpha = 0.7;
+  for (const s of D.steps) {
+    const x = X(s.d);
+    const y = Y(mv(s));
+    scPts.push([x, y, s]);
+    ctx.fillStyle = stepColor(s);
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, 7);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function scatterTip(x, y) {
+  let best = null;
+  let bd = 64;
+  for (const [px, py, s] of scPts) {
+    const d = (px - x) ** 2 + (py - y) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = s;
+    }
+  }
+  return best ? stepTip(best, false) : null;
+}
+
+// --- interaction ------------------------------------------------------------
+function redraw() {
+  charts.forEach(ch => ch.draw());
+}
+function clampView() {
+  const span = Math.max(0.2, Math.min(D.duration, view.b - view.a));
+  view.a = Math.max(0, Math.min(view.a, D.duration - span));
+  view.b = view.a + span;
+}
+for (const ch of charts) {
+  const cv = ch.c.c;
+  const o = ch.c;
+  let drag = null;
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = cv.getBoundingClientRect();
+    const t = tOf(o.w, e.clientX - r.left);
+    const f = Math.exp(e.deltaY * 0.0015);
+    view.a = t - (t - view.a) * f;
+    view.b = t + (view.b - t) * f;
+    clampView();
+    redraw();
+  }, {passive: false});
+  cv.addEventListener('mousedown', e => {
+    drag = {x: e.clientX, a: view.a, b: view.b};
+  });
+  window.addEventListener('mouseup', () => {
+    drag = null;
+  });
+  cv.addEventListener('dblclick', () => {
+    view = {a: 0, b: D.duration};
+    redraw();
+  });
+  cv.addEventListener('mousemove', e => {
+    const r = cv.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    if (drag) {
+      const dt = (drag.x - e.clientX) / (o.w - L - R) * (drag.b - drag.a);
+      view.a = drag.a + dt;
+      view.b = drag.b + dt;
+      clampView();
+      redraw();
+      return;
+    }
+    hoverT = (x >= L && x <= o.w - R) ? tOf(o.w, x) : null;
+    redraw();
+    showTip(ch.tip(x, y), e);
+  });
+  cv.addEventListener('mouseleave', () => {
+    hoverT = null;
+    tip.style.display = 'none';
+    redraw();
+  });
+}
+scC.c.addEventListener('mousemove', e => {
+  const r = scC.c.getBoundingClientRect();
+  showTip(scatterTip(e.clientX - r.left, e.clientY - r.top), e);
+});
+scC.c.addEventListener('mouseleave', () => {
+  tip.style.display = 'none';
+});
+document.getElementById('showAvail').addEventListener('change', redraw);
+document.getElementById('scMetric').addEventListener('change', drawScatter);
+document.getElementById('mode').addEventListener('change', () => {
+  drawFlameLegend();
+  drawFlame();
+});
+window.addEventListener('resize', () => {
+  [memC, concC, flameC, scC].forEach(o => Object.assign(o, setup(o.c.id)));
+  redraw();
+  drawScatter();
+});
+
+function customTable() {
+  const rows = {};
+  for (const s of D.steps) {
+    if (s.k !== 'custom') {
+      continue;
+    }
+    if (!rows[s.x]) {
+      rows[s.x] = {n: 0, wall: 0, cpu: 0, peak: 0, anon: 0, ex: s.n};
+    }
+    const r = rows[s.x];
+    r.n++;
+    r.wall += s.d;
+    r.cpu += s.c;
+    if (s.p > r.peak) {
+      r.peak = s.p;
+      r.anon = s.a;
+      r.ex = s.n;
+    }
+  }
+  const order = Object.keys(rows).sort((a, b) => rows[b].wall - rows[a].wall);
+  const cell = (v, numeric) => (numeric ? `<td class="n">${v}</td>` : `<td>${v}</td>`);
+  const html = order.map(x => {
+    const r = rows[x];
+    return '<tr>' + cell(`<i class="sw" style="background:${customColor[x] || KC.custom}"></i>`) + cell(x)
+      + cell(r.n, true) + cell(fmtT(r.wall), true) + cell(fmtT(r.cpu), true)
+      + cell(Math.round(r.peak).toLocaleString(), true) + cell(Math.round(r.anon).toLocaleString(), true)
+      + cell(r.ex) + '</tr>';
+  });
+  document.getElementById('customBody').innerHTML = html.join('');
+}
+drawFlameLegend();
+redraw();
+drawScatter();
+customTable();
+</script></body></html>
