@@ -66,7 +66,7 @@ class Symbol {
   int64_t token_position() const { return token_position_; }
 
   std::string name_;
-  Position_t position_;
+  Position_t position_{-1};
   bool user_declared_{true};    /*NOT USED IN PLANNER V2*/
   Type type_{Type::ANY};        /*NOT USED IN PLANNER V2*/
   int64_t token_position_{-1};  // from ANTLR token stream /*NOT USED IN PLANNER V2*/

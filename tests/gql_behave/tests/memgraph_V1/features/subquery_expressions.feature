@@ -3134,3 +3134,427 @@ Feature: Subquery expressions
           | name | c |
           | 'a'  | 1 |
           | 'b'  | 0 |
+
+  # Only the filter names the caller's variable. The conjunct must still wait for whatever binds it.
+  Scenario: Test EXISTS with a body correlated only through its filter
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(b:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          CREATE (b)-[:KNOWS]->(:Person {name: 'D'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE EXISTS { MATCH (x)-[:KNOWS]->(y) WHERE y.name = a.name }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'B' |
+          | 'C' |
+          | 'D' |
+
+  # A WITH renames the caller's variable before any pattern uses it.
+  Scenario: Test EXISTS with a body renaming a caller variable in WITH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(b:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          CREATE (m:Movie {title: 'J1'})
+          CREATE (a)-[:ACTED_IN]->(m)
+          CREATE (b)-[:ACTED_IN]->(m)
+          """
+      When executing query:
+          """
+          MATCH (p:Person) WHERE EXISTS { WITH p AS q MATCH (q)-[:ACTED_IN]->(m) RETURN m }
+          RETURN p.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+          | 'B' |
+
+  # The caller's variable arrives through a WITH and a filter, never a pattern.
+  # Both spellings answer without erroring when the conjunct sits too low. This one drops every row.
+  Scenario: Test EXISTS with a body importing a caller variable in WITH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'A', active: true})
+          CREATE (:Person {name: 'B', active: false})
+          CREATE (:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE EXISTS { WITH a MATCH (v0) WHERE a.active = true }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+
+  # ... and this one keeps every row.
+  Scenario: Test EXISTS with a body importing a caller variable in WITH and a null test
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'A', active: true})
+          CREATE (:Person {name: 'B', active: false})
+          CREATE (:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE EXISTS { WITH a MATCH (v0) WHERE a.active = true OR a.active IS NULL }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+          | 'C' |
+
+  # Nothing reaches outside the body, so the EXISTS is constant. The name the WITH introduces is the body's own.
+  Scenario: Test EXISTS with an uncorrelated body reusing its own WITH name
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'A'}), (:Person {name: 'B'}), (:Movie {title: 'J1'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE EXISTS { MATCH (x:Movie) WITH x AS q MATCH (q) RETURN q }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+          | 'B' |
+
+  # The case above keeps every row, so it alone cannot distinguish a working body from a dropped one.
+  Scenario: Test EXISTS with an uncorrelated body reusing its own WITH name and no match
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'A'}), (:Person {name: 'B'}), (:Movie {title: 'J1'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE EXISTS { MATCH (x:Nothing) WITH x AS q MATCH (q) RETURN q }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be empty
+
+  # The second MATCH expands from a node the first one bound, so that name is the body's own.
+  Scenario: Test EXISTS with a body of two MATCH clauses sharing a variable
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(b:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          CREATE (b)-[:KNOWS]->(:Person {name: 'D'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person) WHERE EXISTS { MATCH (p)-[:KNOWS]->(f) MATCH (f)-[:KNOWS]->(g) }
+          RETURN p.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+
+  # One name in two atoms of the same clause: the second occurrence tests the node the first one bound.
+  Scenario: Test EXISTS with an OPTIONAL MATCH body naming one variable twice
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'A'}), (:Person {name: 'B'}), (:N {v: 5})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE EXISTS { OPTIONAL MATCH (n:N), (n:N) RETURN n }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+          | 'B' |
+
+  # An inner body's filter reads the outermost caller's variable, two body boundaries out.
+  Scenario: Test EXISTS nested in an EXISTS body correlated to the caller
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'A', active: true})
+          CREATE (:Person {name: 'B', active: false})
+          CREATE (:Person {name: 'C'})
+          CREATE (:Movie {title: 'J1'})
+          """
+      When executing query:
+          """
+          MATCH (v0:Person)
+          WHERE EXISTS { MATCH (v1:Person) WHERE EXISTS { MATCH (v2:Movie) WHERE v1.active = v0.active } }
+          RETURN v0.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+          | 'B' |
+
+  # The body reads a variable an OPTIONAL MATCH binds, so the conjunct belongs above that expansion.
+  Scenario: Test EXISTS in an OPTIONAL MATCH filter reading the optional variable
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(b:Person {name: 'B', ok: true})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          CREATE (b)-[:KNOWS]->(:Person {name: 'D', ok: true})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          OPTIONAL MATCH (p)-[:KNOWS]->(friend)
+          WHERE EXISTS { MATCH (p)-[:KNOWS*1..2]-(o) WHERE o.name = friend.name AND o.ok }
+          RETURN p.name AS n, friend.name AS f ORDER BY n, f;
+          """
+      Then the result should be, in order:
+          | n   | f    |
+          | 'A' | 'B'  |
+          | 'B' | 'D'  |
+          | 'C' | null |
+          | 'D' | null |
+
+  # Two caller variables: one through a pattern, one only through the filter. The conjunct waits for both.
+  Scenario: Test EXISTS with a body correlated to two caller variables
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:A {v: 5})-[:R]->(:N {v: 5})
+          CREATE (:A {v: 1}), (:B {v: 5})
+          """
+      When executing query:
+          """
+          MATCH (a:A), (b:B) WHERE EXISTS { MATCH (a)-[:R]->(n) WHERE n.v = b.v }
+          RETURN a.v AS av, b.v AS bv ORDER BY av, bv;
+          """
+      Then the result should be, in order:
+          | av | bv |
+          | 5  | 5  |
+
+  # The conjunct is a comparison, not the fold itself, but its symbols still come from the body.
+  Scenario: Test COUNT compared in a filter with a body correlated only through its filter
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(b:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          CREATE (b)-[:KNOWS]->(:Person {name: 'D'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE COUNT { MATCH (x)-[:KNOWS]->(y) WHERE y.name = a.name } > 0
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'B' |
+          | 'C' |
+          | 'D' |
+
+  # A pattern comprehension inside the body reads the caller's variable, two nested branches down.
+  Scenario: Test EXISTS with a body whose pattern comprehension reads a caller variable
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(b:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          CREATE (b)-[:KNOWS]->(:Person {name: 'D'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          WHERE EXISTS { MATCH (b:Person) WHERE size([(b)-[:KNOWS]->(c) WHERE c.name = a.name | c]) > 0 }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'B' |
+          | 'C' |
+          | 'D' |
+
+  # The body compares against a path the comprehension binds. A node never equals a path, so nothing is kept.
+  Scenario: Test EXISTS in a pattern comprehension filter comparing to the comprehension path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:L)-[:T]->(:M)
+          """
+      When executing query:
+          """
+          RETURN [ p = (:L)-[:T]->() WHERE EXISTS { MATCH (a) WHERE a = p } | p ] AS paths;
+          """
+      Then the result should be:
+          | paths |
+          | []    |
+
+  # The same correlation, but with a comparison the body can satisfy, so the filter is shown to run.
+  Scenario: Test EXISTS in a pattern comprehension filter comparing to a node of the comprehension path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:L)-[:T]->(:M)
+          """
+      When executing query:
+          """
+          RETURN size([ p = (:L)-[:T]->() WHERE EXISTS { MATCH (a) WHERE a = nodes(p)[0] } | p ]) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  # The caller's variable is named only in the second UNION branch.
+  Scenario: Test EXISTS with a body correlated only in its second UNION branch
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'A'}), (:Person {name: 'B'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          WHERE EXISTS { MATCH (x:Nothing) RETURN x AS r UNION MATCH (y:Person) WHERE y.name = a.name RETURN y AS r }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+          | 'B' |
+
+  # The case above keeps every row, so this twin is needed.
+  Scenario: Test EXISTS with a body correlated only in its second UNION branch and no match
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'A'}), (:Person {name: 'B'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          WHERE EXISTS { MATCH (x:Nothing) RETURN x AS r UNION MATCH (y:Person) WHERE y.name = a.name + 'zz' RETURN y AS r }
+          RETURN a.name AS n ORDER BY n;
+          """
+      Then the result should be empty
+
+  # The comprehension's filter reads `k`, which a sibling pattern binds, not the comprehension's own element.
+  # If the conjunct is placed too early, the whole filter is dropped and every `n` with an outgoing edge passes.
+  Scenario: Test EXISTS in a pattern comprehension filter comparing to a sibling-bound variable
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          CREATE (:Movie {title: 'B'})
+          """
+      When executing query:
+          """
+          MATCH (n:Person), (k:Person)
+          WHERE size([(n)-[:KNOWS]->(c) WHERE EXISTS { MATCH (z:Movie) WHERE z.title = k.name } | c]) > 0
+          RETURN n.name AS x, k.name AS y ORDER BY x, y;
+          """
+      Then the result should be, in order:
+          | x   | y   |
+          | 'A' | 'B' |
+
+  # The body reads the path the comprehension itself binds. That symbol is bound inside the comprehension's own branch,
+  # so demanding it from outside would make the conjunct unplantable - the subtraction is what keeps this answerable.
+  Scenario: Test EXISTS in a pattern comprehension filter reading the comprehension's own path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (n:Person)
+          WHERE size([p = (n)-[:KNOWS]->(c) WHERE EXISTS { MATCH (a:Person) WHERE a = nodes(p)[0] } | p]) > 0
+          RETURN n.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'A' |
+
+  # The list fold reaches the same machinery as the bool and count ones, correlated through the body's WHERE.
+  Scenario: Test COLLECT with a body correlated through its filter
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          WHERE size(COLLECT { MATCH (x:Person)-[:KNOWS]->(z) WHERE x.name = a.name RETURN x }) > 0
+          RETURN a.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'A' |
+
+  # `CALL (a) {}` copies the caller's symbol into the imported scope without declaring it, so a body inside that scope
+  # must still read it as external. This is the shape the frame stack exists for: it passes before this change too, so
+  # it does not pin the fix - it guards the design, and fails if the frame is ever replaced by a scope-index test.
+  Scenario: Test EXISTS correlated to a variable imported by a scoped CALL
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          CALL (a) { MATCH (n:Person) WHERE EXISTS { MATCH (m:Person)-[:KNOWS]->(z) WHERE m.name = a.name } RETURN n }
+          RETURN a.name AS x, count(n) AS c ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   | c |
+          | 'A' | 3 |
+
+  # A simple CASE visits its test expression once per WHEN arm, so the body is symbol-generated more than once. Only
+  # the last visit's external set survives, and it has to be the right one.
+  Scenario: Test a simple CASE whose test is a correlated EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person)
+          WHERE CASE EXISTS { MATCH (x:Person)-[:KNOWS]->(z) WHERE x.name = a.name } WHEN true THEN true ELSE false END
+          RETURN a.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'A' |
+
+  # The one correlation spelling the old atom walk already handled, so it passes before this change as well. It pins
+  # nothing new - it is the regression guard that the rewrite did not lose what the walk already got right.
+  Scenario: Test EXISTS with a body correlated through a pattern property map
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'})
+          CREATE (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (a:Person) WHERE EXISTS { MATCH (m:Person {name: a.name})-[:KNOWS]->(z) }
+          RETURN a.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'A' |

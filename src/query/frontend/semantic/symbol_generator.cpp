@@ -65,6 +65,12 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
+void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
+  for (auto &frame : subquery_frames_) {
+    frame.referenced.insert(symbol);
+  }
+}
+
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
 
 // TODO: When is fetching from previous scopes ok?
@@ -440,10 +446,15 @@ bool SymbolGenerator::PostVisit(Match &) {
   scope.in_match = false;
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
+  // Resolve with the same boundary `Visit(Identifier &)` uses. Inside `CALL {}` an un-imported outer name is
+  // not visible, and `scope.symbols[name]` would insert a default Symbol rather than report it.
+  auto const from = scope.call_subquery_base.value_or(0);
   for (auto &ident : scope.identifiers_in_match) {
-    if (!HasSymbol(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
+    if (!HasSymbol(ident->name_, from) && !ConsumePredefinedIdentifier(ident->name_))
       throw UnboundVariableError(ident->name_);
-    ident->MapTo(scope.symbols[ident->name_]);
+    auto const &symbol = GetOrCreateSymbol(ident->name_, ident->user_declared_, Symbol::Type::ANY);
+    RecordSubqueryReference(symbol);
+    ident->MapTo(symbol);
   }
   scope.identifiers_in_match.clear();
   return true;
@@ -554,6 +565,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
+    // `PostVisit(Match &)` resolves it. `symbol` is still unset, so it must not reach the shared tail.
+    return true;
   } else if (scope.in_call_subquery && !scope.in_with) {
     // Currently only CALL uses WITH to import symbols from outer scope
     // EXISTS implicitly imports outer scope symbols
@@ -577,6 +590,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
+  RecordSubqueryReference(symbol);
   ident.MapTo(symbol);
   return true;
 }
@@ -751,11 +765,21 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
+  subquery_frames_.emplace_back(SubqueryFrame{.declared_from = symbol_table_->max_position()});
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(SubqueryExpression & /*subquery*/) {
+bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
+  const auto &frame = subquery_frames_.back();
+  // Overwrite instead of merging. A simple CASE visits its test once per WHEN arm; only the last visit is kept.
+  subquery.external_symbols_.clear();
+  for (const auto &symbol : frame.referenced) {
+    if (symbol.position() < frame.declared_from) {
+      subquery.external_symbols_.insert(symbol);
+    }
+  }
+  subquery_frames_.pop_back();
   scopes_.pop_back();
   return true;
 }

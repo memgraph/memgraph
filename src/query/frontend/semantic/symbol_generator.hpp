@@ -16,6 +16,7 @@
 #pragma once
 
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 #include "query/exceptions.hpp"
@@ -190,6 +191,14 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool has_delete{false};
   };
 
+  /// An open subquery body. Its external symbols are the ones it referenced that predate it.
+  struct SubqueryFrame {
+    std::unordered_set<Symbol> referenced;
+    /// The next position `SymbolTable` will hand out, sampled when the body opened. Positions are assigned in
+    /// creation order and never reused, so a symbol below this mark was created outside the body.
+    int32_t declared_from{0};
+  };
+
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   /// The positions an EXISTS may appear in - the ones the planner has a splice point for. Default-deny, because an
@@ -214,6 +223,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
+  // Record a reference in every open body. Does nothing when no body is open.
+  void RecordSubqueryReference(const Symbol &symbol);
+
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
   void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &);
@@ -228,6 +240,11 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
   // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
   std::unordered_set<Symbol> create_clause_symbols_;
+  // The subquery bodies currently open, outermost first. Each records where a symbol was created, not where it is
+  // visible: `CALL (v) {}` copies an outer symbol into the imported scope without `CreateSymbol`, so that symbol
+  // resolves inside the body but was created outside it - and keeps its original, lower position, which is what
+  // makes the creation-order mark a provenance test rather than a visibility one.
+  std::vector<SubqueryFrame> subquery_frames_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
