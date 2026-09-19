@@ -14,6 +14,33 @@ if(NOT TARGET memgraph__benchmark)
 endif()
 
 include(GoogleTest)
+include(CheckLinkerFlag)
+
+# reduce build directory size by compressing `.rela.dyn` section for unit tests
+check_linker_flag(CXX "LINKER:-z,pack-relative-relocs" MG_LINKER_PACKS_RELATIVE_RELOCS)
+
+set(MG_RUNTIME_LIBC_HAS_DT_RELR OFF)
+execute_process(COMMAND ldd --version
+                OUTPUT_VARIABLE mg_ldd_out ERROR_QUIET
+                RESULT_VARIABLE mg_ldd_rc OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(mg_ldd_rc EQUAL 0 AND mg_ldd_out MATCHES "GLIBC|GNU libc")
+    string(REGEX REPLACE "\n.*" "" mg_ldd_line "${mg_ldd_out}")
+    # glibc prints the bare version last on that line, after any distribution's own packaging string.
+    string(REGEX MATCHALL "[0-9]+\\.[0-9]+" mg_ldd_vers "${mg_ldd_line}")
+    if(mg_ldd_vers)
+        list(GET mg_ldd_vers -1 mg_libc_version)
+        if(mg_libc_version VERSION_GREATER_EQUAL 2.36)
+            set(MG_RUNTIME_LIBC_HAS_DT_RELR ON)
+        endif()
+        message(STATUS "Runtime libc reports glibc ${mg_libc_version}; DT_RELR usable: ${MG_RUNTIME_LIBC_HAS_DT_RELR}")
+    endif()
+endif()
+
+if(MG_LINKER_PACKS_RELATIVE_RELOCS AND MG_RUNTIME_LIBC_HAS_DT_RELR)
+    set(MG_HAVE_PACK_RELATIVE_RELOCS ON)
+else()
+    set(MG_HAVE_PACK_RELATIVE_RELOCS OFF)
+endif()
 
 function(add_unit_test exec_name)
     set(options CUSTOM_MAIN DISCOVER_TESTS)
@@ -52,6 +79,10 @@ function(add_unit_test exec_name)
     endif()
 
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
+
+    if(MG_HAVE_PACK_RELATIVE_RELOCS)
+        target_link_options(${target_name} PRIVATE "LINKER:-z,pack-relative-relocs")
+    endif()
 
     set(test_properties "")
     if(ARG_TEST_PROPERTIES)
