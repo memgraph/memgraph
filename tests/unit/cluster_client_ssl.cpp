@@ -125,6 +125,17 @@ constexpr uint16_t kPort{8199};
   return std::string{cn};
 }
 
+TEST(ClusterClientSsl, ExtractDepth0CNHandlesSpacingVariants) {
+  auto assert_cn = [](std::string_view output, std::string_view expected) {
+    auto const cn = ExtractDepth0CN(output);
+    ASSERT_TRUE(cn.has_value());
+    EXPECT_EQ(*cn, expected);
+  };
+
+  assert_cn("depth=0 CN = instance1\n", "instance1");
+  assert_cn("depth=0 CN=instance2\n", "instance2");
+}
+
 // Drives one outbound mTLS handshake by constructing a ClusterView-backed
 // communication::Client and calling Connect. Returns whether the handshake
 // succeeded. The Client is destroyed on return, which triggers a clean
