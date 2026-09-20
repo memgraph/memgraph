@@ -541,14 +541,14 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
 
-  // In this handler, we can either commit or abort. If cached accessor is nullptr, it is impossible we should commit
-  // because replying to prepare happens after assignment to the accessor
-  // If cached accessor is nullptr, and we should abort (e.g. exception was thrown while processing deltas), we can
-  // safely return here OK because it means that the abort already happened while destructing accessor during
-  // ReadAndApplyDeltasSingleTxn
+  // The prepared transaction can be gone by the time its decision arrives: a prepare that the main had already
+  // abandoned can be delivered late and replace it, or the accessor was destroyed while applying deltas. An abort
+  // decision is then already satisfied. A commit decision is not: acknowledging it would make the main count this
+  // transaction as committed here, so its later replay during recovery would be counted twice and the replica would
+  // be reported ahead of the main. Report the commit as failed so the main leaves this replica's progress untouched.
   if (!two_pc_cache_.commit_accessor_) {
     spdlog::warn("Cached commit accessor became invalid between two phases");
-    storage::replication::FinalizeCommitRes const res(true);
+    storage::replication::FinalizeCommitRes const res(!req.decision);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
@@ -557,7 +557,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     spdlog::warn("Trying to finalize txn with ldt {} but the last prepared txn is with ldt {}",
                  req.durability_commit_timestamp,
                  two_pc_cache_.durability_commit_timestamp_);
-    storage::replication::FinalizeCommitRes const res(true);
+    storage::replication::FinalizeCommitRes const res(!req.decision);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
