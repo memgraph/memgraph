@@ -3435,3 +3435,274 @@ Feature: Subquery expressions
       Then the result should be, in order:
           | x   |
           | 'd' |
+
+  # A `CALL ... YIELD ... WHERE` is the one WHERE whose Filter is built outside a Matching, so the branch a fold
+  # needs has to be attached there as well. The procedure row is pinned by name so the count does not move with
+  # the set of loaded modules.
+  Scenario: Test EXISTS in a CALL YIELD WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (p)-[:KNOWS]->() }
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be, in order:
+          | person |
+          | 'A'    |
+
+  Scenario: Test EXISTS in a CALL YIELD WHERE that no node satisfies
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (p)-[:LIKES]->() }
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be empty
+
+  Scenario: Test COUNT in a CALL YIELD WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND COUNT { MATCH (p)-[:KNOWS]->() } = 2
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be, in order:
+          | person |
+          | 'A'    |
+
+  Scenario: Test COUNT in a CALL YIELD WHERE with a count no node reaches
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND COUNT { MATCH (p)-[:KNOWS]->() } = 3
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be empty
+
+  Scenario: Test COLLECT in a CALL YIELD WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND 'C' IN COLLECT { MATCH (p)-[:KNOWS]->(f) RETURN f.name }
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be, in order:
+          | person |
+          | 'A'    |
+
+  Scenario: Test COLLECT in a CALL YIELD WHERE with a value no node collects
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND 'Z' IN COLLECT { MATCH (p)-[:KNOWS]->(f) RETURN f.name }
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be empty
+
+  # The correlation reaches the body's WITH, so the branch has to read the frame slot the CALL clause left in
+  # place rather than scan the graph again.
+  Scenario: Test EXISTS in a CALL YIELD WHERE with a body that carries the caller through WITH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (p)-[:KNOWS]->(f) WITH f WHERE f.name = 'C' RETURN f }
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be, in order:
+          | person |
+          | 'A'    |
+
+  Scenario: Test EXISTS in a CALL YIELD WHERE with a body whose WITH keeps nothing
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (p)-[:KNOWS]->(f) WITH f WHERE f.name = 'Z' RETURN f }
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be empty
+
+  # One row survives only if both halves of the conjunction are applied: dropping the name test leaves one row per
+  # procedure, dropping the fold leaves one row per person.
+  Scenario: Test a CALL YIELD WHERE mixing a plain predicate with EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (p)-[:KNOWS]->() }
+          RETURN count(*) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  # The pattern form reaches the same Filter through the same vector, so it was refused in this position too.
+  Scenario: Test the pattern form of exists in a CALL YIELD WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND exists((p)-[:KNOWS]->())
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be, in order:
+          | person |
+          | 'A'    |
+
+  Scenario: Test the pattern form of exists in a CALL YIELD WHERE that no node satisfies
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND exists((p)-[:LIKES]->())
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be empty
+
+  # Two folds under one OR put two branches on the same Filter, so each has to write its own frame slot.
+  Scenario: Test two folds in one CALL YIELD WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures'
+            AND (COUNT { MATCH (p)-[:KNOWS]->() } = 2 OR COUNT { MATCH (p)<-[:KNOWS]-() } = 1)
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be, in order:
+          | person |
+          | 'A'    |
+          | 'B'    |
+          | 'C'    |
+
+  # A body that reads nothing from outside still needs the branch; the caller has no MATCH at all here.
+  Scenario: Test an uncorrelated fold in a CALL YIELD WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (:Person) }
+          RETURN count(*) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test EXISTS in a CALL YIELD WHERE with a body that starts with WITH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { WITH p MATCH (p)-[:KNOWS]->(f) WHERE f.name = 'C' }
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be, in order:
+          | person |
+          | 'A'    |
+
+  Scenario: Test EXISTS in a CALL YIELD WHERE with a body that starts with WITH and matches nothing
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { WITH p MATCH (p)-[:KNOWS]->(f) WHERE f.name = 'Z' }
+          RETURN p.name AS person ORDER BY person;
+          """
+      Then the result should be, in order:
+          | person |
