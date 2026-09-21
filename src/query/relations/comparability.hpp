@@ -41,7 +41,7 @@ namespace memgraph::query::relations::comparability {
  * default, so a type added to the enumeration fails to compile in both rather
  * than silently gaining an answer in one.
  */
-constexpr bool Admits(TypedValue::Type type) {
+constexpr bool ValidFor(TypedValue::Type type) {
   switch (type) {
     using enum TypedValue::Type;
     case Bool:
@@ -76,23 +76,29 @@ constexpr bool Admits(TypedValue::Type type) {
 /**
  * Whether comparability places a value against the values of its own type.
  *
- * Admitting a type is not enough to say this, because one admitted type holds a
+ * A type being valid is not enough to say this, because one admitted type holds a
  * value with no order: a NaN is unordered against every number and against
  * itself, so all four comparisons answer false for a pair holding one and a
  * filter keeps no row. Ask this of a value a scan is about to be fenced by,
  * since a band drawn around a value the relation cannot place holds whatever
  * the stored order happens to put there.
  */
-inline bool Places(const TypedValue &value) {
-  if (!Admits(value.type())) return false;
+inline bool ValidFor(const TypedValue &value) {
+  if (!ValidFor(value.type())) return false;
   return value.type() != TypedValue::Type::Double || !std::isnan(value.UnsafeValueDouble());
+}
+
+/// The same question where the type is already known at compile time.
+template <TypedValue::Type T>
+constexpr bool ValidFor() {
+  return ValidFor(T);
 }
 
 /**
  * Orders two values of one type by what they hold, for the types
  * comparability admits.
  *
- * Nothing is returned for a type it does not admit, which is every type
+ * Nothing is returned for a type it is not valid for, which is every type
  * carrying no order of its own plus enums and the two point types, which
  * orderability places and this relation does not.
  *

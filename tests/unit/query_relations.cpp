@@ -180,31 +180,31 @@ TEST(Comparability, AdmitsExactlyTheTypesItCanPlace) {
     if (!pair) continue;
     // A type it admits has to be a type it can answer for, and the reverse. Two switches state
     // this separately, so nothing but a test holds them together.
-    EXPECT_EQ(comparability::Admits(type), comparability::ComparePayload(pair->lesser, pair->greater).has_value())
+    EXPECT_EQ(comparability::ValidFor(type), comparability::ComparePayload(pair->lesser, pair->greater).has_value())
         << "type " << static_cast<unsigned>(type);
   }
 }
 
 TEST(Comparability, PlacesNoGraphElement) {
-  EXPECT_FALSE(comparability::Admits(Type::Vertex));
-  EXPECT_FALSE(comparability::Admits(Type::Edge));
-  EXPECT_FALSE(comparability::Admits(Type::Path));
-  EXPECT_FALSE(comparability::Admits(Type::Graph));
-  EXPECT_FALSE(comparability::Admits(Type::Function));
-  EXPECT_FALSE(comparability::Admits(Type::VirtualEdge));
-  EXPECT_FALSE(comparability::Admits(Type::VirtualNode));
-  EXPECT_FALSE(comparability::Admits(Type::VirtualGraph));
+  EXPECT_FALSE(comparability::ValidFor(Type::Vertex));
+  EXPECT_FALSE(comparability::ValidFor(Type::Edge));
+  EXPECT_FALSE(comparability::ValidFor(Type::Path));
+  EXPECT_FALSE(comparability::ValidFor(Type::Graph));
+  EXPECT_FALSE(comparability::ValidFor(Type::Function));
+  EXPECT_FALSE(comparability::ValidFor(Type::VirtualEdge));
+  EXPECT_FALSE(comparability::ValidFor(Type::VirtualNode));
+  EXPECT_FALSE(comparability::ValidFor(Type::VirtualGraph));
 }
 
 TEST(Comparability, PlacesNoContainerAndNoNull) {
-  EXPECT_FALSE(comparability::Admits(Type::Null));
-  EXPECT_FALSE(comparability::Admits(Type::List));
-  EXPECT_FALSE(comparability::Admits(Type::Map));
+  EXPECT_FALSE(comparability::ValidFor(Type::Null));
+  EXPECT_FALSE(comparability::ValidFor(Type::List));
+  EXPECT_FALSE(comparability::ValidFor(Type::Map));
 }
 
 TEST(Comparability, OrdersEveryTypeItAdmits) {
   for (auto const type : kEveryType) {
-    if (!comparability::Admits(type)) continue;
+    if (!comparability::ValidFor(type)) continue;
     auto const pair = PairOf(type);
     ASSERT_TRUE(pair.has_value()) << "an admitted type needs a pair here: " << static_cast<unsigned>(type);
     auto const order = comparability::Compare(pair->lesser, pair->greater);
@@ -237,19 +237,19 @@ TEST(Comparability, PlacesEveryValueOfATypeItAdmitsExceptANaN) {
   for (auto const type : kEveryType) {
     auto const pair = PairOf(type);
     if (!pair) continue;
-    EXPECT_EQ(comparability::Places(pair->lesser), comparability::Admits(type))
+    EXPECT_EQ(comparability::ValidFor(pair->lesser), comparability::ValidFor(type))
         << "type " << static_cast<unsigned>(type);
   }
 
   auto const nan = TypedValue(std::nan(""));
-  EXPECT_TRUE(comparability::Admits(nan.type()));
-  EXPECT_FALSE(comparability::Places(nan));
+  EXPECT_TRUE(comparability::ValidFor(nan.type()));
+  EXPECT_FALSE(comparability::ValidFor(nan));
 }
 
 TEST(Comparability, PlacesNoValueOfATypeItRefuses) {
-  EXPECT_FALSE(comparability::Places(TypedValue()));
-  EXPECT_FALSE(comparability::Places(ListOf({Int(1)})));
-  EXPECT_FALSE(comparability::Places(MapOf({{"a", Int(1)}})));
+  EXPECT_FALSE(comparability::ValidFor(TypedValue()));
+  EXPECT_FALSE(comparability::ValidFor(ListOf({Int(1)})));
+  EXPECT_FALSE(comparability::ValidFor(MapOf({{"a", Int(1)}})));
 }
 
 TEST(Comparability, AnswersFalseForEveryComparisonAgainstANaN) {
@@ -274,9 +274,62 @@ TEST(Comparability, LeavesAPairHoldingANaNUnordered) {
 
 // Orderability, and where it has to agree with comparability
 
+TEST(Orderability, AdmitsExactlyTheTypesItPlacesAPairOf) {
+  // Which types a sort can order is stated by `Admits`, and `Compare` states it again by refusing
+  // the rest. Two switches, so nothing but this holds them together: a type added to one and not
+  // the other answers a query wrongly rather than failing to compile.
+  for (auto const type : kEveryType) {
+    auto const pair = PairOf(type);
+    if (!pair) continue;
+
+    auto placed = true;
+    try {
+      orderability::Compare(pair->lesser, pair->greater);
+    } catch (memgraph::query::QueryRuntimeException const &) {
+      placed = false;
+    }
+    EXPECT_EQ(orderability::ValidFor(type), placed) << "type " << static_cast<unsigned>(type);
+  }
+}
+
+TEST(Orderability, AdmitsNoTypeCarryingNoOrderOfItsOwn) {
+  // The types a sort refuses, named rather than counted, so that a type added to the value has to
+  // be placed on one side or the other rather than joining this set by default.
+  constexpr Type kRefused[] = {Type::Map,
+                               Type::Vertex,
+                               Type::Edge,
+                               Type::VirtualEdge,
+                               Type::VirtualNode,
+                               Type::Path,
+                               Type::Graph,
+                               Type::VirtualGraph,
+                               Type::Function};
+  for (auto const type : kRefused) {
+    EXPECT_FALSE(orderability::ValidFor(type)) << "type " << static_cast<unsigned>(type);
+  }
+
+  auto refused = 0;
+  for (auto const type : kEveryType) {
+    if (!orderability::ValidFor(type)) ++refused;
+  }
+  EXPECT_EQ(refused, std::ssize(kRefused)) << "a type joined or left the refused set without being named here";
+}
+
+TEST(Orderability, AnswersForAValueExactlyWhereEveryTypeWithinIsAdmitted) {
+  // The value-level question reads through a list, because a list is ordered by what it holds.
+  EXPECT_TRUE(orderability::ValidFor(TypedValue(int64_t{1})));
+  EXPECT_TRUE(orderability::ValidFor(ListOf({Int(1), Int(2)})));
+  EXPECT_FALSE(orderability::ValidFor(MapOf({{"a", Int(1)}})));
+  EXPECT_FALSE(orderability::ValidFor(ListOf({MapOf({{"a", Int(1)}})})));
+
+  // And it names the type that has no order, so a refusal can say which.
+  EXPECT_EQ(orderability::UnorderedTypeWithin(ListOf({Int(1), MapOf({{"a", Int(1)}})})), Type::Map);
+  EXPECT_EQ(orderability::UnorderedTypeWithin(TypedValue(int64_t{1})), std::nullopt);
+}
+
 TEST(Orderability, AgreesWithComparabilityWhereverComparabilityAnswers) {
   for (auto const type : kEveryType) {
-    if (!comparability::Admits(type)) continue;
+    if (!comparability::ValidFor(type)) continue;
     auto const pair = PairOf(type);
     ASSERT_TRUE(pair.has_value());
 
@@ -315,7 +368,7 @@ TEST(Orderability, PlacesANaNWhereComparabilityStillWillNot) {
 
   // A Double is a type comparability admits, so it answers rather than
   // declining, and what it answers is that it has no order for the pair.
-  EXPECT_FALSE(comparability::Places(nan));
+  EXPECT_FALSE(comparability::ValidFor(nan));
   EXPECT_EQ(comparability::Compare(nan, TypedValue(1.0)), std::partial_ordering::unordered);
   EXPECT_EQ(comparability::Compare(nan, nan), std::partial_ordering::unordered);
 
@@ -407,7 +460,7 @@ TEST(Orderability, PlacesTheTypesComparabilityRefuses) {
   for (auto const type : {Type::Enum, Type::Point2d, Type::Point3d}) {
     auto const pair = PairOf(type);
     ASSERT_TRUE(pair.has_value());
-    EXPECT_FALSE(comparability::Admits(type));
+    EXPECT_FALSE(comparability::ValidFor(type));
     EXPECT_TRUE(std::is_lt(orderability::Compare(pair->lesser, pair->greater)));
   }
 }

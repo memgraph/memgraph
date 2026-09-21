@@ -14,7 +14,6 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
-#include "query/relations/extremum.hpp"
 #include "query/relations/orderability.hpp"
 
 #include <algorithm>
@@ -243,7 +242,7 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       // places such a value all the same, by where its type sits or by where a NaN is put, and a
       // band drawn around it would hand back rows no filter would pass.
       auto const placed_by_comparability = [](auto const &value) {
-        return !value || relations::comparability::Places(*value);
+        return !value || relations::comparability::ValidFor(*value);
       };
       if (!placed_by_comparability(lower_value) || !placed_by_comparability(upper_value)) {
         return storage::PropertyValueRange::Empty();
@@ -7506,7 +7505,7 @@ class AggregateCursor : public Cursor {
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
    * an appropriate exception is thrown. */
   void EnsureOkForMinMax(const TypedValue &value) const {
-    auto const unordered = relations::extremum::ATypeNoSortOrders(value);
+    auto const unordered = relations::orderability::UnorderedTypeWithin(value);
     if (!unordered) return;
     throw QueryRuntimeException(
         "Only values a sort can order are allowed in MIN and MAX aggregations, and '{}' is "
