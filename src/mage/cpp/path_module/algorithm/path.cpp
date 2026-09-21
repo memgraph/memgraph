@@ -978,6 +978,7 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp_vertex *vert
   const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
   // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(path_size);
+  const bool admits_every_type = PathHelper::AdmitsEveryType(step, outgoing);
 
   const BorrowedEdges edges{vertex, outgoing};
   for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
@@ -989,7 +990,7 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp_vertex *vert
     path_data_.MaybeAbort();
 
     // Only the type name is needed here; everything below this copies.
-    if (!path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
+    if (!admits_every_type && !path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
       continue;
     }
 
@@ -1110,6 +1111,7 @@ void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth,
                                        const bool outgoing, std::queue<int64_t> &frontier) {
   // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(depth);
+  const bool admits_every_type = PathHelper::AdmitsEveryType(step, outgoing);
   const BorrowedEdges edges{vertex, outgoing};
   for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     if (path_data_.LimitReached()) {
@@ -1124,7 +1126,7 @@ void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth,
       continue;
     }
 
-    if (!path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
+    if (!admits_every_type && !path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
       continue;
     }
 
@@ -1261,6 +1263,7 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
 
   // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(depth);
+  const bool admits_every_type = PathHelper::AdmitsEveryType(step, outgoing);
   // Reused across first asks, so they settle into allocating nothing at all.
   std::vector<AdmittedEdge> &admitted = scratch_;
   admitted.clear();
@@ -1271,7 +1274,7 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
     path_data_.MaybeAbort();
 
     // Only the type name is needed here; everything below this copies.
-    if (!path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
+    if (!admits_every_type && !path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
       continue;
     }
 
@@ -1494,6 +1497,7 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
                                                  bool outgoing, std::queue<std::pair<mgp::Node, int64_t>> &queue) {
   // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(pair.second);
+  const bool admits_every_type = PathHelper::AdmitsEveryType(step, outgoing);
   const BorrowedEdges edges{vertex, outgoing};
   for (auto *edge = edges.First(); edge != nullptr; edge = edges.Next()) {
     // As in the expand walk: a fully filtered supernode never reaches the dequeue poll above.
@@ -1506,7 +1510,7 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       continue;
     }
 
-    if (path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
+    if (admits_every_type || path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
       // Enqueue only; TryInsertNode emits it on dequeue, once the checks are applied.
       path_data_.visited_.insert(next_id);
       queue.emplace(mgp::Node(next_vertex), pair.second + 1);

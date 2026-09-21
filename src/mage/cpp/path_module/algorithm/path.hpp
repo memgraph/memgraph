@@ -207,6 +207,14 @@ class PathHelper {
   // a runtime sequence length. Callers that walk a list resolve it once and pass it.
   [[nodiscard]] bool RelationshipAdmitted(const RelStep &step, std::string_view rel_type, bool outgoing) const;
 
+  // Whether this step admits a relationship whatever its type, which is what a step carrying no type
+  // for this direction means. Fixed for a whole adjacency list, and worth asking once: a type name
+  // has to be read from storage, and reading it only to ignore it is the common case -- the default
+  // config names no relationship filter at all.
+  [[nodiscard]] static bool AdmitsEveryType(const RelStep &step, const bool outgoing) noexcept {
+    return outgoing ? step.any_outgoing : step.any_incoming;
+  }
+
   [[nodiscard]] bool StepAdmitsDirection(int64_t depth, bool outgoing) const;
 
   [[nodiscard]] static LabelBools GetLabelBools(mgp_vertex *vertex, const LabelStep &step);
