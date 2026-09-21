@@ -20,6 +20,12 @@ import tempfile
 from pathlib import Path
 
 import mgclient
+
+# memgraph_server_context lives one level up, shared by every suite that starts a server.
+INTEGRATION_DIR = Path(__file__).resolve().parent.parent
+if str(INTEGRATION_DIR) not in sys.path:
+    sys.path.insert(0, str(INTEGRATION_DIR))
+
 from memgraph_server_context import memgraph_server
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))

@@ -34,7 +34,9 @@ test_one() {
 test_all() {
   cd "$DIR"
   for name in *; do
-    if [ ! -d "$name" ]; then continue; fi
+    # Only directories with a runner are suites; __pycache__ and the shared
+    # helpers next to it are not.
+    if [ ! -d "$name" ] || { [ ! -e "$name/runner.py" ] && [ ! -e "$name/runner.sh" ]; }; then continue; fi
     test_one "$name"
   done
 }
