@@ -453,7 +453,6 @@ bool SymbolGenerator::PostVisit(Match &) {
     if (!HasSymbol(ident->name_, from) && !ConsumePredefinedIdentifier(ident->name_))
       throw UnboundVariableError(ident->name_);
     auto const &symbol = GetOrCreateSymbol(ident->name_, ident->user_declared_, Symbol::Type::ANY);
-    RecordSubqueryReference(symbol);
     ident->MapTo(symbol);
   }
   scope.identifiers_in_match.clear();
