@@ -16,6 +16,7 @@
 #include <limits>
 
 #include "utils/temporal.hpp"
+#include "value_order/numbers.hpp"
 
 import memgraph.utils.fnv;
 
@@ -37,18 +38,6 @@ namespace {
 
 /// Whether two coordinates are the same coordinate, counting two NaNs as one.
 bool SameCoordinate(double a, double b) { return (std::isnan(a) && std::isnan(b)) || a == b; }
-
-/// Whether the integer range holds this double, so that a whole one can be read
-/// as the integer it equals.
-///
-/// Reading a double outside the range as an integer is undefined, and an
-/// infinity is outside it however whole it looks.
-bool AnIntegerCanHold(double value) {
-  // Taken from the smallest integer rather than the largest, because that one
-  // is a power of two and survives the conversion exactly.
-  constexpr auto kJustPastTheWidest = -static_cast<double>(std::numeric_limits<int64_t>::min());
-  return value >= -kJustPastTheWidest && value < kJustPastTheWidest;
-}
 
 /// A coordinate with every NaN replaced by one value, so that a pair of points
 /// this relation holds alike hashes alike. Any double would do; this one is the
@@ -111,7 +100,7 @@ size_t Hash(const TypedValue &value) {
       // every double between two integers to the lower one would file a whole
       // run of distinct keys in one bucket.
       double whole = 0.0;
-      if (std::modf(held, &whole) == 0.0 && AnIntegerCanHold(held)) {
+      if (std::modf(held, &whole) == 0.0 && value_order::AnIntegerCanHold(held)) {
         return std::hash<int64_t>{}(static_cast<int64_t>(whole));
       }
       return std::hash<double>{}(held);

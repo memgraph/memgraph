@@ -31,6 +31,7 @@ module;
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/small_vector.hpp"
+#include "value_order/numbers.hpp"
 
 export module memgraph.storage.property_value;
 
@@ -162,13 +163,6 @@ constexpr Stretch StretchOf(PropertyValueType type) {
   return Stretch::Null;
 }
 
-/// Orders two doubles, giving a NaN the place it has nowhere else: after every
-/// number, and alongside another NaN.
-///
-/// An ordered structure needs an answer for every pair it is handed. IEEE
-/// leaves a NaN unordered against everything, itself included, which is not an
-/// answer a sorted container can be given: it would place an entry where no
-/// later search could find it again.
 /// Reads a number held as either of the types a list packs its elements at.
 ///
 /// A list that packs its elements holds them at one width and a list that boxes
@@ -183,84 +177,12 @@ inline double AsDouble(std::variant<Int, Double> const &numeric) noexcept {
   std::unreachable();
 }
 
-inline std::weak_ordering CompareDoublesNaNLast(double lhs, double rhs) noexcept {
-  if (auto const order = lhs <=> rhs; order != std::partial_ordering::unordered) {
-    if (order == std::partial_ordering::less) return std::weak_ordering::less;
-    if (order == std::partial_ordering::greater) return std::weak_ordering::greater;
-    return std::weak_ordering::equivalent;
-  }
-  auto const lhs_is_nan = std::isnan(lhs);
-  auto const rhs_is_nan = std::isnan(rhs);
-  if (lhs_is_nan && rhs_is_nan) return std::weak_ordering::equivalent;
-  return lhs_is_nan ? std::weak_ordering::greater : std::weak_ordering::less;
-}
-
-/// The same order read from the other side.
-inline std::weak_ordering ReversedOrder(std::weak_ordering order) noexcept {
-  if (order == std::weak_ordering::less) return std::weak_ordering::greater;
-  if (order == std::weak_ordering::greater) return std::weak_ordering::less;
-  return order;
-}
-
-inline std::partial_ordering ReversedOrder(std::partial_ordering order) noexcept {
-  if (order == std::partial_ordering::less) return std::partial_ordering::greater;
-  if (order == std::partial_ordering::greater) return std::partial_ordering::less;
-  return order;
-}
-
-/// Places an integer against a double by what each holds, rather than by
-/// reading one of them at the other's type.
-///
-/// Widening the integer is exact only while the doubles are still spaced one
-/// apart. Past that point two integers arrive at one double, and a sorted
-/// container ordered that way holds the two in one place while an equality
-/// tells them apart, so an entry can be filed under a key that is not its own.
-///
-/// Spelled here as well as over the query layer's value, since storage may not
-/// depend on that layer and the two have to answer a pair alike.
-///
-/// @return unordered only where the double is a NaN.
-inline std::partial_ordering PlaceIntegerAgainstDouble(std::int64_t whole, double other) noexcept {
-  if (std::isnan(other)) [[unlikely]]
-    return std::partial_ordering::unordered;
-
-  // One past the widest integer, exactly a double. A double outside the range it
-  // fences cannot be made into an integer at all, so the range is settled before
-  // the conversion below rather than trusted to it.
-  //
-  // Taken from the smallest integer rather than the largest, because that one is
-  // a power of two and survives the conversion exactly; the largest is one short
-  // of it and would round.
-  constexpr auto kJustPastTheWidest = -static_cast<double>(std::numeric_limits<std::int64_t>::min());
-  if (other >= kJustPastTheWidest) [[unlikely]]
-    return std::partial_ordering::less;
-  if (other < -kJustPastTheWidest) [[unlikely]]
-    return std::partial_ordering::greater;
-
-  auto const truncated = static_cast<std::int64_t>(other);
-  if (auto const by_whole_part = whole <=> truncated; std::is_neq(by_whole_part)) return by_whole_part;
-
-  // The two share a whole part, so whatever the double carries past it decides.
-  // Truncation is toward zero, so the remainder takes the double's own sign.
-  //
-  // Reading the whole part back as a double is exact either way: where the
-  // doubles are still spaced one apart it is small enough to carry, and past
-  // that point the double was already whole and the remainder is zero.
-  auto const remainder = other - static_cast<double>(truncated);
-  if (remainder > 0) return std::partial_ordering::less;
-  if (remainder < 0) return std::partial_ordering::greater;
-  return std::partial_ordering::equivalent;
-}
-
-/// The same placement, with a NaN last, which is where this order keeps one.
-inline std::weak_ordering PlaceIntegerAgainstDoubleNaNLast(std::int64_t whole, double other) noexcept {
-  auto const placed = PlaceIntegerAgainstDouble(whole, other);
-  if (placed == std::partial_ordering::less) return std::weak_ordering::less;
-  if (placed == std::partial_ordering::greater) return std::weak_ordering::greater;
-  if (placed == std::partial_ordering::equivalent) return std::weak_ordering::equivalent;
-  // Unordered only for a NaN, and every number comes before one.
-  return std::weak_ordering::less;
-}
+// The arithmetic below is stated over the numbers alone, so that the store and
+// a query place a pair the same way without either carrying a copy of it.
+using value_order::CompareDoublesNaNLast;
+using value_order::PlaceIntegerAgainstDouble;
+using value_order::PlaceIntegerAgainstDoubleNaNLast;
+using value_order::ReversedOrder;
 
 /// Orders two numbers, whichever numeric types the two variants hold.
 ///

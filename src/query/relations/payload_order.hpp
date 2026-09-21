@@ -24,14 +24,18 @@
 /// pair the other two put in one place.
 #pragma once
 
-#include <cmath>
 #include <compare>
 #include <cstdint>
-#include <limits>
 
 #include "query/typed_value.hpp"
+#include "value_order/numbers.hpp"
 
 namespace memgraph::query::relations {
+
+// The arithmetic these read is stated over the numbers alone, so that the store
+// and a query place a pair the same way without either carrying a copy of it.
+using value_order::PlaceIntegerAgainstDouble;
+using value_order::ReversedOrder;
 
 template <TypedValue::Type>
 inline constexpr bool kNoPayloadOrder = false;
@@ -82,58 +86,6 @@ template <TypedValue::Type T>
   } else {
     static_assert(kNoPayloadOrder<T>, "This type carries no order of its own");
   }
-}
-
-/// The same order read from the other side.
-inline std::partial_ordering ReversedOrder(std::partial_ordering order) {
-  if (std::is_lt(order)) return std::partial_ordering::greater;
-  if (std::is_gt(order)) return std::partial_ordering::less;
-  return order;
-}
-
-/**
- * Places an integer against a double by what each holds, rather than by reading
- * one of them at the other's type.
- *
- * The usual arithmetic conversions widen the integer, which is exact only while
- * the doubles are still spaced one apart. Past that point distinct integers
- * arrive at one double, and a relation reading the pair that way holds them
- * equal: equality then holds two values equal that are not equal to each other,
- * and a sort is handed a pair it treats as interchangeable while telling the
- * two apart, which is not a strict weak ordering.
- *
- * @return unordered only where the double is a NaN.
- */
-inline std::partial_ordering PlaceIntegerAgainstDouble(int64_t whole, double other) {
-  if (std::isnan(other)) [[unlikely]]
-    return std::partial_ordering::unordered;
-
-  // One past the widest integer, exactly a double. A double outside the range it
-  // fences cannot be made into an integer at all, so the range is settled before
-  // the conversion below rather than trusted to it.
-  //
-  // Taken from the smallest integer rather than the largest, because that one is
-  // a power of two and survives the conversion exactly; the largest is one short
-  // of it and would round.
-  constexpr auto kJustPastTheWidest = -static_cast<double>(std::numeric_limits<int64_t>::min());
-  if (other >= kJustPastTheWidest) [[unlikely]]
-    return std::partial_ordering::less;
-  if (other < -kJustPastTheWidest) [[unlikely]]
-    return std::partial_ordering::greater;
-
-  auto const truncated = static_cast<int64_t>(other);
-  if (auto const by_whole_part = whole <=> truncated; std::is_neq(by_whole_part)) return by_whole_part;
-
-  // The two share a whole part, so whatever the double carries past it decides.
-  // Truncation is toward zero, so the remainder takes the double's own sign.
-  //
-  // Reading the whole part back as a double is exact either way: where the
-  // doubles are still spaced one apart it is small enough to carry, and past
-  // that point the double was already whole and the remainder is zero.
-  auto const remainder = other - static_cast<double>(truncated);
-  if (remainder > 0) return std::partial_ordering::less;
-  if (remainder < 0) return std::partial_ordering::greater;
-  return std::partial_ordering::equivalent;
 }
 
 /**

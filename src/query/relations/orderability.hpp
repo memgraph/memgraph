@@ -37,14 +37,10 @@ namespace memgraph::query::relations::orderability {
 /// unplaced and this relation places it here instead. A sort handed a pair with
 /// no position treats the two as interchangeable, which would make a NaN
 /// interchangeable with every number while no two numbers are with each other.
-inline std::partial_ordering PlaceDoubles(double a, double b) {
-  auto const order = a <=> b;
-  if (order != std::partial_ordering::unordered) [[likely]]
-    return order;
-
-  if (std::isnan(a) && std::isnan(b)) return std::partial_ordering::equivalent;
-  return std::isnan(a) ? std::partial_ordering::greater : std::partial_ordering::less;
-}
+///
+/// Read as a partial order although it places every pair, so that a caller
+/// switching on a type reaches one category whichever arm it lands in.
+inline std::partial_ordering PlaceDoubles(double a, double b) { return value_order::CompareDoublesNaNLast(a, b); }
 
 /// Places two points, coordinate by coordinate, in the order the point's own
 /// comparison reads them.
