@@ -106,7 +106,7 @@ SchedulerInterval::SchedulerInterval(std::string str) {
   auto const *begin = str.data() + (str.front() == '+' ? 1 : 0);
   auto const *end = str.data() + str.size();
   if (int64_t seconds{0};
-      begin != end && std::from_chars(begin, end, seconds) == std::from_chars_result{end, std::errc{}}) {
+      begin != end && std::from_chars(begin, end, seconds) == std::from_chars_result{.ptr = end, .ec = std::errc{}}) {
     period_or_cron = PeriodStartTime{std::chrono::seconds(seconds), std::nullopt};
     return;
   }

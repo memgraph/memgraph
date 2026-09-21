@@ -41,7 +41,7 @@ class ProgressHeartbeat {
   // min timeout of PrepareCommit,WalFiles,CurrentWal,SnapshotReq - 5s (buffer for network)
   static constexpr std::chrono::milliseconds kDefaultInterval{25000};
 
-  ProgressHeartbeat();
+  ProgressHeartbeat() noexcept;
   explicit ProgressHeartbeat(slk::Builder *res_builder, std::chrono::milliseconds interval = kDefaultInterval);
   ~ProgressHeartbeat();
 

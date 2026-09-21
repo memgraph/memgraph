@@ -19,7 +19,7 @@
 
 namespace memgraph::rpc {
 
-ProgressHeartbeat::ProgressHeartbeat() = default;
+ProgressHeartbeat::ProgressHeartbeat() noexcept = default;
 
 ProgressHeartbeat::ProgressHeartbeat(slk::Builder *res_builder, std::chrono::milliseconds const interval)
     : ProgressHeartbeat() {
@@ -33,7 +33,7 @@ ProgressHeartbeat::~ProgressHeartbeat() {
 }
 
 void ProgressHeartbeat::Start(slk::Builder *res_builder, std::chrono::milliseconds const interval) {
-  auto lock = std::lock_guard{mtx_};
+  auto lock = std::scoped_lock{mtx_};
   if (active_) throw std::logic_error("ProgressHeartbeat is already active");
   if (!worker_.joinable()) {
     worker_ = std::jthread{[this](std::stop_token token) { Run(std::move(token)); }};
@@ -48,7 +48,7 @@ void ProgressHeartbeat::Start(slk::Builder *res_builder, std::chrono::millisecon
 }
 
 void ProgressHeartbeat::Stop() noexcept {
-  auto lock = std::lock_guard{mtx_};
+  auto lock = std::scoped_lock{mtx_};
   if (!active_) return;
 
   active_ = false;
