@@ -21,6 +21,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 #include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
@@ -52,6 +53,9 @@ bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b);
 
 /// The types equality declines to decide against themselves, as a bit per type,
 /// so that ruling a type out is one test rather than one per type.
+///
+/// One bit per type is only a mask while the types fit the word holding it.
+static_assert(TypedValue::kTypeCount <= std::numeric_limits<unsigned>::digits, "More types than a bit each fits in");
 inline constexpr unsigned kDeclinedOver =
     (1U << static_cast<unsigned>(TypedValue::Type::Double)) | (1U << static_cast<unsigned>(TypedValue::Type::Point2d)) |
     (1U << static_cast<unsigned>(TypedValue::Type::Point3d)) | (1U << static_cast<unsigned>(TypedValue::Type::List)) |
