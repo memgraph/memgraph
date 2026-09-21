@@ -114,6 +114,12 @@ class TypedValue {
     VirtualNode
   };
 
+  /// How many types a value can be, read off the last enumerator above.
+  ///
+  /// Kept beside the enumeration rather than beside any one table built over
+  /// it, so that a type added here is counted everywhere at once.
+  static constexpr auto kTypeCount = static_cast<unsigned>(Type::VirtualNode) + 1U;
+
   // TypedValue at this exact moment of compilation is an incomplete type, and
   // the standard says that instantiating a container with an incomplete type
   // invokes undefined behaviour. The libstdc++-8.3.0 we are using supports

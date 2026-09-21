@@ -77,7 +77,10 @@ std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::T
 
 namespace detail {
 
-/// Where one type sits in the order a sort reads, lowest first.
+/// Where each type sits in the order a sort reads, lowest first, as a table.
+///
+/// A table rather than a call, so that placing a pair of unlike types costs two
+/// loads rather than a switch a sort walks on every comparison it makes.
 ///
 /// The specification fixes the run a user sees: a map, a node, a relationship, a
 /// list, a path, a string, a boolean, a number, and a null last. The types it
@@ -98,63 +101,62 @@ namespace detail {
 /// order a user sees and the number an enumerator happens to carry stay free of
 /// each other. The switch has no default, so a type added to the value has to be
 /// placed here before this compiles.
-constexpr unsigned PositionOf(TypedValue::Type type) {
-  using enum TypedValue::Type;
-  switch (type) {
-    case Map:
-      return 0;
-    case Vertex:
-      return 1;
-    case VirtualNode:
-      return 2;
-    case Edge:
-      return 3;
-    case VirtualEdge:
-      return 4;
-    case List:
-      return 5;
-    case Path:
-      return 6;
-    case Graph:
-      return 7;
-    case VirtualGraph:
-      return 8;
-    case Function:
-      return 9;
-    case Date:
-      return 10;
-    case LocalTime:
-      return 11;
-    case LocalDateTime:
-      return 12;
-    case ZonedDateTime:
-      return 13;
-    case Duration:
-      return 14;
-    case Enum:
-      return 15;
-    case Point2d:
-      return 16;
-    case Point3d:
-      return 17;
-    case String:
-      return 18;
-    case Bool:
-      return 19;
-    case Int:
-    case Double:
-      return 20;
-    case Null:
-      return 21;
-  }
-}
-
-/// The positions as a table, so that placing a pair of unlike types costs two
-/// loads rather than a switch a sort walks on every comparison it makes.
 inline constexpr auto kPositions = [] {
-  constexpr auto kTypeCount = static_cast<unsigned>(TypedValue::Type::VirtualNode) + 1U;
-  std::array<unsigned, kTypeCount> positions{};
-  for (auto type = 0U; type != kTypeCount; ++type) positions[type] = PositionOf(static_cast<TypedValue::Type>(type));
+  constexpr auto position_of = [](TypedValue::Type type) -> unsigned {
+    using enum TypedValue::Type;
+    switch (type) {
+      case Map:
+        return 0;
+      case Vertex:
+        return 1;
+      case VirtualNode:
+        return 2;
+      case Edge:
+        return 3;
+      case VirtualEdge:
+        return 4;
+      case List:
+        return 5;
+      case Path:
+        return 6;
+      case Graph:
+        return 7;
+      case VirtualGraph:
+        return 8;
+      case Function:
+        return 9;
+      case Date:
+        return 10;
+      case LocalTime:
+        return 11;
+      case LocalDateTime:
+        return 12;
+      case ZonedDateTime:
+        return 13;
+      case Duration:
+        return 14;
+      case Enum:
+        return 15;
+      case Point2d:
+        return 16;
+      case Point3d:
+        return 17;
+      case String:
+        return 18;
+      case Bool:
+        return 19;
+      case Int:
+      case Double:
+        return 20;
+      case Null:
+        return 21;
+    }
+  };
+
+  std::array<unsigned, TypedValue::kTypeCount> positions{};
+  for (auto type = 0U; type != TypedValue::kTypeCount; ++type) {
+    positions[type] = position_of(static_cast<TypedValue::Type>(type));
+  }
   return positions;
 }();
 
