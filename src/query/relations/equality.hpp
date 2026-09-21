@@ -46,10 +46,9 @@ TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, Typ
 /// has no way to say so: it holds a Null equivalent to a Null and answers that
 /// the two are the same. So does a sorted index, and so does a hash join.
 ///
-/// Both representations of a value are asked the same question, because a scan
-/// reads what is stored and a filter reads what the query built.
+/// A stored value is asked the same question by a walk of storage's own, since
+/// a scan reads what is stored where a filter reads what the query built.
 bool HoldsANull(const TypedValue &value);
-bool HoldsANull(const storage::PropertyValue &value);
 
 /// Whether the value is equal to itself.
 ///
