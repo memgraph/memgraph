@@ -45,6 +45,7 @@
 /// REPLICATION ///
 
 #include "storage/v2/delta_container.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
@@ -260,6 +261,10 @@ class InMemoryStorage final : public Storage {
 
     EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+
+    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range, View view) override;
+
+    EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) override;
 
     EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, View view, size_t num_chunks) override;
 

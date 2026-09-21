@@ -1364,21 +1364,23 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
                                                       metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_type_property_operator.Increment();
 
-  auto const get_edges = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Edges(
-          view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
+  // The predicate outlives the row it was built from; see ExpressionRange::MakeValuePredicate.
+  auto get_edges = [this, value_predicate = storage::PropertyValueRange::ValuePredicate{}](
+                       Frame &frame, ExecutionContext &context) mutable -> std::optional<EdgesIterable> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
 
     if (range.type_ == storage::PropertyRangeType::INVALID) return std::nullopt;
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
-      return std::make_optional(db->Edges(view_, common_.edge_types[0], property_));
+      return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range));
     }
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range.lower_, range.upper_));
+    if (!value_predicate) value_predicate = expression_range_.MakeValuePredicate(evaluator);
+    range.SetValuePredicate(value_predicate);
+    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1446,20 +1448,23 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
                                                   metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_property_operator.Increment();
 
-  auto const get_edges = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Edges(view_, property_, std::nullopt, std::nullopt))> {
+  // The predicate outlives the row it was built from; see ExpressionRange::MakeValuePredicate.
+  auto get_edges = [this, value_predicate = storage::PropertyValueRange::ValuePredicate{}](
+                       Frame &frame, ExecutionContext &context) mutable -> std::optional<EdgesIterable> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
 
     if (range.type_ == storage::PropertyRangeType::INVALID) return std::nullopt;
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
-      return std::make_optional(db->Edges(view_, property_));
+      return std::make_optional(db->Edges(view_, property_, range));
     }
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    return std::make_optional(db->Edges(view_, property_, range.lower_, range.upper_));
+    if (!value_predicate) value_predicate = expression_range_.MakeValuePredicate(evaluator);
+    range.SetValuePredicate(value_predicate);
+    return std::make_optional(db->Edges(view_, property_, range));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(

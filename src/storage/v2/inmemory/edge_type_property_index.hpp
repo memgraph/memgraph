@@ -27,6 +27,7 @@
 #include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/errors.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/property_value.hpp"
@@ -71,6 +72,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
              Transaction *transaction, Gid max_gid);
 
+    Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+             PropertyId property, PropertyValueRange const &range, View view, Storage *storage,
+             Transaction *transaction, Gid max_gid);
+
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipListDb<Entry>::Iterator index_iterator);
@@ -110,6 +116,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    PropertyValueRange::ValuePredicate value_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -236,6 +243,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
+
+    Iterable Edges(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                   PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction);
 
     ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
                                  utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
