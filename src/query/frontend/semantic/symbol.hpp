@@ -78,8 +78,7 @@ namespace std {
 
 template <>
 struct hash<memgraph::query::Symbol> {
-  // `SymbolTable` hands out `position_` in creation order and never reuses it, so it identifies a symbol
-  // within its table. Equal symbols always share it, which is all `operator==` asks of a hash.
+  // Positions are unique within a `SymbolTable`.
   size_t operator()(const memgraph::query::Symbol &symbol) const {
     return std::hash<memgraph::query::Symbol::Position_t>{}(symbol.position());
   }

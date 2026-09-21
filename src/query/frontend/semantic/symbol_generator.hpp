@@ -194,8 +194,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   /// An open subquery body. Its external symbols are the ones it referenced that predate it.
   struct SubqueryFrame {
     std::unordered_set<Symbol> referenced;
-    /// The next position `SymbolTable` will hand out, sampled when the body opened. Positions are assigned in
-    /// creation order and never reused, so a symbol below this mark was created outside the body.
+    /// `SymbolTable::max_position()` when the body opened; a symbol below it was created outside.
     int32_t declared_from{0};
   };
 
@@ -223,7 +222,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
-  // Record a reference in every open body. Does nothing when no body is open.
+  // Record a reference in every open body, not just the innermost.
   void RecordSubqueryReference(const Symbol &symbol);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
@@ -240,10 +239,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
   // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
   std::unordered_set<Symbol> create_clause_symbols_;
-  // The subquery bodies currently open, outermost first. Each records where a symbol was created, not where it is
-  // visible: `CALL (v) {}` copies an outer symbol into the imported scope without `CreateSymbol`, so that symbol
-  // resolves inside the body but was created outside it - and keeps its original, lower position, which is what
-  // makes the creation-order mark a provenance test rather than a visibility one.
+  // The subquery bodies currently open, outermost first. A frame records where a symbol was created, not where it
+  // is visible: `CALL (v) {}` copies an outer symbol into the imported scope without `CreateSymbol`, so it resolves
+  // inside the body but keeps its lower position.
   std::vector<SubqueryFrame> subquery_frames_;
 };
 
