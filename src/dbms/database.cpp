@@ -12,6 +12,9 @@
 #include "dbms/database.hpp"
 
 #include <memory>
+#include <set>
+
+#include <nlohmann/json.hpp>
 
 #include "spdlog/spdlog.h"
 
@@ -19,14 +22,18 @@
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
+#include "kvstore/kvstore.hpp"
 #include "memory/db_arena.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
+#include "utils/file.hpp"
+#include "versioning/version_store.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
@@ -129,7 +136,83 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 
   // Postpone creation after the scope has been created
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
+  // Captured before config is std::move()'d into whichever storage engine gets constructed below;
+  // version_store_ itself can only be constructed after storage_ exists (its GC-pin callbacks bind
+  // to the concrete InMemoryStorage instance).
+  const auto versioning_directory = config.durability.storage_directory / "versioning";
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+
+  // Graph Versioning v1 branch durability (S3d, design doc opencode-work/versioning-v1/
+  // 2026-07-13--durability-S2S3-design-v4.html §2). Pre-read any persisted branches' fork_ts values
+  // BEFORE storage construction below, so InMemoryStorage's recovery ctor sequence knows how far
+  // back it must reconstruct main's history (see storage::Config::Durability::
+  // recover_oldest_fork_ts's doc-comment, config.hpp). This uses a SEPARATE, throwaway KVStore
+  // handle over the SAME versioning/ directory the real versioning::VersionStore (below) will open
+  // -- it must be fully closed (out of scope) before that happens, because kvstore's backing
+  // RocksDB instance takes an exclusive, process-wide directory lock; two concurrently-live
+  // KVStore handles over the same path is undefined behavior (see kvstore::KVStore's own ctor
+  // doc-comment). Scoped in the block below so the throwaway handle's destructor runs before
+  // `storage_` (and later `version_store_`) are ever touched.
+  //
+  // If the directory doesn't exist yet, no branch has ever been created against this database --
+  // leave both new Config fields at their default (nullopt / empty set), which keeps every
+  // downstream recovery code path byte-identical to today (see recover_oldest_fork_ts's
+  // doc-comment: "no branches" is the fast path, unconditionally).
+  if (utils::DirExists(versioning_directory)) {
+    // MULTISET, not set: this must preserve ONE entry PER LIVE BRANCH record, not per distinct
+    // fork_ts value -- two branches legitimately forked at the same commit timestamp each own a
+    // separate pin in InMemoryStorage::version_fork_pins_ (also a multiset, storage.cpp), and
+    // ReleaseForkPin erases only one matching entry per DROP/MERGE BRANCH call. Collapsing
+    // same-fork_ts duplicates here would under-seed the restart-time pin count: the first of such
+    // a pair to be dropped/merged post-restart would erase the sole surviving entry, and the
+    // second would hit ReleaseForkPin's MG_ASSERT and abort the whole process (see
+    // Config::Durability::recover_fork_timestamps's doc-comment, config.hpp).
+    std::multiset<uint64_t> fork_timestamps;
+    {
+      kvstore::KVStore throwaway_kv{versioning_directory};
+      for (auto const &[name, data] : throwaway_kv) {
+        // Reserved, never-a-branch-name key for the monotonic branch-number counter (shared with
+        // versioning::VersionStore's own kNextNumberKey, version_store.hpp) -- must be skipped
+        // here exactly like VersionStore's own ctor skips it.
+        if (name == versioning::kNextNumberKey) continue;
+
+        auto json_data = nlohmann::json::parse(data, /*cb=*/nullptr, /*allow_exceptions=*/false);
+        // Mirror versioning::VersionStore's own load acceptance criteria EXACTLY (its ctor,
+        // version_store.cpp), field for field -- including `versioning::kVersion` below (shared
+        // with VersionStore's own ctor, version_store.hpp/.cpp -- a single definition, so the two
+        // can never drift). This is deliberate, not merely stylistic: a record that VersionStore
+        // itself would skip (corrupt shape, missing fields, unsupported version) is NEVER loaded
+        // into VersionStore::branches_, so no DropBranch/FinishMerge call for it can ever exist to
+        // release a pin -- seeding a pin here for such a record would leak it PERMANENTLY (a live
+        // GC-pin nothing can ever release). Accepting a record here that VersionStore will reject
+        // is therefore strictly worse than rejecting it here too: VersionStore's own load (later,
+        // over the real KVStore handle) independently re-checks and warns again, so nothing is
+        // under-reported by being stricter here.
+        if (json_data.is_discarded() || !json_data.is_object() || !json_data["version"].is_number_unsigned() ||
+            json_data["version"].get<uint64_t>() != versioning::kVersion || !json_data["number"].is_number_unsigned() ||
+            !json_data["parent"].is_string() || !json_data["fork_ts"].is_number_unsigned()) {
+          // Mirrors VersionStore's own tolerant "warn and skip" handling of a corrupt/legacy record
+          // (see its ctor, version_store.cpp) -- a single bad record must not abort the whole
+          // database's startup. This branch's history simply won't be reconstructed by the
+          // windowed-replay pass below; VersionStore's own load (later) will independently hit the
+          // same corrupt record and warn again.
+          spdlog::warn(
+              "Graph Versioning v1: failed to pre-read branch '{}' for durability recovery (corrupt, "
+              "unsupported version, or invalid record shape) -- this branch's history may not be "
+              "reconstructable after this restart.",
+              name);
+          continue;
+        }
+        fork_timestamps.insert(json_data["fork_ts"].get<uint64_t>());
+      }
+      // `throwaway_kv` goes out of scope here, releasing the RocksDB directory lock before
+      // `storage_`/`version_store_` are constructed below.
+    }
+    if (!fork_timestamps.empty()) {
+      config.durability.recover_oldest_fork_ts = *fork_timestamps.begin();  // std::multiset is ordered ascending
+      config.durability.recover_fork_timestamps = std::move(fork_timestamps);
+    }
+  }
 
   // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
   if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {
@@ -153,6 +236,17 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                            database_protector_factory,
                                            db_arena_.get(),
                                            &db_embedding_memory_tracker_);
+  }
+
+  // Graph versioning (branches) only runs against IN_MEMORY_TRANSACTIONAL storage (chunk-0 gate);
+  // version_store_ stays null for ON_DISK_TRANSACTIONAL and IN_MEMORY_ANALYTICAL. Safe to downcast:
+  // InMemoryStorage is the only concrete Storage subclass that ever reports IN_MEMORY_TRANSACTIONAL.
+  if (storage_->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
+    version_store_ = std::make_unique<versioning::VersionStore>(
+        versioning_directory,
+        [in_memory_storage] { return in_memory_storage->RegisterForkPin(); },
+        [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
   }
 
   // Recovery adopts the uuid of the snapshot or WAL it recovered from, which need not be the one the

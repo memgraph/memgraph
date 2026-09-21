@@ -58,11 +58,48 @@ struct Vertex {
 
   void set_has_uncommitted_non_sequential_deltas(bool b) { delta_.Set<kNonSeqDeltasBit>(b ? 1 : 0); }
 
+  // Graph Versioning v1 -- phase 1 (write-side only) of a per-object "touched by any branch" hint.
+  // MONOTONIC / NEVER-CLEAR: once set, stays set for the lifetime of the object -- there is no
+  // corresponding ClearBranched, and none is planned (an over-set bit only ever costs a missed
+  // fast-path in phase 2's reader, never a correctness bug; clearing it early would be one).
+  //
+  // INVARIANT (maintained entirely by callers, not by this class): `branched() == false` implies
+  // this vertex's labels, properties, AND full incident-edge set are IDENTICAL to every checked-out
+  // branch's fork-state view of it -- because every branch mutation that could disagree (a COW, or
+  // a tombstone) marks this bit on MAIN's own live Vertex object before/while it happens (see
+  // versioning::BranchContext::MarkMainObjectBranched, branch_engine.cpp/.hpp). Main's own code
+  // never reads this bit -- it exists purely as a branch-side hint (R35: main is never aware of
+  // branches).
+  //
+  // CONCURRENCY: `branched()` is intended to be read WITHOUT this vertex's `lock` (a lock-free
+  // hot-path read, landing in a later phase). Because `GetRelaxed` reads `delta_.storage_` via
+  // `std::atomic_ref`, EVERY write to that same word -- including `SetDelta`, `SetDeleted`, and
+  // `set_has_uncommitted_non_sequential_deltas` -- must ALSO go through `std::atomic_ref`; a plain
+  // (non-atomic) store to `storage_` concurrent with an `atomic_ref` load of the same location is
+  // a C++ data race regardless of which bits each side touches. `PointerPack::Set` and `SetPtr`
+  // have been updated to use `atomic_ref` (relaxed) for exactly this reason. `SetBranched` uses
+  // `PointerPack::SetRelaxed` which was already atomic. All writers (this bit or any other in the
+  // packed word) are still required to hold THIS VERTEX'S OWN `lock` -- that lock gives
+  // writer/writer mutual exclusion; `atomic_ref` alone does not provide that. It only makes each
+  // write to the shared word well-defined from the C++ memory model's perspective. `memory_order_
+  // relaxed` on both sides means there is no synchronizes-with relationship to whatever the writer
+  // did before setting the bit -- callers needing that must establish it separately.
+  bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
+
+  // Caller MUST hold `lock` (see `branched()`'s own doc-comment above for the full concurrency
+  // contract).
+  void SetBranched(bool b) { delta_.SetRelaxed<kBranchedBit>(b); }
+
  private:
   static constexpr int kDeletedBit = 0;
   static constexpr int kNonSeqDeltasBit = 1;
+  static constexpr int kBranchedBit = 2;
 
-  utils::PointerPack<Delta, 2> delta_;
+  // 3 tag bits now packed into the pointer's low bits -- still legal: PointerPack<T, N> requires
+  // alignof(T) >= (1 << N), and delta.hpp already static_asserts alignof(Delta) >= 8 (>= 1 << 3),
+  // independently of this change. `sizeof(Vertex)` is unaffected -- PointerPack's own storage is a
+  // single `uintptr_t` regardless of how many of its bits are in use (see the static_assert below).
+  utils::PointerPack<Delta, 3> delta_;
 };
 
 static constexpr std::size_t kEdgeTypeIdPos = 0U;

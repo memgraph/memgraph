@@ -121,6 +121,12 @@ def print_actual_query(context):
 
 @when("executing query")
 def executing_query_step(context):
+    # Graph Versioning v1 --versioned-branch arm: fork onto a branch (once
+    # per scenario) right before the test query, so setup done above
+    # (clear_graph + "having executed:") lands on main and the test query
+    # runs on a partly-versioned branch. No-op when the arm is off. See
+    # steps/database.py maybe_fork_to_branch().
+    database.maybe_fork_to_branch(context)
     context.results = database.query(context.text, context, context.test_parameters.get_parameters())
     print_actual_query(context)
 

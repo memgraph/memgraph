@@ -1372,7 +1372,8 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store) {
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    const std::optional<uint64_t> stop_at_timestamp, const bool stop_is_exclusive) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1384,19 +1385,36 @@ std::optional<RecoveryInfo> LoadWal(
   // over. A file with no summary was never finalized and its tail may legitimately be torn, so the dry run finds
   // the last whole transaction and replay stops there.
   uint64_t to_timestamp{0};
+  uint64_t from_timestamp{0};
   uint64_t num_deltas{0};
   if (header.summary) {
     to_timestamp = header.summary->to_timestamp;
+    from_timestamp = header.summary->from_timestamp;
     num_deltas = header.summary->num_deltas;
   } else {
     auto const info = ReadWalInfo(path);
     to_timestamp = info.to_timestamp;
+    from_timestamp = info.from_timestamp;
     num_deltas = info.num_deltas;
   }
 
-  // Check timestamp.
+  // Check timestamp (floor).
   if (last_applied_delta_timestamp && to_timestamp <= *last_applied_delta_timestamp) {
     spdlog::info("Skip loading WAL file because it is too old. {} <= {}", to_timestamp, *last_applied_delta_timestamp);
+    return std::nullopt;
+  }
+
+  // Check timestamp (ceiling). Symmetric to the floor skip above: if the whole file starts beyond the
+  // requested stop timestamp, none of its deltas are in scope for this pass. In exclusive mode the
+  // ceiling itself (F) is out of scope too, so a file whose first delta is exactly F has nothing to
+  // contribute (correctness is enforced either way by the per-delta gate below; this is purely the
+  // same whole-file-skip optimization, kept consistent with the mode).
+  if (stop_at_timestamp &&
+      (stop_is_exclusive ? from_timestamp >= *stop_at_timestamp : from_timestamp > *stop_at_timestamp)) {
+    spdlog::info("Skip loading WAL file because it is beyond the requested ceiling. {} {} {}",
+                 from_timestamp,
+                 stop_is_exclusive ? ">=" : ">",
+                 *stop_at_timestamp);
     return std::nullopt;
   }
 
@@ -2214,8 +2232,13 @@ std::optional<RecoveryInfo> LoadWal(
   for (uint64_t i = 0; i < num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
-        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
-      // This delta should be loaded.
+        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp) &&
+        (!stop_at_timestamp || (stop_is_exclusive ? delta_ts < *stop_at_timestamp : delta_ts <= *stop_at_timestamp))) {
+      // This delta is above the floor and at/below (or, in exclusive mode, strictly below) the ceiling
+      // -> should be loaded.
+      // NOTE: all deltas of a single transaction share one commit timestamp (single-txn-per-WAL-file
+      // durability_commit_timestamp), so this per-delta ceiling check is automatically transaction-granular:
+      // it can only ever stop cleanly at a transaction boundary, never mid-transaction.
       auto delta = ReadWalDeltaData(&wal, version);
       // We should always check if the delta is WalTransactionStart to update should_commit
       if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {

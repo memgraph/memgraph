@@ -597,6 +597,20 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
+/// @param last_applied_delta_timestamp optional FLOOR: deltas with commit_ts <= this are skipped (already applied).
+/// @param stop_at_timestamp optional CEILING: deltas with commit_ts > this are skipped (not yet in scope for this
+///        pass). Used by graph-versioning base-at-F recovery to materialize main's state only up to the oldest
+///        fork timestamp F, leaving (F, now] for later window-replay. Because all deltas of a single transaction
+///        share one commit timestamp (single-txn-per-WAL-file durability_commit_timestamp), F is always a
+///        transaction boundary — this can never truncate mid-transaction. Defaults to nullopt (no ceiling),
+///        which is byte-identical to today's behavior for all existing callers.
+/// @param stop_is_exclusive when true, the ceiling comparison is `delta_ts < *stop_at_timestamp` instead of the
+///        default `delta_ts <= *stop_at_timestamp`. Graph Versioning v1 BUG-2 fix: the branch-durability fork
+///        boundary must be EXCLUSIVE on the base-to-F side (a transaction committing at EXACTLY ts == F must be
+///        left for the windowed WAL replay to apply as a real MVCC delta, not baked flat into base — see
+///        CreateHistoricalTransaction's strict `ts < start_timestamp` visibility, mvcc.hpp). Defaults to false
+///        (today's inclusive behavior), which is byte-identical for every caller except RecoverData's
+///        base-to-F pass. Ignored when `stop_at_timestamp` is nullopt.
 /// @throw RecoveryFailure
 std::optional<RecoveryInfo> LoadWal(
     std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -604,7 +618,8 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store);
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    std::optional<uint64_t> stop_at_timestamp = std::nullopt, bool stop_is_exclusive = false);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

@@ -396,4 +396,14 @@ startup_config_dict = {
         "Maximum number of RocksDB info log files kept per RocksDB instance. Every restart rolls the current info log, older ones are deleted. Default is 1000.",
     ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
+    "versioning_enabled": (
+        "false",
+        "false",
+        "Enable graph versioning (branches). Startup-only; enterprise feature; requires IN_MEMORY_TRANSACTIONAL + WAL. Off by default.",
+    ),
+    "versioning_max_changelog_length": (
+        "1000000",
+        "1000000",
+        "Maximum number of recorded changes a single branch may accumulate before branch writes are rejected (bounds retention). Provisional default pending product decision D5.",
+    ),
 }

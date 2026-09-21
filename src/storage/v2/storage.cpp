@@ -77,14 +77,17 @@ utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
                  metrics::DatabaseMetricHandles metric_handles, memory::ArenaPool *db_arena_pool,
                  utils::MemoryTracker *db_embedding_memory_tracker,
-                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
-    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
-        if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
-          return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
-                                                    config.disk.id_name_mapper_directory);
-        }
-        return std::make_unique<NameIdMapper>();
-      })),
+                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory,
+                 std::shared_ptr<NameIdMapper> shared_name_id_mapper)
+    : name_id_mapper_(shared_name_id_mapper
+                          ? std::move(shared_name_id_mapper)
+                          : std::invoke([config, storage_mode]() -> std::shared_ptr<NameIdMapper> {
+                              if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
+                                return std::make_shared<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
+                                                                          config.disk.id_name_mapper_directory);
+                              }
+                              return std::make_shared<NameIdMapper>();
+                            })),
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
@@ -138,6 +141,44 @@ Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> over
   DMG_ASSERT(guard_.owns_lock() && guard_.mutex() == std::addressof(storage_->main_lock_),
              "an accessor's guard must be a held guard on its own storage's main_lock_");
 }
+
+Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
+                            std::function<Transaction()> build_transaction,
+                            const std::optional<std::chrono::milliseconds> timeout)
+    : storage_(storage),
+      // A plain READ-type guard via AcquireGuardOrThrow -- the same mode an ordinary read
+      // transaction uses, NOT READ_ONLY. READ_ONLY would block every main writer AND GC for this
+      // accessor's entire lifetime, violating the feature's core guarantee that main stays fully
+      // writable while a branch/historical read is open (spec S2/D2). READ-type coexists with other
+      // shared holders while still blocking UNIQUE acquisition (Clear/RecoverSnapshot/SetStorageMode/
+      // DDL), preserving the MEDIUM-fix generation-vs-lock invariant. Read consistency comes from
+      // SNAPSHOT_ISOLATION at fork_ts (MVCC), not from lock exclusivity.
+      guard_(AcquireGuardOrThrow(storage, StorageAccessType::READ, timeout)),
+      // MEDIUM fix: invoked here, strictly after guard_ (member declaration order) already holds
+      // the shared main_lock_ guard. `build_transaction` is InMemoryStorage::HistoricalAccess's
+      // CreateHistoricalTransaction(fork_ts) call, deferred so that the snapshot (active indices/
+      // constraints, engine_lock_ state) is captured under the lock, not before it.
+      transaction_(build_transaction()),
+      is_transaction_active_(true),
+      original_access_type_(StorageAccessType::READ) {}
+
+Storage::Accessor::Accessor(RecoveryReplayAccess /* tag */, Storage *storage,
+                            std::function<Transaction()> build_transaction, StorageAccessType rw_type,
+                            const std::optional<std::chrono::milliseconds> timeout)
+    : storage_(storage),
+      // Unlike HistoricalAccess (hardcoded READ), a recovery-replay accessor can WRITE real deltas
+      // or perform DDL, so it takes exactly `rw_type` (defaulting to WRITE). AcquireGuardOrThrow
+      // maps every StorageAccessType to its ResourceLockGuard::Type via ToGuardType, including
+      // UNIQUE (BUG-1 fix: DDL replay needs UNIQUE so that type() == UNIQUE satisfies the DDL
+      // methods' own gates, e.g. CreateIndex). During single-threaded recovery replay the UNIQUE
+      // hold is a structural requirement (makes type() report UNIQUE), not a concurrency one.
+      guard_(AcquireGuardOrThrow(storage, rw_type, timeout)),
+      // Same MEDIUM-fix ordering guarantee as HistoricalAccess: build_transaction() runs strictly
+      // after guard_ (member declaration order) already holds its lock, so the snapshot (active
+      // indices/constraints, engine_lock_ state) is captured under the guard.
+      transaction_(build_transaction()),
+      is_transaction_active_(true),
+      original_access_type_(rw_type) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),

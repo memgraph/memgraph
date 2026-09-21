@@ -260,6 +260,13 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         # Trigger
         {"name": "TriggersCreated", "type": "Trigger", "metric type": "Counter"},
         {"name": "TriggersExecuted", "type": "Trigger", "metric type": "Counter"},
+        # Versioning (Counters alphabetical, then Gauges alphabetical)
+        {"name": "VersioningBranchCommitsCaptured", "type": "Versioning", "metric type": "Counter"},
+        {"name": "VersioningBranchesCreated", "type": "Versioning", "metric type": "Counter"},
+        {"name": "VersioningBranchesDropped", "type": "Versioning", "metric type": "Counter"},
+        {"name": "VersioningBranchesMerged", "type": "Versioning", "metric type": "Counter"},
+        {"name": "VersioningActiveBranches", "type": "Versioning", "metric type": "Gauge"},
+        {"name": "VersioningActiveCheckouts", "type": "Versioning", "metric type": "Gauge"},
     ]
     results = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
     actual_metrics = [{"name": x["name"], "type": x["type"], "metric type": x["metric type"]} for x in results]

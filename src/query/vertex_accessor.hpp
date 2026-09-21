@@ -12,10 +12,16 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <type_traits>
 #include <vector>
 
 #include "storage/v2/vertex_accessor.hpp"
+#include "versioning/branch_change_kind.hpp"
+
+namespace memgraph::versioning {
+class BranchContext;
+}  // namespace memgraph::versioning
 
 namespace memgraph::query {
 
@@ -29,41 +35,120 @@ struct EdgeVertexAccessorResult {
 class VertexAccessor final {
  public:
   storage::VertexAccessor impl_;
+  // Graph Versioning v1 (lazy diff-context, slice E-1): non-null iff this accessor was minted
+  // while checked out on a branch (see DbAccessor::FindVertex/Vertices/InsertVertex,
+  // db_accessor.hpp). A raw, non-owning pointer so VertexAccessor stays trivially copyable (see
+  // the static_assert below) -- costs nothing on the non-branch path beyond one extra default-null
+  // member (R6).
+  //
+  // SINGLE-POINTER COLLAPSE (mg_procedure_impl.hpp's kMaxMgpVertexSize budget): this used to be
+  // TWO pointers (branch_ctx_ + a duplicated diff_txn_) -- that overflowed mgp_vertex's 64-byte
+  // C-API size budget (VertexAccessor sits inside mgp_vertex's variant) and grew this hot,
+  // ubiquitous accessor for EVERY caller, branch or not, violating R6. The diff-engine accessor a
+  // mutator needs (CowIfNeeded, below) now lives on `branch_ctx_` itself
+  // (`BranchContext::current_diff_txn()`, branch_engine.hpp) as a single per-query slot -- safe
+  // because a checked-out branch is exclusive single-writer, so at most one query ever runs
+  // against a given BranchContext at a time. `branch_ctx_` is therefore the ONLY extra pointer
+  // this class needs.
+  //
+  // NON-const: CowVertex (via CowIfNeeded) opens accessors against the diff engine and is a
+  // non-const member function of BranchContext -- a const pointer here could not call it.
+  versioning::BranchContext *branch_ctx_{nullptr};
 
   explicit VertexAccessor(storage::VertexAccessor impl) : impl_(impl) {}
 
+  VertexAccessor(storage::VertexAccessor impl, versioning::BranchContext *branch_ctx)
+      : impl_(impl), branch_ctx_(branch_ctx) {}
+
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
-  auto Labels(storage::View view) const { return impl_.Labels(view); }
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-2 FIX (adversarial-review
+  // stale-copy-read bug): reads DO need branch-aware logic after all -- the ORIGINAL reasoning
+  // above ("FindVertex/Vertices/CowVertex already resolved impl_ before construction") was true at
+  // CONSTRUCTION time, but a VALUE COPY of this accessor taken before a same-statement write (e.g.
+  // the Frame's copy of `n` in `MATCH (n) SET n.x=2 RETURN n.x`) keeps pointing at the pre-COW
+  // historical object forever -- CowIfNeeded() only redirects the ONE accessor it's called through
+  // (SetProperty's `this`), not every outstanding copy. Making every read self-correcting (re-
+  // resolve by gid, through the SAME view the caller asked for, before reading) fixes this
+  // transparently: ResolveVertex is diff-engine-first (cheap FindVertex, O(log) on the skip list)
+  // so once ANY copy has triggered the COW, every copy's reads immediately pick up the diff-engine
+  // object again. Not a mutation (no CowIfNeeded call here) so this cannot double-apply a COW, and
+  // it costs nothing on the non-branch path beyond the existing branch_ctx_ != nullptr check.
+  //
+  // OUT-OF-LINE (vertex_accessor.cpp), like CowIfNeeded below: `branch_ctx_` is only
+  // FORWARD-declared in this header (`namespace memgraph::versioning { class BranchContext; }`
+  // above) -- calling BranchContext::ResolveVertex (a member function, needing the complete type)
+  // inline here would not compile. The trailing `decltype(impl_.Labels(view))`/
+  // `decltype(impl_.Properties(view))` return types (mirroring db_accessor.hpp's
+  // SubgraphVertexAccessor::InEdges, which uses the identical `-> decltype(impl_....)` idiom for
+  // the same reason) let these stay declaration-only here without spelling out the storage-layer's
+  // concrete Result<...> type by hand.
+  auto Labels(storage::View view) const -> decltype(impl_.Labels(view));
 
-  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
-
-  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
-
-  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
-    return impl_.HasLabel(label, view);
+  storage::Result<bool> AddLabel(storage::LabelId label) {
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kLabel);
+    return impl_.AddLabel(label);
   }
 
-  auto Properties(storage::View view) const { return impl_.Properties(view); }
-
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(key, view);
+  storage::Result<bool> RemoveLabel(storage::LabelId label) {
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kLabel);
+    return impl_.RemoveLabel(label);
   }
 
-  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
-    return impl_.GetPropertySize(key, view);
+  // HIGH-2 FIX, out-of-line -- see Labels' own doc-comment above.
+  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const;
+
+  // HIGH-2 FIX, out-of-line -- see Labels' own doc-comment above.
+  auto Properties(storage::View view) const -> decltype(impl_.Properties(view));
+
+  // HIGH-2 FIX, out-of-line -- see Labels' own doc-comment above.
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const;
+
+  // HIGH-2 FIX, out-of-line -- see Labels' own doc-comment above.
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const;
+
+  // Vector-indexed property filter forwarding: vector indexes are stored in MAIN storage and are
+  // global -- they do not vary per branch checkout. Delegating straight to impl_ is therefore
+  // correct regardless of branch_ctx_. Used by glue/communication.cpp's branch arm to apply the
+  // same omit-on-return filtering the storage arm already does (N8 parity fix).
+  std::vector<storage::PropertyId> VectorIndexedProperties(std::span<storage::LabelId const> labels) const {
+    return impl_.VectorIndexedProperties(labels);
   }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+    if (branch_ctx_ != nullptr) {
+      CowIfNeeded(versioning::BranchChangeKind::kProperty);
+      RecordPropertyFieldChange(key);
+    }
     return impl_.SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    if (branch_ctx_ != nullptr) {
+      CowIfNeeded(versioning::BranchChangeKind::kProperty);
+      RecordPropertyFieldChanges(properties);
+    }
     return impl_.InitProperties(properties);
   }
 
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-1 FIX (adversarial-review): this and
+  // ClearProperties() are effectively mutators (`SET n += {...}` / `SET n = {...}`) just like
+  // SetProperty/AddLabel above, but were missing the COW guard -- on a branch they wrote straight
+  // through the READ-ONLY historical accessor, tripping transaction.hpp's `is_historical_`
+  // MG_ASSERT. Storage-layer UpdateProperties happens to be declared `const` (it mutates via an
+  // internal delta/version-chain mechanism, not through a non-const `this`), so it was possible to
+  // keep this method `const` too -- but CowIfNeeded() reassigns `impl_`, which a `const` member
+  // function cannot do. Dropped `const` here to mirror SetProperty (also "effectively mutating" but
+  // already non-const); every existing call site already passes a non-const pointer/lvalue (see
+  // plan/operator.cpp's SetPropertiesOnRecord, which takes `TRecordAccessor *record`, and
+  // mg_procedure_impl.cpp's `v->getImpl().UpdateProperties(...)`, which calls through a fresh
+  // by-value temporary -- calling a non-const method on either is fine).
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    if (branch_ctx_ != nullptr) {
+      CowIfNeeded(versioning::BranchChangeKind::kProperty);
+      RecordPropertyFieldChanges(properties);
+    }
     return impl_.UpdateProperties(properties);
   }
 
@@ -72,7 +157,12 @@ class VertexAccessor final {
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
-    return impl_.ClearProperties();
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
+    auto result = impl_.ClearProperties();
+    // Fine-grained: ClearProperties removes ALL properties; the returned map enumerates exactly the
+    // pids that changed (to absent), so record each -- there is no single key to pass like SetProperty.
+    if (branch_ctx_ != nullptr && result.has_value()) RecordPropertyFieldChanges(*result);
+    return result;
   }
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
@@ -97,20 +187,60 @@ class VertexAccessor final {
                                                      const VertexAccessor &dest,
                                                      storage::HopsLimit *hops_limit = nullptr) const;
 
-  storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
+  // Graph Versioning v1 (lazy diff-context, slice E-2a): in branch mode, the degree must count the
+  // UNION (historical_ + diff engine), not just whatever `impl_` happens to point at -- same
+  // historical-vs-diff union hazard InEdges/OutEdges below have, just collapsed to a count. Falls
+  // back to a plain `ResolveEdges(...).size()` rather than a cheaper dedicated counting path (out of
+  // scope for this slice -- E-2d, mirrors the "correct over fast" tradeoff DbAccessor::Vertices(view,
+  // label)'s MaterializeFilteredBranchScan already made for the analogous vertex-side gap). Out-of-line
+  // for the same forward-declaration reason as Labels/Properties/etc above.
+  storage::Result<size_t> InDegree(storage::View view) const;
 
-  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
+  storage::Result<size_t> OutDegree(storage::View view) const;
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
+  // Graph Versioning v1 (lazy diff-context, slice E-1) IDENTITY HARDENING: `impl_ == v.impl_`
+  // (storage::VertexAccessor::operator==, storage/v2/vertex_accessor.hpp) compares the underlying
+  // Vertex* AND Transaction* pointers -- both differ between a not-yet-COW'd historical copy and
+  // its diff-engine COW'd counterpart (two physically distinct objects, in two distinct storage
+  // engines, each with its own Transaction). Without this override, the SAME logical vertex would
+  // split into two non-equal identities the moment it gets COW'd mid-query (e.g. a Cypher
+  // MERGE/dedup keyed on vertex identity would treat "historical-A" and "diff-A'" as different
+  // nodes). Gated on branch_ctx_ != nullptr so the non-branch path is byte-identical (one extra
+  // pointer compare).
   bool operator==(const VertexAccessor &v) const noexcept {
+    if (branch_ctx_ != nullptr || v.branch_ctx_ != nullptr) {
+      return Gid() == v.Gid();
+    }
     static_assert(noexcept(impl_ == v.impl_));
     return impl_ == v.impl_;
   }
 
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
+
+ private:
+  // Out-of-line (vertex_accessor.cpp): if `impl_` is not yet resident in the branch's diff engine,
+  // COWs it in (`branch_ctx_->CowVertex`) and redirects `impl_` to point at the copy -- idempotent,
+  // and a no-op the second time a given VertexAccessor value is mutated. Throws QueryRuntimeException
+  // on an unsupported (Enum) property -- see BranchContext::CowError. Only ever called when
+  // branch_ctx_ != nullptr (every call site above already checks).
+  //
+  // `kind` records this mutation into the branch-side change filter (branch_change_filter.hpp),
+  // UNCONDITIONALLY on every call -- NOT gated on the COW actually happening -- since a vertex COW'd
+  // once for one kind (say a property) can later be mutated in ANOTHER kind (a label) without a
+  // second COW; the kind filter must observe every mutation to uphold INV-1 (see the .cpp).
+  void CowIfNeeded(versioning::BranchChangeKind kind);
+
+  // Out-of-line (vertex_accessor.cpp): record this vertex's gid + the given property id(s) into the
+  // branch-side FINE property filter (branch_change_filter.hpp), so a later point read
+  // GetProperty(pid) can skip the resolve when THIS pid was never changed. Called from the property
+  // mutators above, after CowIfNeeded, with the specific pid(s) each one touches -- see INV-1 for the
+  // fine filter. Only ever called when branch_ctx_ != nullptr.
+  void RecordPropertyFieldChange(storage::PropertyId pid);
+  void RecordPropertyFieldChanges(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 };
 
 static_assert(std::is_trivially_copyable<VertexAccessor>::value,
@@ -121,7 +251,22 @@ static_assert(std::is_trivially_copyable<VertexAccessor>::value,
 namespace std {
 template <>
 struct hash<memgraph::query::VertexAccessor> {
-  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
+  size_t operator()(const memgraph::query::VertexAccessor &v) const {
+    // Graph Versioning v1 (branch-read fast path, deferred endpoint resolution): mirror
+    // VertexAccessor::operator== (which compares by Gid() when a branch is checked out) so the
+    // hash/equality contract holds -- a fork vertex and its diff-engine COW'd copy are ==-equal
+    // (same gid) and MUST hash equal. Without this they hash by distinct impl_ pointers, so any
+    // std::hash<VertexAccessor> container (bidirectional/weighted shortest path, Graph::project,
+    // Path-DISTINCT, VerticesIterable dedup) mis-keys a COW'd branch vertex. gids are unique across
+    // historical_ + diff engine (branch-native gid watermark, branch_engine.cpp). The hash keys off
+    // v.branch_ctx_ while operator== triggers on EITHER operand's branch_ctx_, but a single query has
+    // exactly one DbAccessor branch_ctx_ (db_accessor.hpp) so no mixed comparison is reachable.
+    // Non-branch path (branch_ctx_==nullptr) is unchanged. This is what lets EdgeAccessor::To()/From()
+    // (edge_accessor.cpp) return endpoints WITHOUT eagerly resolving them to their diff-engine copy
+    // first -- canonicalization is no longer needed for identity to hold.
+    if (v.branch_ctx_ != nullptr) return std::hash<memgraph::storage::Gid>{}(v.Gid());
+    return std::hash<decltype(v.impl_)>{}(v.impl_);
+  }
 };
 
 }  // namespace std

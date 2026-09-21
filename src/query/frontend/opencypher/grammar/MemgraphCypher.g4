@@ -39,10 +39,13 @@ memgraphCypherKeyword : cypherKeyword
                       | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
+                      | BRANCH
+                      | BRANCHES
                       | BUILD
                       | CALL
                       | CALLABLE
                       | CHECK
+                      | CHECKOUT
                       | CLEAR
                       | CLUSTER
                       | COMMIT
@@ -70,6 +73,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DESCRIPTION
                       | DESCRIPTIONS
+                      | DIFF
                       | DIRECTORY
                       | DISABLE
                       | DO
@@ -93,6 +97,7 @@ memgraphCypherKeyword : cypherKeyword
                       | FOR
                       | FORCE
                       | FOREACH
+                      | FORMAT
                       | FREE
                       | FREE_MEMORY
                       | FROM
@@ -245,6 +250,7 @@ memgraphCypherKeyword : cypherKeyword
                       | VALUES
                       | VECTOR
                       | VERSION
+                      | VERSIONING
                       | WEBSOCKET
                       | YIELD
                       | ZONEDDATETIME
@@ -313,6 +319,7 @@ query : cypherQuery
       | descriptionQuery
       | reloadSSLQuery
       | showMemoryInfo
+      | versioningQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -409,9 +416,11 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution | versionDirective ;
 
 hopsLimit: HOPS LIMIT literal ;
+
+versionDirective : VERSION literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
@@ -832,6 +841,38 @@ renameDatabase : RENAME DATABASE databaseName TO databaseName ;
 suspendDatabase : SUSPEND DATABASE databaseName ;
 
 resumeDatabase : RESUME DATABASE databaseName ;
+
+/* Graph Versioning (branches). See specs/graph-versioning.md §4.2. */
+versioningQuery : createBranch
+                 | checkoutBranch
+                 | mergeBranch
+                 | dropBranch
+                 | showBranch
+                 | showBranches
+                 | showBranchDiff
+                 ;
+
+/* A branch name is either a bare identifier or a quoted string (never a general literal —
+ * numbers/booleans/maps/lists make no sense as branch names). */
+branchName : symbolicName
+           | StringLiteral
+           ;
+
+createBranch : CREATE BRANCH branchName ( WITH DESCRIPTION StringLiteral )? FROM branchName ;
+
+// FROM is optional: CHECKOUT BRANCH alone switches the session to an existing branch;
+// CHECKOUT BRANCH ... FROM ... combines create-if-absent with switch (see spec §4.2).
+checkoutBranch : CHECKOUT BRANCH branchName ( ( WITH DESCRIPTION StringLiteral )? FROM branchName )? ;
+
+mergeBranch : MERGE BRANCH branchName ;
+
+dropBranch : DROP BRANCH branchName ;
+
+showBranch : SHOW BRANCH ;
+
+showBranches : SHOW BRANCHES ( FOR DATABASE databaseName )? ;
+
+showBranchDiff : SHOW BRANCH DIFF ( branchName )? ( FORMAT TABLE )? ;
 
 useDatabase : USE DATABASE databaseName ;
 

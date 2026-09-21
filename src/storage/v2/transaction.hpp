@@ -25,6 +25,7 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/property_write_targets.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
@@ -189,6 +190,20 @@ struct Transaction {
 
   /// @throw std::bad_alloc if failed to create the `commit_info`
   void EnsureCommitInfoExists() {
+    // LATENT (R16): a historical (read-only, InMemoryStorage::HistoricalAccess) accessor has no
+    // type-level enforcement against mutation, so gate the write surface here instead of at every
+    // individual accessor method. This is the single narrowest chokepoint EVERY delta creation
+    // funnels through -- CreateDeleteObjectDelta (new vertex/edge), CreateAndLinkDelta (label/prop
+    // modify), CreateDeleteDeserializedObjectDelta (disk/replica deserialize-delete), and the
+    // metadata-delta commit path in PrepareForCommitPhase all call this first (mvcc.hpp / inmemory
+    // storage.cpp). NOTE: pure metadata/schema-DDL mutations (CreateEnum/EnumAlter*/description/TTL
+    // in storage.hpp) push directly to `md_deltas` WITHOUT going through this call and are NOT
+    // covered here -- they already require `unique_guard_.owns_lock()` (a HistoricalAccess accessor
+    // never holds unique_guard_), and full DDL rejection for branches is chunk 8's job.
+    // Deliberately checks ONLY is_historical_, not is_recovery_replay_: a recovery-replay transaction
+    // (CreateRecoveryReplayTransaction) is write-capable by design -- it replays real deltas during
+    // ctor-time recovery -- and always has is_historical_ == false, so it never trips this assert.
+    MG_ASSERT(!is_historical_, "Attempted a write through a historical (read-only) accessor");
     if (commit_info != nullptr) return;
     commit_info = std::make_unique<CommitInfo>(transaction_id);
   }
@@ -238,6 +253,50 @@ struct Transaction {
   uint64_t start_timestamp{};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
+  // True only for a read-only historical-timestamp accessor (graph versioning R16,
+  // InMemoryStorage::HistoricalAccess): `start_timestamp` is a PAST fork_ts captured and retained
+  // by a live RegisterForkPin (inmemory/storage.cpp:2873), not a freshly issued `timestamp_++` tick.
+  // Because that exact numeric tick is later dispensed for real to whatever transaction is created
+  // next (RegisterForkPin only peeks `timestamp_`, it does not consume it), finalization paths
+  // (Abort / the empty-delta PrepareForCommitPhase fast path / FinalizeCommitPhase) must NEVER call
+  // `commit_log_->MarkFinished(start_timestamp)` for such a transaction (R37): doing so would either
+  // prematurely advance commit_log_->OldestActive() past a still-needed boundary, or double-mark the
+  // same id once its real, later-dispensed owner also finishes. That finalization is owned exclusively
+  // by whoever the tick is genuinely dispensed to (a real transaction) and, for GC-retention purposes,
+  // by the fork pin itself (ReleaseForkPin, at DROP BRANCH) via the separate version_fork_pins_ set --
+  // never by a transient per-query historical reader. Default false leaves every pre-existing
+  // transaction/accessor unchanged.
+  bool is_historical_{false};
+  // Recovery-replay (branch-durability windowed recovery, graph versioning v1 S3a/S3c/S3d): flags a
+  // Transaction created by InMemoryStorage::CreateRecoveryReplayTransaction. Unlike is_historical_,
+  // this transaction IS write-capable -- it replays already-durable WAL entries during single-threaded
+  // ctor-time recovery, so it genuinely creates deltas (CreateVertex/SetProperty/etc.) and therefore
+  // must NOT trip EnsureCommitInfoExists()'s `MG_ASSERT(!is_historical_, ...)` (it doesn't: that assert
+  // only checks is_historical_, which stays false for a replay transaction, by design).
+  //
+  // What it shares with is_historical_: `start_timestamp` is a HISTORICAL value (a past WAL commit
+  // timestamp, `Ci - 1`), not a freshly issued `timestamp_++` tick. The commit_log_'s block arithmetic
+  // (CommitLog::FindOrCreateBlock/MarkFinished) has no bounds check against `head_start_` -- calling
+  // `commit_log_->MarkFinished(start_timestamp)` for an id BELOW head_start_ silently returns the
+  // CURRENT head block and flips a bit at `head_start_ + (start_timestamp % kIdsInBlock)`, i.e. it
+  // marks some unrelated, likely-future id as finished instead of (or in addition to not marking)
+  // anything meaningful for start_timestamp -- corrupting commit_log_->OldestActive() and, downstream,
+  // the GC/MVCC horizon. Recovery is single-threaded and reseeds the commit_log en-masse AFTER replay
+  // (a blanket MarkFinishedInRange over the whole recovered window), so per-transaction commit_log
+  // active-transaction tracking is meaningless (and actively harmful) DURING replay.
+  //
+  // Consequently, every finalize path that would otherwise call
+  // `commit_log_->MarkFinished(start_timestamp)` (the empty-delta PrepareForCommitPhase fast path,
+  // FinalizeCommitPhase, and Abort()) must skip that call when `is_recovery_replay_` is set -- exactly
+  // like the is_historical_ guard already there, but WITHOUT taking the ReleaseForkPin branch (a replay
+  // transaction owns no fork pin; recovery's own pin/seed bookkeeping is separate, see
+  // CreateRecoveryReplayTransaction's doc-comment in storage.hpp). All OTHER finalize bookkeeping for a
+  // replay transaction -- GC delta registration (waiting_gc_deltas_/committed_transactions_), index/
+  // schema-update processing, `is_transaction_active_ = false`, LDT updates -- still runs normally: the
+  // replayed deltas must remain visible and GC-tracked exactly like a normal commit's. Distinct from
+  // is_historical_ (a read-only fork-pin reader that never writes); default false leaves every
+  // pre-existing transaction/accessor unchanged.
+  bool is_recovery_replay_{false};
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into

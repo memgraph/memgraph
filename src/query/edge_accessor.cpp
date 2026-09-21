@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,22 +11,163 @@
 
 #include "query/edge_accessor.hpp"
 
+#include "query/exceptions.hpp"
 #include "query/vertex_accessor.hpp"
+#include "versioning/branch_engine.hpp"
 
 namespace memgraph::query {
 
-VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
+// Graph Versioning v1 (branch endpoint resolution -- deferred): return the raw TO endpoint wrapped
+// with branch_ctx_, WITHOUT eagerly resolving it to its diff-engine copy. Every value read through
+// the returned accessor (Labels/HasLabel/Properties/GetProperty/GetPropertySize) is already
+// branch-aware and self-corrects by gid via ResolveVertex + the View::NEW tombstone guard
+// (vertex_accessor.cpp), and identity (==/hash) is now gid-based (std::hash<VertexAccessor>,
+// vertex_accessor.hpp) -- so the eager per-edge ResolveVertex->FindVertex canonicalization this
+// used to do (the dominant cost of deep/high-churn branch traversals, perf 2026-07-15) is
+// redundant. A tombstoned endpoint returns identically to before: the old eager path returned
+// nullopt from ResolveVertex and fell through to this same raw accessor, whose reads hide it.
+VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex(), branch_ctx_); }
 
-VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+// Graph Versioning v1 (branch endpoint resolution -- deferred): see To()'s own doc-comment above for
+// the full rationale (identical reasoning, applied to the FROM endpoint instead).
+VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex(), branch_ctx_); }
 
 /// When edge is deleted and you are accessing To vertex
 /// for_deleted_ flag will in this case be updated properly
-VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return VertexAccessor(impl_.DeletedEdgeToVertex()); }
+VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
+  return VertexAccessor(impl_.DeletedEdgeToVertex(), branch_ctx_);
+}
 
 /// When edge is deleted and you are accessing From vertex
 /// for_deleted_ flag will in this case be updated properly
-VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const { return VertexAccessor(impl_.DeletedEdgeFromVertex()); }
+VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  return VertexAccessor(impl_.DeletedEdgeFromVertex(), branch_ctx_);
+}
 
 bool EdgeAccessor::IsCycle() const { return To() == From(); }
+
+// Graph Versioning v1 (lazy diff-context, slice E-2c) HIGH-2-equivalent FIX: see each declaration's
+// own doc-comment in edge_accessor.hpp for WHY these are self-correcting (re-resolve via
+// FindDiffEdge, diff-engine-only, before reading) and WHY they're out-of-line (BranchContext is
+// only forward-declared in the header). Not a mutation -- FindDiffEdge never COWs -- so this cannot
+// double-apply a COW; it's a plain diff-engine-only FindEdge, same cost class as the vertex-side
+// equivalent already on this hot path.
+auto EdgeAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
+  if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (D1, mirrors VertexAccessor::Properties/Labels in
+    // vertex_accessor.cpp -- see that file's own doc-comment for the full rationale):
+    // (0) DIFF-RESIDENT short-circuit: a diff-engine-resident impl_ IS the branch's own COW/native
+    //     copy already (COW copies properties directly), so re-resolving it by gid via FindDiffEdge
+    //     below would be a redundant lookup; its own diff-engine MVCC already reflects same-txn
+    //     writes/deletes at the requested view.
+    // (1) BRANCHED-bit gate: impl_.MaybeBranchedHint() reads MAIN's own storage::Edge::branched()
+    //     bit (guards `properties_on_edges` internally -- see its own doc-comment,
+    //     storage/v2/edge_accessor.cpp -- REFERENCE edges have no Edge object to read the bit from
+    //     and get `false`, which naturally scopes this gate to heavy edges only). Monotonic,
+    //     any-branch, never-cleared -- no false negatives: a clear bit means no branch has EVER
+    //     touched this edge, so impl_ (main's fork copy) is definitely correct as-is, skipping
+    //     today's unconditional FindDiffEdge lookup below. A false positive (another branch's touch)
+    //     only costs one wasted FindDiffEdge, never a stale read.
+    if (impl_.storage_ == &branch_ctx_->diff_engine()) {
+      return impl_.Properties(view);
+    }
+    if (!impl_.MaybeBranchedHint()) {
+      return impl_.Properties(view);
+    }
+    if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
+      return diff_edge->Properties(view);
+    }
+    // S2 FIX (view-gated tombstone guard, edge-side analogue of VertexAccessor::Labels()'s own --
+    // see vertex_accessor.cpp for the full rationale): a FindDiffEdge miss on a tombstoned gid is
+    // ambiguous by itself; View::NEW is the query's current-command state where a tombstoned edge
+    // IS deleted (matches main's read-after-delete-in-command error), while View::OLD falls through
+    // to `impl_` unchanged (still the alive, pre-delete value).
+    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
+    }
+  }
+  return impl_.Properties(view);
+}
+
+storage::Result<storage::PropertyValue> EdgeAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
+  if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (D1) -- see Properties() above for the full rationale (diff-resident
+    // short-circuit, then the branched-bit gate).
+    if (impl_.storage_ == &branch_ctx_->diff_engine()) {
+      return impl_.GetProperty(key, view);
+    }
+    if (!impl_.MaybeBranchedHint()) {
+      return impl_.GetProperty(key, view);
+    }
+    if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
+      return diff_edge->GetProperty(key, view);
+    }
+    // S2 FIX (view-gated tombstone guard) -- see Properties() above for the full rationale.
+    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
+    }
+  }
+  return impl_.GetProperty(key, view);
+}
+
+storage::Result<uint64_t> EdgeAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
+  if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (D1) -- see Properties() above for the full rationale (diff-resident
+    // short-circuit, then the branched-bit gate).
+    if (impl_.storage_ == &branch_ctx_->diff_engine()) {
+      return impl_.GetPropertySize(key, view);
+    }
+    if (!impl_.MaybeBranchedHint()) {
+      return impl_.GetPropertySize(key, view);
+    }
+    if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
+      return diff_edge->GetPropertySize(key, view);
+    }
+    // S2 FIX (view-gated tombstone guard) -- see Properties() above for the full rationale.
+    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
+    }
+  }
+  return impl_.GetPropertySize(key, view);
+}
+
+// Graph Versioning v1 (lazy diff-context, slice E-2c) -- see the header's own doc-comment. Every
+// mutator call site (SetProperty/InitProperties/UpdateProperties/ClearProperties) already checks
+// branch_ctx_ != nullptr before calling this, so branch_ctx_ is guaranteed non-null here.
+void EdgeAccessor::CowEdgeIfNeeded() {
+  // CowEdge reads `impl_` (whichever side it currently resolves through, historical or diff) and
+  // the diff-engine accessor from branch_ctx_->current_diff_txn() itself (a single per-query slot,
+  // branch_engine.hpp) rather than taking one as a parameter here.
+  auto cowed = branch_ctx_->CowEdge(impl_);
+  if (!cowed) {
+    throw QueryRuntimeException(cowed.error().message);
+  }
+  impl_ = *cowed;
+}
+
+// Graph Versioning v1 (lazy diff-context, slice E-2c): edge mutator COW -- see the header's own
+// doc-comment for why this now routes through CowEdgeIfNeeded instead of rejecting with
+// NotYetImplemented (E-2a's guard, superseded by this slice).
+storage::Result<storage::PropertyValue> EdgeAccessor::SetProperty(storage::PropertyId key,
+                                                                  const storage::PropertyValue &value) {
+  if (branch_ctx_ != nullptr) CowEdgeIfNeeded();
+  return impl_.SetProperty(key, value);
+}
+
+storage::Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  if (branch_ctx_ != nullptr) CowEdgeIfNeeded();
+  return impl_.InitProperties(properties);
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  if (branch_ctx_ != nullptr) CowEdgeIfNeeded();
+  return impl_.UpdateProperties(properties);
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> EdgeAccessor::ClearProperties() {
+  if (branch_ctx_ != nullptr) CowEdgeIfNeeded();
+  return impl_.ClearProperties();
+}
 
 }  // namespace memgraph::query

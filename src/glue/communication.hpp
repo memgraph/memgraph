@@ -48,6 +48,24 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
                                                       storage::View view,
                                                       query::FineGrainedAuthChecker const *auth_checker);
 
+/// @param query::VertexAccessor for converting to communication::bolt::Vertex (branch-aware overload).
+/// @param storage::Storage for getting label and property names.
+/// @param storage::View for deciding which vertex attributes are visible.
+///
+/// @throw std::bad_alloc
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
+                                                          const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker);
+
+/// @param query::EdgeAccessor for converting to communication::bolt::Edge (branch-aware overload).
+/// @param storage::Storage for getting edge type and property names.
+/// @param storage::View for deciding which edge attributes are visible.
+///
+/// @throw std::bad_alloc
+storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker);
+
 /// @param query::Path for converting to communication::bolt::Path.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.

@@ -34,16 +34,48 @@ struct CommitArgs {
 
   static auto make_replica_read() -> CommitArgs { return CommitArgs{ReplicaRead{}}; }
 
+  // Graph Versioning v1 durability (S3a, FIX C): recovery is replaying a WAL transaction that is
+  // ALREADY durable (retained WAL, S1) at its ORIGINAL commit timestamp `desired_commit_timestamp`.
+  // The caller (recovery, S3d) drives `Storage::timestamp_ := desired_commit_timestamp` immediately
+  // before calling PrepareForCommitPhase, so the ordinary `GetCommitTimestamp()` (`timestamp_++`,
+  // untouched by this variant -- see design doc FIX C simplification) naturally yields
+  // `desired_commit_timestamp` as `commit_timestamp_`. `desired_commit_timestamp` is carried here
+  // purely as a defense-in-depth cross-check (see the WAL-suppress early-return in
+  // InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase) that the caller actually primed
+  // `timestamp_` correctly -- it is NOT used to override `commit_timestamp_`.
+  static auto make_recovery_replay(uint64_t const desired_commit_timestamp) -> CommitArgs {
+    return CommitArgs{RecoveryReplay{.desired_commit_timestamp = desired_commit_timestamp}};
+  }
+
   auto durable_timestamp(uint64_t commit_timestamp) const -> uint64_t {
     auto const f = utils::Overloaded{[&](Main const &main) { return commit_timestamp; },
                                      [](ReplicaWrite const &replica) { return replica.desired_commit_timestamp; },
-                                     [](ReplicaRead const &) -> uint64_t { MG_ASSERT(false, "invalid state"); }};
+                                     [](ReplicaRead const &) -> uint64_t { MG_ASSERT(false, "invalid state"); },
+                                     // Same shape as Main: the original commit timestamp already flows
+                                     // through `commit_timestamp` (see this struct's doc-comment above).
+                                     [&](RecoveryReplay const &) { return commit_timestamp; }};
     return std::visit(f, data);
   }
 
   bool durability_allowed() const { return !std::holds_alternative<ReplicaRead>(data); }
 
   bool replication_allowed() const { return std::holds_alternative<Main>(data); }
+
+  // True only for the recovery-replay variant: the transaction is already durable in the retained
+  // WAL (S1) at its original commit timestamp, so PrepareForCommitPhase must skip
+  // InitializeWalFile/append/replication entirely (re-writing it would duplicate durability) while
+  // still running FinalizeCommitPhase's delta-visibility + commit_log_ bookkeeping.
+  bool suppress_wal() const { return std::holds_alternative<RecoveryReplay>(data); }
+
+  // The original commit timestamp this replay commit is expected to land at, for the
+  // defense-in-depth cross-check described above `make_recovery_replay`'s doc-comment. `nullopt`
+  // for every other variant.
+  auto recovery_replay_desired_timestamp() const -> std::optional<uint64_t> {
+    if (auto const *replay = std::get_if<RecoveryReplay>(&data)) {
+      return replay->desired_commit_timestamp;
+    }
+    return std::nullopt;
+  }
 
   auto database_protector() const -> DatabaseProtector const & {
     auto const f =
@@ -94,8 +126,13 @@ struct CommitArgs {
     DatabaseProtectorPtr db_acc;
   };
 
-  explicit CommitArgs(std::variant<Main, ReplicaWrite, ReplicaRead> data) : data(std::move(data)) {}
+  // Graph Versioning v1 durability (S3a, FIX C). See make_recovery_replay's doc-comment above.
+  struct RecoveryReplay {
+    uint64_t desired_commit_timestamp{};
+  };
 
-  std::variant<Main, ReplicaWrite, ReplicaRead> data;
+  explicit CommitArgs(std::variant<Main, ReplicaWrite, ReplicaRead, RecoveryReplay> data) : data(std::move(data)) {}
+
+  std::variant<Main, ReplicaWrite, ReplicaRead, RecoveryReplay> data;
 };
 }  // namespace memgraph::storage

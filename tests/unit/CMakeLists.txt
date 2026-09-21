@@ -83,6 +83,51 @@ add_unit_test(crc_accumulator
         LINK_TARGETS mg-utils
 )
 
+add_unit_test(versioning_gate
+        SOURCES versioning_gate.cpp
+        LINK_TARGETS mg::versioning
+)
+
+add_unit_test(versioning_name
+        SOURCES versioning_name.cpp
+        LINK_TARGETS mg::versioning
+)
+
+add_unit_test(versioning_version_store
+        SOURCES versioning_version_store.cpp
+        LINK_TARGETS mg::versioning mg-kvstore
+)
+
+add_unit_test(versioning_branch_log
+        SOURCES versioning_branch_log.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_branch_engine
+        SOURCES versioning_branch_engine.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_branch_reconstruction
+        SOURCES versioning_branch_reconstruction.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_merge
+        SOURCES versioning_merge.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_durability_restart
+        SOURCES versioning_durability_restart.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
+add_unit_test(versioning_interpreter
+        SOURCES versioning_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
@@ -898,6 +943,11 @@ add_unit_test(storage_v2_gc_index_sweep
 add_unit_test(storage_v2_index_arming
     SOURCES storage_v2_index_arming.cpp
     LINK_TARGETS mg::storage
+)
+
+add_unit_test(versioning_historical_access
+    SOURCES versioning_historical_access.cpp
+    LINK_TARGETS mg::storage storage_test_utils
 )
 
 add_unit_test(storage_v2_non_sequential_isolation

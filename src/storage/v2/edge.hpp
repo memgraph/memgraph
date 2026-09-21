@@ -43,10 +43,33 @@ struct Edge {
 
   void SetDeleted(bool b) { delta_.Set<kDeletedBit>(b ? 1 : 0); }
 
+  // Graph Versioning v1 -- phase 1 (write-side only) of a per-object "touched by any branch" hint.
+  // Mirrors `storage::Vertex::branched()`/`SetBranched()` (vertex.hpp) exactly -- see its own
+  // doc-comment for the full monotonic/never-clear policy, the invariant this maintains, and the
+  // concurrency contract: `branched()` is a lock-free relaxed-atomic read via
+  // `PointerPack::GetRelaxed`. ALL writes to the same packed word -- including `SetDelta`,
+  // `SetDeleted`, and `SetBranched` -- go through `std::atomic_ref` (relaxed), so every access to
+  // `delta_.storage_` is via an atomic operation and there is no plain-store-vs-atomic-load UB.
+  // `lock` remains what serializes concurrent writers against each other; `atomic_ref` is what
+  // makes each individual write well-defined from the C++ memory model's perspective.
+  // For an Edge specifically, this bit is BEST-EFFORT/
+  // supplementary -- the two endpoint Vertex objects' own `branched()` bits are what the
+  // phase-2 traversal fast-path is documented to actually key on (see
+  // versioning::BranchContext::CowEdge, branch_engine.cpp, for why: an edge is only reachable at
+  // all with `--storage-properties-on-edges=true`, i.e. a real `Edge` object to mark; with it
+  // false edges are REFERENCE-ONLY (`EdgeRef` holds just a gid) and there is no `Edge` object here
+  // to set this bit on in the first place).
+  bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
+
+  // Caller MUST hold `lock` (see `branched()`'s own doc-comment above for the full concurrency
+  // contract).
+  void SetBranched(bool b) { delta_.SetRelaxed<kBranchedBit>(b); }
+
  private:
   static constexpr int kDeletedBit = 0;
+  static constexpr int kBranchedBit = 1;
 
-  utils::PointerPack<Delta, 1> delta_{};
+  utils::PointerPack<Delta, 2> delta_{};
 };
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");

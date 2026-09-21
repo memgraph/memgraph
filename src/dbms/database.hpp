@@ -51,6 +51,10 @@ namespace memgraph::metrics {
 struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
 
+namespace memgraph::versioning {
+class VersionStore;
+}  // namespace memgraph::versioning
+
 namespace memgraph::dbms {
 
 struct DatabaseInfo;
@@ -162,6 +166,16 @@ class Database {
   query::stream::Streams *streams() { return streams_.get(); }
 
   /**
+   * @brief Returns the raw VersionStore pointer (branch registry).
+   *
+   * Only non-null for IN_MEMORY_TRANSACTIONAL databases (graph versioning's chunk-0 gate); null
+   * for ON_DISK_TRANSACTIONAL and IN_MEMORY_ANALYTICAL.
+   *
+   * @return versioning::VersionStore*
+   */
+  versioning::VersionStore *version_store() { return version_store_.get(); }
+
+  /**
    * @brief Returns the raw ThreadPool pointer (used for after commit triggers)
    *
    * @return utils::ThreadPool*
@@ -260,9 +274,12 @@ class Database {
 
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
-  utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
-  std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
-  query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+  // Branch registry (graph versioning). Destroyed before storage_ (declared after it) since its
+  // GC-pin callbacks capture a raw InMemoryStorage* -- see the ctor in database.cpp.
+  std::unique_ptr<versioning::VersionStore> version_store_;
+  utils::ThreadPool after_commit_trigger_pool_{1};   //!< Thread pool for after commit triggers
+  std::unique_ptr<query::stream::Streams> streams_;  //!< Streams associated with the storage
+  query::PlanCacheLRU plan_cache_;                   //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms

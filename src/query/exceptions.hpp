@@ -552,6 +552,23 @@ class WriteQueryOnReplicaException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnReplicaException)
 };
 
+// Graph Versioning v1, chunk 7d (D10): strict write-routing rail -- a data-plane write from a
+// connection that is engaged-but-unresolved (CurrentDB::VersioningEngaged() true while
+// CurrentDB::CurrentVersion() == nullopt) is rejected loud rather than silently landing on
+// production. The session target is just the last CHECKOUT (CHECKOUT BRANCH 'main' un-engages, same
+// as USE DATABASE), so this combination should not arise in normal operation; the rail remains as a
+// defense-in-depth invariant guard. See CurrentDB::VersioningEngaged() (interpreter.hpp) and the
+// rail at the write_query check in Interpreter::Prepare (interpreter.cpp).
+class WriteWithoutResolvedVersionException : public QueryException {
+ public:
+  WriteWithoutResolvedVersionException()
+      : QueryException(
+            "This connection has an active versioning session but is not on a branch. Data writes to 'main' are "
+            "blocked to prevent a mis-routed write from silently landing on production. CHECKOUT BRANCH '<name>' to "
+            "write to a branch, or use a separate connection for 'main'.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WriteWithoutResolvedVersionException)
+};
+
 class WriteQueryOnMainException : public QueryException {
  public:
   WriteQueryOnMainException()
@@ -577,6 +594,15 @@ class UseDatabaseQueryInMulticommandTxException : public MulticommandTxException
  public:
   UseDatabaseQueryInMulticommandTxException() : MulticommandTxException("Switching the currently active database") {}
   SPECIALIZE_GET_EXCEPTION_NAME(UseDatabaseQueryInMulticommandTxException)
+};
+
+// Graph Versioning (branches) v1, chunk 7a: management queries (CREATE/CHECKOUT/MERGE/DROP/
+// SHOW BRANCH*) are autocommit-only, mirroring MultiDatabaseQueryInMulticommandTxException above
+// (spec §4.1/§4.4).
+class VersioningQueryInMulticommandTxException : public MulticommandTxException {
+ public:
+  VersioningQueryInMulticommandTxException() : MulticommandTxException("Managing graph versioning branches") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(VersioningQueryInMulticommandTxException)
 };
 
 class DropGraphInMulticommandTxException : public MulticommandTxException {

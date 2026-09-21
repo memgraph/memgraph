@@ -172,6 +172,30 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
+  // D4 (spec §6): a single privilege gates the whole branch-management surface in v1 -- ownership/
+  // sharing come later. There is no dedicated BRANCH privilege yet (minting one is a full
+  // AuthQuery::Privilege addition: bitmask slot in auth/models.hpp, string in auth/models.cpp,
+  // glue/auth.cpp mapping, AND a new GRANT/DENY/REVOKE grammar keyword requiring an ANTLR
+  // regeneration -- out of scope for this dispatch-only chunk). MULTI_DATABASE_EDIT is reused as
+  // the closest existing enterprise-gated "manage tenant-like registry entries" privilege
+  // (branches are conceptually sub-database forks, and MultiDatabaseQuery already requires the
+  // same enterprise license VersioningQuery's own runtime gate requires). Flagged for chunk 8+ to
+  // revisit with a dedicated BRANCH privilege if product wants finer-grained grants.
+  void Visit(VersioningQuery &query) override {
+    AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+    // MERGE BRANCH replays the branch's change-log onto main as a normal commit (triggers fire,
+    // FGA applies -- see specs/graph-versioning "MERGE = normal commit" v1). It therefore needs
+    // the SAME coarse write privileges a direct main CREATE/SET/DELETE/REMOVE would need,
+    // action-scoped to MERGE_BRANCH only -- CREATE/CHECKOUT/DROP/SHOW do not touch main's data and
+    // must stay gated by MULTI_DATABASE_EDIT alone.
+    if (query.action_ == VersioningQuery::Action::MERGE_BRANCH) {
+      AddPrivilege(AuthQuery::Privilege::CREATE);
+      AddPrivilege(AuthQuery::Privilege::SET);
+      AddPrivilege(AuthQuery::Privilege::DELETE);
+      AddPrivilege(AuthQuery::Privilege::REMOVE);
+    }
+  }
+
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
   void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */ }

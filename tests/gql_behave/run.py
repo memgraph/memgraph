@@ -58,6 +58,19 @@ def main():
     add_config("--test-suite")
     add_config("--test-directory")
 
+    # run.py-only routing argument (mirrors `test_suite` above): selects a
+    # curated allowlist of feature files, relative to the suite's features/
+    # directory, instead of the whole suite directory or a single file. Not
+    # forwarded to Behave -- consumed below to build `behave_test_path`. This
+    # is how the --versioned-branch arm restricts execution to a hand-picked,
+    # branch-safe subset (see tests/config.yaml `memgraph_V1_versioned`).
+    argp.add_argument(
+        "--feature-file",
+        action="append",
+        default=None,
+        help="curated feature file (relative to the suite's features/ directory) to run; may be repeated",
+    )
+
     # Arguments that should be passed on to Behave
     add_argument("--db-host", default="127.0.0.1", help="server host (default is 127.0.0.1)")
     add_argument("--db-port", default="7687", help="server port (default is 7687)")
@@ -71,6 +84,11 @@ def main():
     add_argument("--storage-mode", help="Memgraph storage mode")
     add_argument("--scenario", help="Single scenario to run")
     add_argument("--parallel-execution", action="store_true", help="prepend USING PARALLEL EXECUTION to read queries")
+    add_argument(
+        "--versioned-branch",
+        action="store_true",
+        help="run scenarios against a Graph Versioning v1 BRANCH checkout (partly-versioned graph)",
+    )
 
     # Parse arguments
     parsed_args = argp.parse_args()
@@ -100,8 +118,12 @@ def main():
     # Find tests
     test_directory = os.path.join(SCRIPT_DIR, "tests", test_suite_name)
 
-    # Determine what path to pass to behave (can be suite dir or specific feature file)
-    if "/" in parsed_args.test_suite:
+    # Determine what path(s) to pass to behave (can be suite dir, a specific
+    # feature file, or -- when --feature-file was given -- a curated
+    # allowlist of feature files inside the suite directory).
+    if parsed_args.feature_file:
+        behave_test_path = [os.path.join(test_directory, "features", f) for f in parsed_args.feature_file]
+    elif "/" in parsed_args.test_suite:
         # Specific feature file provided
         behave_test_path = os.path.join(SCRIPT_DIR, "tests", parsed_args.test_suite)
     else:
@@ -109,7 +131,7 @@ def main():
         behave_test_path = test_directory
 
     # Create arguments for Behave
-    behave_args = [behave_test_path]
+    behave_args = list(behave_test_path) if isinstance(behave_test_path, list) else [behave_test_path]
     for arg_name in args_value:
         var_name = arg_name[2:].replace("-", "_")
         behave_args.extend([arg_name, getattr(parsed_args, var_name)])

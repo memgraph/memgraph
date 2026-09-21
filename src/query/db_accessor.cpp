@@ -232,22 +232,42 @@ std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::st
                                                                    const std::string &search_query,
                                                                    text_search_mode search_mode,
                                                                    const storage::TextSearchConfig &config) const {
+  // L5 fix: text indices are never mirrored into a branch's diff engine, so delegating
+  // unconditionally to `accessor_` here would surface the diff engine's own "index does not exist"
+  // error even though the index DOES exist on main -- misleading on a checked-out branch. Fail
+  // loudly and unambiguously before ever reaching the diff engine (see `branch_ctx_`'s own
+  // doc-comment, db_accessor.hpp, for why a checked-out branch's `accessor_` is the diff engine).
+  if (branch_ctx_ != nullptr) {
+    throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
+  }
   return accessor_->TextIndexSearch(index_name, search_query, search_mode, config);
 }
 
 std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                            const std::string &aggregation_query) const {
+  // See TextIndexSearch's own comment above -- same branch guard, same reason.
+  if (branch_ctx_ != nullptr) {
+    throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
+  }
   return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                                const std::string &aggregation_query) {
+  // See TextIndexSearch's own comment above -- same branch guard, same reason.
+  if (branch_ctx_ != nullptr) {
+    throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
+  }
   return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(
     const std::string &index_name, const std::string &search_query, text_search_mode search_mode,
     const storage::TextSearchConfig &config) const {
+  // See TextIndexSearch's own comment above -- same branch guard, same reason.
+  if (branch_ctx_ != nullptr) {
+    throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
+  }
   return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
 }
 
@@ -257,11 +277,21 @@ bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId pr
 
 std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::VectorIndexSearchOnNodes(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+  // See TextIndexSearch's own comment above (L5 fix) -- vector indices are likewise never mirrored
+  // into a branch's diff engine, so guard before delegating rather than let the diff engine's own
+  // "index does not exist" surface misleadingly.
+  if (branch_ctx_ != nullptr) {
+    throw storage::VectorSearchException("Vector search is not supported on a checked-out branch.");
+  }
   return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
 }
 
 std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::VectorIndexSearchOnEdges(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+  // See VectorIndexSearchOnNodes's own comment above -- same branch guard, same reason.
+  if (branch_ctx_ != nullptr) {
+    throw storage::VectorSearchException("Vector search is not supported on a checked-out branch.");
+  }
   return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
 }
 
@@ -277,6 +307,13 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                storage::CoordinateReferenceSystem crs, TypedValue const &point_value,
                                TypedValue const &boundary_value, plan::PointDistanceCondition condition)
     -> PointIterable {
+  // Point indices are never mirrored into a branch's diff engine; delegating unconditionally to
+  // `accessor_` here would silently return diff-engine-only results, missing all historical vertices
+  // that satisfy the distance predicate. Reconstruction over the historical union is deferred to a
+  // later slice -- guard loudly rather than mislead.
+  if (branch_ctx_ != nullptr) {
+    throw NotYetImplemented("point index scans are not yet supported on a checked-out version/branch");
+  }
   return PointIterable(accessor_->PointVertices(label,
                                                 property,
                                                 crs,
@@ -288,6 +325,10 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
                                storage::CoordinateReferenceSystem crs, TypedValue const &bottom_left,
                                TypedValue const &top_right, plan::WithinBBoxCondition condition) -> PointIterable {
+  // See the distance overload above -- same branch guard, same reason.
+  if (branch_ctx_ != nullptr) {
+    throw NotYetImplemented("point index scans are not yet supported on a checked-out version/branch");
+  }
   return PointIterable(accessor_->PointVertices(label,
                                                 property,
                                                 crs,

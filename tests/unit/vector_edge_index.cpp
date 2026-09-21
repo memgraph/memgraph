@@ -19,6 +19,7 @@
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
+#include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -39,6 +40,7 @@
 #include "tests/unit/ddl_abort_helpers.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
+#include "versioning/branch_engine.hpp"
 
 #include "storage/v2/exceptions.hpp"
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -164,6 +166,66 @@ TEST_F(VectorEdgeIndexTest, ToBoltEdgeOmitsVectorIndexedPropertyWhenFlagOn) {
 
   set_omit(true);
   auto without_prop = memgraph::glue::ToBoltEdge(edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(without_prop.has_value());
+  EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
+  EXPECT_TRUE(without_prop->properties.contains("weight"));
+}
+
+// N8 parity fix: the branch arm of ToBoltEdge (communication.cpp) must apply the same
+// vector-indexed property omit-on-return filtering the storage arm does. This test exercises
+// that arm by wrapping a storage::EdgeAccessor in a query::EdgeAccessor with a non-null
+// branch_ctx_. The edge is never modified in the branch (MaybeBranchedHint()==false), so
+// Properties() falls through to impl_ -- while VectorIndexedProperties() still consults the
+// global edge-vector index in main storage, matching the storage arm's filtering behaviour.
+TEST_F(VectorEdgeIndexTest, ToBoltEdgeBranchArmOmitsVectorIndexedPropertyWhenFlagOn) {
+  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_edge_index_branch_arm_omit";
+  std::filesystem::remove_all(settings_dir);
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  const auto set_omit = [&](bool enabled) {
+    settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
+  };
+  memgraph::utils::OnScopeExit reset_flag{[&] { set_omit(false); }};
+
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [from, to, storage_edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  ASSERT_TRUE(storage_edge.SetProperty(acc->NameToProperty("weight"), PropertyValue(0.5)).has_value());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  // Build a BranchContext to force ToBoltEdge into the branch arm (branch_ctx_ != nullptr).
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  const auto fork_ts = mem_storage->RegisterForkPin();
+  memgraph::utils::OnScopeExit release_pin{[&] { mem_storage->ReleaseForkPin(fork_ts); }};
+
+  const auto branch_wal_root =
+      std::filesystem::temp_directory_path() / "MG_tests_unit_vector_edge_index_branch_arm_wal";
+  std::filesystem::remove_all(branch_wal_root);
+  auto branch_result = memgraph::versioning::BranchContext::BuildFromFork(*mem_storage,
+                                                                          fork_ts,
+                                                                          memgraph::tests::MakeMainCommitArgs(),
+                                                                          memgraph::tests::MakeMainCommitArgs(),
+                                                                          branch_wal_root,
+                                                                          {});
+  ASSERT_TRUE(branch_result.has_value());
+  auto branch_ctx = std::move(*branch_result);
+
+  // Wrap the committed storage accessor in a query accessor so branch_ctx_ != nullptr.
+  // The edge was never modified in the branch (MaybeBranchedHint()==false), so Properties()
+  // falls through to impl_; VectorIndexedProperties() reads the global index from impl_.
+  memgraph::query::EdgeAccessor query_edge(storage_edge, branch_ctx.get());
+
+  // Flag OFF: branch arm must include the vector-indexed property.
+  set_omit(false);
+  auto with_prop = memgraph::glue::ToBoltEdge(query_edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(with_prop.has_value());
+  EXPECT_TRUE(with_prop->properties.contains(test_property.data()));
+  EXPECT_TRUE(with_prop->properties.contains("weight"));
+
+  // Flag ON: branch arm must hide the vector-indexed property.
+  set_omit(true);
+  auto without_prop = memgraph::glue::ToBoltEdge(query_edge, *this->storage, View::NEW, nullptr);
   ASSERT_TRUE(without_prop.has_value());
   EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
   EXPECT_TRUE(without_prop->properties.contains("weight"));

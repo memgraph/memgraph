@@ -152,10 +152,16 @@ def generate_result_html(data):
 
 
 class MemgraphRunner:
-    def __init__(self, build_directory):
+    def __init__(self, build_directory, extra_args=None):
         self.build_directory = build_directory
         self.proc_mg = None
         self.args = []
+        # Startup flags applied on EVERY start (initial start + each
+        # per-suite storage-mode restart below), regardless of `self.args`.
+        # Mirrors the coroutine-cursors-p3 precedent (d82d36dc7) where
+        # per-arm startup flags were threaded through here; used by the
+        # --versioned-branch arm to turn on Graph Versioning v1.
+        self.extra_args = list(extra_args) if extra_args else []
 
     def start(self, args=[]):
         if args == self.args and self.is_running():
@@ -181,7 +187,7 @@ class MemgraphRunner:
             str(os.path.join(BUILD_DIR, "query_modules")),
             "--metrics-format=OpenMetrics",
         ]
-        self.proc_mg = subprocess.Popen(args_mg + self.args)
+        self.proc_mg = subprocess.Popen(args_mg + self.extra_args + self.args)
         wait_for_server(7687, self.proc_mg, 1)
         assert self.is_running(), "The Memgraph process died!"
 
@@ -208,6 +214,11 @@ def main():
     argp.add_argument(
         "--parallel-execution", action="store_true", help="prepend USING PARALLEL EXECUTION to all queries"
     )
+    argp.add_argument(
+        "--versioned-branch",
+        action="store_true",
+        help="run the curated Graph Versioning v1 suite through a BRANCH checkout (partly-versioned graph)",
+    )
     args = argp.parse_args()
 
     # Load tests from config file
@@ -220,8 +231,16 @@ def main():
     # Temporary directory for suite results
     output_dir = tempfile.TemporaryDirectory()
 
-    # Memgraph runner
-    memgraph = MemgraphRunner(args.build_directory)
+    # Memgraph runner. Under --versioned-branch every Memgraph start (initial
+    # + per-storage-mode restarts below) needs versioning turned on; the
+    # enterprise license required by the versioning gate (see
+    # src/versioning/gate.cpp) is expected to already be exported in this
+    # process's environment by the CI wrapper (mgbuild.sh), and is inherited
+    # by subprocess.Popen automatically.
+    memgraph_extra_args = []
+    if args.versioned_branch:
+        memgraph_extra_args = ["--versioning-enabled=true", "--storage-wal-enabled=true"]
+    memgraph = MemgraphRunner(args.build_directory, extra_args=memgraph_extra_args)
 
     @atexit.register
     def cleanup():
@@ -235,6 +254,19 @@ def main():
     # Run suites
     old_storage_mode = ""
     for suite in suites:
+        # `feature_allowlist` marks a suite as versioned-branch-only (a
+        # curated, branch-safe subset of an existing suite's feature files --
+        # see tests/config.yaml `memgraph_V1_versioned`). Graph Versioning v1
+        # fail-loud-rejects DDL/admin ops (index/constraint/STORAGE MODE) on
+        # a branch, so the full generic suites are not branch-safe and the
+        # curated suite is not useful outside this arm:
+        #   * default / --parallel-execution runs SKIP it (identical data to
+        #     its parent suite, would just be redundant coverage).
+        #   * --versioned-branch runs ONLY it (everything else is skipped).
+        is_versioned_only_suite = "feature_allowlist" in suite
+        if args.versioned_branch != is_versioned_only_suite:
+            continue
+
         print("Starting suite '{}' scenarios.".format(suite["name"]))
 
         suite_storage_mode = suite["storage_mode"]
@@ -256,6 +288,10 @@ def main():
         ]
         if args.parallel_execution:
             cmd.append("--parallel-execution")
+        if args.versioned_branch:
+            cmd.append("--versioned-branch")
+            for feature_file in suite.get("feature_allowlist", []):
+                cmd.extend(["--feature-file", feature_file])
 
         # The exit code isn't checked here because the `behave` framework
         # returns a non-zero exit code when some tests fail.

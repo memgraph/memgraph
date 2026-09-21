@@ -588,4 +588,11 @@ Gid EdgeAccessor::Gid() const noexcept {
   return edge_.gid;
 }
 
+// `properties_on_edges=false`: `edge_` is an `EdgeRef` union whose `.ptr` aliases a bare Gid
+// (edge_ref.hpp:33–35) — dereferencing is UB. `false` is correct: edges carry no properties in this mode.
+bool EdgeAccessor::MaybeBranchedHint() const {
+  if (!storage_->config_.salient.items.properties_on_edges) return false;
+  return edge_.ptr->branched();
+}
+
 }  // namespace memgraph::storage
