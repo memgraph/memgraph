@@ -5154,6 +5154,28 @@ TYPED_TEST(IndexTest, VertexPropertyIndexDrop) {
   }
 }
 
+TYPED_TEST(IndexTest, VertexPropertyIndexPrefixScanWithNoSuccessor) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalVertexIndex(this->prop_val).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = this->CreateVertex(acc.get());
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(std::string("\xFF\xFF tail", 8))));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  auto const lower = memgraph::utils::MakeBoundInclusive(PropertyValue(std::string("\xFF\xFF", 2)));
+  auto const upper = memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::String);
+  EXPECT_EQ(this->GetIds(acc->Vertices(this->prop_val, lower, upper, View::OLD), View::OLD).size(), 1);
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, VertexPropertyIndexBasic) {
   if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {

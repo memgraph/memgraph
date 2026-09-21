@@ -63,6 +63,14 @@ inline bool BoundsMarkAWholeStretch(utils::Bound<PropertyValue> const &lower,
          upper.value() == stretch_upper->value();
 }
 
+/// Whether the pair runs to the end of one stretch of the order, from anywhere within it.
+inline bool BoundsRunToTheEndOfAStretch(utils::Bound<PropertyValue> const &lower,
+                                        utils::Bound<PropertyValue> const &upper) {
+  if (!lower.IsInclusive() || !upper.IsExclusive()) return false;
+  auto const stretch_upper = UpperBoundComparableWith(lower.value());
+  return stretch_upper && upper.value() == stretch_upper->value();
+}
+
 /// Whether the value holds a NaN, at any depth.
 ///
 /// A NaN is equal to nothing, itself included, so a value holding one is equal

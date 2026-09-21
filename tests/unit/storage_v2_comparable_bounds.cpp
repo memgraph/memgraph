@@ -330,3 +330,14 @@ TEST(ComparableBounds, AreComparableTellsTheTemporalKindsApart) {
   EXPECT_FALSE(AreComparable(PropertyValue(int64_t{1}), PropertyValue("a")));
   EXPECT_FALSE(AreComparable(Temporal(TemporalType::Date, 0), kSmallestZonedTemporalData));
 }
+
+TEST(EndOfStretchMarker, HoldsForAPrefixScanWithNoSuccessor) {
+  auto const lower = memgraph::utils::MakeBoundInclusive(PropertyValue(std::string("\xFF\xFF", 2)));
+  auto const upper = *UpperBoundForType(PropertyValueType::String);
+
+  EXPECT_FALSE(BoundsMarkAWholeStretch(lower, upper));
+  EXPECT_TRUE(BoundsRunToTheEndOfAStretch(lower, upper));
+
+  EXPECT_FALSE(BoundsRunToTheEndOfAStretch(
+      lower, memgraph::utils::MakeBoundExclusive(PropertyValue(std::string("\xFF\xFF\xFF", 3)))));
+}
