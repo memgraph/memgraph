@@ -44,6 +44,11 @@ void RefuseIfTooDeep(const int64_t path_size) {
 // it is worth saying whatever the failure was.
 constexpr size_t kAdviseAboveBranches = 1'000'000;
 
+// The last level a walk may reach is emitted and never given branches, so a shallow, wide walk
+// holds what it reached in the tables rather than in `branches_`. Counting only branches would say
+// nothing to exactly the walk that ran out of room holding a neighbourhood per node.
+constexpr size_t kAdviseAboveEntries = 1'000'000;
+
 // Naming a bound the caller already gave is no advice at all, so which sentence is said depends on
 // whether the walk has an upper hop bound to begin with.
 constexpr std::string_view kUnboundedAdvice =
@@ -1227,21 +1232,49 @@ mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
   return path;
 }
 
-void Path::PathExpand::EmitBranch(const int64_t index) {
-  const int64_t parent = branches_[index].parent;
-  if (parent == kNoParent) {
-    Emit(BranchPath(index));
-    return;
-  }
+void Path::PathExpand::EmitChildOf(const int64_t parent, const int64_t relationship_id) {
   if (!emitted_prefix_.has_value() || emitted_prefix_parent_ != parent) {
     emitted_prefix_.emplace(BranchPath(parent));
     emitted_prefix_parent_ = parent;
   }
   // Rebuilding the parent's path would cost an allocation and a chain walk per emission; extending
   // the one already in hand costs a copy of the one relationship, and putting it back costs nothing.
-  emitted_prefix_->Expand(relationships_.At(branches_[index].relationship_id));
+  emitted_prefix_->Expand(relationships_.At(relationship_id));
   Emit(*emitted_prefix_);
   emitted_prefix_->Pop();
+}
+
+void Path::PathExpand::EmitBranch(const int64_t index) {
+  const int64_t parent = branches_[index].parent;
+  if (parent == kNoParent) {
+    Emit(BranchPath(index));
+    return;
+  }
+  EmitChildOf(parent, branches_[index].relationship_id);
+}
+
+void Path::PathExpand::EmitTerminalNeighbours(const int64_t index, mgp_vertex *vertex, const bool outgoing,
+                                              const int64_t depth) {
+  const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
+  const std::vector<AdmittedEdge> &admitted =
+      AdmittedNeighbours(mgp::vertex_get_id(vertex).as_int, vertex, outgoing, depth);
+  for (const AdmittedEdge &candidate : admitted) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
+
+    const int64_t key = node_keyed ? candidate.next_id : candidate.relationship_id;
+    if (OnBranch(index, key)) {
+      continue;
+    }
+    // Nothing expands through it, so only the half of the verdict that emits is asked for.
+    if (!path_data_.helper_.Evaluate(candidate.next_vertex, candidate.next_id, depth + 1).include ||
+        !path_data_.helper_.PathSizeOk(depth + 1)) {
+      continue;
+    }
+    EmitChildOf(index, candidate.relationship_id);
+  }
 }
 
 bool Path::PathExpand::AskedBefore(const size_t hash) {
@@ -1395,11 +1428,15 @@ void Path::PathExpand::RunPathScopedBfs() {
         continue;
       }
 
+      // A child of the last level a walk may reach can only be emitted, never expanded: giving it a
+      // branch and a place in the next level buys nothing, and on a shallow walk over a wide graph
+      // that is most of the branches there are.
+      const bool terminal = depth + 1 == path_data_.helper_.MaxHops();
       if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
-        ExpandBranch(index, vertex, false);
+        terminal ? EmitTerminalNeighbours(index, vertex, false, depth) : ExpandBranch(index, vertex, false);
       }
       if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
-        ExpandBranch(index, vertex, true);
+        terminal ? EmitTerminalNeighbours(index, vertex, true, depth) : ExpandBranch(index, vertex, true);
       }
     }
     level_start = level_end;
@@ -1429,8 +1466,11 @@ void Path::PathExpand::RunAlgorithm() {
     // holding when it stopped.
     throw;
   } catch (const std::exception &e) {
-    const size_t held = branches_.size();
-    if (held < kAdviseAboveBranches) {
+    const size_t branches = branches_.size();
+    // What the walk holds is the partial paths plus the part of the graph it copied to reach them,
+    // and either can be what it ran out of room for.
+    const size_t entries = nodes_.Size() + relationships_.Size() + admitted_.Size();
+    if (branches < kAdviseAboveBranches && entries < kAdviseAboveEntries) {
       throw;
     }
     // Released first: what threw was most likely an allocation, and the message below needs one.
@@ -1441,8 +1481,9 @@ void Path::PathExpand::RunAlgorithm() {
     nodes_ = {};
     const std::string_view advice =
         path_data_.helper_.MaxHops() == std::numeric_limits<int64_t>::max() ? kUnboundedAdvice : kBoundedAdvice;
-    throw mgp::ValueException(std::string{e.what()} + " (the walk was holding " + std::to_string(held) +
-                              " partial paths)" + std::string{advice});
+    throw mgp::ValueException(std::string{e.what()} + " (the walk was holding " + std::to_string(branches) +
+                              " partial paths over " + std::to_string(entries) + " reached elements)" +
+                              std::string{advice});
   }
 }
 

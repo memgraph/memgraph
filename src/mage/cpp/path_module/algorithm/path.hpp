@@ -484,6 +484,11 @@ class PathExpand {
 
   void RunPathScopedBfs();
   void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing);
+  // The last level a walk may reach can only be emitted, never expanded, so its paths are emitted
+  // here and never become branches.
+  void EmitTerminalNeighbours(int64_t index, mgp_vertex *vertex, bool outgoing, int64_t depth);
+  // Emits the path reaching `parent` extended by one relationship.
+  void EmitChildOf(int64_t parent, int64_t relationship_id);
   // Reads the adjacency from storage, and stores the answer once it has been asked for twice. The
   // returned reference is invalidated by the next call, so a caller must finish with one answer
   // before asking for another.
