@@ -64,6 +64,11 @@ struct DoubleListTag {};
 
 struct NumericListTag {};
 
+/// The three tags naming a packed form of a list.
+template <typename T>
+concept OneOfTheListTags =
+    std::same_as<T, IntListTag> || std::same_as<T, DoubleListTag> || std::same_as<T, NumericListTag>;
+
 /// Whether the type is one of the four a list is held in.
 ///
 /// A list whose elements are all numbers is packed into a narrower
@@ -269,6 +274,17 @@ class PropertyValueImpl {
   using numeric_list_t =
       std::vector<std::variant<int, double>, typename alloc_trait::template rebind_alloc<std::variant<int, double>>>;
 
+  /// What a tag names: the list a packed form is held in, and the element it
+  /// holds. Written beside the three lists so that a fourth is added here.
+  template <typename Tag>
+  using packed_list_t =
+      std::conditional_t<std::same_as<Tag, NumericListTag>, numeric_list_t,
+                         std::conditional_t<std::same_as<Tag, IntListTag>, int_list_t, double_list_t>>;
+
+  template <typename Tag>
+  using packed_element_t = std::conditional_t<std::same_as<Tag, NumericListTag>, std::variant<int, double>,
+                                              std::conditional_t<std::same_as<Tag, IntListTag>, int, double>>;
+
   using vector_index_id_t = utils::small_vector<VectorIndexIdType>;
 
   struct VectorIndexIdData {
@@ -346,102 +362,78 @@ class PropertyValueImpl {
       : alloc_{alloc}, list_v{.val_ = list_t{std::move(value), alloc}} {}
 
  private:
-  /// Reads a list into the form a packed list holds its numbers in.
+  /// Reads a list into the form the tag names, element by element.
   ///
   /// The whole run is built before the value owns any of it. An element of the
   /// wrong type, or an integer too wide for the packed form, leaves the
   /// conversion part way through, and a value whose constructor has not
   /// returned is never destroyed, so anything it had already taken would not be
   /// given back.
-  static auto PackedAsNumbers(list_t const &value, allocator_type const &alloc) -> numeric_list_t {
-    auto packed = numeric_list_t{alloc};
+  template <typename Tag>
+  static auto PackedAs(list_t const &value, allocator_type const &alloc) -> packed_list_t<Tag> {
+    auto packed = packed_list_t<Tag>{alloc};
     packed.reserve(value.size());
     std::transform(
-        value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> std::variant<int, double> {
-          if (elem.IsDouble()) {
-            return elem.ValueDouble();
+        value.begin(), value.end(), std::back_inserter(packed), [](auto const &elem) -> packed_element_t<Tag> {
+          if constexpr (!std::same_as<Tag, IntListTag>) {
+            if (elem.IsDouble()) return elem.ValueDouble();
           }
           if (elem.IsInt()) {
-            return PackedForAList(elem.ValueInt());
+            if constexpr (std::same_as<Tag, DoubleListTag>) {
+              return static_cast<double>(elem.ValueInt());
+            } else {
+              return PackedForAList(elem.ValueInt());
+            }
           }
-          throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+          if constexpr (std::same_as<Tag, IntListTag>) {
+            throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
+          } else if constexpr (std::same_as<Tag, DoubleListTag>) {
+            throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
+          } else {
+            throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+          }
         });
     return packed;
   }
 
-  static auto PackedAsIntegers(list_t const &value, allocator_type const &alloc) -> int_list_t {
-    auto packed = int_list_t{alloc};
-    packed.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> int {
-      if (elem.IsInt()) {
-        return PackedForAList(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
-    });
-    return packed;
-  }
-
-  static auto PackedAsDoubles(list_t const &value, allocator_type const &alloc) -> double_list_t {
-    auto packed = double_list_t{alloc};
-    packed.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> double {
-      if (elem.IsDouble()) {
-        return elem.ValueDouble();
-      }
-      if (elem.IsInt()) {
-        return static_cast<double>(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
-    });
-    return packed;
-  }
-
  public:
+  /// Builds a list in the packed form the tag names.
+  ///
+  /// One constructor over the three tags rather than one per tag: each reads
+  /// the same list the same way and differs only in what it holds the elements
+  /// at, which the tag settles.
+  ///
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
-    auto packed = PackedAsNumbers(value, alloc);
-    type_ = Type::NumericList;
-    alloc_trait::construct(alloc_, &numeric_list_v.val_, std::move(packed));
+  /// @throw PropertyValueException if an element does not fit the packed form
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    auto packed = PackedAs<Tag>(value, alloc);
+    if constexpr (std::same_as<Tag, NumericListTag>) {
+      type_ = Type::NumericList;
+      alloc_trait::construct(alloc_, &numeric_list_v.val_, std::move(packed));
+    } else if constexpr (std::same_as<Tag, IntListTag>) {
+      type_ = Type::IntList;
+      alloc_trait::construct(alloc_, &int_list_v.val_, std::move(packed));
+    } else {
+      type_ = Type::DoubleList;
+      alloc_trait::construct(alloc_, &double_list_v.val_, std::move(packed));
+    }
   }
 
-  explicit PropertyValueImpl(NumericListTag tag, list_t const &value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
+  /// Reads the list rather than taking it, whichever way it arrives: an element
+  /// is held at a different width once packed, so there is nothing to move.
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t const &value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
 
-  explicit PropertyValueImpl(NumericListTag tag, list_t &&value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t &&value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
 
-  explicit PropertyValueImpl(NumericListTag tag, list_t &&value, allocator_type const &alloc)
-      : PropertyValueImpl{tag, value, alloc} {}
-
-  /// @throw std::bad_alloc
-  explicit PropertyValueImpl(IntListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
-    auto packed = PackedAsIntegers(value, alloc);
-    type_ = Type::IntList;
-    alloc_trait::construct(alloc_, &int_list_v.val_, std::move(packed));
-  }
-
-  explicit PropertyValueImpl(IntListTag tag, list_t const &value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
-
-  explicit PropertyValueImpl(IntListTag tag, list_t &&value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
-
-  explicit PropertyValueImpl(IntListTag tag, list_t &&value, allocator_type const &alloc)
-      : PropertyValueImpl{tag, value, alloc} {}
-
-  /// @throw std::bad_alloc
-  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
-    auto packed = PackedAsDoubles(value, alloc);
-    type_ = Type::DoubleList;
-    alloc_trait::construct(alloc_, &double_list_v.val_, std::move(packed));
-  }
-
-  explicit PropertyValueImpl(DoubleListTag tag, list_t const &value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
-
-  explicit PropertyValueImpl(DoubleListTag tag, list_t &&value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
-
-  explicit PropertyValueImpl(DoubleListTag tag, list_t &&value, allocator_type const &alloc)
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t &&value, allocator_type const &alloc)
       : PropertyValueImpl{tag, value, alloc} {}
 
   /// @throw std::bad_alloc

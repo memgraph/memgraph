@@ -69,74 +69,63 @@ bool EqualsItself(const TypedValue &value);
 ///
 /// @throw TypedValueException for a pair no equality is defined over.
 inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.get_allocator());
+  auto const alloc = a.get_allocator();
+  if (a.IsNull() || b.IsNull()) return TypedValue(alloc);
 
-  // check we have values that can be compared
-  // this means that either they're the same type, or (int, double) combo
+  // A pair of unlike types is equal only where both are numbers. That pair is
+  // read at the width each holds, by the placement the order reads: taking
+  // either through the other's type would hold two integers equal to one double
+  // while telling the two apart, and this relation has to agree with the order
+  // over the same pair.
+  //
   // The tag tests read type() rather than IsNumeric()/IsDouble(), which are
   // defined in the value's own translation unit and are calls anywhere else.
   // Every element of a container reaches this.
-  auto const numeric = [](TypedValue::Type type) {
-    return type == TypedValue::Type::Int || type == TypedValue::Type::Double;
-  };
-  if (a.type() != b.type() && !(numeric(a.type()) && numeric(b.type()))) {
-    return TypedValue(false, a.get_allocator());
+  if (a.type() != b.type()) {
+    if (!AreMixedNumbers(a.type(), b.type())) return TypedValue(false, alloc);
+    return TypedValue(std::is_eq(ComparePayloadOfMixedNumbers(a, b)), alloc);
   }
 
+  // Both are of one type from here, so reading `b` at `a`'s is sound.
   switch (a.type()) {
     case TypedValue::Type::Bool:
-      return TypedValue(a.UnsafeValueBool() == b.UnsafeValueBool(), a.get_allocator());
-    // A number against one of the other numeric type is asked of the shared
-    // placement, which reads each at its own width. Reading either through the
-    // other's type would hold two integers equal to one double while telling
-    // the two apart, and this relation has to agree with the order over the
-    // same pair.
+      return TypedValue(a.UnsafeValueBool() == b.UnsafeValueBool(), alloc);
     case TypedValue::Type::Int:
-      if (b.type() == TypedValue::Type::Double)
-        return TypedValue(std::is_eq(PlaceIntegerAgainstDouble(a.UnsafeValueInt(), b.UnsafeValueDouble())),
-                          a.get_allocator());
-      else
-        return TypedValue(a.UnsafeValueInt() == b.UnsafeValueInt(), a.get_allocator());
+      return TypedValue(a.UnsafeValueInt() == b.UnsafeValueInt(), alloc);
     case TypedValue::Type::Double:
-      if (b.type() == TypedValue::Type::Int)
-        return TypedValue(std::is_eq(PlaceIntegerAgainstDouble(b.UnsafeValueInt(), a.UnsafeValueDouble())),
-                          a.get_allocator());
-      else
-        return TypedValue(a.UnsafeValueDouble() == b.UnsafeValueDouble(), a.get_allocator());
+      return TypedValue(a.UnsafeValueDouble() == b.UnsafeValueDouble(), alloc);
     case TypedValue::Type::String:
-      return TypedValue(a.UnsafeValueString() == b.UnsafeValueString(), a.get_allocator());
+      return TypedValue(a.UnsafeValueString() == b.UnsafeValueString(), alloc);
     case TypedValue::Type::Vertex:
-      return TypedValue(a.UnsafeValueVertex() == b.UnsafeValueVertex(), a.get_allocator());
+      return TypedValue(a.UnsafeValueVertex() == b.UnsafeValueVertex(), alloc);
     case TypedValue::Type::Edge:
-      return TypedValue(a.UnsafeValueEdge() == b.UnsafeValueEdge(), a.get_allocator());
+      return TypedValue(a.UnsafeValueEdge() == b.UnsafeValueEdge(), alloc);
     case TypedValue::Type::VirtualEdge:
-      return TypedValue(a.UnsafeValueVirtualEdge() == b.UnsafeValueVirtualEdge(), a.get_allocator());
+      return TypedValue(a.UnsafeValueVirtualEdge() == b.UnsafeValueVirtualEdge(), alloc);
     case TypedValue::Type::VirtualNode:
-      return TypedValue(a.UnsafeValueVirtualNode() == b.UnsafeValueVirtualNode(), a.get_allocator());
-    // Reading `b` at `a`'s type is sound here: the guard above returns for a
-    // pair of unlike types unless both are numbers, and neither of these is.
+      return TypedValue(a.UnsafeValueVirtualNode() == b.UnsafeValueVirtualNode(), alloc);
     case TypedValue::Type::List:
-      return EqualOfLists(a.UnsafeValueList(), b.UnsafeValueList(), a.get_allocator());
+      return EqualOfLists(a.UnsafeValueList(), b.UnsafeValueList(), alloc);
     case TypedValue::Type::Map:
-      return EqualOfMaps(a.UnsafeValueMap(), b.UnsafeValueMap(), a.get_allocator());
+      return EqualOfMaps(a.UnsafeValueMap(), b.UnsafeValueMap(), alloc);
     case TypedValue::Type::Path:
-      return TypedValue(a.UnsafeValuePath() == b.UnsafeValuePath(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePath() == b.UnsafeValuePath(), alloc);
     case TypedValue::Type::Date:
-      return TypedValue(a.UnsafeValueDate() == b.UnsafeValueDate(), a.get_allocator());
+      return TypedValue(a.UnsafeValueDate() == b.UnsafeValueDate(), alloc);
     case TypedValue::Type::LocalTime:
-      return TypedValue(a.UnsafeValueLocalTime() == b.UnsafeValueLocalTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueLocalTime() == b.UnsafeValueLocalTime(), alloc);
     case TypedValue::Type::LocalDateTime:
-      return TypedValue(a.UnsafeValueLocalDateTime() == b.UnsafeValueLocalDateTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueLocalDateTime() == b.UnsafeValueLocalDateTime(), alloc);
     case TypedValue::Type::ZonedDateTime:
-      return TypedValue(a.UnsafeValueZonedDateTime() == b.UnsafeValueZonedDateTime(), a.get_allocator());
+      return TypedValue(a.UnsafeValueZonedDateTime() == b.UnsafeValueZonedDateTime(), alloc);
     case TypedValue::Type::Duration:
-      return TypedValue(a.UnsafeValueDuration() == b.UnsafeValueDuration(), a.get_allocator());
+      return TypedValue(a.UnsafeValueDuration() == b.UnsafeValueDuration(), alloc);
     case TypedValue::Type::Enum:
-      return TypedValue(a.UnsafeValueEnum() == b.UnsafeValueEnum(), a.get_allocator());
+      return TypedValue(a.UnsafeValueEnum() == b.UnsafeValueEnum(), alloc);
     case TypedValue::Type::Point2d:
-      return TypedValue(a.UnsafeValuePoint2d() == b.UnsafeValuePoint2d(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePoint2d() == b.UnsafeValuePoint2d(), alloc);
     case TypedValue::Type::Point3d:
-      return TypedValue(a.UnsafeValuePoint3d() == b.UnsafeValuePoint3d(), a.get_allocator());
+      return TypedValue(a.UnsafeValuePoint3d() == b.UnsafeValuePoint3d(), alloc);
     case TypedValue::Type::Graph:
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported comparison operator");
