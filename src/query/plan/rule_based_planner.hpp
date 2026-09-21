@@ -559,10 +559,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               auto *filter_expr = call_proc->where_->expression_;
               Filters where_filters;
               where_filters.CollectFilterExpression(filter_expr, *context.symbol_table);
-              input_op = std::make_unique<Filter>(std::move(input_op),
-                                                  std::vector<std::shared_ptr<LogicalOperator>>{},
-                                                  filter_expr,
-                                                  std::move(where_filters));
+              // Only `AddMatching` collects a filter's subqueries, and no `Matching` owns this WHERE. Without this
+              // the fold has no side branch, nothing writes its frame slot and the evaluator reads an unwritten one.
+              CollectSubqueryMatchings(where_filters, *context.symbol_table, *context.ast_storage);
+              // This WHERE's comprehensions drained onto the chain just above, so only the subqueries want a branch.
+              auto pattern_filters = ExtractPatternFilters(
+                  where_filters, *context.symbol_table, *context.ast_storage, context.bound_symbols);
+              input_op = std::make_unique<Filter>(
+                  std::move(input_op), std::move(pattern_filters), filter_expr, std::move(where_filters));
             }
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
