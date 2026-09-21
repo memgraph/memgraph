@@ -199,7 +199,14 @@ class PathHelper {
   explicit PathHelper(const mgp::Map &config, const mgp::Graph &graph, ProcedureKind kind);
 
   // Whether a relationship of this type, traversed this way out of a node at `depth`, may be followed.
-  [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const;
+  // The step a relationship out of a node at `depth` is tested against.
+  [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
+  // Identifies that step, so two depths testing against the same step can share an answer.
+  [[nodiscard]] int64_t RelStepIndexAt(int64_t depth) const;
+  // The step is fixed for a whole adjacency list, and resolving it from a depth costs a division by
+  // a runtime sequence length. Callers that walk a list resolve it once and pass it.
+  [[nodiscard]] bool RelationshipAdmitted(const RelStep &step, std::string_view rel_type, bool outgoing) const;
+
   [[nodiscard]] bool StepAdmitsDirection(int64_t depth, bool outgoing) const;
 
   [[nodiscard]] static LabelBools GetLabelBools(mgp_vertex *vertex, const LabelStep &step);
@@ -248,10 +255,9 @@ class PathHelper {
   [[nodiscard]] Evaluation EvaluateEndAndTerminatorNodes(int64_t id, int64_t depth) const;
   [[nodiscard]] Evaluation EvaluateNodeLists(int64_t id, int64_t depth) const;
 
-  // The step a node at `depth`, or a relationship out of a node at `depth`, is tested against.
+  // The step a node at `depth` is tested against.
   [[nodiscard]] int64_t LabelStepIndexAt(int64_t depth) const;
   void SizeLabelCache();
-  [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
 
   [[nodiscard]] bool EndNodesOnly() const { return config_.end_nodes_only; }
 
@@ -449,8 +455,36 @@ class PathExpand {
   static constexpr int64_t kNoParent = -1;
   static constexpr int64_t kNoRelationship = std::numeric_limits<int64_t>::min();
 
+  // A relationship the step admits, and the node it leads to. The handle is the node `nodes_` owns:
+  // moving that entry as the map grows carries the handle, it does not invalidate it.
+  struct AdmittedEdge {
+    int64_t next_id;
+    int64_t relationship_id;
+    mgp_vertex *next_vertex;
+  };
+
+  // What a node's adjacency answers depends only on the step and the direction, never on the path
+  // that arrived, so the answer is shared by every branch that asks it.
+  struct NeighbourhoodKey {
+    int64_t node_id;
+    int64_t step_index;
+    bool outgoing;
+    bool operator==(const NeighbourhoodKey &other) const = default;
+  };
+
+  struct NeighbourhoodHash {
+    size_t operator()(const NeighbourhoodKey &key) const noexcept {
+      size_t hash = std::hash<int64_t>{}(key.node_id);
+      hash ^= std::hash<int64_t>{}(key.step_index) + 0x9e3779b9UL + (hash << 6U) + (hash >> 2U);
+      return hash ^ static_cast<size_t>(key.outgoing);
+    }
+  };
+
   void RunPathScopedBfs();
   void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing, std::queue<Queued> &frontier);
+  // Reads the adjacency from storage on the first ask and answers from the cache after it.
+  [[nodiscard]] const std::vector<AdmittedEdge> &AdmittedNeighbours(int64_t node_id, mgp_vertex *vertex, bool outgoing,
+                                                                    int64_t depth);
   // Walks the parent chain rather than a visited set: the rule is scoped to this path, not the walk.
   [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
   // Rebuilds the path a branch stands for. Only emitted branches pay for it.
@@ -469,6 +503,10 @@ class PathExpand {
   // the graph the walk reaches, not by the number of partial paths, which is what grows.
   FlatMap<int64_t, mgp::Node> nodes_;
   FlatMap<int64_t, mgp::Relationship> relationships_;
+  // Bounded by the part of the graph the walk reaches times the length of the step sequence, so it
+  // pays for itself exactly when a node is reached by more than one partial path -- which is the
+  // case a path-scoped uniqueness rule creates.
+  FlatMap<NeighbourhoodKey, std::vector<AdmittedEdge>, NeighbourhoodHash> admitted_;
 };
 
 class PathSubgraph {
