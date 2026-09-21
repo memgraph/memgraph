@@ -450,12 +450,6 @@ class PathExpand {
     uint64_t key_bits;
   };
 
-  // A branch waiting for its turn, with the filters' verdict on it, asked once where it was found.
-  struct Queued {
-    int64_t index;
-    Evaluation evaluation;
-  };
-
   static constexpr uint64_t KeyBit(const int64_t key) noexcept {
     return uint64_t{1} << (static_cast<uint64_t>(key) & 63U);
   }
@@ -489,7 +483,7 @@ class PathExpand {
   };
 
   void RunPathScopedBfs();
-  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing, std::queue<Queued> &frontier);
+  void ExpandBranch(int64_t index, mgp_vertex *vertex, bool outgoing);
   // Reads the adjacency from storage, and stores the answer once it has been asked for twice. The
   // returned reference is invalidated by the next call, so a caller must finish with one answer
   // before asking for another.
@@ -513,6 +507,10 @@ class PathExpand {
   PathData path_data_;
   std::vector<TreeEntry> tree_;
   std::vector<Branch> branches_;
+  // What the filters said of each branch of the level being walked, and of the level it is filling,
+  // asked once where the branch is found.
+  std::vector<Evaluation> verdicts_;
+  std::vector<Evaluation> next_verdicts_;
   // A node sits on many branches at once and a relationship is reached from many of them, so the
   // walk holds one copy of each and the branches hold identities. Both are bounded by the part of
   // the graph the walk reaches, not by the number of partial paths, which is what grows.
@@ -536,7 +534,7 @@ class PathExpand {
   std::vector<uint64_t> asked_;
   size_t asked_set_ = 0;
   std::vector<AdmittedEdge> scratch_;
-  // Branches are appended as their parent is expanded, and dequeued in that same order, so the
+  // Branches are appended as their parent is expanded, and walked in that same order, so the
   // branches emitted one after another are siblings until the parent changes -- which, at a
   // branching factor of b, is one emission in b. Keeping the parent's path and swapping its last
   // relationship rebuilds nothing for the other b-1.

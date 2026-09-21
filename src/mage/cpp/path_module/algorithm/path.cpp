@@ -1310,8 +1310,7 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
   return admitted_.Emplace(cache_key, admitted);
 }
 
-void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, const bool outgoing,
-                                    std::queue<Queued> &frontier) {
+void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, const bool outgoing) {
   // Read before the loop: pushing a branch can reallocate the vector out from under a reference.
   const int64_t depth = branches_[index].depth;
   const int64_t node_id = branches_[index].node_id;
@@ -1327,25 +1326,23 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
       continue;
     }
 
-    // The dequeue does nothing with a branch no filter would emit and none would expand through, so
-    // ask here instead and skip the branch and the dequeue itself. The verdict goes into the queue
-    // with the branch, so the dequeue does not ask again.
+    // A branch no filter would emit and none would expand through does nothing in its level, so it is
+    // skipped here. The verdict is kept for the level, which would otherwise ask for it again.
     const Evaluation next_evaluation = path_data_.helper_.Evaluate(candidate.next_vertex, candidate.next_id, depth + 1);
     if (!next_evaluation.include && !next_evaluation.expand) {
       continue;
     }
+    next_verdicts_.push_back(next_evaluation);
 
     branches_.push_back({.node_id = candidate.next_id,
                          .relationship_id = candidate.relationship_id,
                          .parent = index,
                          .depth = depth + 1,
                          .key_bits = branches_[index].key_bits | KeyBit(key)});
-    frontier.push({.index = static_cast<int64_t>(branches_.size()) - 1, .evaluation = next_evaluation});
   }
 }
 
 void Path::PathExpand::RunPathScopedBfs() {
-  std::queue<Queued> frontier;
   for (const auto &node : path_data_.start_nodes_) {
     if (path_data_.LimitReached()) {
       return;
@@ -1353,47 +1350,59 @@ void Path::PathExpand::RunPathScopedBfs() {
     path_data_.MaybeAbort();
     const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
     nodes_.Emplace(node.Id().AsInt(), node);
+    next_verdicts_.push_back(path_data_.helper_.Evaluate(node, 0));
     branches_.push_back({.node_id = node.Id().AsInt(),
                          .relationship_id = kNoRelationship,
                          .parent = kNoParent,
                          .depth = 0,
                          .key_bits = node_keyed ? KeyBit(node.Id().AsInt()) : 0U});
-    frontier.push(
-        {.index = static_cast<int64_t>(branches_.size()) - 1, .evaluation = path_data_.helper_.Evaluate(node, 0)});
   }
 
-  while (!frontier.empty()) {
-    if (path_data_.LimitReached()) {
-      return;
-    }
-    path_data_.MaybeAbort();
+  // A level is a run of branches: they are appended as the level above is expanded, so the branches
+  // of one depth sit together and in the order a queue would have handed them back. Walking the runs
+  // is walking the queue, without the queue.
+  for (int64_t level_start = 0; level_start < std::ssize(branches_);) {
+    const int64_t level_end = std::ssize(branches_);
+    // One verdict per branch of this level, in its order; the next level's fill in as it expands.
+    std::swap(verdicts_, next_verdicts_);
+    next_verdicts_.clear();
 
-    const Queued entry = frontier.front();
-    frontier.pop();
-    const int64_t index = entry.index;
-    // Read before anything expands: pushing a branch can reallocate the vector.
-    const int64_t depth = branches_[index].depth;
-    const int64_t node_id = branches_[index].node_id;
-    // The node table only ever grows, so a handle taken from it stays good across an expansion.
-    mgp_vertex *vertex = nodes_.At(node_id).GetPtr();
-    const Evaluation &evaluation = entry.evaluation;
-    if (evaluation.include && path_data_.helper_.PathSizeOk(depth)) {
-      EmitBranch(index);
+    // Every path of one length is emitted before any longer one, which is what makes a `limit`
+    // return the shortest paths, so the whole level is emitted before any of it is expanded.
+    for (int64_t index = level_start; index < level_end; ++index) {
       if (path_data_.LimitReached()) {
         return;
       }
+      path_data_.MaybeAbort();
+      const int64_t depth = branches_[index].depth;
+      if (verdicts_[index - level_start].include && path_data_.helper_.PathSizeOk(depth)) {
+        EmitBranch(index);
+      }
     }
 
-    if (!evaluation.expand || std::cmp_greater(depth + 1, path_data_.helper_.MaxHops())) {
-      continue;
-    }
+    for (int64_t index = level_start; index < level_end; ++index) {
+      if (path_data_.LimitReached()) {
+        return;
+      }
+      path_data_.MaybeAbort();
+      // Read before anything expands: pushing a branch can reallocate the vector.
+      const int64_t depth = branches_[index].depth;
+      const int64_t node_id = branches_[index].node_id;
+      // The node table only ever grows, so a handle taken from it stays good across an expansion.
+      mgp_vertex *vertex = nodes_.At(node_id).GetPtr();
 
-    if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
-      ExpandBranch(index, vertex, false, frontier);
+      if (!verdicts_[index - level_start].expand || std::cmp_greater(depth + 1, path_data_.helper_.MaxHops())) {
+        continue;
+      }
+
+      if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
+        ExpandBranch(index, vertex, false);
+      }
+      if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
+        ExpandBranch(index, vertex, true);
+      }
     }
-    if (path_data_.helper_.StepAdmitsDirection(depth, true)) {
-      ExpandBranch(index, vertex, true, frontier);
-    }
+    level_start = level_end;
   }
 }
 
