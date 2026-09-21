@@ -14,6 +14,8 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
+#include "query/relations/extremum.hpp"
+#include "query/relations/orderability.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -7258,29 +7260,19 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COUNT:
           // value is deferred to post-processing
           break;
+        // Every value reaching the fold has been asked whether a sort orders
+        // two of it, so the pair has a position and the comparison answers.
         case Aggregation::Op::MIN: {
           EnsureOkForMinMax(input_value);
-          try {
-            TypedValue comparison_result = input_value < agg_value->values_[pos];
-            // since we skip nulls we either have a valid comparison, or
-            // an exception was just thrown above
-            // safe to assume a bool TypedValue
-            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
-          } catch (const TypedValueException &) {
-            throw QueryRuntimeException(
-                "Unable to get MIN of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
+          if (std::is_lt(relations::orderability::Compare(input_value, agg_value->values_[pos]))) {
+            agg_value->values_[pos] = std::move(input_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          //  all comments as for Op::Min
           EnsureOkForMinMax(input_value);
-          try {
-            TypedValue comparison_result = input_value > agg_value->values_[pos];
-            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
-          } catch (const TypedValueException &) {
-            throw QueryRuntimeException(
-                "Unable to get MAX of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
+          if (std::is_gt(relations::orderability::Compare(input_value, agg_value->values_[pos]))) {
+            agg_value->values_[pos] = std::move(input_value);
           }
           break;
         }
@@ -7486,21 +7478,12 @@ class AggregateCursor : public Cursor {
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
    * an appropriate exception is thrown. */
   void EnsureOkForMinMax(const TypedValue &value) const {
-    switch (value.type()) {
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::Int:
-      case TypedValue::Type::Double:
-      case TypedValue::Type::String:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
-        return;
-      default:
-        throw QueryRuntimeException(
-            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX "
-            "aggregations.");
-    }
+    auto const unordered = relations::extremum::ATypeNoSortOrders(value);
+    if (!unordered) return;
+    throw QueryRuntimeException(
+        "Only values a sort can order are allowed in MIN and MAX aggregations, and '{}' is "
+        "not one.",
+        *unordered);
   }
 
   /// Adds `addend` into the running total `total`. Each must be an integer or a double.
@@ -11497,12 +11480,12 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::MIN:
-            if ((other_value < main_value).ValueBool()) {
+            if (std::is_lt(relations::orderability::Compare(other_value, main_value))) {
               main_value = std::move(other_value);
             }
             break;
           case Aggregation::Op::MAX:
-            if ((other_value > main_value).ValueBool()) {
+            if (std::is_gt(relations::orderability::Compare(other_value, main_value))) {
               main_value = std::move(other_value);
             }
             break;
@@ -11600,13 +11583,13 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::MIN: {
-          if ((other_value < main_value).ValueBool()) {
+          if (std::is_lt(relations::orderability::Compare(other_value, main_value))) {
             main_value = std::move(other_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          if ((other_value > main_value).ValueBool()) {
+          if (std::is_gt(relations::orderability::Compare(other_value, main_value))) {
             main_value = std::move(other_value);
           }
           break;

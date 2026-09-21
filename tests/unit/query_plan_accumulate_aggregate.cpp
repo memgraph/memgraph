@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <memory>
 #include <vector>
@@ -223,6 +224,46 @@ class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
 };
 
 TYPED_TEST_SUITE(QueryPlanAggregateOps, StorageTypes);
+
+TYPED_TEST(QueryPlanAggregateOps, PutsANaNAtTheEndTheSortPutsItAt) {
+  // A NaN is the largest number a sort reads, so a column holding one has it
+  // last and MAX reports it. A fold that asked whether one number is greater
+  // than another would be told no in both directions, and would keep whichever
+  // row the scan happened to reach first.
+  ASSERT_TRUE(this->dba.InsertVertex().SetProperty(this->prop, memgraph::storage::PropertyValue(5.0)).has_value());
+  ASSERT_TRUE(
+      this->dba.InsertVertex().SetProperty(this->prop, memgraph::storage::PropertyValue(std::nan(""))).has_value());
+  ASSERT_TRUE(this->dba.InsertVertex().SetProperty(this->prop, memgraph::storage::PropertyValue(1.0)).has_value());
+  this->dba.AdvanceCommand();
+
+  // The helper reads the first aggregation as `count(*)`, so the two this test
+  // is about are the second and the third.
+  auto results =
+      this->AggregationResults(false, false, {Aggregation::Op::COUNT, Aggregation::Op::MIN, Aggregation::Op::MAX});
+  ASSERT_EQ(results.size(), 1);
+
+  EXPECT_EQ(results[0][1].ValueDouble(), 1.0);
+  EXPECT_TRUE(std::isnan(results[0][2].ValueDouble()));
+}
+
+TYPED_TEST(QueryPlanAggregateOps, ReadsAColumnOfUnlikeTypesInTheOrderASortWould) {
+  // Every pair of unlike types has a position, so a column mixing them has a
+  // first and a last like any other. A boolean sorts below every number.
+  ASSERT_TRUE(this->dba.InsertVertex().SetProperty(this->prop, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(this->dba.InsertVertex().SetProperty(this->prop, memgraph::storage::PropertyValue(true)).has_value());
+  this->dba.AdvanceCommand();
+
+  // The helper reads the first aggregation as `count(*)`, so the two this test
+  // is about are the second and the third.
+  auto results =
+      this->AggregationResults(false, false, {Aggregation::Op::COUNT, Aggregation::Op::MIN, Aggregation::Op::MAX});
+  ASSERT_EQ(results.size(), 1);
+
+  ASSERT_EQ(results[0][1].type(), TypedValue::Type::Bool);
+  EXPECT_TRUE(results[0][1].ValueBool());
+  ASSERT_EQ(results[0][2].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][2].ValueInt(), 1);
+}
 
 TYPED_TEST(QueryPlanAggregateOps, WithData) {
   this->AddData();
@@ -709,12 +750,13 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
 
-  // combination of int and bool, everything except COUNT and COLLECT fails
+  // a column of unlike types is one MIN and MAX answer for, because a sort
+  // places every pair of them; AVG and SUM still need numbers
   aggregate(n_p2, Aggregation::Op::COUNT);
   aggregate(n_p2, Aggregation::Op::COLLECT_LIST);
   aggregate(n_p2, Aggregation::Op::COLLECT_MAP);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_p2, Aggregation::Op::MIN);
+  aggregate(n_p2, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }
@@ -1124,12 +1166,13 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
 
-  // combination of int and bool, everything except COUNT and COLLECT fails
+  // a column of unlike types is one MIN and MAX answer for, because a sort
+  // places every pair of them; AVG and SUM still need numbers
   aggregate(n_p2, Aggregation::Op::COUNT);
   aggregate(n_p2, Aggregation::Op::COLLECT_LIST);
   aggregate(n_p2, Aggregation::Op::COLLECT_MAP);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_p2, Aggregation::Op::MIN);
+  aggregate(n_p2, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }
