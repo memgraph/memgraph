@@ -21,6 +21,7 @@
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/gatekeeper.hpp"
 
 namespace {
 
@@ -62,6 +63,34 @@ struct AsyncIndexerNotifier {
       return std::make_unique<TestProtector>();
     };
   }
+};
+
+// Owns a live Gatekeeper Accessor so try_delete()'s count_ == 1 gate is exercised faithfully (mirrors
+// dbms::DatabaseProtector). Used by the AB-BA deadlock repro below.
+struct StorageGatekeeperProtector : memgraph::storage::DatabaseProtector {
+  using Access = memgraph::utils::Gatekeeper<memgraph::storage::InMemoryStorage>::Accessor;
+
+  explicit StorageGatekeeperProtector(Access access) : access_(std::move(access)) {}
+
+  auto clone() const -> memgraph::storage::DatabaseProtectorPtr override {
+    return std::make_unique<StorageGatekeeperProtector>(access_);
+  }
+
+ private:
+  Access access_;
+};
+
+// Heap-allocated and, on the deadlock path, intentionally leaked: the indexer worker and the try_delete
+// caller both keep referencing it after the test returns.
+struct TryDeleteTrap {
+  std::mutex mutex;
+  std::condition_variable cv;
+  std::atomic<bool> reached{false};  // worker parked inside AsyncIndexer::mutex_, no protector minted yet
+  std::atomic<bool> go{false};       // set by try_delete's predicate (invoked under GKInternals::mutex_)
+  std::mutex done_mutex;
+  std::condition_variable done_cv;
+  std::atomic<bool> try_delete_done{false};
+  std::atomic<bool> try_delete_result{false};
 };
 
 // Helper function to check if a specific index is ready by checking indices info
@@ -326,6 +355,107 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerCompletesBeforeShutdown) {
 
   auto shutdown_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
   EXPECT_LT(shutdown_time, 500) << "Storage shutdown should be fast when async indexer completed";
+}
+
+// Regression for the gatekeeper try_delete() destroy-under-mutex AB-BA deadlock, via the real
+// Gatekeeper::access() route (PR #4576 used access_via(), absent here). The async-indexer worker is
+// parked inside the protector factory while holding AsyncIndexer::mutex_ and having minted no protector.
+// A second thread then drops the tenant via Accessor::try_delete():
+//   pre-fix (destroy value_ under GKInternals::mutex_): ~InMemoryStorage -> StopAllBackgroundTasks() ->
+//     AsyncIndexer::Shutdown() blocks acquiring AsyncIndexer::mutex_ held by the parked worker, while
+//     that worker (once released) blocks acquiring GKInternals::mutex_ held here -> deadlock.
+//   fixed (#4572, move value_ out, release the mutex, destroy unlocked): try_delete releases
+//     GKInternals::mutex_ before ~InMemoryStorage, so the released worker's access() returns nullptr,
+//     the factory returns null, the worker exits and releases AsyncIndexer::mutex_, and Shutdown joins.
+TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexerViaAccess) {
+  using Storage = memgraph::storage::InMemoryStorage;
+  using GK = memgraph::utils::Gatekeeper<Storage>;
+
+  auto *trap = new TryDeleteTrap();
+  // GK* cell, populated only after construction: the factory must re-mint via the same gatekeeper that
+  // try_delete operates on, and access() needs the Gatekeeper object (there is no access_via here).
+  auto gk_cell = std::make_shared<std::atomic<GK *>>(nullptr);
+
+  auto factory = [gk_cell, trap]() -> memgraph::storage::DatabaseProtectorPtr {
+    // Park inside the factory: the async-indexer worker holds AsyncIndexer::mutex_ here and has minted
+    // no protector yet. Announce arrival, then wait for the dropper's predicate to release us.
+    {
+      std::lock_guard<std::mutex> lock(trap->mutex);
+      trap->reached = true;
+    }
+    trap->cv.notify_all();
+    {
+      std::unique_lock<std::mutex> lock(trap->mutex);
+      trap->cv.wait(lock, [trap] { return trap->go.load(); });
+    }
+    auto *gk = gk_cell->load(std::memory_order_acquire);
+    if (gk == nullptr) return nullptr;
+    if (auto acc = gk->access()) {  // real route: Gatekeeper::access() takes GKInternals::mutex_
+      return std::make_unique<StorageGatekeeperProtector>(std::move(*acc));
+    }
+    return nullptr;
+  };
+
+  auto *gk = new GK(config_,
+                    std::nullopt,
+                    std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+                    memgraph::metrics::DatabaseMetricHandles{},
+                    factory);
+  gk_cell->store(gk, std::memory_order_release);
+
+  auto minted = gk->access();
+  ASSERT_TRUE(minted.has_value()) << "Fresh HOT gatekeeper must mint its first accessor";
+  auto *acc = new GK::Accessor(std::move(*minted));
+
+  auto *storage_ptr = acc->get();
+  auto label = storage_ptr->NameToLabel("TestLabel");
+  CreateVerticesWithLabel(storage_ptr, label, 1);
+
+  {
+    std::unique_lock<std::mutex> lock(trap->mutex);
+    ASSERT_TRUE(trap->cv.wait_for(lock, std::chrono::seconds(5), [trap] { return trap->reached.load(); }))
+        << "Async indexer worker never reached the factory trap within 5s";
+  }
+
+  std::thread deleter([acc, trap] {
+    auto predicate = [trap](Storage & /*storage*/) {
+      // Invoked under GKInternals::mutex_; release the parked worker at that instant.
+      {
+        std::lock_guard<std::mutex> lock(trap->mutex);
+        trap->go = true;
+      }
+      trap->cv.notify_all();
+      return true;
+    };
+    bool const result = acc->try_delete(std::chrono::seconds(3), predicate);
+    trap->try_delete_result = result;
+    {
+      std::lock_guard<std::mutex> lock(trap->done_mutex);
+      trap->try_delete_done = true;
+    }
+    trap->done_cv.notify_all();
+  });
+
+  bool finished_in_time = false;
+  {
+    std::unique_lock<std::mutex> lock(trap->done_mutex);
+    finished_in_time =
+        trap->done_cv.wait_for(lock, std::chrono::seconds(10), [trap] { return trap->try_delete_done.load(); });
+  }
+
+  if (!finished_in_time) {
+    ADD_FAILURE() << "AB-BA deadlock reproduced: try_delete() did not return within 10s — it is destroying "
+                     "InMemoryStorage while holding GKInternals::mutex_, blocking on AsyncIndexer::mutex_ held by "
+                     "the worker parked in the factory, which itself blocks acquiring GKInternals::mutex_ in access().";
+    deleter.detach();  // leak gk/acc/trap on the deadlock path so exactly one test fails, not the binary
+    return;
+  }
+
+  deleter.join();
+  EXPECT_TRUE(trap->try_delete_result) << "try_delete() should report success once the predicate accepted the drop";
+  delete acc;
+  delete gk;
+  delete trap;
 }
 
 }  // namespace
