@@ -47,6 +47,7 @@
            (str "--storage-snapshot-interval-sec=" (get-rnd-snapshot-interval-sec))
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
+           "--replication-replica-check-frequency-sec=10"
            "--telemetry-enabled=false"
            "--metrics-format=OpenMetrics"
            :--storage-properties-on-edges]
@@ -69,6 +70,7 @@
            "--telemetry-enabled=false"
            "--metrics-format=OpenMetrics"
            "--log-level=TRACE"
+           "--replication-replica-check-frequency-sec=10"
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            :--coordinator-id (get node-config :coordinator-id)
            :--coordinator-port (get node-config :coordinator-port)
