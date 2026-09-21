@@ -27,6 +27,7 @@
 #include <cmath>
 #include <compare>
 #include <cstdint>
+#include <limits>
 
 #include "query/typed_value.hpp"
 
@@ -110,14 +111,18 @@ inline std::partial_ordering PlaceIntegerAgainstDouble(int64_t whole, double oth
   // One past the widest integer, exactly a double. A double outside the range it
   // fences cannot be made into an integer at all, so the range is settled before
   // the conversion below rather than trusted to it.
-  constexpr auto kJustPastTheWidest = 9223372036854775808.0;
+  //
+  // Taken from the smallest integer rather than the largest, because that one is
+  // a power of two and survives the conversion exactly; the largest is one short
+  // of it and would round.
+  constexpr auto kJustPastTheWidest = -static_cast<double>(std::numeric_limits<int64_t>::min());
   if (other >= kJustPastTheWidest) [[unlikely]]
     return std::partial_ordering::less;
   if (other < -kJustPastTheWidest) [[unlikely]]
     return std::partial_ordering::greater;
 
   auto const truncated = static_cast<int64_t>(other);
-  if (auto const by_whole_part = whole <=> truncated; by_whole_part != 0) return by_whole_part;
+  if (auto const by_whole_part = whole <=> truncated; std::is_neq(by_whole_part)) return by_whole_part;
 
   // The two share a whole part, so whatever the double carries past it decides.
   // Truncation is toward zero, so the remainder takes the double's own sign.

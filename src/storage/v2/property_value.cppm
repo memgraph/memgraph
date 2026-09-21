@@ -14,6 +14,7 @@ module;
 #include <compare>
 #include <cstdint>
 #include <iosfwd>
+#include <limits>
 #include <memory>
 #include <memory_resource>
 #include <string>
@@ -132,7 +133,11 @@ inline std::partial_ordering PlaceIntegerAgainstDouble(std::int64_t whole, doubl
   // One past the widest integer, exactly a double. A double outside the range it
   // fences cannot be made into an integer at all, so the range is settled before
   // the conversion below rather than trusted to it.
-  constexpr auto kJustPastTheWidest = 9223372036854775808.0;
+  //
+  // Taken from the smallest integer rather than the largest, because that one is
+  // a power of two and survives the conversion exactly; the largest is one short
+  // of it and would round.
+  constexpr auto kJustPastTheWidest = -static_cast<double>(std::numeric_limits<std::int64_t>::min());
   if (other >= kJustPastTheWidest) [[unlikely]]
     return std::partial_ordering::less;
   if (other < -kJustPastTheWidest) [[unlikely]]
