@@ -1149,3 +1149,99 @@ Feature: Pattern comprehensions
         Then the result should be:
             | name            |
             | 'mg.procedures' |
+
+    # The four scenarios below pin the pattern positions a walk of the filter and the result expression cannot reach.
+    # A comprehension's external symbols are now recorded by the symbol generator from each identifier's resolution,
+    # so a variable-length edge's properties, bounds and lambdas reach them like any other position.
+
+    # The property map on a variable-length edge is turned into two filters whose `used_symbols` hold the expansion's
+    # own inner edge and node. The hand-computed external set took them for outer names and declared them bound, and
+    # `MakeExpansionOperator` asserts that they are not - so this one line aborted the process. `unfiltered` is the
+    # discriminator: it is 3 whether or not the property map is honoured.
+    Scenario: Pattern comprehension over a variable-length edge with a property map
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A)-[:R {w: 1}]->(b:B)-[:R {w: 1}]->(c:C), (a)-[:R {w: 2}]->(d:D)
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            RETURN size([(a)-[:R*1..2 {w: 1}]->(x) | x]) AS filtered,
+                   size([(a)-[:R*1..2]->(x) | x]) AS unfiltered
+            """
+        Then the result should be:
+            | filtered | unfiltered |
+            | 2        | 3          |
+
+    # A variable-length bound is an expression, and here it reads the FOREACH variable. The bound was invisible to the
+    # old walk, so the comprehension drained onto the main chain, outside the FOREACH, and read an unwritten slot:
+    # "Variable expansion bound must be an int". Two iterations, so a bound that is honoured but frozen at one value
+    # still fails.
+    Scenario: Pattern comprehension whose variable-length bound reads a FOREACH variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A)-[:R]->(:B)-[:R]->(:C)
+            """
+        And having executed:
+            """
+            MATCH (a:A) FOREACH (k IN [1, 2] | CREATE (:T {k: k, s: size([(a)-[:R*1..k]->(x) | x])}))
+            """
+        When executing query:
+            """
+            MATCH (t:T) RETURN t.k AS k, t.s AS s ORDER BY k
+            """
+        Then the result should be:
+            | k | s |
+            | 1 | 1 |
+            | 2 | 2 |
+
+    # Same position class, the filter lambda. This one answered rather than erroring: the lambda read a null `k`,
+    # `n.d <= null` is null, the expansion kept nothing and both rows came back 0.
+    Scenario: Pattern comprehension whose BFS filter lambda reads a FOREACH variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A)-[:R]->(:B {d: 1})-[:R]->(:C {d: 2})
+            """
+        And having executed:
+            """
+            MATCH (a:A) FOREACH (k IN [1, 2] | CREATE (:T {k: k, s: size([(a)-[:R *BFS (e, n | n.d <= k)]->(x) | x])}))
+            """
+        When executing query:
+            """
+            MATCH (t:T) RETURN t.k AS k, t.s AS s ORDER BY k
+            """
+        Then the result should be:
+            | k | s |
+            | 1 | 1 |
+            | 2 | 2 |
+
+    # The weight lambda is a third expression on the same edge atom, and it decides which path wShortest keeps. With a
+    # null `k` the weight was null and the expansion produced nothing. The sum of the total weights, not the path
+    # count, is the discriminator: both k values reach two nodes, but k = 10 makes the direct edge to B the cheaper
+    # path.
+    Scenario: Pattern comprehension whose wShortest weight lambda reads a FOREACH variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A)-[:R {c: 5}]->(b:B), (a)-[:R {c: 1}]->(m:M)-[:R {c: 1}]->(b)
+            """
+        And having executed:
+            """
+            MATCH (a:A)
+            FOREACH (k IN [0, 10] |
+                     CREATE (:T {k: k,
+                                 s: reduce(t = 0,
+                                           w IN [(a)-[:R *WSHORTEST (e, n | e.c + k) total_w]->(x) | total_w] |
+                                           t + w)}))
+            """
+        When executing query:
+            """
+            MATCH (t:T) RETURN t.k AS k, t.s AS s ORDER BY k
+            """
+        Then the result should be:
+            | k  | s  |
+            | 0  | 3  |
+            | 10 | 26 |

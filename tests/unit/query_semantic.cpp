@@ -1482,6 +1482,71 @@ TYPED_TEST(TestSymbolGenerator, UsedSymbolsCollectorTakesSubqueryExternals) {
   }
 }
 
+// `PatternComprehension::external_symbols_` carries the same contract, and the same consequences: too few and the
+// RollUpApply is spliced below the operator that writes the symbol, too many and the set is declared bound, which
+// `MakeExpansionOperator` asserts against for an expansion's own inner edge and node. The hand-computed set this
+// replaced walked the filter and the result expression, so every pattern position that is neither - a variable-length
+// bound, a filter or weight lambda - was invisible to it.
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
+  auto names = [](const std::unordered_set<Symbol> &symbols) {
+    std::vector<std::string> out;
+    out.reserve(symbols.size());
+    std::ranges::transform(symbols, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+  using Names = std::vector<std::string>;
+
+  {
+    // MATCH (a) RETURN [(a)-[r]->(b) | b]
+    // The anchor resolves to the caller's `a`, so it is external; `r` and `b` are the comprehension's own.
+    auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), nullptr, IDENT("b"));
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(pc, AS("res")))));
+    EXPECT_EQ(names(pc->external_symbols_), Names{"a"});
+  }
+  {
+    // MATCH (a) RETURN [(x)-[r]->(y) WHERE y = a | y]
+    // Correlated through the filter only. Nothing the pattern declares reaches the caller.
+    auto *pc = PATTERN_COMPREHENSION(
+        nullptr, PATTERN(NODE("x"), EDGE("r"), NODE("y")), WHERE(EQ(IDENT("y"), IDENT("a"))), IDENT("y"));
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(pc, AS("res")))));
+    EXPECT_EQ(names(pc->external_symbols_), Names{"a"});
+  }
+  {
+    // MATCH (a) UNWIND [1] AS k RETURN [(a)-[r*1..k]->(b) | b]
+    // The bound is the whole correlation to `k`. The walk this replaced never looked at the pattern, so `k` was
+    // missing and the comprehension drained before the Unwind that writes it.
+    auto *edge = EDGE_VARIABLE("r");
+    edge->upper_bound_ = IDENT("k");
+    auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), edge, NODE("b")), nullptr, IDENT("b"));
+    MakeSymbolTable(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), UNWIND(NEXPR("k", LIST(LITERAL(1)))), RETURN(pc, AS("res")))));
+    EXPECT_EQ(names(pc->external_symbols_), (Names{"a", "k"}));
+  }
+  {
+    // MATCH (a) UNWIND [1] AS k RETURN [(a)-[r*BFS (e, n | n = k)]->(b) | b]
+    // Same for a filter lambda. Its own inner edge and node are declared here, so they must not be external: declaring
+    // them bound is what aborts `MakeExpansionOperator`.
+    auto *edge = EDGE_VARIABLE("r", memgraph::query::EdgeAtom::Type::BREADTH_FIRST);
+    edge->filter_lambda_.expression = EQ(IDENT(edge->filter_lambda_.inner_node->name_), IDENT("k"));
+    auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), edge, NODE("b")), nullptr, IDENT("b"));
+    MakeSymbolTable(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), UNWIND(NEXPR("k", LIST(LITERAL(1)))), RETURN(pc, AS("res")))));
+    EXPECT_EQ(names(pc->external_symbols_), (Names{"a", "k"}));
+  }
+  {
+    // MATCH (a) RETURN [(a)-[r]->(b) WHERE size([(b)-[r2]->(c) | c]) = 0 | b]
+    // Nesting, as for a body: what the inner comprehension declares is internal to it and never surfaces on the outer
+    // one, which the old subtraction only covered for a comprehension in the *result* expression.
+    auto *inner = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("r2"), NODE("c")), nullptr, IDENT("c"));
+    auto *outer = PATTERN_COMPREHENSION(
+        nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), WHERE(EQ(FN("size", inner), LITERAL(0))), IDENT("b"));
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(outer, AS("res")))));
+    EXPECT_EQ(names(inner->external_symbols_), Names{"b"});
+    EXPECT_EQ(names(outer->external_symbols_), Names{"a"});
+  }
+}
+
 // The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
 // fixed order - so a refusal can change identity when an earlier rung moves. Every position gets a case, allowed or
 // refused, and the refused ones assert the message.

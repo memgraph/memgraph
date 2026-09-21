@@ -3765,8 +3765,9 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereAfterWriteClaus
 TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereAfterForeach) {
   // Test MATCH (n) FOREACH (i IN [1] | SET n.prop = 1) WITH n WHERE [(n)--(m) | 1] = [] RETURN n
   // FOREACH drains onto its own body chain, and it must apply the same dependency check as the main clause loop. Its
-  // own copy tested only `external_symbols`, which is empty here - the comprehension's sole free reference is its
-  // pattern's start node - so it drained on entry to the FOREACH and was planned uncorrelated inside the body.
+  // own copy tested only `external_symbols`, which held nothing here - the comprehension's sole free reference is its
+  // pattern's start node, which the set this replaced subtracted as one of the pattern's own - so it drained on entry
+  // to the FOREACH and was planned uncorrelated inside the body.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   auto *pattern_comp = PATTERN_COMPREHENSION(
@@ -7206,11 +7207,11 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolStaysAboveCallProce
 
 TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolInPatternPropertyStaysAboveCallProcedure) {
   // Test CALL proc() YIELD field WHERE size([(a {prop: field})-[e]->(b) | b]) > 0 RETURN field
-  // Same defect as the test above, reached from the comprehension's own pattern instead of its WHERE. The two symbol
-  // sets the splice decision reads are built from the comprehension's filter and result expression, so a correlation
+  // Same defect as the test above, reached from the comprehension's own pattern instead of its WHERE. The set the
+  // splice decision reads was built by walking the comprehension's filter and result expression, so a correlation
   // living in a node property map, an edge property map or a variable-length bound was invisible: the RollUpApply went
-  // below the CallProcedure and read an unwritten `field`, silently matching nothing. `external_symbols` now takes the
-  // pattern's filters in as well.
+  // below the CallProcedure and read an unwritten `field`, silently matching nothing. `external_symbols` now comes
+  // from the symbol generator, which sees every position alike.
   FakeDbAccessor dba;
 
   auto *inner_node = NODE("a");
@@ -7237,8 +7238,8 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolInNestedComprehensi
   // Test CALL proc() YIELD field WHERE size([(a)-[e]->(b) | size([(c)-[e2]->(d) WHERE d.prop = field | d])]) > 0 ...
   // The third position: the correlation is in a *nested* comprehension's WHERE. The symbol collector stops at a nested
   // comprehension's pattern and never walks its filter or result expression, so `field` never surfaced on the outer
-  // matching and the whole outer+nested pair was spliced below the CallProcedure. The outer matching now unions in each
-  // nested matching's own `external_symbols`, which that same computation has already made complete.
+  // matching and the whole outer+nested pair was spliced below the CallProcedure. The outer frame records the
+  // reference wherever inside the comprehension it occurs, nesting included.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
 
