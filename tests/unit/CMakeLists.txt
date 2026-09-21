@@ -301,6 +301,11 @@ add_unit_test(query_plan_printer_race
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(query_index_differential
+    SOURCES query_index_differential.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
 
 # Test query functions
 add_unit_test(query_function_mgp_module
