@@ -78,12 +78,10 @@ namespace std {
 
 template <>
 struct hash<memgraph::query::Symbol> {
+  // `SymbolTable` hands out `position_` in creation order and never reuses it, so it identifies a symbol
+  // within its table. Equal symbols always share it, which is all `operator==` asks of a hash.
   size_t operator()(const memgraph::query::Symbol &symbol) const {
-    size_t prime = 265'443'599u;
-    size_t hash = std::hash<int>{}(symbol.position());
-    hash ^= prime * std::hash<std::string>{}(symbol.name());
-    hash ^= prime * std::hash<int>{}(static_cast<int>(symbol.type()));
-    return hash;
+    return std::hash<memgraph::query::Symbol::Position_t>{}(symbol.position());
   }
 };
 
