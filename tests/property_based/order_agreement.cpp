@@ -83,10 +83,9 @@ constexpr auto kStoredTypeCount = static_cast<int>(memgraph::storage::PropertyVa
 /// ordered structure. No column a sort reads holds one.
 bool ASortCanBeHandedThis(PropertyValue const &value) {
   if (value.IsVectorIndexId()) return false;
-  // A sort refuses a pair of maps rather than placing them, so there is no
-  // position to agree with. The two layers could not reach one in any case: a
-  // stored map is keyed by an identifier and a read one by a name, and nothing
-  // below the query layer can see a name.
+  // A stored map is keyed by an identifier and a read one by a name, and
+  // nothing below the query layer can see a name, so there is no one position
+  // for the two layers to agree on.
   if (value.IsMap()) return false;
   if (value.IsList()) return std::ranges::all_of(value.ValueList(), ASortCanBeHandedThis);
   return true;
