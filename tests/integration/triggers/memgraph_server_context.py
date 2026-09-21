@@ -16,7 +16,7 @@ def is_port_free(port: int, host: str = "127.0.0.1") -> bool:
 
 
 def wait_for_server(
-    proc: subprocess.Popen, port: int, host: str = "127.0.0.1", delay: float = 0.1, timeout: float = 10.0
+    proc: subprocess.Popen, port: int, host: str = "127.0.0.1", delay: float = 0.1, timeout: float = 60.0
 ):
     """Wait until server is accepting TCP connections on the given port, while the process is alive."""
     start_time = time.time()
@@ -59,6 +59,16 @@ def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, tim
     try:
         # Wait for the server to be ready
         wait_for_server(memgraph_proc, port)
+    except BaseException:
+        # Memgraph blocks SIGINT until startup finishes, so the graceful path below cannot reach it yet.
+        memgraph_proc.kill()
+        try:
+            memgraph_proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        raise
+
+    try:
         yield memgraph_proc  # Give control back to the caller within the context
     finally:
         stdout, stderr = None, None
