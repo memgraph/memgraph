@@ -1227,6 +1227,23 @@ mgp::Path Path::PathExpand::BranchPath(const int64_t index) {
   return path;
 }
 
+void Path::PathExpand::EmitBranch(const int64_t index) {
+  const int64_t parent = branches_[index].parent;
+  if (parent == kNoParent) {
+    Emit(BranchPath(index));
+    return;
+  }
+  if (!emitted_prefix_.has_value() || emitted_prefix_parent_ != parent) {
+    emitted_prefix_.emplace(BranchPath(parent));
+    emitted_prefix_parent_ = parent;
+  }
+  // Rebuilding the parent's path would cost an allocation and a chain walk per emission; extending
+  // the one already in hand costs a copy of the one relationship, and putting it back costs nothing.
+  emitted_prefix_->Expand(relationships_.At(branches_[index].relationship_id));
+  Emit(*emitted_prefix_);
+  emitted_prefix_->Pop();
+}
+
 bool Path::PathExpand::AskedBefore(const size_t hash) {
   const size_t bits = asked_.size() * 64U;
   if (asked_.empty()) {
@@ -1361,7 +1378,7 @@ void Path::PathExpand::RunPathScopedBfs() {
     mgp_vertex *vertex = nodes_.At(node_id).GetPtr();
     const Evaluation &evaluation = entry.evaluation;
     if (evaluation.include && path_data_.helper_.PathSizeOk(depth)) {
-      Emit(BranchPath(index));
+      EmitBranch(index);
       if (path_data_.LimitReached()) {
         return;
       }

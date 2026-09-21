@@ -502,6 +502,8 @@ class PathExpand {
   [[nodiscard]] bool OnBranch(int64_t index, int64_t key) const;
   // Rebuilds the path a branch stands for. Only emitted branches pay for it.
   [[nodiscard]] mgp::Path BranchPath(int64_t index);
+  // Emits the path a branch stands for, keeping the parent's path for the sibling that follows.
+  void EmitBranch(int64_t index);
 
   void RunNodeGlobalBfs();
   void ExpandTreeEntry(int64_t index, int64_t depth, mgp_vertex *vertex, bool outgoing, std::queue<int64_t> &frontier);
@@ -534,6 +536,12 @@ class PathExpand {
   std::vector<uint64_t> asked_;
   size_t asked_set_ = 0;
   std::vector<AdmittedEdge> scratch_;
+  // Branches are appended as their parent is expanded, and dequeued in that same order, so the
+  // branches emitted one after another are siblings until the parent changes -- which, at a
+  // branching factor of b, is one emission in b. Keeping the parent's path and swapping its last
+  // relationship rebuilds nothing for the other b-1.
+  std::optional<mgp::Path> emitted_prefix_;
+  int64_t emitted_prefix_parent_ = kNoParent;
 };
 
 class PathSubgraph {
