@@ -1199,55 +1199,12 @@ bool SubqueryMatchingCollector::PreVisit(PatternComprehension &op) {
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
 
-  // Every symbol the comprehension reads that is NOT bound within it, e.g. the FOREACH variable `x` in
-  // `[(a)-[r]->(b) WHERE a.id = x | b]`. `DepsSatisfied` decides from this when a comprehension may drain, so it must
-  // cover every position an outer symbol can appear in, not just the two obvious expressions: a miss splices the
-  // RollUpApply below the operator that writes the symbol, where it reads an unwritten frame slot.
-  std::unordered_set<Symbol> used_symbols;
-
-  // Collect symbols from filter expression
-  if (op.filter_) {
-    UsedSymbolsCollector filter_collector(symbol_table_);
-    op.filter_->expression_->Accept(filter_collector);
-    used_symbols.insert(filter_collector.symbols_.begin(), filter_collector.symbols_.end());
-  }
-
-  // Collect symbols from result expression
-  UsedSymbolsCollector result_symbol_collector(symbol_table_);
-  op.resultExpr_->Accept(result_symbol_collector);
-  used_symbols.insert(result_symbol_collector.symbols_.begin(), result_symbol_collector.symbols_.end());
-
-  // The collectors above skip the comprehension's own pattern, missing `[(p {name: name})-->(q) | q]`. `AddMatching`
-  // already routed those into the property filters' `used_symbols`.
-  for (const auto &filter : matching.filters) {
-    used_symbols.insert(filter.used_symbols.begin(), filter.used_symbols.end());
-  }
-
-  // `UsedSymbolsCollector` visits only a nested comprehension's pattern, missing what its filter reads. A nested
-  // matching's `external_symbols` comes from this same block, so it is already complete.
-  auto collect_nested_external = [&used_symbols](const PatternComprehensionMatchings &nested) {
-    for (const auto &nested_pc : nested) {
-      used_symbols.insert(nested_pc.external_symbols.begin(), nested_pc.external_symbols.end());
-    }
-  };
-  collect_nested_external(matching.nested_pattern_comprehensions);
-  for (const auto &filter : matching.filters) {
-    collect_nested_external(filter.pattern_comprehension_matchings);
-  }
-
-  // Collect symbols bound by nested pattern comprehensions.
-  // These should NOT be treated as external symbols - they are bound within their respective nested PCs.
-  std::unordered_set<Symbol> nested_pc_symbols;
-  for (const auto &nested_pc : matching.nested_pattern_comprehensions) {
-    nested_pc_symbols.insert(nested_pc.expansion_symbols.begin(), nested_pc.expansion_symbols.end());
-  }
-
-  // External symbols = used symbols - expansion symbols - nested PC symbols
-  for (const auto &sym : used_symbols) {
-    if (!matching.expansion_symbols.contains(sym) && !nested_pc_symbols.contains(sym)) {
-      matching.external_symbols.insert(sym);
-    }
-  }
+  // Every symbol the comprehension reads that it does not declare itself, e.g. the FOREACH variable `x` in
+  // `[(a)-[r]->(b) WHERE a.id = x | b]`. `SymbolGenerator` recorded it from each identifier's resolution, so no
+  // position needs a walk of its own: a property map, a variable-length bound, a nested comprehension's filter and a
+  // subquery body all reach it the same way. `DepsSatisfied` decides from this when a comprehension may drain, and a
+  // miss splices the RollUpApply below the operator that writes the symbol, where it reads an unwritten frame slot.
+  matching.external_symbols = op.external_symbols_;
 
   pattern_comprehension_matchings_.push_back(std::move(matching));
 

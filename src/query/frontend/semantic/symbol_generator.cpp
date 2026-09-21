@@ -1085,6 +1085,9 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
 
+  // Opened before the path variable below, so that variable counts as the comprehension's own declaration.
+  open_correlations_.emplace_back(OpenCorrelation{.first_own_position = symbol_table_->max_position()});
+
   // If there's a named path variable (e.g., [path = (a)-[]->(b) | ...]),
   // create a PATH symbol for it before the children are visited.
   // This is necessary because variable_ is visited before pattern_,
@@ -1100,7 +1103,9 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
+bool SymbolGenerator::PostVisit(PatternComprehension &pc) {
+  // Overwrite instead of merging, as `PostVisit(SubqueryExpression &)` does.
+  pc.external_symbols_ = PopExternalSymbols();
   scopes_.pop_back();
   return true;
 }
