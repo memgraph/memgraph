@@ -203,9 +203,9 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   return false;
 }
 
-void UnlinkAndRemoveDeltas(delta_container &deltas, BatchedList<Edge *> &current_deleted_edges,
-                           BatchedList<Gid> &current_deleted_vertices,
-                           IndexArming::TransactionScope const &arming_scope) {
+void UnlinkDeltasAndCollectDeleted(delta_container &deltas, BatchedList<Edge *> &current_deleted_edges,
+                                   BatchedList<Gid> &current_deleted_vertices,
+                                   IndexArming::TransactionScope const &arming_scope) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -1367,12 +1367,12 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> 
   //      using its own record of what its property writes were on, not this transaction's.
   for (auto &gc_deltas : linked_undo_buffers) {
     auto const arming_scope = arming.for_deltas_of(gc_deltas.wrote_properties_on_);
-    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
+    UnlinkDeltasAndCollectDeleted(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
   }
 
   // STEP 2) this transaction's deltas
   auto const arming_scope = arming.for_deltas_of(transaction_.wrote_properties_on);
-  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
+  UnlinkDeltasAndCollectDeleted(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
 
   // STEP 3) clear all deltas after unlinking is complete. The graveyard is freed here too: an unlink walk
   //         follows `next` into blocks an earlier abort left there, so they must outlive both walks above.
@@ -5239,8 +5239,8 @@ void InMemoryStorage::HarvestDeltaChainOnlyLightEdges() noexcept {
   // stopped before this runs (single-threaded dtor path), so no concurrency on
   // the delta chains — atomic reads of prev/delta/deleted suffice; no edge lock
   // needed. The edge->delta()==&delta guard is the chain-head dedup used by the
-  // GC loop (storage.cpp:3135) and UnlinkAndRemoveDeltas (:303-310): it ensures
-  // each deleted light Edge* is freed EXACTLY ONCE across the whole walk.
+  // GC loop and UnlinkDeltasAndCollectDeleted: it ensures each deleted light Edge* is
+  // freed EXACTLY ONCE across the whole walk.
   auto harvest = [](auto &transactions) noexcept {
     for (auto &entry : transactions) {
       for (Delta &delta : entry.deltas_) {
