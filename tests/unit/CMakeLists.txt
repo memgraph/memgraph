@@ -395,6 +395,18 @@ add_unit_test(typed_value
     LINK_TARGETS mg-query disk_test_utils typed_value_shapes
 )
 
+# Test mg-value-order.
+#
+# Takes its own main rather than the shared one, which links the memory and
+# utility libraries: this binary is meant to link the library under test and
+# nothing else of ours, so that the library keeping no dependencies of its own
+# is something the linker checks rather than something a comment claims.
+add_unit_test(value_order_numbers
+    CUSTOM_MAIN
+    SOURCES value_order_numbers.cpp
+    LINK_TARGETS mg-value-order GTest::gtest_main
+)
+
 add_unit_test(query_relations
     SOURCES query_relations.cpp
     LINK_TARGETS mg-query
