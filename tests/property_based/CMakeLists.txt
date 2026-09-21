@@ -46,6 +46,9 @@ target_link_libraries(${test_prefix}storage_relation_laws mg::storage value_gene
 add_property_based_test(order_agreement.cpp)
 target_link_libraries(${test_prefix}order_agreement mg-query mg::storage value_generators)
 
+add_property_based_test(aggregation_agrees_with_the_sort.cpp)
+target_link_libraries(${test_prefix}aggregation_agrees_with_the_sort mg-query typed_value_generators)
+
 add_property_based_test(wire_round_trip.cpp)
 target_link_libraries(${test_prefix}wire_round_trip mg::storage mg-slk value_generators)
 # The loopback stream the encoding is asked over is kept with the unit tests

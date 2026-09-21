@@ -265,6 +265,27 @@ TYPED_TEST(QueryPlanAggregateOps, ReadsAColumnOfUnlikeTypesInTheOrderASortWould)
   EXPECT_EQ(results[0][2].ValueInt(), 1);
 }
 
+TYPED_TEST(QueryPlanAggregateOps, AnswersAColumnOfListsTheSameWhateverItsLength) {
+  // A list is ordered by what it holds, so a list holding a value a sort
+  // refuses leaves the pair unplaced and MIN has no answer for the column. The
+  // refusal has to come from the column rather than from a pair, because a fold
+  // reaching a pair only from the second row would answer a one-row column and
+  // refuse a longer one holding the same value.
+  auto a_list_holding_a_map = memgraph::storage::PropertyValue{std::vector{
+      memgraph::storage::PropertyValue{memgraph::storage::PropertyValue::map_t{}},
+  }};
+
+  ASSERT_TRUE(this->dba.InsertVertex().SetProperty(this->prop, a_list_holding_a_map).has_value());
+  this->dba.AdvanceCommand();
+  EXPECT_THROW(this->AggregationResults(false, false, {Aggregation::Op::COUNT, Aggregation::Op::MIN}),
+               QueryRuntimeException);
+
+  ASSERT_TRUE(this->dba.InsertVertex().SetProperty(this->prop, a_list_holding_a_map).has_value());
+  this->dba.AdvanceCommand();
+  EXPECT_THROW(this->AggregationResults(false, false, {Aggregation::Op::COUNT, Aggregation::Op::MIN}),
+               QueryRuntimeException);
+}
+
 TYPED_TEST(QueryPlanAggregateOps, WithData) {
   this->AddData();
   auto results = this->AggregationResults(false, false);
