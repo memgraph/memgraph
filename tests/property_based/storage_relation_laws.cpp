@@ -308,6 +308,17 @@ RC_GTEST_PROP(StoredOrder, PlacesAValueWrittenAnotherWayAtOnePosition, ()) {
   RC_ASSERT(SharesAPosition(value, WrittenAnotherWay(value)));
 }
 
+RC_GTEST_PROP(StoredOrder, SendsAValueWrittenAnotherWayToOneHash, ()) {
+  // A hash container keyed by a stored value finds an entry again by hashing to
+  // a bucket and then comparing. Two spellings the order puts in one place are
+  // one key, so hashing them apart files an entry where the lookup never looks.
+  auto const value = *generators::AnyValue();
+  auto const respelled = WrittenAnotherWay(value);
+  RC_PRE(SharesAPosition(value, respelled));
+
+  RC_ASSERT(std::hash<PropertyValue>{}(value) == std::hash<PropertyValue>{}(respelled));
+}
+
 RC_GTEST_PROP(StoredOrder, PlacesAValueWrittenAnotherWayAgainstAnyOtherAlike, ()) {
   // The position itself is not enough: the two spellings have to fall the same
   // side of every other value, or a range keeps one and drops the other.

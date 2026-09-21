@@ -1251,6 +1251,35 @@ TEST(PropertyValue, PlaceAVectorCoordinateThatIsANaN) {
   EXPECT_TRUE(vector_of({1.0f, 2.0f, 3.0f}) < vector_of({1.0f, 2.5f, 3.0f}));
 }
 
+TEST(PropertyValue, HashesAListAlikeWhicheverFormHoldsIt) {
+  // A list of numbers is packed into one of three narrower forms, and the order
+  // compares all four as one value. A container keyed by the hash therefore has
+  // to reach one bucket for all of them, or a list stored one way is looked for
+  // where the other way filed it.
+  auto const hash = std::hash<PropertyValue>{};
+  auto const elements = std::vector<PropertyValue>{PropertyValue(2.5), PropertyValue(int64_t{1})};
+
+  auto const boxed = PropertyValue(elements);
+  auto const packed = PropertyValue(NumericListTag{}, elements);
+  ASSERT_TRUE(std::is_eq(boxed <=> packed));
+  EXPECT_EQ(hash(boxed), hash(packed));
+
+  auto const whole = std::vector<PropertyValue>{PropertyValue(int64_t{1}), PropertyValue(int64_t{2})};
+  EXPECT_EQ(hash(PropertyValue(whole)), hash(PropertyValue(IntListTag{}, whole)));
+  EXPECT_EQ(hash(PropertyValue(whole)), hash(PropertyValue(DoubleListTag{}, whole)));
+}
+
+TEST(PropertyValue, HashesAPointHoldingANaNAlikeWhateverBitsTheNaNCarries) {
+  // The order places two points holding a NaN alongside each other, and more
+  // than one arrangement of bits spells a NaN.
+  auto const hash = std::hash<PropertyValue>{};
+  auto const one = PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, std::nan(""), 1.0});
+  auto const other = PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, -std::nan(""), 1.0});
+
+  ASSERT_TRUE(std::is_eq(one <=> other));
+  EXPECT_EQ(hash(one), hash(other));
+}
+
 TEST(PropertyValue, EqualValuesHashAlike) {
   // A container keyed by the hash puts an entry in one bucket and looks for it
   // in another when two values compare equal and hash apart. The order holds two
