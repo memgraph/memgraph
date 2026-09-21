@@ -110,8 +110,6 @@ neo4j==5.14.1
     # via
     #   -r requirements.txt
     #   gqlalchemy
-neo4j-driver==4.1.1
-    # via -r requirements.txt
 networkx==2.5.1
     # via
     #   -r requirements.txt
@@ -193,7 +191,6 @@ pytz==2023.3
     # via
     #   -r requirements.txt
     #   neo4j
-    #   neo4j-driver
     #   pandas
 pyyaml==6.0.1
     # via -r requirements.txt
