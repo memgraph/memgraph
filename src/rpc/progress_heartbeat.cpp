@@ -19,7 +19,7 @@
 
 namespace memgraph::rpc {
 
-ProgressHeartbeat::ProgressHeartbeat() noexcept = default;
+ProgressHeartbeat::ProgressHeartbeat() = default;
 
 ProgressHeartbeat::ProgressHeartbeat(slk::Builder *res_builder, std::chrono::milliseconds const interval)
     : ProgressHeartbeat() {

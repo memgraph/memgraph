@@ -77,27 +77,28 @@ class InMemoryReplicationHandlers {
 
   static void PrepareCommitHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-      dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t request_version,
-      slk::Reader *req_reader, slk::Builder *res_builder);
+      dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat,
+      uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
                                     uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SnapshotHandler(rpc::FileReplicationHandler const &file_replication_handler,
                               dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
-                              uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
+                              rpc::ProgressHeartbeat &heartbeat, uint64_t request_version, slk::Reader *req_reader,
+                              slk::Builder *res_builder);
 
   static void WalFilesHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
       rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
-      utils::UUID const &current_main_uuid, uint64_t request_version, slk::Reader *req_reader,
-      slk::Builder *res_builder);
+      utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat, uint64_t request_version,
+      slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void CurrentWalHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
       rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
-      utils::UUID const &current_main_uuid, uint64_t request_version, slk::Reader *req_reader,
-      slk::Builder *res_builder);
+      utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat, uint64_t request_version,
+      slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SwapMainUUIDHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
@@ -113,9 +114,6 @@ class InMemoryReplicationHandlers {
       rpc::ProgressHeartbeat &heartbeat, bool two_phase_commit, bool loading_wal);
 
   static TwoPCCache two_pc_cache_;
-  // Replica data/recovery RPCs are serialized, so one persistent worker can serve every handler without creating and
-  // joining a thread for each request.
-  static rpc::ProgressHeartbeat progress_heartbeat_;
 };
 
 }  // namespace memgraph::dbms

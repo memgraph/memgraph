@@ -232,7 +232,6 @@ void LogWrongMain(utils::UUID const &current_main_uuid, const utils::UUID &main_
 }  // namespace
 
 TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
-rpc::ProgressHeartbeat InMemoryReplicationHandlers::progress_heartbeat_;
 
 void InMemoryReplicationHandlers::Register(
     dbms::DbmsHandler *dbms_handler,
@@ -240,6 +239,7 @@ void InMemoryReplicationHandlers::Register(
     replication::RoleReplicaData &data) {
   auto &server = *data.server;
   auto const &current_main_uuid = data.uuid_;
+  auto &heartbeat = server.progress_heartbeat_;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
       [&current_main_uuid, dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
@@ -250,13 +250,13 @@ void InMemoryReplicationHandlers::Register(
             dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
-      [&current_main_uuid, dbms_handler, &repl_state](
+      [&current_main_uuid, dbms_handler, &repl_state, &heartbeat](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
           auto *req_reader,
           auto *res_builder) {
         InMemoryReplicationHandlers::PrepareCommitHandler(
-            repl_state, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
+            repl_state, dbms_handler, current_main_uuid, heartbeat, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
       [&current_main_uuid, dbms_handler](
@@ -268,16 +268,22 @@ void InMemoryReplicationHandlers::Register(
             dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
-      [&current_main_uuid, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                                         uint64_t const request_version,
-                                         auto *req_reader,
-                                         auto *res_builder) {
+      [&current_main_uuid, dbms_handler, &heartbeat](
+          std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for SnapshotHandler");
-        InMemoryReplicationHandlers::SnapshotHandler(
-            *file_replication_handler, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
+        InMemoryReplicationHandlers::SnapshotHandler(*file_replication_handler,
+                                                     dbms_handler,
+                                                     current_main_uuid,
+                                                     heartbeat,
+                                                     request_version,
+                                                     req_reader,
+                                                     res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
-      [&current_main_uuid, dbms_handler, &repl_state](
+      [&current_main_uuid, dbms_handler, &repl_state, &heartbeat](
           std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
           uint64_t const request_version,
           auto *req_reader,
@@ -287,12 +293,13 @@ void InMemoryReplicationHandlers::Register(
                                                      *file_replication_handler,
                                                      dbms_handler,
                                                      current_main_uuid,
+                                                     heartbeat,
                                                      request_version,
                                                      req_reader,
                                                      res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
-      [&current_main_uuid, dbms_handler, &repl_state](
+      [&current_main_uuid, dbms_handler, &repl_state, &heartbeat](
           std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
           uint64_t const request_version,
           auto *req_reader,
@@ -302,6 +309,7 @@ void InMemoryReplicationHandlers::Register(
                                                        *file_replication_handler,
                                                        dbms_handler,
                                                        current_main_uuid,
+                                                       heartbeat,
                                                        request_version,
                                                        req_reader,
                                                        res_builder);
@@ -407,8 +415,8 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
 void InMemoryReplicationHandlers::PrepareCommitHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-    dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t const request_version,
-    slk::Reader *req_reader, slk::Builder *res_builder) {
+    dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat,
+    uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
   // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
   // take the read lock on repl state, main promotion will start after committing is finished.
@@ -476,9 +484,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is O(deltas), and
     // the first tick only fires one interval after activation. The scope guard deactivates the reusable worker if an
     // exception escapes; normal paths stop it before writing the final response because the socket has no locking.
-    auto &heartbeat = progress_heartbeat_;
     heartbeat.Start(res_builder);
-    utils::OnScopeExit const stop_heartbeat{[] { progress_heartbeat_.Stop(); }};
+    utils::OnScopeExit const stop_heartbeat{[&heartbeat] { heartbeat.Stop(); }};
 
     // Abort prev txn if needed
     // It could happen that the main instance died before sending finalize for the previous commit and then
@@ -632,8 +639,8 @@ void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage 
 // signal to the caller that it shouldn't update the commit timestamp value.
 void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler const &file_replication_handler,
                                                   DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
-                                                  uint64_t const request_version, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+                                                  rpc::ProgressHeartbeat &heartbeat, uint64_t const request_version,
+                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   // Reject a deposed-MAIN RPC before any tenant work (defence-in-depth; GetDatabaseAccessor does not reheat).
@@ -665,14 +672,13 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is O(deltas), and
   // the first tick only fires one interval after activation. It also covers the Clear() further down, which takes
   // long enough on a large tenant to exhaust the peer's budget on its own.
-  auto &heartbeat = progress_heartbeat_;
   heartbeat.Start(res_builder);
-  utils::OnScopeExit const stop_heartbeat{[] { progress_heartbeat_.Stop(); }};
+  utils::OnScopeExit const stop_heartbeat{[&heartbeat] { heartbeat.Stop(); }};
   // Progress only, never cancellation: if the peer goes away mid-recovery this must not abort. Unlike delta
   // application, whose work sits in a transaction that can no longer be reported as committed and will simply be
   // resent, the snapshot is already loaded here. Finishing the derived state advances the commit timestamp, so a
   // reconnecting main may only need WAL deltas from that point instead of resending the whole snapshot.
-  auto const record_progress = [] { progress_heartbeat_.RecordProgress(); };
+  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
   AbortPrevTxnIfNeeded(storage, &heartbeat);
 
@@ -832,8 +838,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 void InMemoryReplicationHandlers::WalFilesHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
-    utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
-    slk::Builder *res_builder) {
+    utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat, uint64_t const request_version,
+    slk::Reader *req_reader, slk::Builder *res_builder) {
   // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
   // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
   // take the read lock on repl state, main promotion will start after loading WAL files is finished.
@@ -877,10 +883,9 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is
   // O(deltas), and the first tick only fires one interval after activation.
-  auto &heartbeat = progress_heartbeat_;
   heartbeat.Start(res_builder);
-  utils::OnScopeExit const stop_heartbeat{[] { progress_heartbeat_.Stop(); }};
-  auto const record_progress = [] { progress_heartbeat_.RecordProgress(); };
+  utils::OnScopeExit const stop_heartbeat{[&heartbeat] { heartbeat.Stop(); }};
+  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
   AbortPrevTxnIfNeeded(storage, &heartbeat);
 
@@ -997,8 +1002,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 void InMemoryReplicationHandlers::CurrentWalHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
-    utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
-    slk::Builder *res_builder) {
+    utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat, uint64_t const request_version,
+    slk::Reader *req_reader, slk::Builder *res_builder) {
   // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
   // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
   // take the read lock on repl state, main promotion will start after loading the current WAL is finished.
@@ -1041,10 +1046,9 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is
   // O(deltas), and the first tick only fires one interval after activation.
-  auto &heartbeat = progress_heartbeat_;
   heartbeat.Start(res_builder);
-  utils::OnScopeExit const stop_heartbeat{[] { progress_heartbeat_.Stop(); }};
-  auto const record_progress = [] { progress_heartbeat_.RecordProgress(); };
+  utils::OnScopeExit const stop_heartbeat{[&heartbeat] { heartbeat.Stop(); }};
+  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
   AbortPrevTxnIfNeeded(storage, &heartbeat);
 
