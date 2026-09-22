@@ -63,9 +63,15 @@ def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, tim
         # Memgraph blocks SIGINT until startup finishes, so the graceful path below cannot reach it yet.
         memgraph_proc.kill()
         try:
-            memgraph_proc.communicate(timeout=10)
+            stdout, stderr = memgraph_proc.communicate(timeout=timeout)
+            logger.error(
+                "Memgraph failed to start (return code %s).\n\nStdout:\n%s\n\nStderr:\n%s",
+                memgraph_proc.returncode,
+                stdout.decode(errors="replace"),
+                stderr.decode(errors="replace"),
+            )
         except subprocess.TimeoutExpired:
-            pass
+            logger.error("Memgraph failed to start and could not be reaped after SIGKILL.")
         raise
 
     try:
