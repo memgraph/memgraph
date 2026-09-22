@@ -232,18 +232,19 @@ class Handler {
         itr->second.state() == utils::GatekeeperState::HOT, "DeferDelete requires a HOT gatekeeper (name='{}')", name);
 
     auto gk = std::move(itr->second);
+    // name may alias the items_ key (e.g. callers pass it->first as string_view); must own it before erase.
+    auto name_owned = std::string{name};
     items_.erase(itr);
 
     // splice is noexcept; if emplace_back throws (OOM), node allocation fails before any arg is moved,
     // so gk and id are intact for the fallback.
     std::list<PendingDeletion> node;
     try {
-      node.emplace_back(
-          std::move(gk), std::string{name}, std::move(id), std::move(stop_step), std::move(post_delete_step));
+      node.emplace_back(std::move(gk), name_owned, std::move(id), std::move(stop_step), std::move(post_delete_step));
     } catch (...) {
       // OOM in emplace_back; gk is intact — run the same teardown sequence.
       PendingDeletion fallback{
-          std::move(gk), std::string{name}, std::move(id), std::move(stop_step), std::move(post_delete_step)};
+          std::move(gk), std::move(name_owned), std::move(id), std::move(stop_step), std::move(post_delete_step)};
       TeardownNode_(fallback);
       return;
     }

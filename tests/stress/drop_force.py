@@ -370,12 +370,8 @@ def _wait_for_convergence(endpoint: str, username: str, password: str, ssl: bool
         while time.monotonic() < deadline:
             with drv.session() as sess:
                 rows = _run(sess, "SHOW DATABASES")
-            # Memgraph returns a "name" column; guard against driver variants.
-            remaining = [
-                r.get("name", r.get("Database Name", ""))
-                for r in rows
-                if r.get("name", r.get("Database Name", "")).startswith("tenant_")
-            ]
+            # SHOW DATABASES header is {"Name", "State", "Health"} — see interpreter.cpp:9028.
+            remaining = [name for r in rows if (name := r["Name"]).startswith("tenant_")]
             if not remaining:
                 log.info("Convergence: all tenant_* husks drained. OK")
                 return

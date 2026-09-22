@@ -940,7 +940,7 @@ bool PollUntil(Pred &&pred, std::chrono::steady_clock::duration timeout) {
 
 }  // namespace
 
-// While the holder is alive the worker's own accessor bumps count to 2, so try_delete(0ms)
+// While the holder is alive the worker's own accessor bumps count to 2, so try_delete(kDeferTryTimeout)
 // skips deletion; once the holder resets (count→0), the next tick finds count==1 and completes teardown.
 TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
   using namespace std::chrono_literals;
@@ -965,7 +965,7 @@ TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
   ASSERT_FALSE(h.Has("db"));
 
   // stop_step runs on the first tick even while holder is alive: worker accessor bumps count 1→2,
-  // stop_step runs, then try_delete(0ms) sees count==2 and skips deletion.
+  // stop_step runs, then try_delete(kDeferTryTimeout) sees count==2 and skips deletion.
   ASSERT_TRUE(PollUntil([&] { return stop.load(std::memory_order_relaxed) >= 1; }, 500ms))
       << "stop_step must run within 500 ms of DeferDelete (worker cadence ~50 ms)";
 
@@ -976,7 +976,7 @@ TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
   ASSERT_EQ(post.load(std::memory_order_relaxed), 0) << "post_delete_step must not run while holder is live";
 
   // Release: count drops 1→0.  The next tick opens its accessor (count 0→1),
-  // finds count==1 in try_delete(0ms), destroys the value, and runs post_delete_step.
+  // finds count==1 in try_delete(kDeferTryTimeout), destroys the value, and runs post_delete_step.
   holder.reset();
 
   ASSERT_TRUE(PollUntil([&] { return post.load(std::memory_order_relaxed) >= 1; }, 2s))
@@ -988,7 +988,7 @@ TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
 }
 
 // Tests ~Handler's drain: Stop() joins the worker jthread, then pending nodes are torn down
-// synchronously (stop_step + try_delete(0ms) + ~Gatekeeper + post_delete_step) with no external holder.
+// synchronously (stop_step + try_delete(kDeferTryTimeout) + ~Gatekeeper + post_delete_step) with no external holder.
 TEST(Handler, DeferDeleteDrainsOnHandlerDestruction) {
   std::atomic<int> stop{0}, dtor{0}, post{0};
 

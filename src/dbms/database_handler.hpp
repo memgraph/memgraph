@@ -61,11 +61,18 @@ class DatabaseHandler : public Handler<Database> {
 
  private:
   /// Returns a factory callable that produces a DatabaseProtector for the database named
-  /// @p db_name by looking it up in this handler at call time. Used by both New_() and
-  /// BuildDetached() so the factory logic lives in exactly one place.
-  auto MakeDatabaseProtectorFactory(std::string db_name) {
-    return [this, db_name = std::move(db_name)]() -> storage::DatabaseProtectorPtr {
+  /// @p db_name by looking it up in this handler at call time. The factory rejects a lookup
+  /// whose UUID does not match @p expected_uuid, so a same-name replacement tenant (created
+  /// after a deferred DROP erases the name) is never mistaken for the original. Used by both
+  /// New() and BuildDetached() so the factory logic lives in exactly one place.
+  auto MakeDatabaseProtectorFactory(std::string db_name, utils::UUID expected_uuid) {
+    return [this, db_name = std::move(db_name), expected_uuid]() -> storage::DatabaseProtectorPtr {
       if (auto db_gatekeeper_opt = this->Get(db_name)) {
+        // Same-name recycling guard: after a deferred DROP erases the name, a new tenant may
+        // occupy it before this (old) tenant's background threads stop. On a UUID mismatch the
+        // name now points at a different tenant — return null so the caller treats it as "tenant
+        // gone" (same as absence) instead of pinning/consulting the wrong tenant's protector.
+        if (db_gatekeeper_opt->get()->uuid() != expected_uuid) return nullptr;
         return std::make_unique<DatabaseProtector>(*db_gatekeeper_opt);
       }
       // Fallback: return null if database not found (shouldn't happen in normal operation)
@@ -100,7 +107,7 @@ class DatabaseHandler : public Handler<Database> {
     return HandlerT::New(std::piecewise_construct,
                          *config.salient.name.str_view(),
                          config,
-                         MakeDatabaseProtectorFactory(config.salient.name.str()));
+                         MakeDatabaseProtectorFactory(config.salient.name.str(), config.salient.uuid));
   }
 
   /**
@@ -116,7 +123,7 @@ class DatabaseHandler : public Handler<Database> {
    */
   utils::Gatekeeper<Database> BuildDetached(storage::Config config) {
     // Snap name before the move so MakeDatabaseProtectorFactory doesn't read moved-from config.
-    auto factory = MakeDatabaseProtectorFactory(config.salient.name.str());
+    auto factory = MakeDatabaseProtectorFactory(config.salient.name.str(), config.salient.uuid);
     // Build OFF the map (no insert). The Database ctor recovers when
     // config.durability.recover_on_startup == true. Returned by value (move).
     return utils::Gatekeeper<Database>{std::move(config), std::move(factory)};
