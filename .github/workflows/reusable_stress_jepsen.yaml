@@ -41,6 +41,10 @@ on:
         description: "If true, start each Memgraph instance with intra-cluster mTLS flags."
         type: boolean
         default: false
+      memory-profile:
+        description: "If true, build memgraph with -DMG_MEMORY_PROFILE=ON (glibc malloc, no jemalloc) so heaptrack can profile it."
+        type: boolean
+        default: false
 
 
 env:
@@ -130,6 +134,7 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             build-memgraph \
+            ${{ inputs.memory-profile && '--memory-profile' || '' }} \
             --conan-remote $CONAN_REMOTE \
             --conan-username $CONAN_USERNAME \
             --conan-password $CONAN_PASSWORD

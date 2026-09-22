@@ -159,6 +159,7 @@ print_help () {
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
   echo -e "  --ubsan                       Build with UBSAN"
   echo -e "  --disable-jemalloc            Build without jemalloc"
+  echo -e "  --memory-profile              Build for heap profiling (maps to -DMG_MEMORY_PROFILE=ON: glibc malloc instead of jemalloc, no query allocator pooling)"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Pin the number of concurrent link steps (default 0: derived from the memory available to the container). Compile parallelism is unaffected."
   echo -e "  --memory-per-compile-job-mb int  Memory budgeted per compile step when deriving parallelism (maps to -DMG_MEMORY_PER_COMPILE_JOB_MB)."
@@ -706,6 +707,7 @@ build_memgraph () {
   local asan_flag=""
   local ubsan_flag=""
   local disable_jemalloc_flag=""
+  local memory_profile_flag=""
   local disable_testing_flag=""
   local init_only=false
   local cmake_only=false
@@ -758,6 +760,10 @@ build_memgraph () {
       ;;
       --disable-jemalloc)
         disable_jemalloc_flag="-DENABLE_JEMALLOC=OFF"
+        shift 1
+      ;;
+      --memory-profile)
+        memory_profile_flag="-DMG_MEMORY_PROFILE=ON"
         shift 1
       ;;
       --disable-testing)
@@ -1042,7 +1048,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag" "$abi3_rewrite_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$memory_profile_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag" "$abi3_rewrite_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then
