@@ -8,6 +8,9 @@
 #
 # Enable with -DMG_SPLIT_DEBUG=ON at configure time. Requires
 # CMAKE_BUILD_TYPE=RelWithDebInfo or Debug.
+#
+# Sidecars are compressed by objcopy in the format CompressDebug selected
+# (MG_COMPRESS_DEBUG_FORMAT); zlib when that module is not included.
 
 option(MG_SPLIT_DEBUG "Extract debug info into sidecar .debug files post-link" OFF)
 
@@ -45,8 +48,20 @@ function(mg_split_debug target)
         set(MGSD_COMPONENT debuginfo)
     endif()
 
+    # Compress the sidecar exactly once, in objcopy. A link-time -gz (see
+    # CompressDebug) is speed-tuned and objcopy would pass its sections
+    # through untouched, so the link of a split target stays uncompressed.
+    target_link_options(${target} PRIVATE -gz=none)
+    if(NOT DEFINED MG_COMPRESS_DEBUG_FORMAT)
+        set(_compress --compress-debug-sections=zlib)
+    elseif(NOT MG_COMPRESS_DEBUG_FORMAT STREQUAL "none")
+        set(_compress --compress-debug-sections=${MG_COMPRESS_DEBUG_FORMAT})
+    else()
+        set(_compress "")
+    endif()
+
     add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug --compress-debug-sections=zlib $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug ${_compress} $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
         # --strip-debug keeps .symtab so customer-side stack traces (journalctl,
         # perf, gdb without the debuginfo package) still resolve to function
         # names. Switch to --strip-all once a symbol server is in place and
