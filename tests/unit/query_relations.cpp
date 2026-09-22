@@ -130,6 +130,46 @@ TypedValue MapOf(std::map<std::string, TypedValue> entries) { return TypedValue(
 
 TypedValue Int(int64_t value) { return TypedValue(value); }
 
+/// One value of the given type, for every type a test with no graph can build.
+///
+/// Wider than `PairOf`, which needs two values in a known order and so has nothing for a type
+/// carrying no order of its own. Placing such a type against a different one asks only where
+/// the two types sit, which is a question that has an answer for all of these.
+std::optional<TypedValue> AValueOfType(Type type) {
+  switch (type) {
+    case Type::Null:
+      return TypedValue();
+    case Type::List:
+      return ListOf({Int(1)});
+    case Type::Map:
+      return MapOf({{"a", Int(1)}});
+
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+    case Type::String:
+    case Type::Date:
+    case Type::LocalTime:
+    case Type::LocalDateTime:
+    case Type::ZonedDateTime:
+    case Type::Duration:
+    case Type::Enum:
+    case Type::Point2d:
+    case Type::Point3d:
+      return PairOf(type)->lesser;
+
+    case Type::Vertex:
+    case Type::Edge:
+    case Type::Path:
+    case Type::Graph:
+    case Type::VirtualGraph:
+    case Type::Function:
+    case Type::VirtualEdge:
+    case Type::VirtualNode:
+      return std::nullopt;
+  }
+}
+
 }  // namespace
 
 // Comparability
@@ -372,6 +412,101 @@ TEST(Orderability, PlacesTheTypesComparabilityRefuses) {
   }
 }
 
+TEST(Orderability, OrdersUnlikeTypesInTheOrderTheSpecificationFixes) {
+  // A map first, then a node, a relationship, a list, a path, a string, a boolean, a number,
+  // and a null last. The three holding a piece of the graph are left out here, since building
+  // one needs a database.
+  std::vector<TypedValue> const ascending{
+      MapOf({{"a", Int(1)}}), ListOf({Int(1)}), TypedValue("a"), TypedValue(true), Int(1), TypedValue()};
+
+  for (auto lesser = 0U; lesser != ascending.size(); ++lesser) {
+    for (auto greater = lesser + 1; greater != ascending.size(); ++greater) {
+      EXPECT_TRUE(std::is_lt(orderability::Compare(ascending[lesser], ascending[greater])))
+          << "the value at " << lesser << " did not come before the one at " << greater;
+      EXPECT_TRUE(std::is_gt(orderability::Compare(ascending[greater], ascending[lesser])))
+          << "the value at " << greater << " did not come after the one at " << lesser;
+    }
+  }
+}
+
+TEST(Orderability, PlacesNoTypeTheSpecificationDoesNotNameAboveANaN) {
+  // The specification names a map, a node, a relationship, a list, a path, a string, a boolean,
+  // a number and a null, and forbids seating any other type above a NaN. A NaN is the largest
+  // number, so the whole gap between the numbers and the null is closed to the rest, and each of
+  // them sits below the strings.
+  constexpr Type kNamed[] = {Type::Map,
+                             Type::Vertex,
+                             Type::Edge,
+                             Type::List,
+                             Type::Path,
+                             Type::String,
+                             Type::Bool,
+                             Type::Int,
+                             Type::Double,
+                             Type::Null};
+  auto const not_a_number = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  for (auto const type : kEveryType) {
+    if (std::ranges::contains(kNamed, type)) continue;
+    auto const value = AValueOfType(type);
+    if (!value) continue;
+    EXPECT_TRUE(std::is_lt(orderability::Compare(*value, not_a_number)))
+        << "a value of type " << static_cast<unsigned>(type) << " was placed above a NaN";
+  }
+}
+
+TEST(Orderability, PlacesADateBelowAString) {
+  // The pair the rule above is most easily broken on, and the one the reference implementation
+  // answers this way.
+  auto const date = AValueOfType(Type::Date);
+  ASSERT_TRUE(date.has_value());
+  EXPECT_TRUE(std::is_lt(orderability::Compare(*date, TypedValue("a"))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(TypedValue("a"), *date)));
+}
+
+TEST(Orderability, PlacesAnIntegerAndADoubleAlikeAgainstAThirdType) {
+  // The two numeric types share one position. Were they to sit apart, a column holding 1 and
+  // 1.0 would put them on either side of every string, while a comparison holds them equal.
+  auto const text = TypedValue("a");
+  EXPECT_EQ(orderability::Compare(Int(1), text), orderability::Compare(TypedValue(1.0), text));
+  EXPECT_EQ(orderability::Compare(text, Int(1)), orderability::Compare(text, TypedValue(1.0)));
+}
+
+TEST(Orderability, PlacesEveryPairOfUnlikeTypesItCanBuild) {
+  // A sort has to be given somewhere to put every pair of rows, so a column holding two types
+  // is placed rather than refused. Throwing fails this test as surely as answering unordered.
+  for (auto const left : kEveryType) {
+    auto const a = AValueOfType(left);
+    if (!a) continue;
+    for (auto const right : kEveryType) {
+      if (left == right) continue;
+      auto const b = AValueOfType(right);
+      if (!b) continue;
+
+      EXPECT_NE(orderability::Compare(*a, *b), std::partial_ordering::unordered)
+          << "type " << static_cast<unsigned>(left) << " against type " << static_cast<unsigned>(right);
+    }
+  }
+}
+
+TEST(Orderability, RefusesTwoValuesOfATypeCarryingNoOrderOfItsOwn) {
+  // Placing a pair of unlike types settles nothing about two maps. Where the types are the
+  // same, where each sits no longer answers the question, and a map has no order of its own.
+  auto const map = MapOf({{"a", Int(1)}});
+  EXPECT_THROW(orderability::Compare(map, map), memgraph::query::QueryRuntimeException);
+}
+
+TEST(Orderability, SortsAColumnHoldingUnlikeTypes) {
+  std::vector<TypedValue> column{
+      TypedValue(), Int(2), TypedValue("a"), TypedValue(true), TypedValue(1.5), ListOf({Int(1)})};
+  std::ranges::sort(column,
+                    [](TypedValue const &a, TypedValue const &b) { return std::is_lt(orderability::Compare(a, b)); });
+
+  std::vector<Type> const settled{Type::List, Type::String, Type::Bool, Type::Double, Type::Int, Type::Null};
+  auto const types = column | std::views::transform([](auto const &value) { return value.type(); });
+  EXPECT_TRUE(std::ranges::equal(types, settled)) << "the column did not come out in the order the types sit in";
+}
+
 TEST(Orderability, OrdersAListByItsElements) {
   auto const shorter = TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1})});
   auto const longer = TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1}), TypedValue(int64_t{2})});
@@ -432,10 +567,16 @@ TEST(Orderability, CompareOfListsPlacesAnElementComparabilityCannot) {
 }
 
 TEST(Orderability, CompareOfListsRefusesAnElementPairItHasNoOrderFor) {
+  // A walk answers with the relation, so it refuses exactly where the relation does: for two
+  // elements of one type carrying no order of its own. Two elements of unlike types it places,
+  // by where the two types sit, so a list is no harder to sort than what it holds.
+  auto const holds_a_map = ListOf({MapOf({{"a", Int(1)}})});
+  EXPECT_THROW(orderability::CompareOfLists(holds_a_map.ValueList(), holds_a_map.ValueList()),
+               memgraph::query::QueryRuntimeException);
+
   auto const number = ListOf({Int(1)});
   auto const text = ListOf({TypedValue("a")});
-  EXPECT_THROW(orderability::CompareOfLists(number.ValueList(), text.ValueList()),
-               memgraph::query::QueryRuntimeException);
+  EXPECT_TRUE(std::is_gt(orderability::CompareOfLists(number.ValueList(), text.ValueList())));
 }
 
 TEST(Equivalence, EquivalentOfListsWalksElementByElement) {
