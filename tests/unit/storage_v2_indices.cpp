@@ -3214,7 +3214,6 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
   }
 }
 
-// NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, EdgeTypePropertyIndexAppliesTheValuePredicate) {
   if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     return;
@@ -3224,6 +3223,8 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexAppliesTheValuePredicate) {
     EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
+  // Only "gamma" holds "mm", so the id it is given is the one the scan must come back with.
+  int64_t gamma_id = -1;
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (auto const *word : {"alpha", "beta", "gamma"}) {
@@ -3231,6 +3232,9 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexAppliesTheValuePredicate) {
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
       auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(word)));
+      if (std::string_view{word} == "gamma") {
+        gamma_id = edge_acc.GetProperty(this->prop_id, View::NEW)->ValueInt();
+      }
     }
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
@@ -3245,13 +3249,49 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexAppliesTheValuePredicate) {
       }));
 
   auto acc = this->storage->Access(memgraph::storage::READ);
-  size_t matched = 0;
-  for ([[maybe_unused]] auto edge : acc->Edges(this->edge_type_id1, this->edge_prop_id1, range, View::OLD)) {
-    ++matched;
-  }
-  EXPECT_EQ(matched, 1);
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, range, View::OLD), View::OLD),
+              UnorderedElementsAre(gamma_id));
 }
 
+TYPED_TEST(IndexTest, EdgePropertyIndexAppliesTheValuePredicate) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  // Only "gamma" holds "mm", so the id it is given is the one the scan must come back with.
+  int64_t gamma_id = -1;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (auto const *word : {"alpha", "beta", "gamma"}) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(word)));
+      if (std::string_view{word} == "gamma") {
+        gamma_id = edge_acc.GetProperty(this->prop_id, View::NEW)->ValueInt();
+      }
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto range = memgraph::storage::PropertyValueRange::Bounded(
+      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue("")),
+      memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::String));
+  range.SetValuePredicate(std::make_shared<memgraph::storage::PropertyValueRange::ValuePredicateFn const>(
+      [](memgraph::storage::PropertyValue const &value) {
+        return value.IsString() && value.ValueString().contains("mm");
+      }));
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, range, View::OLD), View::OLD),
+              UnorderedElementsAre(gamma_id));
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     return;

@@ -673,6 +673,8 @@ void InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid
                      self_->transaction_,
                      self_->edge_type_,
                      self_->max_gid_,
+                     // A chunked scan carries no predicate yet, so it hands the whole band to the
+                     // filter above it as it did before. The serial scan is where it is read.
                      nullptr);
 }
 

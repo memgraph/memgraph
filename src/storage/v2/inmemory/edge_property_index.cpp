@@ -632,6 +632,8 @@ void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->max_gid_,
+                     // A chunked scan carries no predicate yet, so it hands the whole band to the
+                     // filter above it as it did before. The serial scan is where it is read.
                      nullptr);
 }
 

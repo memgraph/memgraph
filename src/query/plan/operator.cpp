@@ -1365,7 +1365,7 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
   metric_handles.scan_all_by_edge_type_property_operator.Increment();
 
   // The predicate outlives the row it was built from; see ExpressionRange::MakeValuePredicate.
-  auto get_edges = [this, value_predicate = storage::PropertyValueRange::ValuePredicate{}](
+  auto get_edges = [this, value_predicate = storage::PropertyValueRange::ValuePredicate{}, predicate_built = false](
                        Frame &frame, ExecutionContext &context) mutable -> std::optional<EdgesIterable> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator{&frame, context, view_, nullptr, &context.number_of_hops};
@@ -1378,7 +1378,12 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    if (!value_predicate) value_predicate = expression_range_.MakeValuePredicate(evaluator);
+    // A range with no search term has no predicate, so the flag is what says it has been asked for;
+    // the predicate's own nullness would ask again for every row.
+    if (!predicate_built) {
+      value_predicate = expression_range_.MakeValuePredicate(evaluator);
+      predicate_built = true;
+    }
     range.SetValuePredicate(value_predicate);
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range));
   };
@@ -1449,7 +1454,7 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
   metric_handles.scan_all_by_edge_property_operator.Increment();
 
   // The predicate outlives the row it was built from; see ExpressionRange::MakeValuePredicate.
-  auto get_edges = [this, value_predicate = storage::PropertyValueRange::ValuePredicate{}](
+  auto get_edges = [this, value_predicate = storage::PropertyValueRange::ValuePredicate{}, predicate_built = false](
                        Frame &frame, ExecutionContext &context) mutable -> std::optional<EdgesIterable> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator{&frame, context, view_, nullptr, &context.number_of_hops};
@@ -1462,7 +1467,12 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    if (!value_predicate) value_predicate = expression_range_.MakeValuePredicate(evaluator);
+    // A range with no search term has no predicate, so the flag is what says it has been asked for;
+    // the predicate's own nullness would ask again for every row.
+    if (!predicate_built) {
+      value_predicate = expression_range_.MakeValuePredicate(evaluator);
+      predicate_built = true;
+    }
     range.SetValuePredicate(value_predicate);
     return std::make_optional(db->Edges(view_, property_, range));
   };
