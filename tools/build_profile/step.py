@@ -172,8 +172,10 @@ def main():
         "outputs": len(outputs),
         "exe": exe,
         "ccache": ccache,
-        "start": round(started, 3),
-        "end": round(started + wall_s, 3),
+        # Full precision: a rounded start equal to a rounded end would make the
+        # step look zero-length to the report's concurrency sweep.
+        "start": started,
+        "end": started + wall_s,
         "wall_s": round(wall_s, 4),
         "user_s": round(ru.ru_utime, 4),
         "sys_s": round(ru.ru_stime, 4),

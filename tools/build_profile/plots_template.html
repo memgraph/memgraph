@@ -345,7 +345,10 @@ function flameColor(s) {
   }
   return heat(s.a / maxA);
 }
-const swatch = (color, text) => `<span><i class="sw" style="background:${color}"></i>${text}</span>`;
+// Step and program names come from the profiled checkout; never put them into
+// innerHTML raw.
+const esc = v => String(v).replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
+const swatch = (color, text) => `<span><i class="sw" style="background:${color}"></i>${esc(text)}</span>`;
 function drawFlameLegend() {
   const m = flameMode();
   const el = document.getElementById('flameLegend');
@@ -654,10 +657,10 @@ function customTable() {
     }
   }
   const order = Object.keys(rows).sort((a, b) => rows[b].wall - rows[a].wall);
-  const cell = (v, numeric) => (numeric ? `<td class="n">${v}</td>` : `<td>${v}</td>`);
+  const cell = (v, numeric) => (numeric ? `<td class="n">${esc(v)}</td>` : `<td>${esc(v)}</td>`);
   const html = order.map(x => {
     const r = rows[x];
-    return '<tr>' + cell(`<i class="sw" style="background:${customColor[x] || KC.custom}"></i>`) + cell(x)
+    return '<tr>' + `<td><i class="sw" style="background:${customColor[x] || KC.custom}"></i></td>` + cell(x)
       + cell(r.n, true) + cell(fmtT(r.wall), true) + cell(fmtT(r.cpu), true)
       + cell(Math.round(r.peak).toLocaleString(), true) + cell(Math.round(r.anon).toLocaleString(), true)
       + cell(r.ex) + '</tr>';

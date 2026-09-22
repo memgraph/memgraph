@@ -15,6 +15,7 @@ be shared on its own; no dependencies beyond the browser.
     plots.py --steps steps.jsonl [--sysmon sysmon.jsonl] [--build-dir build] --out plots.html
 """
 import argparse
+import html
 import json
 import os
 import sys
@@ -117,14 +118,14 @@ def main():
     with open(TEMPLATE_PATH) as f:
         template = f.read()
     # The template's __TITLE__, __SUBTITLE__ and __DATA__ markers take the run's
-    # text and its JSON; "</" is escaped so no label can close the script tag.
-    html = (
-        template.replace("__TITLE__", data["title"])
-        .replace("__SUBTITLE__", data["subtitle"])
+    # text (HTML-escaped) and its JSON; "</" is escaped so no label can close the script tag.
+    page = (
+        template.replace("__TITLE__", html.escape(data["title"]))
+        .replace("__SUBTITLE__", html.escape(data["subtitle"]))
         .replace("__DATA__", json.dumps(data, separators=(",", ":")).replace("</", "<\\/"))
     )
     with open(args.out, "w") as f:
-        f.write(html)
+        f.write(page)
     return 0
 
 

@@ -261,7 +261,9 @@ def concurrency(steps):
     events = []
     for s in steps:
         events.append((s["start"], 1, s))
-        events.append((s["end"], -1, s))
+        # Ends sort before starts at equal times, so a zero-length step must
+        # end strictly after it starts or it would never leave the running set.
+        events.append((max(s["end"], s["start"] + 1e-6), -1, s))
     events.sort(key=lambda e: (e[0], e[1]))
     running = {}
     max_count = defaultdict(int)
