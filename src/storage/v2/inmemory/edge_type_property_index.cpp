@@ -469,6 +469,9 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipListDb<Entry>::Acce
                                                   Transaction *transaction, Gid max_gid)
     : Iterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), edge_type, property,
                range.lower_, range.upper_, view, storage, transaction, max_gid) {
+  // A range that matches nothing is the caller's to discard: only its bounds are read here, so an
+  // INVALID one would be scanned as though it were a band.
+  MG_ASSERT(range.type_ != PropertyRangeType::INVALID, "An invalid range never reaches a scan");
   value_predicate_ = range.GetValuePredicate();
 }
 
@@ -659,6 +662,9 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
     size_t num_chunks, Gid max_gid)
     : ChunkedIterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), edge_type, property,
                       range.lower_, range.upper_, view, storage, transaction, num_chunks, max_gid) {
+  // A range that matches nothing is the caller's to discard: only its bounds are read here, so an
+  // INVALID one would be scanned as though it were a band.
+  MG_ASSERT(range.type_ != PropertyRangeType::INVALID, "An invalid range never reaches a scan");
   value_predicate_ = range.GetValuePredicate();
 }
 

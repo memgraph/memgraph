@@ -387,6 +387,49 @@ TEST_F(DbAccessorChunkedTest, PropertyExactValueChunkIterator) {
   EXPECT_EQ(read_gids, matching_gids);
 }
 
+TEST_F(DbAccessorChunkedTest, PropertyChunkIteratorAppliesTheValuePredicate) {
+  std::vector<Gid> matching_gids;
+  {
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+    auto dba = DbAccessor(acc.get());
+    auto v1 = dba.InsertVertex();
+    auto v2 = dba.InsertVertex();
+    for (int i = 0; i < 100; ++i) {
+      auto e = dba.InsertEdge(&v1, &v2, type_id_);
+      ASSERT_TRUE(e.has_value());
+      auto const word = fmt::format("word{}", i);
+      ASSERT_TRUE(e->SetProperty(prop_id_, PropertyValue(word)).has_value());
+      if (word.contains("7")) {
+        matching_gids.push_back(e->Gid());
+      }
+    }
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+  auto dba = DbAccessor(acc.get());
+
+  // The band a CONTAINS scan seeks is every string; the predicate is what narrows it.
+  auto range = storage::PropertyValueRange::Bounded(utils::MakeBoundInclusive(PropertyValue("")),
+                                                    storage::UpperBoundForType(storage::PropertyValueType::String));
+  range.SetValuePredicate(std::make_shared<storage::PropertyValueRange::ValuePredicateFn const>(
+      [](PropertyValue const &value) { return value.IsString() && value.ValueString().contains("7"); }));
+
+  auto chunks = dba.ChunkedEdges(View::OLD, prop_id_, range, 4);
+  ASSERT_GT(chunks.size(), 0);
+
+  std::vector<Gid> read_gids;
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    auto chunk = chunks.get_chunk(i);
+    for (auto e : chunk) {
+      read_gids.push_back(e.Gid());
+    }
+  }
+  std::sort(read_gids.begin(), read_gids.end());
+  std::sort(matching_gids.begin(), matching_gids.end());
+  EXPECT_EQ(read_gids, matching_gids);
+}
+
 TEST_F(DbAccessorChunkedTest, PropertyRangeChunkIterator) {
   std::vector<Gid> matching_gids;
   {

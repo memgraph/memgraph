@@ -290,6 +290,9 @@ auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
   if (!typed_value.IsString()) return nullptr;
   auto const &search_term = typed_value.ValueString();
 
+  // A chunked scan hands one predicate to every worker, so each test runs on several threads at
+  // once. Only a const call is safe: nothing here may be a mutable lambda, whatever the shared_ptr
+  // says, since std::function invokes its target's non-const call operator.
   auto const make = [](auto match) {
     return std::make_shared<storage::PropertyValueRange::ValuePredicateFn>(
         [match = std::move(match)](storage::PropertyValue const &value) {
@@ -1378,8 +1381,8 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    // A range with no search term has no predicate, so the flag is what says it has been asked for;
-    // the predicate's own nullness would ask again for every row.
+    // A range with no search term yields no predicate, so the flag is what says it has been asked
+    // for; its own nullness would ask again every row.
     if (!predicate_built) {
       value_predicate = expression_range_.MakeValuePredicate(evaluator);
       predicate_built = true;
@@ -1467,8 +1470,8 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    // A range with no search term has no predicate, so the flag is what says it has been asked for;
-    // the predicate's own nullness would ask again for every row.
+    // A range with no search term yields no predicate, so the flag is what says it has been asked
+    // for; its own nullness would ask again every row.
     if (!predicate_built) {
       value_predicate = expression_range_.MakeValuePredicate(evaluator);
       predicate_built = true;
@@ -10833,8 +10836,7 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
       return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
     }
 
-    // Carried on the range exactly as the serial scan carries it. Without it every value in the
-    // band is handed to the filter above, which is most of the column for a search term.
+    // Carried on the range exactly as the serial scan carries it; the flag is why, as above.
     if (!predicate_built) {
       value_predicate = expression_range_.MakeValuePredicate(evaluator);
       predicate_built = true;
@@ -10899,8 +10901,7 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
       return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
     }
 
-    // Carried on the range exactly as the serial scan carries it. Without it every value in the
-    // band is handed to the filter above, which is most of the column for a search term.
+    // Carried on the range exactly as the serial scan carries it; the flag is why, as above.
     if (!predicate_built) {
       value_predicate = expression_range_.MakeValuePredicate(evaluator);
       predicate_built = true;
