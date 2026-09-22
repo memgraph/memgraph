@@ -191,11 +191,11 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool has_delete{false};
   };
 
-  /// An open subquery body. Its external symbols are the ones it referenced that predate it.
-  struct SubqueryFrame {
+  /// A subquery body being visited. Its external symbols are the ones it referenced that predate it.
+  struct OpenSubquery {
     std::unordered_set<Symbol> referenced;
-    /// `SymbolTable::max_position()` when the body opened; a symbol below it was created outside.
-    int32_t declared_from{0};
+    /// `SymbolTable::max_position()` when the body opened, so the first position the body itself can declare.
+    int32_t first_own_position{0};
   };
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
@@ -239,10 +239,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
   // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
   std::unordered_set<Symbol> create_clause_symbols_;
-  // The subquery bodies currently open, outermost first. A frame records where a symbol was created, not where it
+  // The subquery bodies currently open, outermost first. Each records where a symbol was created, not where it
   // is visible: `CALL (v) {}` copies an outer symbol into the imported scope without `CreateSymbol`, so it resolves
   // inside the body but keeps its lower position.
-  std::vector<SubqueryFrame> subquery_frames_;
+  std::vector<OpenSubquery> open_subqueries_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups

@@ -66,8 +66,8 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
 }
 
 void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
-  for (auto &frame : subquery_frames_) {
-    frame.referenced.insert(symbol);
+  for (auto &subquery : open_subqueries_) {
+    subquery.referenced.insert(symbol);
   }
 }
 
@@ -764,21 +764,22 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
-  subquery_frames_.emplace_back(SubqueryFrame{.declared_from = symbol_table_->max_position()});
+  open_subqueries_.emplace_back(OpenSubquery{.first_own_position = symbol_table_->max_position()});
 
   return true;
 }
 
 bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
-  const auto &frame = subquery_frames_.back();
-  // Overwrite instead of merging. A simple CASE visits its test once per WHEN arm; only the last visit is kept.
+  const auto &body = open_subqueries_.back();
+  // `CASE x WHEN ...` plants one `x` node under every WHEN, so this node is visited more than once and
+  // re-creates the body's symbols each time. Keep the last visit's - `MapTo` left those in the AST.
   subquery.external_symbols_.clear();
-  for (const auto &symbol : frame.referenced) {
-    if (symbol.position() < frame.declared_from) {
+  for (const auto &symbol : body.referenced) {
+    if (symbol.position() < body.first_own_position) {
       subquery.external_symbols_.insert(symbol);
     }
   }
-  subquery_frames_.pop_back();
+  open_subqueries_.pop_back();
   scopes_.pop_back();
   return true;
 }
