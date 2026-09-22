@@ -856,25 +856,25 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   // items_ — the tenant is fully intact; because the seal has not happened yet, no rollback is needed.
   DetachProfileAndRetireDurabilityKey_(db_name);
 
-  // Non-throwing suffix: advisory seal, then hand ownership to the deferred worker. The worker records
-  // the husk (name + uuid) — surfaced as the DROPPING row in SHOW DATABASES — and tears down off lock_.
+  // Build the deferred-worker arguments BEFORE the advisory seal so the post-seal suffix is genuinely
+  // non-throwing: an allocation failure while building them leaves the tenant HOT and unsealed
+  // (retriable), never sealed-but-still-in-items_.
+  auto husk_id = std::string{*db_uuid};
+  std::move_only_function<void(Database &)> stop_step = [](Database &db) {
+    db.StopAllBackgroundTasks();
+    db.streams()->DropAll();
+  };
+  std::move_only_function<void()> post_delete_step = [storage_path = *storage_path, db_name = std::string{db_name}]() {
+    std::error_code ec;
+    (void)std::filesystem::remove_all(storage_path, ec);
+    if (ec) {
+      spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
+    }
+  };
+  // Advisory seal — the last step before the nothrow handoff. DeferDelete then either defers teardown
+  // to the worker (off lock_) or, only on an internal allocation failure, tears it down inline.
   if (auto *gk = db_handler_.GetGatekeeper(db_name)) gk->seal();
-  db_handler_.DeferDelete(
-      db_name,
-      std::string{*db_uuid},
-      /*stop_step=*/
-      [](Database &db) {
-        db.StopAllBackgroundTasks();
-        db.streams()->DropAll();
-      },
-      /*post_delete_step=*/
-      [storage_path = *storage_path, db_name = std::string{db_name}]() {
-        std::error_code ec;
-        (void)std::filesystem::remove_all(storage_path, ec);
-        if (ec) {
-          spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
-        }
-      });
+  db_handler_.DeferDelete(db_name, std::move(husk_id), std::move(stop_step), std::move(post_delete_step));
 
   // Announce the retired uuid so uuid-keyed stores (e.g. database-scoped parameters) discard its rows.
   // Placed after the seal + DeferDelete handoff (the drop's point of no return): any earlier failure
