@@ -463,6 +463,12 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
+    // A name erased from items_ by DeferDelete but still draining is a known husk (its DROPPING row
+    // shows in SHOW DATABASES); report that rather than the misleading NON_EXISTENT. Safe under lock_:
+    // PendingItems() takes pending_mutex_ (lock_ -> pending_mutex_ is the only nesting direction).
+    for (auto const &[pending_name, pending_id] : db_handler_.PendingItems()) {
+      if (pending_name == db_name) return std::unexpected{DeleteError::ALREADY_DROPPING};
+    }
     return std::unexpected{DeleteError::NON_EXISTENT};
   }
   const auto &storage_path = conf->durability.storage_directory;
@@ -509,6 +515,12 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
+    // A name erased from items_ by DeferDelete but still draining is a known husk (its DROPPING row
+    // shows in SHOW DATABASES); report that rather than the misleading NON_EXISTENT. Safe under lock_:
+    // PendingItems() takes pending_mutex_ (lock_ -> pending_mutex_ is the only nesting direction).
+    for (auto const &[pending_name, pending_id] : db_handler_.PendingItems()) {
+      if (pending_name == db_name) return std::unexpected{DeleteError::ALREADY_DROPPING};
+    }
     return std::unexpected{DeleteError::NON_EXISTENT};
   }
 

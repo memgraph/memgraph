@@ -8736,6 +8736,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                     throw QueryRuntimeException("Cannot delete the default database.");
                   case dbms::DeleteError::NON_EXISTENT:
                     throw QueryRuntimeException("{} does not exist.", db_name);
+                  case dbms::DeleteError::ALREADY_DROPPING:
+                    throw QueryRuntimeException("Database {} is currently being dropped.", db_name);
                   case dbms::DeleteError::USING:
                     throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
                   case dbms::DeleteError::FAIL:
