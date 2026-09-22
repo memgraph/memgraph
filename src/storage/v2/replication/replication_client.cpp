@@ -429,6 +429,15 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
                                                            uint64_t const durability_commit_timestamp)
     -> std::expected<ReplicaStream, StartTxnReplicationError> {
+  // Sealed tenant (DROP in progress): skip opening a PrepareCommit stream entirely, matching the
+  // sibling entry points (UpdateReplicaState / TryCheckReplicaStateAsync / ForceRecoverReplica).
+  // ReplicaNotInSyncErr matches the RECOVERY/REPLICATING/MAYBE_BEHIND arms; the caller handles it
+  // exactly as any other start failure. The downstream ShipOne sealed check remains for the
+  // seal-after-start race.
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return std::unexpected{StartTxnReplicationError{ReplicaNotInSyncErr{}}};
+  }
   metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.start_txn_replication_seconds};
   auto locked_state = replica_state_.Lock();
   spdlog::trace(

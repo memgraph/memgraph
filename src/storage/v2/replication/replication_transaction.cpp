@@ -176,6 +176,9 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       // A streamless replica was down before voting, so there is no prepared transaction to decide on
       // (SendFinalizeCommitRpc succeeds trivially without a stream). Queueing a task the commit thread
       // must await could deadlock behind a recovery or state-check task blocking on engine_lock_.
+      // Also the sealed-tenant firewall: ShipOne calls RetireForSealedTenant (resets the stream) for a
+      // sealed tenant before this runs, so a null stream here means "sealed or failed" — the decision
+      // lambda (which captures no protector) is correctly skipped. No FinalizeCommitRpc for a dropped tenant.
       if (!replica_stream) {
         continue;
       }
