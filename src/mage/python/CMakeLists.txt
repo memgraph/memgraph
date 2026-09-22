@@ -1,12 +1,12 @@
 # MAGE Python query modules: no compilation, just copy into the dist and
 # install the same file set.
 #
-# requirements.txt is a dev/packaging input, not a shipped module, so it is
-# excluded; requirements-gpu.txt has always shipped with the modules and
-# still does. The old `setup build --no-ml` flavour merely dropped tgn.py,
-# link_prediction.py and node_classification.py from the shipped set —
-# that's a packaging-flavour concern, to be handled when the mage packages
-# move to CPack.
+# requirements.txt and the uv lockfiles next to it are dev/packaging inputs,
+# not shipped modules, so they are excluded; requirements-gpu.txt has always
+# shipped with the modules and still does. The old `setup build --no-ml`
+# flavour merely dropped tgn.py, link_prediction.py and node_classification.py
+# from the shipped set — that's a packaging-flavour concern, to be handled
+# when the mage packages move to CPack.
 #
 # NOTE: query_modules/CMakeLists.txt independently copies a small subset of
 # these files (mage/date, top-level *.py) into the memgraph package; see the
@@ -31,6 +31,7 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
         PATTERN "htmlcov"           EXCLUDE
         PATTERN "pytest.ini"        EXCLUDE
         PATTERN "requirements.txt"  EXCLUDE
+        PATTERN "requirements*.lock" EXCLUDE
         PATTERN "CMakeLists.txt"    EXCLUDE
         PATTERN "copy_python_modules.cmake" EXCLUDE
         REGEX "/\\.[^/]*$"          EXCLUDE)
