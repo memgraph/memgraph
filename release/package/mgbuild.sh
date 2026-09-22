@@ -85,7 +85,7 @@ CARGO_CACHE_CONTAINER_DIR="/home/mg/.cargo"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
 DEFAULT_RUST_VERSION="$MG_RUST_VERSION"
 DEFAULT_NODE_VERSION="$MG_NODE_VERSION"
-UV_VERSION="0.12.17
+UV_VERSION="0.12.17"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
