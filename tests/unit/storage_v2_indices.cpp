@@ -3672,33 +3672,37 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBoundedScan) {
   // Inclusive bounds keep the boundary entries 5 and 10.
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
                                       this->prop_id,
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10)),
+                                      memgraph::storage::PropertyValueRange::Bounded(
+                                          memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
+                                          memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10))),
                                       View::OLD)),
               UnorderedElementsAre(5, 6, 7, 8, 9, 10));
 
   // Exclusive bounds drop the boundary entries 5 and 10.
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
                                       this->prop_id,
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10)),
+                                      memgraph::storage::PropertyValueRange::Bounded(
+                                          memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
+                                          memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10))),
                                       View::OLD)),
               UnorderedElementsAre(6, 7, 8, 9));
 
   // Lower bound only.
-  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
-                                      this->prop_id,
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)),
-                                      std::nullopt,
-                                      View::OLD)),
+  EXPECT_THAT(this->GetIds(acc->Edges(
+                  this->edge_type_id1,
+                  this->prop_id,
+                  memgraph::storage::PropertyValueRange::Bounded(
+                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)), std::nullopt),
+                  View::OLD)),
               UnorderedElementsAre(17, 18, 19));
 
   // Upper bound only.
-  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
-                                      this->prop_id,
-                                      std::nullopt,
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3)),
-                                      View::OLD)),
+  EXPECT_THAT(this->GetIds(acc->Edges(
+                  this->edge_type_id1,
+                  this->prop_id,
+                  memgraph::storage::PropertyValueRange::Bounded(
+                      std::nullopt, memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3))),
+                  View::OLD)),
               UnorderedElementsAre(0, 1, 2));
 }
 
@@ -4186,30 +4190,34 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBoundedScan) {
 
   // Inclusive bounds keep the boundary entries 5 and 10.
   EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10)),
+                                      memgraph::storage::PropertyValueRange::Bounded(
+                                          memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
+                                          memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10))),
                                       View::OLD)),
               UnorderedElementsAre(5, 6, 7, 8, 9, 10));
 
   // Exclusive bounds drop the boundary entries 5 and 10.
   EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10)),
+                                      memgraph::storage::PropertyValueRange::Bounded(
+                                          memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
+                                          memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10))),
                                       View::OLD)),
               UnorderedElementsAre(6, 7, 8, 9));
 
   // Lower bound only.
-  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)),
-                                      std::nullopt,
-                                      View::OLD)),
+  EXPECT_THAT(this->GetIds(acc->Edges(
+                  this->prop_id,
+                  memgraph::storage::PropertyValueRange::Bounded(
+                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)), std::nullopt),
+                  View::OLD)),
               UnorderedElementsAre(17, 18, 19));
 
   // Upper bound only.
-  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
-                                      std::nullopt,
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3)),
-                                      View::OLD)),
+  EXPECT_THAT(this->GetIds(acc->Edges(
+                  this->prop_id,
+                  memgraph::storage::PropertyValueRange::Bounded(
+                      std::nullopt, memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3))),
+                  View::OLD)),
               UnorderedElementsAre(0, 1, 2));
 }
 

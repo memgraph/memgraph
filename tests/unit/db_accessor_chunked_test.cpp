@@ -303,7 +303,7 @@ TEST_F(DbAccessorChunkedTest, EdgeTypePropertyRangeChunkIterator) {
   auto lower = utils::MakeBoundInclusive(PropertyValue(int64_t{20}));
   auto upper = utils::MakeBoundExclusive(PropertyValue(int64_t{50}));
 
-  auto chunks = dba.ChunkedEdges(View::OLD, type_id_, prop_id_, lower, upper, 4);
+  auto chunks = dba.ChunkedEdges(View::OLD, type_id_, prop_id_, storage::PropertyValueRange::Bounded(lower, upper), 4);
   ASSERT_GT(chunks.size(), 0);
 
   std::vector<Gid> read_gids;
@@ -453,7 +453,7 @@ TEST_F(DbAccessorChunkedTest, PropertyRangeChunkIterator) {
   auto lower = utils::MakeBoundInclusive(PropertyValue(int64_t{20}));
   auto upper = utils::MakeBoundExclusive(PropertyValue(int64_t{50}));
 
-  auto chunks = dba.ChunkedEdges(View::OLD, prop_id_, lower, upper, 4);
+  auto chunks = dba.ChunkedEdges(View::OLD, prop_id_, storage::PropertyValueRange::Bounded(lower, upper), 4);
   ASSERT_GT(chunks.size(), 0);
 
   std::vector<Gid> read_gids;

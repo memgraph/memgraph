@@ -251,16 +251,9 @@ class InMemoryStorage final : public Storage {
 
     EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) override;
 
-    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property,
-                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
-
     EdgesIterable Edges(PropertyId property, View view) override;
 
     EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) override;
-
-    EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range, View view) override;
 
@@ -276,19 +269,9 @@ class InMemoryStorage final : public Storage {
 
     EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, View view, size_t num_chunks) override;
 
-    EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
-                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                      size_t num_chunks) override;
-
     EdgesChunkedIterable ChunkedEdges(PropertyId property, View view, size_t num_chunks) override;
 
     EdgesChunkedIterable ChunkedEdges(PropertyId property, const PropertyValue &value, View view,
-                                      size_t num_chunks) override;
-
-    EdgesChunkedIterable ChunkedEdges(PropertyId property,
-                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                       size_t num_chunks) override;
 
     /// Return approximate number of all vertices in the database.

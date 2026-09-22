@@ -10825,7 +10825,7 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
     auto range = expression_range_.Evaluate(evaluator);
 
     if (range.type_ == storage::PropertyRangeType::INVALID) {
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
+      return db->ChunkedEdges(view_, edge_type_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
@@ -10833,7 +10833,7 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
     }
 
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
+      return db->ChunkedEdges(view_, edge_type_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
     // Carried on the range exactly as the serial scan carries it; the flag is why, as above.
@@ -10890,7 +10890,7 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
     auto range = expression_range_.Evaluate(evaluator);
 
     if (range.type_ == storage::PropertyRangeType::INVALID) {
-      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
+      return db->ChunkedEdges(view_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
@@ -10898,7 +10898,7 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
     }
 
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
-      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
+      return db->ChunkedEdges(view_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
     // Carried on the range exactly as the serial scan carries it; the flag is why, as above.
