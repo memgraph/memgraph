@@ -637,6 +637,12 @@ class Accessor {
 
   virtual EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) = 0;
 
+  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                                            View view, size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, PropertyValueRange const &range, View view,
+                                            size_t num_chunks) = 0;
+
   virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, View view, size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, View view,

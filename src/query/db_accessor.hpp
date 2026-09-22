@@ -567,6 +567,16 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(property, range, view));
   }
 
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                    storage::PropertyValueRange const &range, size_t num_chunks) {
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, range, view, num_chunks)};
+  }
+
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
+                                    storage::PropertyValueRange const &range, size_t num_chunks) {
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, range, view, num_chunks)};
+  }
+
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,

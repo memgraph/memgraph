@@ -529,6 +529,26 @@ InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Ed
 }
 
 InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndices::ChunkedEdges(
+    PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, PropertyValueRange const &range,
+    View view, Storage *storage, Transaction *transaction, size_t num_chunks) {
+  auto it = index_container_->indices_.find(property);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
+  return {it->second->skip_list_.access(),
+          std::move(vertex_accessor),
+          std::move(edge_pin),
+          property,
+          range,
+          view,
+          storage,
+          transaction,
+          num_chunks,
+          max_gid};
+}
+
+InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndices::ChunkedEdges(
     PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
@@ -593,6 +613,16 @@ void InMemoryEdgePropertyIndex::CleanupAllIndices() {
 InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
+    PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction, size_t num_chunks,
+    Gid max_gid)
+    : ChunkedIterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), property,
+                      range.lower_, range.upper_, view, storage, transaction, num_chunks, max_gid) {
+  value_predicate_ = range.GetValuePredicate();
+}
+
+InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
+    utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks, Gid max_gid)
@@ -632,9 +662,7 @@ void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->max_gid_,
-                     // A chunked scan carries no predicate yet, so it hands the whole band to the
-                     // filter above it as it did before. The serial scan is where it is read.
-                     nullptr);
+                     self_->value_predicate_.get());
 }
 
 }  // namespace memgraph::storage

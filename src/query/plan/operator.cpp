@@ -10814,7 +10814,9 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
                                                            metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_type_property_operator.Increment();
 #ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+  // The predicate outlives the row it was built from; see ExpressionRange::MakeValuePredicate.
+  auto get_chunks = [this, value_predicate = storage::PropertyValueRange::ValuePredicate{}, predicate_built = false](
+                        Frame &frame, ExecutionContext &context) mutable {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
@@ -10831,7 +10833,14 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
       return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
     }
 
-    return db->ChunkedEdges(view_, edge_type_, property_, range.lower_, range.upper_, num_threads_);
+    // Carried on the range exactly as the serial scan carries it. Without it every value in the
+    // band is handed to the filter above, which is most of the column for a search term.
+    if (!predicate_built) {
+      value_predicate = expression_range_.MakeValuePredicate(evaluator);
+      predicate_built = true;
+    }
+    range.SetValuePredicate(value_predicate);
+    return db->ChunkedEdges(view_, edge_type_, property_, range, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10871,7 +10880,9 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
                                                        metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_property_operator.Increment();
 #ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+  // The predicate outlives the row it was built from; see ExpressionRange::MakeValuePredicate.
+  auto get_chunks = [this, value_predicate = storage::PropertyValueRange::ValuePredicate{}, predicate_built = false](
+                        Frame &frame, ExecutionContext &context) mutable {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
@@ -10888,7 +10899,14 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
       return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
     }
 
-    return db->ChunkedEdges(view_, property_, range.lower_, range.upper_, num_threads_);
+    // Carried on the range exactly as the serial scan carries it. Without it every value in the
+    // band is handed to the filter above, which is most of the column for a search term.
+    if (!predicate_built) {
+      value_predicate = expression_range_.MakeValuePredicate(evaluator);
+      predicate_built = true;
+    }
+    range.SetValuePredicate(value_predicate);
+    return db->ChunkedEdges(view_, property_, range, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));

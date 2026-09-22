@@ -157,6 +157,11 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                     Transaction *transaction, size_t num_chunks, Gid max_gid);
 
+    ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
+                    PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction,
+                    size_t num_chunks, Gid max_gid);
+
     class Iterator {
      public:
       Iterator(ChunkedIterable *self, utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
@@ -213,6 +218,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    PropertyValueRange::ValuePredicate value_predicate_;
     [[maybe_unused]] bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -253,6 +259,10 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                  Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    ChunkedIterable ChunkedEdges(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                 PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction,
+                                 size_t num_chunks);
 
     auto GetAbortProcessor() const -> AbortProcessor override;
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;

@@ -266,6 +266,12 @@ class InMemoryStorage final : public Storage {
 
     EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) override;
 
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                                      View view, size_t num_chunks) override;
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId property, PropertyValueRange const &range, View view,
+                                      size_t num_chunks) override;
+
     EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, View view, size_t num_chunks) override;
 
     EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, View view, size_t num_chunks) override;

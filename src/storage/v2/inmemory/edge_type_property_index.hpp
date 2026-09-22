@@ -132,6 +132,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                     Transaction *transaction, size_t num_chunks, Gid max_gid);
 
+    ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+                    PropertyId property, PropertyValueRange const &range, View view, Storage *storage,
+                    Transaction *transaction, size_t num_chunks, Gid max_gid);
+
     class Iterator {
      public:
       Iterator(ChunkedIterable *self, utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
@@ -188,6 +193,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    PropertyValueRange::ValuePredicate value_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -252,6 +258,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                  Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
+                                 utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                 PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction,
+                                 size_t num_chunks);
 
     void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                       std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
