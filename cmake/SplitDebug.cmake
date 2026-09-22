@@ -51,7 +51,8 @@ function(mg_split_debug target)
     # Compress the sidecar exactly once, in objcopy. A link-time -gz (see
     # CompressDebug) is speed-tuned and objcopy would pass its sections
     # through untouched, so the link of a split target stays uncompressed.
-    target_link_options(${target} PRIVATE -gz=none)
+    # Guarded by link language: the cuGraph MAGE modules link through nvcc.
+    target_link_options(${target} PRIVATE $<$<LINK_LANGUAGE:C,CXX>:-gz=none>)
     if(NOT DEFINED MG_COMPRESS_DEBUG_FORMAT)
         set(_compress --compress-debug-sections=zlib)
     elseif(NOT MG_COMPRESS_DEBUG_FORMAT STREQUAL "none")
