@@ -168,6 +168,7 @@ print_help () {
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
   echo -e "  --no-python                   Build memgraph without the embedded Python interpreter (maps to -DMG_PYTHON_SUPPORT=OFF; the package then has no libpython/python3/pip dependencies)."
+  echo -e "  --profile                     Profile the build with tools/build_profile: per-step peak memory/CPU/wall and machine memory over time. Runs the same build with ccache disabled; results are copied to build_profile_results/ on the host."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --no-abi3-rewrite             Skip the abi3 DT_NEEDED rewrite and the libpython3.so symlink (maps to -DMG_PYTHON_REWRITE_DT_NEEDED=OFF). Binaries keep the versioned libpython dependency; faster for CI builds that only test on the build container. Incompatible with --python-runtime-version."
@@ -279,6 +280,7 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd run"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo build-memgraph --community"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type Debug build-memgraph --asan --ubsan --profile"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo test-memgraph unit"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset pokec --size large"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
@@ -727,8 +729,14 @@ build_memgraph () {
   local python_support_flag=""
   local abi3_rewrite=true
   local abi3_rewrite_flag=""
+  local profile=false
+
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
+      --profile)
+        profile=true
+        shift 1
+      ;;
       --community)
         community_flag="-DMG_ENTERPRISE=OFF"
         shift 1
@@ -1105,6 +1113,13 @@ build_memgraph () {
     additional_options="$additional_options -DMG_PYTHON_REWRITE_DT_NEEDED=OFF"
   fi
 
+  local profile_dir=""
+  if [[ "$profile" == "true" ]]; then
+    profile_dir="$MGBUILD_ROOT_DIR/build_profile_results/$(date +%Y%m%d_%H%M%S)"
+    CMD_START="$CMD_START && export MG_BUILD_PROFILE_LOG=$profile_dir/steps.jsonl"
+    additional_options="$additional_options -DCMAKE_PROJECT_INCLUDE=$MGBUILD_ROOT_DIR/tools/build_profile/launcher.cmake"
+  fi
+
   if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
   fi
@@ -1128,11 +1143,24 @@ build_memgraph () {
 
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
-  if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET -- -j"'$(nproc)'
+  local BUILD_CMD="cmake --build --preset $PRESET -- -j"'$(nproc)'
+  if [[ "$threads" != "$DEFAULT_THREADS" ]]; then
+    BUILD_CMD="cmake --build --preset $PRESET -- -j $threads"
+  fi
+  if [[ "$profile" == "true" ]]; then
+    echo "Profiling the build (ccache disabled for the run); results -> $profile_dir"
+    local profile_status=0
+    docker exec -u mg "$build_container" bash -c "$CMD_START && tools/build_profile/profile.sh --exec --out $profile_dir -- $BUILD_CMD" || profile_status=$?
+    # Copy the results out even when the build failed: the report names the step that died.
+    mkdir -p "$PROJECT_ROOT/build_profile_results"
+    docker cp "$build_container:$profile_dir" "$PROJECT_ROOT/build_profile_results/"
+    echo "Build profile copied to $PROJECT_ROOT/build_profile_results/$(basename "$profile_dir")"
+    if [[ "$profile_status" -ne 0 ]]; then
+      echo "Error: profiled build exited with $profile_status" >&2
+      exit "$profile_status"
+    fi
   else
-    local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET -- -j\$THREADS"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $BUILD_CMD"
   fi
 
   # upload conan cache if remote is set
@@ -1141,8 +1169,8 @@ build_memgraph () {
     upload_conan_cache $conan_username $conan_password
   fi
 
-  # Show ccache statistics if ccache is enabled
-  if [[ "$ccache_enabled" == "true" ]]; then
+  # Show ccache statistics if ccache is enabled (a profiled build ran with it disabled)
+  if [[ "$ccache_enabled" == "true" && "$profile" != "true" ]]; then
     echo ""
     echo "=== Ccache Statistics (this build only — zeroed at start) ==="
     docker exec -u mg "$build_container" bash -c "ccache -sv" || docker exec -u mg "$build_container" bash -c "ccache -s"

@@ -31,6 +31,10 @@ on:
         type: string
         description: "After building, remove the build Python and swap in this version so tests run against a different libpython. Empty disables the swap."
         default: ''
+      profile_build:
+        type: boolean
+        description: "Profile the memgraph build"
+        default: false
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -113,12 +117,22 @@ jobs:
           build-memgraph \
           --memory-per-compile-job-mb 3500 \
           --memory-per-link-job-mb 700 \
+          ${{ inputs.profile_build && '--profile' || '' }} \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           $ABI3_REWRITE_FLAG \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
+
+      - name: Save build profile
+        if: ${{ always() && inputs.profile_build }}
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "build_profile_Debug-core${{ env.RUN_ID }}"
+          path: build_profile_results/
+          if-no-files-found: warn
 
       - name: Initialize tests
         run: |
@@ -286,6 +300,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads 12 \
           build-memgraph \
+          ${{ inputs.profile_build && '--profile' || '' }} \
           --memory-per-compile-job-mb 3500 \
           --memory-per-link-job-mb 700 \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
@@ -294,6 +309,15 @@ jobs:
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
+
+      - name: Save build profile
+        if: ${{ always() && inputs.profile_build }}
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "build_profile_Debug-integration${{ env.RUN_ID }}"
+          path: build_profile_results/
+          if-no-files-found: warn
 
       - name: Initialize tests
         run: |
