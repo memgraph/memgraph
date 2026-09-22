@@ -51,6 +51,10 @@ on:
         description: "If true, start each Memgraph instance with intra-cluster mTLS flags."
         type: boolean
         default: false
+      memory-profile:
+        description: "If true, build memgraph with -DMG_MEMORY_PROFILE=ON (glibc malloc, no jemalloc) so heaptrack can profile it."
+        type: boolean
+        default: false
 
 
   schedule:
@@ -99,6 +103,7 @@ jobs:
       storage-backup-dir-enabled: true
       shutdown-signal: ${{ needs.determine-inputs.outputs.signal }}
       intra-cluster-tls: ${{ needs.determine-inputs.outputs.intra_tls == 'true' }}
+      memory-profile: false
     secrets: inherit
 
   run-manual-jepsen-tests:
@@ -114,6 +119,7 @@ jobs:
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
       shutdown-signal: ${{ inputs.shutdown-signal }}
       intra-cluster-tls: ${{ inputs.intra-cluster-tls }}
+      memory-profile: ${{ inputs.memory-profile }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
@@ -129,4 +135,5 @@ jobs:
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
       shutdown-signal: ${{ inputs.shutdown-signal }}
       intra-cluster-tls: ${{ inputs.intra-cluster-tls }}
+      memory-profile: ${{ inputs.memory-profile }}
     secrets: inherit
