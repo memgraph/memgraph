@@ -1048,6 +1048,31 @@ TEST(PMRPropertyValue, GivenNullAllocatorFailsIfTriesToAllocate) {
   }
 }
 
+TEST(PMRPropertyValue, PlacesAListAgainstOneTheOtherAllocatorHolds) {
+  // The comparison is templated on both sides' allocators so that a value one
+  // holds can be placed against a value the other holds. A list is the shape
+  // whose comparison reads through both sides, so it is the one that says
+  // whether that signature is honest.
+  using pmr_t = memgraph::storage::pmr::PropertyValue;
+
+  auto const held_by_one = pmr_t{pmr_t::list_t{pmr_t{int64_t{1}}, pmr_t{int64_t{2}}}};
+  auto const held_by_the_other =
+      PropertyValue{std::vector<PropertyValue>{PropertyValue{int64_t{1}}, PropertyValue{int64_t{2}}}};
+
+  EXPECT_TRUE(std::is_eq(held_by_one <=> held_by_the_other));
+
+  auto const longer = PropertyValue{
+      std::vector<PropertyValue>{PropertyValue{int64_t{1}}, PropertyValue{int64_t{2}}, PropertyValue{int64_t{3}}}};
+  EXPECT_TRUE(std::is_lt(held_by_one <=> longer));
+
+  // An element that is no number is placed by where its type sits, which is the
+  // one path in the comparison that reads a whole value from each side rather
+  // than a number from each.
+  auto const holds_a_string = PropertyValue{std::vector<PropertyValue>{PropertyValue{int64_t{1}}, PropertyValue{"a"}}};
+  EXPECT_TRUE(std::is_gt(held_by_one <=> holds_a_string));
+  EXPECT_TRUE(std::is_lt(holds_a_string <=> held_by_one));
+}
+
 TEST(PMRPropertyValue, InteropWithPropertyValue) {
   using sut_t = memgraph::storage::pmr::PropertyValue;
 

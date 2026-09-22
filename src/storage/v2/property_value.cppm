@@ -1059,7 +1059,7 @@ inline std::optional<std::variant<int64_t, double>> GetNumericValueAt(
   }
 }
 
-/// Helper function to compare two lists of different types
+/// Places two lists against each other, whichever of the four forms holds each.
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
                                        const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
@@ -1070,9 +1070,10 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
   // Where an element read against another holds nothing the other can be read
   // against, the two are placed by where their types sit, as any other such pair
   // is.
-  auto stretch_at = [](const std::optional<std::variant<int64_t, double>> &val,
-                       const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
-                       auto index) {
+  // The list is taken as whatever type holds it. Naming one side's allocator
+  // here would convert the other side to match, and that conversion copies the
+  // whole value and allocates, inside a comparison declared not to raise.
+  auto stretch_at = [](const std::optional<std::variant<int64_t, double>> &val, auto const &list, auto index) {
     if (val) return Stretch::Number;
     return StretchOf(list.ValueListUnchecked()[index].type());
   };
@@ -1943,7 +1944,9 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
       memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> const &value) const noexcept {
     using enum memgraph::storage::PropertyValueType;
 
-    // Hashing here based on the choices made when we hash TypedValues
+    // A value has to reach the bucket the order would put it in, which is
+    // what each arm below answers to. The query layer keeps its own hash
+    // against its own order, and the two need not agree with each other.
     switch (value.type()) {
       case Null:
         return 31;
@@ -1998,9 +2001,15 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
         boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.z()));
         return seed;
       }
+      // A coordinate here is a float, which spells a NaN its own several ways,
+      // and the order places two of them alongside each other. It is read
+      // through the same rule the wider coordinates are.
       case VectorIndexId: {
-        return memgraph::utils::FnvCollection<memgraph::utils::small_vector<float>, float>{}(
-            value.ValueVectorIndexList());
+        size_t seed = 0;
+        for (auto const coordinate : value.ValueVectorIndexList()) {
+          boost::hash_combine(seed, memgraph::storage::HashOfDouble(coordinate));
+        }
+        return seed;
       }
     }
   }
