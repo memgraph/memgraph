@@ -231,9 +231,13 @@ class Handler {
     DMG_ASSERT(
         itr->second.state() == utils::GatekeeperState::HOT, "DeferDelete requires a HOT gatekeeper (name='{}')", name);
 
-    auto gk = std::move(itr->second);
-    // name may alias the items_ key (e.g. callers pass it->first as string_view); must own it before erase.
+    // Copy the name BEFORE moving/erasing. `name` may alias the items_ key (callers pass it->first as a
+    // string_view) AND std::string{name} can throw (OOM): if we moved the gatekeeper out first, a throw
+    // here would skip items_.erase and leave a moved-from (null-pimpl_) shell in items_ that a later
+    // access()/is_marked_for_deletion() would dereference and crash. Copying first keeps the map entry
+    // intact on throw; the move-ctor and unordered_map::erase(iterator) below are both noexcept.
     auto name_owned = std::string{name};
+    auto gk = std::move(itr->second);
     items_.erase(itr);
 
     // splice is noexcept; if emplace_back throws (OOM), node allocation fails before any arg is moved,
