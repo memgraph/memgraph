@@ -63,6 +63,12 @@ constexpr std::int64_t kExactlyRepresentable = std::int64_t{1} << 53;
 /// Equivalence has to hold such a pair alike and the hash has to agree, which
 /// together are what lets a hash container find a key stored by one route when
 /// it is looked up by the other.
+/// The same NaN, spelled with other bits.
+///
+/// Equivalence holds every NaN alike, so respelling one is how a law reaches a
+/// pair that is one value built two ways.
+double ANaNSpeltOtherwise(double held) { return std::isnan(held) ? -std::numeric_limits<double>::quiet_NaN() : held; }
+
 TypedValue BuiltAnotherWay(TypedValue const &value) {
   switch (value.type()) {
     case TypedValue::Type::Double: {
@@ -83,10 +89,13 @@ TypedValue BuiltAnotherWay(TypedValue const &value) {
     }
     case TypedValue::Type::Point2d: {
       auto const point = value.ValuePoint2d();
-      auto const respelled = [](double coordinate) {
-        return std::isnan(coordinate) ? -std::numeric_limits<double>::quiet_NaN() : coordinate;
-      };
-      return TypedValue(memgraph::storage::Point2d{point.crs(), respelled(point.x()), respelled(point.y())});
+      return TypedValue(
+          memgraph::storage::Point2d{point.crs(), ANaNSpeltOtherwise(point.x()), ANaNSpeltOtherwise(point.y())});
+    }
+    case TypedValue::Type::Point3d: {
+      auto const point = value.ValuePoint3d();
+      return TypedValue(memgraph::storage::Point3d{
+          point.crs(), ANaNSpeltOtherwise(point.x()), ANaNSpeltOtherwise(point.y()), ANaNSpeltOtherwise(point.z())});
     }
     case TypedValue::Type::List: {
       auto rebuilt = std::vector<TypedValue>{};

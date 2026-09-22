@@ -26,9 +26,11 @@
 #include <bit>
 #include <cmath>
 #include <compare>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -43,6 +45,8 @@
 
 using memgraph::storage::AreComparable;
 using memgraph::storage::LowerBoundComparableWith;
+using memgraph::storage::Point2d;
+using memgraph::storage::Point3d;
 using memgraph::storage::PropertyValue;
 using memgraph::storage::PropertyValueType;
 using memgraph::storage::TemporalData;
@@ -140,13 +144,22 @@ PropertyValue HeldTheOtherWay(PropertyValue const &value) {
 ///
 /// The order has to place such a pair at one position, or an index entry stored
 /// by one route is not found when it is looked up by the other.
+/// The same NaN, spelled with other bits.
+///
+/// A NaN is a range of arrangements rather than one, and the order holds them
+/// all alike, so respelling one is how a law reaches a pair that is one value
+/// written two ways. Anything that is not a NaN is returned as it is.
+template <std::floating_point Number>
+Number ANaNSpeltOtherwise(Number held) {
+  if (!std::isnan(held)) return held;
+  using Bits = std::conditional_t<sizeof(Number) == sizeof(std::uint32_t), std::uint32_t, std::uint64_t>;
+  return std::bit_cast<Number>(static_cast<Bits>(std::bit_cast<Bits>(held) ^ Bits{0x7}));
+}
+
 PropertyValue WrittenAnotherWay(PropertyValue const &value) {
   switch (value.type()) {
-    case PropertyValueType::Double: {
-      auto const held = value.ValueDouble();
-      if (!std::isnan(held)) return value;
-      return PropertyValue(std::bit_cast<double>(std::bit_cast<std::uint64_t>(held) ^ 0x7));
-    }
+    case PropertyValueType::Double:
+      return PropertyValue(ANaNSpeltOtherwise(value.ValueDouble()));
     case PropertyValueType::IntList:
     case PropertyValueType::DoubleList:
     case PropertyValueType::NumericList:
@@ -164,6 +177,24 @@ PropertyValue WrittenAnotherWay(PropertyValue const &value) {
       auto rebuilt = PropertyValue::map_t{};
       for (auto const &[key, held] : value.ValueMap()) rebuilt.emplace(key, WrittenAnotherWay(held));
       return PropertyValue(std::move(rebuilt));
+    }
+    case PropertyValueType::Point2d: {
+      auto const point = value.ValuePoint2d();
+      return PropertyValue(Point2d{point.crs(), ANaNSpeltOtherwise(point.x()), ANaNSpeltOtherwise(point.y())});
+    }
+    case PropertyValueType::Point3d: {
+      auto const point = value.ValuePoint3d();
+      return PropertyValue(Point3d{
+          point.crs(), ANaNSpeltOtherwise(point.x()), ANaNSpeltOtherwise(point.y()), ANaNSpeltOtherwise(point.z())});
+    }
+    case PropertyValueType::VectorIndexId: {
+      // A coordinate here is a float, which spells a NaN its own several ways.
+      auto coordinates = memgraph::utils::small_vector<float>{};
+      for (auto const coordinate : value.ValueVectorIndexList()) {
+        coordinates.push_back(ANaNSpeltOtherwise(coordinate));
+      }
+      return PropertyValue(
+          PropertyValue::VectorIndexIdData{.ids = value.ValueVectorIndexIds(), .vector = std::move(coordinates)});
     }
     default:
       return value;
