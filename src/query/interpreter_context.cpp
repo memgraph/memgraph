@@ -28,13 +28,11 @@
 
 namespace memgraph::query {
 
-namespace {
 bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv) {
   if (lv.get() == rv) return true;
   if (lv && rv) return *lv == *rv;
   return false;
 }
-}  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
@@ -104,7 +102,7 @@ bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill)
 bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
                   std::function<bool(QueryUserOrRole *, std::string const &)> const &privilege_checker) {
   // user_or_role_ is owning-thread state; foreign_user_view_.load() snapshots it safely for cross-thread reads.
-  auto const user_snapshot = interpreter->foreign_user_view_.load();
+  auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
   if (SameUser(user_snapshot, user_or_role)) return true;
 
   // Foreign thread: route through foreign_db_view() (takes db_acc_mutex_). The VERIFYING CAS in
@@ -225,7 +223,7 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     Interpreter *target = nullptr;
     for (Interpreter *interpreter : interpreters) {
       // A null snapshot means SetSessionInfo has not run yet (unauthenticated), so it cannot carry a non-empty uuid.
-      auto const session_snapshot = interpreter->foreign_session_view_.load();
+      auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
       if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
         target = interpreter;
         break;
@@ -244,7 +242,7 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     // (termination is by session uuid, not by database), so at worst a session is closed against a database the
     // caller no longer holds privilege on — an availability effect, not a data-access escalation. This is the
     // same check-time property as the pre-existing TERMINATE TRANSACTIONS path.
-    auto const target_user_snapshot = target->foreign_user_view_.load();
+    auto const target_user_snapshot = target->foreign_user_view_.load(std::memory_order_acquire);
     if (!SameUser(target_user_snapshot, user_or_role)) {
       // A dbless session has no tenant; kDefaultDB lets a default-db admin still terminate it.
       auto target_db = target->current_db_.foreign_db_view().name;

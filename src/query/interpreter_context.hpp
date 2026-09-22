@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -54,6 +55,8 @@ class AuthQueryHandler;
 class AuthChecker;
 class Interpreter;
 struct QueryUserOrRole;
+
+bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv);
 
 struct TerminateSessionsResult {
   std::vector<std::vector<TypedValue>> rows;  // one {session_id, killed} row per requested id, input order

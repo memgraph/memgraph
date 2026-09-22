@@ -7414,21 +7414,16 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
     if (!transaction_id.has_value()) continue;
-    auto same_user = [](const auto &lv, const auto &rv) {
-      if (lv.get() == rv) return true;
-      if (lv && rv) return *lv == *rv;
-      return false;
-    };
     // Foreign thread: user_or_role_ is owning-thread state; a raw read here races SetUser/ResetUser.
     // foreign_user_view_ is the published snapshot, loaded once and used for both the identity gate and
     // the username column so the two cannot disagree.
-    auto const user_snapshot = interpreter->foreign_user_view_.load();
+    auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
     // Route through foreign_db_view(): this is a foreign thread. The verifier CAS above does NOT order
     // against SetCurrentDB (the Pull path never consults transaction_status_), so an unlocked db_acc_ read
     // could tear against a concurrent USE DATABASE. foreign_db_view() takes db_acc_mutex_ and returns the
     // same name string CurrentDB::name() would ("" when the session holds no database).
     auto db_name = interpreter->current_db_.foreign_db_view().name;
-    if (!same_user(user_snapshot, user_or_role) && !privilege_checker(user_or_role, db_name)) continue;
+    if (!SameUser(user_snapshot, user_or_role) && !privilege_checker(user_or_role, db_name)) continue;
     auto const runtime_status = verifier->status();
     if (!status_filter.empty()) {
       auto const sf = ToStatusFilter(runtime_status);
@@ -7462,20 +7457,15 @@ auto ShowSessions(const std::unordered_set<Interpreter *> &interpreters, QueryUs
                   Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
-  auto same_user = [](const auto &lv, const auto &rv) {
-    if (lv.get() == rv) return true;
-    if (lv && rv) return *lv == *rv;
-    return false;
-  };
   for (const Interpreter *interpreter : interpreters) {
-    auto const session_snapshot = interpreter->foreign_session_view_.load();
+    auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
     if (!session_snapshot) continue;  // null snapshot: session is pre-login (mid-handshake) or logged off — skip
-    auto const user_snapshot = interpreter->foreign_user_view_.load();
+    auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
     // Empty db means the session holds no database (db-less); db_for_check falls back to kDefaultDB for the
     // privilege check only — the display value remains empty to reflect the true session state.
     auto db = interpreter->current_db_.foreign_db_view().name;
     auto db_for_check = db.empty() ? std::string{dbms::kDefaultDB} : db;
-    if (same_user(user_snapshot, user_or_role) || privilege_checker(user_or_role, db_for_check)) {
+    if (SameUser(user_snapshot, user_or_role) || privilege_checker(user_or_role, db_for_check)) {
       results.push_back({TypedValue(session_snapshot->uuid),
                          TypedValue(session_snapshot->username),
                          TypedValue(db),
@@ -11994,7 +11984,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   // Publish before the session-limit throw below: foreign_user_view_ must never disagree with user_or_role_.
-  foreign_user_view_.store(user_or_role_);
+  foreign_user_view_.store(user_or_role_, std::memory_order_release);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
   // Pre-existsing user resource; decrement session (since it is not being used anymore)
@@ -12014,7 +12004,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
-  foreign_user_view_.store(user_or_role_);
+  foreign_user_view_.store(user_or_role_, std::memory_order_release);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
 }
@@ -12025,14 +12015,14 @@ void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::st
   const std::scoped_lock lock{session_info_mutex_};
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
-  foreign_session_view_.store(std::make_shared<const SessionInfo>(session_info_));
+  foreign_session_view_.store(std::make_shared<const SessionInfo>(session_info_), std::memory_order_release);
 }
 
 void Interpreter::ResetUser() {
   user_or_role_.reset();
-  foreign_user_view_.store(nullptr);
+  foreign_user_view_.store(nullptr, std::memory_order_release);
   // LOGOFF: drop the published session snapshot too, so SHOW/TERMINATE SESSIONS don't see a logged-off session.
-  foreign_session_view_.store(nullptr);
+  foreign_session_view_.store(nullptr, std::memory_order_release);
   session_log_ctx_.ClearUser();
 #ifdef MG_ENTERPRISE
   if (user_resource_) {

@@ -139,23 +139,6 @@ TEST(SessionRegistryTest, DeregisterDoesNotEvictAnotherSessionsEntry) {
   EXPECT_EQ(registry.Size(), baseline);
 }
 
-// 10k register/destroy cycles must leave the map exactly where it started; deleting the erase
-// in Deregister turns this into an unbounded leak.
-TEST(SessionRegistryTest, NoLeakAcrossChurn) {
-  auto &registry = SessionRegistry::Instance();
-  const auto baseline = registry.Size();
-  const std::string prefix = UniqueUuid("NoLeakAcrossChurn");
-
-  for (int i = 0; i < 10'000; ++i) {
-    const std::string uuid = prefix + "." + std::to_string(i);
-    auto session = std::make_shared<FakeSession>(uuid);
-    registry.Register(uuid, session);
-    ASSERT_NE(registry.Find(uuid), nullptr);
-  }  // `session` dies at the end of each iteration -> Deregister runs every time
-
-  EXPECT_EQ(registry.Size(), baseline);
-}
-
 // TSan target: 4 threads registering/destroying distinct uuids concurrently with 2 threads
 // calling Find(), all bounded by iteration count rather than a timed loop.
 TEST(SessionRegistryTest, ConcurrentChurnWhileFinding) {

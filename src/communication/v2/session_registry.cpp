@@ -27,7 +27,7 @@ void SessionRegistry::Register(std::string uuid, std::weak_ptr<TerminableSession
 
 void SessionRegistry::Deregister(std::string_view uuid, TerminableSession const *self) {
   const std::scoped_lock lock{mutex_};
-  auto it = sessions_.find(std::string(uuid));
+  auto it = sessions_.find(uuid);
   if (it == sessions_.end()) return;
   // Guard: a reused uuid must not let a stale session's dtor evict the current owner.
   auto owner = it->second.lock();
@@ -40,7 +40,7 @@ std::shared_ptr<TerminableSession> SessionRegistry::Find(std::string_view uuid) 
   std::shared_ptr<TerminableSession> result;
   {
     const std::scoped_lock lock{mutex_};
-    auto it = sessions_.find(std::string(uuid));
+    auto it = sessions_.find(uuid);
     if (it != sessions_.end()) {
       result = it->second.lock();
     }

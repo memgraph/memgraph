@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -54,10 +55,22 @@ class SessionRegistry {
  private:
   SessionRegistry() = default;
 
+  // Transparent hashing so Deregister/Find can look up by string_view without
+  // constructing a temporary std::string per call. Mirrors the pattern used by
+  // SessionLogContext::StringHash in src/utils/session_context.hpp (private there;
+  // not reusable across TUs).
+  struct StringHash {
+    using is_transparent = void;
+
+    std::size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
+
+    std::size_t operator()(const std::string &s) const noexcept { return std::hash<std::string_view>{}(s); }
+  };
+
   // A mutex, not utils::SpinLock: Register/Deregister allocate/free a hash-map node under the
   // lock, so spinning through a stalled allocator would waste CPU; churn is only per connect.
   mutable std::mutex mutex_;
-  std::unordered_map<std::string, std::weak_ptr<TerminableSession>> sessions_;
+  std::unordered_map<std::string, std::weak_ptr<TerminableSession>, StringHash, std::equal_to<>> sessions_;
 };
 
 }  // namespace memgraph::communication::v2
