@@ -3558,3 +3558,23 @@ Feature: Subquery expressions
       Then the result should be, in order:
           | x   |
           | 'A' |
+
+  # A pruning BFS keeps only the shortest path to each node, so an expansion whose edge list the body reads cannot be
+  # pruned. The graph has a one-hop and a two-hop path to the same node, and only the two-hop one satisfies the body.
+  Scenario: Test EXISTS with a body that reads the variable expansion's edge list
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Node {name: 'a'})-[:E]->(d:Node {name: 'd'})
+          CREATE (a)-[:E]->(b:Node {name: 'b'})
+          CREATE (b)-[:E]->(d)
+          CREATE (:Len {n: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:Node {name: 'a'})-[r*1..3]->(z) WHERE EXISTS { MATCH (x:Len) WHERE x.n = size(r) }
+          RETURN DISTINCT z.name AS x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x   |
+          | 'd' |
