@@ -893,6 +893,130 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
   EXPECT_EQ(vector_index_info[0].size, kNumNodes);
 }
 
+// WAL replay helpers: mirror what wal.cpp does around VectorIndexRecovery calls.
+class VectorIndexRecoveryLabelRemovalTest : public VectorIndexRecoveryTest {
+ public:
+  static constexpr LabelId kLabelA = LabelId::FromUint(1);
+  static constexpr LabelId kLabelB = LabelId::FromUint(2);
+  static constexpr PropertyId kProperty = PropertyId::FromUint(1);
+
+  static VectorIndexRecoveryInfo CreateAllOfRecoveryInfo(const std::string &name = "and_idx") {
+    auto info = CreateRecoveryInfo(name);
+    info.spec.label_filter = VectorLabelFilter{.mode = VectorMatchMode::ALL_OF, .ids = {kLabelA, kLabelB}};
+    return info;
+  }
+
+  void ReplayAddLabel(Vertex &vertex, LabelId label, std::vector<VectorIndexRecoveryInfo> &infos) {
+    vertex.labels.push_back(label);
+    VectorIndexRecovery::UpdateOnLabelAddition(label, &vertex, storage_->name_id_mapper_.get(), infos);
+  }
+
+  void ReplayRemoveLabel(Vertex &vertex, LabelId label, std::vector<VectorIndexRecoveryInfo> &infos) {
+    auto it = std::ranges::find(vertex.labels, label);
+    ASSERT_NE(it, vertex.labels.end());
+    std::swap(*it, vertex.labels.back());
+    vertex.labels.pop_back();
+    VectorIndexRecovery::UpdateOnLabelRemoval(label, &vertex, storage_->name_id_mapper_.get(), infos);
+  }
+
+  void RecoverAndExpectSize(VectorIndexRecoveryInfo &info, std::size_t expected_size) {
+    FLAGS_storage_parallel_schema_recovery = false;
+    auto vertices_acc = vertices_.access();
+    EXPECT_NO_THROW(vector_index_.RecoverIndex(info,
+                                               vertices_acc,
+                                               &storage_->indices_,
+                                               storage_->name_id_mapper_.get(),
+                                               ActiveIndicesUpdater{storage_->indices_.active_indices_}));
+    const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+    ASSERT_EQ(vector_index_info.size(), 1);
+    EXPECT_EQ(vector_index_info[0].size, expected_size);
+  }
+};
+
+// Index created after the vertex exists: WAL replay of the index creation leaves the property a plain list and
+// stores no recovery entry. Removing the indexed label must not try to restore a vector that was never taken away.
+TEST_F(VectorIndexRecoveryLabelRemovalTest, RemoveLabelFromVertexPredatingIndex) {
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo()};
+
+  auto vertices_acc = vertices_.access();
+  auto vertex = vertices_acc.find(Gid::FromUint(0));
+  ASSERT_NE(vertex, vertices_acc.end());
+
+  EXPECT_NO_THROW(ReplayRemoveLabel(*vertex, kLabelA, infos));
+  EXPECT_FALSE(vertex->properties.GetProperty(kProperty).IsVectorIndexId());
+  EXPECT_FALSE(infos[0].index_entries.contains(vertex->gid));
+
+  RecoverAndExpectSize(infos[0], kNumNodes - 1);
+}
+
+// ALL_OF index; a member loses both labels in separate transactions. The first removal already restores the plain
+// list and drops the entry, so the second removal must be a no-op instead of throwing.
+TEST_F(VectorIndexRecoveryLabelRemovalTest, RemoveBothLabelsFromAllOfMember) {
+  std::vector<VectorIndexRecoveryInfo> infos{CreateAllOfRecoveryInfo()};
+
+  auto vertices_acc = vertices_.access();
+  auto vertex = vertices_acc.find(Gid::FromUint(0));
+  ASSERT_NE(vertex, vertices_acc.end());
+
+  ReplayAddLabel(*vertex, kLabelB, infos);
+  ASSERT_TRUE(vertex->properties.GetProperty(kProperty).IsVectorIndexId());
+  ASSERT_TRUE(infos[0].index_entries.contains(vertex->gid));
+
+  EXPECT_NO_THROW(ReplayRemoveLabel(*vertex, kLabelA, infos));
+  EXPECT_FALSE(vertex->properties.GetProperty(kProperty).IsVectorIndexId());
+  EXPECT_FALSE(infos[0].index_entries.contains(vertex->gid));
+
+  EXPECT_NO_THROW(ReplayRemoveLabel(*vertex, kLabelB, infos));
+  const auto prop = vertex->properties.GetProperty(kProperty);
+  ASSERT_TRUE(prop.IsAnyList());
+  EXPECT_EQ(prop.ListSize(), kDimension);
+
+  RecoverAndExpectSize(infos[0], 0);
+}
+
+// ALL_OF index; a vertex that was never a member (only one of the two labels) loses a filter label.
+TEST_F(VectorIndexRecoveryLabelRemovalTest, RemoveFilterLabelFromAllOfNonMember) {
+  std::vector<VectorIndexRecoveryInfo> infos{CreateAllOfRecoveryInfo()};
+
+  auto vertices_acc = vertices_.access();
+  auto vertex = vertices_acc.find(Gid::FromUint(0));
+  ASSERT_NE(vertex, vertices_acc.end());
+
+  EXPECT_NO_THROW(ReplayRemoveLabel(*vertex, kLabelA, infos));
+  EXPECT_FALSE(vertex->properties.GetProperty(kProperty).IsVectorIndexId());
+  EXPECT_TRUE(infos[0].index_entries.empty());
+
+  RecoverAndExpectSize(infos[0], 0);
+}
+
+// A VectorIndexId owned by a different index must be left untouched when a non-member index's filter label goes.
+TEST_F(VectorIndexRecoveryLabelRemovalTest, RemoveLabelLeavesOtherIndexRegistrationIntact) {
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo("single_idx"), CreateAllOfRecoveryInfo()};
+  auto *name_id_mapper = storage_->name_id_mapper_.get();
+  const auto single_id = name_id_mapper->NameToId("single_idx");
+
+  auto vertices_acc = vertices_.access();
+  auto vertex = vertices_acc.find(Gid::FromUint(0));
+  ASSERT_NE(vertex, vertices_acc.end());
+
+  // Register the vertex with single_idx only, as UpdateOnLabelAddition would have during replay.
+  auto vector = vertex->properties.GetProperty(kProperty);
+  infos[0].index_entries.emplace(vertex->gid, ListToVector(vector));
+  vertex->properties.SetProperty(kProperty,
+                                 PropertyValue(PropertyValue::VectorIndexIdData{
+                                     .ids = memgraph::utils::small_vector<uint64_t>{single_id}, .vector = {}}));
+
+  // Label B is interesting only to and_idx; the vertex is not registered with it.
+  vertex->labels.push_back(kLabelB);
+  EXPECT_NO_THROW(ReplayRemoveLabel(*vertex, kLabelB, infos));
+
+  const auto prop = vertex->properties.GetProperty(kProperty);
+  ASSERT_TRUE(prop.IsVectorIndexId());
+  EXPECT_EQ(prop.ValueVectorIndexIds(), memgraph::utils::small_vector<uint64_t>{single_id});
+  EXPECT_TRUE(infos[0].index_entries.contains(vertex->gid));
+  EXPECT_FALSE(infos[1].index_entries.contains(vertex->gid));
+}
+
 TEST_F(VectorIndexTest, OverlappingLabelIndicesBothUpdatedOnAddLabel) {
   const std::string_view label_a_name = "A";
   const std::string_view label_b_name = "B";

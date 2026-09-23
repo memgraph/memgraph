@@ -716,6 +716,17 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
       auto old_property_value = vertex->properties.GetProperty(recovery_info->spec.property);
       auto index_id = name_id_mapper->NameToId(recovery_info->spec.index_name);
 
+      // The vertex is registered with this index only if its property is a VectorIndexId holding the index id.
+      // A plain list (vertex predates the index, or the index was already unregistered by an earlier label
+      // removal) or a VectorIndexId belonging to other indices means the vector is not owned by this index, so
+      // there is nothing to restore.
+      const bool registered =
+          old_property_value.IsVectorIndexId() && r::contains(old_property_value.ValueVectorIndexIds(), index_id);
+      if (!registered) {
+        recovery_info->index_entries.erase(vertex->gid);
+        continue;
+      }
+
       if (UnregisterIndexId(old_property_value, index_id)) {
         // If the list of index ids is empty, we restore the vector from the recovery info. Otherwise, we keep the
         // property value as is.

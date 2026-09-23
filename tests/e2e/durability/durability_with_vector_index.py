@@ -993,3 +993,92 @@ def test_durability_with_and_vector_index(connection):
     assert search[0][0] == 0.0
 
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+@pytest.mark.parametrize(
+    "scenario,queries,expected_size",
+    [
+        (
+            "index_after_node",
+            [
+                "CREATE (:A {embedding: [1.0, 2.0]});",
+                'CREATE VECTOR INDEX idx ON :A(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "MATCH (n:A) REMOVE n:A;",
+            ],
+            0,
+        ),
+        (
+            "and_index_member_loses_both_labels",
+            [
+                'CREATE VECTOR INDEX idx ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:A:B {id: 1, embedding: [1.0, 2.0]});",
+                "MATCH (n {id: 1}) REMOVE n:A;",
+                "MATCH (n {id: 1}) REMOVE n:B;",
+            ],
+            0,
+        ),
+        (
+            "and_index_non_member_loses_filter_label",
+            [
+                'CREATE VECTOR INDEX idx ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:A {id: 1, embedding: [1.0, 2.0]});",
+                "MATCH (n {id: 1}) REMOVE n:A;",
+            ],
+            0,
+        ),
+        (
+            "control_member_created_after_index",
+            [
+                'CREATE VECTOR INDEX idx ON :A(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:A {embedding: [1.0, 2.0]});",
+                "MATCH (n:A) REMOVE n:A;",
+            ],
+            0,
+        ),
+    ],
+)
+def test_durability_wal_replay_label_removal_without_recovery_entry(connection, scenario, queries, expected_size):
+    # Goal: WAL replay must not abort when a label removal hits a vertex whose vector was never taken out of the
+    # property store (vertex predates the index, or the vertex was not a member of an ALL_OF index).
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--storage-wal-file-flush-every-n-tx=1",
+                "--storage-snapshot-on-exit=false",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": f"main_durability_wal_replay_label_removal_{scenario}.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    for query in queries:
+        execute_and_fetch_all(cursor, query)
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == expected_size
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][0] == "idx"
+    assert index_info[0][6] == expected_size
+
+    embedding = execute_and_fetch_all(cursor, "MATCH (n) RETURN n.embedding;")
+    assert len(embedding) == 1
+    assert embedding[0][0] == [1.0, 2.0]
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
