@@ -92,6 +92,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
+    if (subquery_externals_only_) return true;
     const bool is_ordinary_flow = in_subquery_depth == 0 && in_pattern_comprehension_depth == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
@@ -102,46 +103,45 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(SubqueryExpression &subquery) override {
-    ++in_subquery_depth;
-
-    if (subquery.HasPattern()) {
-      // We do not visit pattern identifier since we're in subquery filter pattern
-      for (auto &atom : subquery.GetPattern()->atoms_) {
-        atom->Accept(*this);
+    // Take the set @c SymbolGenerator computed rather than walk the body. A walk of the body's pattern atoms misses a
+    // `WHERE`, `WITH` or `UNION` correlation and treats a name the body declared as an outer one.
+    for (const auto &symbol : subquery.external_symbols_) {
+      // Outside the body, but bound inside the comprehension's branch. Requiring it would abort the query.
+      if (!comprehension_bound_.contains(symbol)) {
+        symbols_.insert(symbol);
       }
-    } else if (subquery.HasSubquery()) {
-      // For subqueries, we need to collect symbols from the subquery
-      auto *single_query = subquery.GetSubquery()->single_query_;
-      if (single_query) {
-        for (auto *clause : single_query->clauses_) {
-          if (auto *match = utils::Downcast<Match>(clause)) {
-            for (auto *pattern : match->patterns_) {
-              for (auto &atom : pattern->atoms_) {
-                atom->Accept(*this);
-              }
-            }
-          }
-        }
-      }
-    } else {
-      throw SemanticException(
-          "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-          "should not happen!",
-          subquery.FoldName());
     }
-
     return false;
-  }
-
-  bool PostVisit(SubqueryExpression & /*subquery*/) override {
-    --in_subquery_depth;
-    return true;
   }
 
   bool PreVisit(PatternComprehension &pc) override {
     ++in_pattern_comprehension_depth;
     pc.pattern_->Accept(*this);
 
+    // A subquery in the filter or the result can correlate an outer name. Without it, the filter is placed below
+    // the scan that binds what the subquery reads.
+    auto const outer_bound = comprehension_bound_;
+    auto const restore_bound = utils::OnScopeExit{[this, &outer_bound] { comprehension_bound_ = outer_bound; }};
+    if (pc.variable_) {
+      comprehension_bound_.insert(symbol_table_.at(*pc.variable_));
+    }
+    for (auto *atom : pc.pattern_->atoms_) {
+      comprehension_bound_.insert(symbol_table_.at(*atom->identifier_));
+    }
+
+    // Only subqueries contribute. Collecting identifiers would also add the comprehension's own variables.
+    // Note this suppresses, rather than erasing on exit: `comprehension_bound_` holds every pattern atom, including
+    // an outer name the pattern re-uses as its anchor. Erasing at exit would drop that genuine correlation; the
+    // pattern walk above has already collected it, before the suppression is armed, so skipping here cannot lose it.
+    auto const outer_only = subquery_externals_only_;
+    auto const restore_only = utils::OnScopeExit{[this, outer_only] { subquery_externals_only_ = outer_only; }};
+    subquery_externals_only_ = true;
+    if (pc.filter_) {
+      pc.filter_->expression_->Accept(*this);
+    }
+    if (pc.resultExpr_) {
+      pc.resultExpr_->Accept(*this);
+    }
     return false;
   }
 
@@ -162,72 +162,10 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
  protected:
   // Depths, not flags: a nested one's `PostVisit` would clear a flag and let the rest of the outer body collect
   // anonymous symbols. Both nest - a pattern's property maps and variable-length bounds may hold another
-  // comprehension, and a subquery body may hold another subquery. Protected so a subclass that walks the body itself
-  // can enter without also triggering the base's walk.
+  // comprehension, and a subquery body may hold another subquery. The base never enters a subquery body; the depth
+  // is for a subclass that walks the body itself.
   int in_subquery_depth{0};
   int in_pattern_comprehension_depth{0};
-};
-
-/// Takes a subquery's symbols from the set @c SymbolGenerator computed, instead of walking its body.
-/// The base walks only the body's top-level pattern atoms, so it misses a `WHERE` or `WITH` correlation and
-/// treats a name the body declared as an outer one.
-class SubqueryAwareUsedSymbolsCollector : public UsedSymbolsCollector {
- public:
-  using UsedSymbolsCollector::UsedSymbolsCollector;
-
-  using UsedSymbolsCollector::PostVisit;
-  using UsedSymbolsCollector::PreVisit;
-  using UsedSymbolsCollector::Visit;
-
-  bool PreVisit(SubqueryExpression &subquery) override {
-    // The body is not walked. Its own frame already produced this set.
-    for (const auto &symbol : subquery.external_symbols_) {
-      // Outside the body, but bound inside the comprehension's branch. Requiring it would abort the query.
-      if (!comprehension_bound_.contains(symbol)) {
-        symbols_.insert(symbol);
-      }
-    }
-    return false;
-  }
-
-  bool PreVisit(PatternComprehension &pc) override {
-    // The base walks only the pattern and misses a subquery in the filter or the result. Without this, the filter
-    // is placed below the scan that binds what the subquery reads.
-    UsedSymbolsCollector::PreVisit(pc);
-
-    auto const outer_bound = comprehension_bound_;
-    auto const restore_bound = utils::OnScopeExit{[this, &outer_bound] { comprehension_bound_ = outer_bound; }};
-    if (pc.variable_) {
-      comprehension_bound_.insert(symbol_table_.at(*pc.variable_));
-    }
-    for (auto *atom : pc.pattern_->atoms_) {
-      comprehension_bound_.insert(symbol_table_.at(*atom->identifier_));
-    }
-
-    // Only subqueries contribute. Collecting identifiers would also add the comprehension's own variables.
-    // Note this suppresses, rather than erasing on exit: `comprehension_bound_` holds every pattern atom, including
-    // an outer name the pattern re-uses as its anchor. Erasing at exit would drop that genuine correlation; the base
-    // walk above has already collected it, before the suppression is armed, so skipping here cannot lose it.
-    auto const outer_only = subquery_externals_only_;
-    auto const restore_only = utils::OnScopeExit{[this, outer_only] { subquery_externals_only_ = outer_only; }};
-    subquery_externals_only_ = true;
-    if (pc.filter_) {
-      pc.filter_->expression_->Accept(*this);
-    }
-    if (pc.resultExpr_) {
-      pc.resultExpr_->Accept(*this);
-    }
-    return false;
-  }
-
-  // `Accept` runs `PostVisit` even when `PreVisit` returns false. The body was never entered, so skip the base's
-  // decrement.
-  bool PostVisit(SubqueryExpression & /*subquery*/) override { return true; }
-
-  bool Visit(Identifier &ident) override {
-    if (subquery_externals_only_) return true;
-    return UsedSymbolsCollector::Visit(ident);
-  }
 
  private:
   // Variables bound by the enclosing comprehensions. Nested comprehensions add to this and restore on exit.

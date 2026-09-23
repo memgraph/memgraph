@@ -232,9 +232,8 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
  private:
   void CollectSymbolsFromExpression(Expression *expr) {
     if (!expr) return;
-    // Subquery-aware: the base walk stops at the body's pattern, so an edge list the body reads through its WHERE
-    // would not register here and the expansion below would be pruned.
-    SubqueryAwareUsedSymbolsCollector collector(symbol_table_);
+    // Covers a subquery body too: an edge list it reads through its WHERE must register, or the expansion is pruned.
+    UsedSymbolsCollector collector(symbol_table_);
     expr->Accept(collector);
     for (auto const &sym : collector.symbols_) {
       used_symbols_.insert(sym.position());

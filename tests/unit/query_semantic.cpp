@@ -1462,6 +1462,39 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
   check_shapes([this](auto *subquery) { return COLLECT_SUBQUERY(subquery); });
 }
 
+// Every planner caller of `UsedSymbolsCollector` gets a subquery's dependencies from `external_symbols_`, including one
+// in a comprehension's filter. A walk of the body's pattern atoms instead reports the body's own names.
+TYPED_TEST(TestSymbolGenerator, UsedSymbolsCollectorTakesSubqueryExternals) {
+  using Names = std::vector<std::string>;
+  auto collect = [](const SymbolTable &symbol_table, Expression *expression) {
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    expression->Accept(collector);
+    Names out;
+    std::ranges::transform(
+        collector.symbols_, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+
+  {
+    // MATCH (a) WHERE EXISTS { MATCH (x)-[r]->(y) WHERE x = a } RETURN a
+    auto *subquery = EXISTS_SUBQUERY(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"), EDGE("r"), NODE("y"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
+    auto symbol_table = MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+    EXPECT_EQ(collect(symbol_table, subquery), Names{"a"});
+  }
+  {
+    // MATCH (a), (b) WHERE [(a)-[e]->(m) WHERE EXISTS { MATCH (x) WHERE x = m AND x = b } | m] RETURN a
+    // `b` is read only inside the filter's subquery. `m` is outside the body but bound by the comprehension.
+    auto *subquery = EXISTS_SUBQUERY(QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(AND(EQ(IDENT("x"), IDENT("m")), EQ(IDENT("x"), IDENT("b")))))));
+    auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("e"), NODE("m")), WHERE(subquery), IDENT("m"));
+    auto symbol_table =
+        MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a")), PATTERN(NODE("b"))), WHERE(pc), RETURN("a"))));
+    EXPECT_EQ(collect(symbol_table, pc), (Names{"a", "b"}));
+  }
+}
+
 // The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
 // fixed order - so a refusal can change identity when an earlier rung moves. Every position gets a case, allowed or
 // refused, and the refused ones assert the message.

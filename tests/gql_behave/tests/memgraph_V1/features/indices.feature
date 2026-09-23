@@ -317,3 +317,21 @@ Feature: Indices
             | w | c |
             | 1 | 1 |
             | 2 | 1 |
+
+    # The body reads the scanned variable only through its WHERE, so the index cannot be sought by the COUNT.
+    Scenario: A subquery that reads the scanned variable returns the unindexed result
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:N {v: 1, id: 1}), (:N {v: 2, id: 2}), (:N {v: 1, id: 3})
+            CREATE (:X {id: 1}), (:X {id: 2}), (:X {id: 2});
+            """
+        And with new index :N(v)
+        When executing query:
+            """
+            MATCH (n:N) WHERE n.v = COUNT { MATCH (x:X) WHERE x.id = n.id } RETURN n.id AS id ORDER BY id;
+            """
+        Then the result should be, in order:
+            | id |
+            | 1  |
+            | 2  |

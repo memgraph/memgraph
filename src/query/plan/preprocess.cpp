@@ -518,7 +518,7 @@ void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbo
 // and properties to be used with indexing.
 void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
   using Bound = PropertyFilter::Bound;
-  SubqueryAwareUsedSymbolsCollector collector(symbol_table);
+  UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
   auto make_filter = [&collector, &expr](FilterInfo::Type type) { return FilterInfo{type, expr, collector.symbols_}; };
   auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup, auto *&ident) -> bool {

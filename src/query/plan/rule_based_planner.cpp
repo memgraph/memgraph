@@ -39,7 +39,7 @@ bool IsConstantLiteral(const Expression *expression) {
 
 /// Like UsedSymbolsCollector, but descends into a correlated subquery's body in full: a filter, a result expression
 /// or a body WHERE can correlate an outer name, and whatever restores rows below the branch (Accumulate, OrderBy)
-/// has to remember it. The base class stops at the pattern, as its other callers need.
+/// has to remember it. The base class takes only the names the body reads from outside, as its other callers need.
 ///
 /// Deliberately a superset of @c SubqueryExpression::external_symbols_ - it keeps the body's own names too.
 /// Do not narrow it. The Accumulate remember-list below only guards against @c output_symbols_. A dropped symbol
@@ -69,6 +69,11 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
       subquery.GetSubquery()->Accept(*this);
     }
     return false;
+  }
+
+  bool PostVisit(SubqueryExpression & /*subquery*/) override {
+    --in_subquery_depth;
+    return true;
   }
 };
 
