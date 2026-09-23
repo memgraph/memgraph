@@ -27,6 +27,7 @@
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/point_distance_condition.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/transparent_compare.hpp"
 
 namespace memgraph::query::plan {
@@ -91,7 +92,8 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    const bool is_ordinary_flow = in_subquery_depth == 0 && in_pattern_comprehension_depth == 0;
+    if (subquery_externals_only_) return true;
+    const bool is_ordinary_flow = in_pattern_comprehension_depth == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
     } else if (ident.user_declared_) {
@@ -101,46 +103,41 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(SubqueryExpression &subquery) override {
-    ++in_subquery_depth;
-
-    if (subquery.HasPattern()) {
-      // We do not visit pattern identifier since we're in subquery filter pattern
-      for (auto &atom : subquery.GetPattern()->atoms_) {
-        atom->Accept(*this);
+    // Take the set @c SymbolGenerator computed; the body is not walked.
+    for (const auto &symbol : subquery.external_symbols_) {
+      // Skip one an enclosing comprehension binds.
+      if (!comprehension_bound_.contains(symbol)) {
+        symbols_.insert(symbol);
       }
-    } else if (subquery.HasSubquery()) {
-      // For subqueries, we need to collect symbols from the subquery
-      auto *single_query = subquery.GetSubquery()->single_query_;
-      if (single_query) {
-        for (auto *clause : single_query->clauses_) {
-          if (auto *match = utils::Downcast<Match>(clause)) {
-            for (auto *pattern : match->patterns_) {
-              for (auto &atom : pattern->atoms_) {
-                atom->Accept(*this);
-              }
-            }
-          }
-        }
-      }
-    } else {
-      throw SemanticException(
-          "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-          "should not happen!",
-          subquery.FoldName());
     }
-
     return false;
-  }
-
-  bool PostVisit(SubqueryExpression & /*subquery*/) override {
-    --in_subquery_depth;
-    return true;
   }
 
   bool PreVisit(PatternComprehension &pc) override {
     ++in_pattern_comprehension_depth;
     pc.pattern_->Accept(*this);
 
+    // A subquery in the filter or the result may read an outer name.
+    auto const outer_bound = comprehension_bound_;
+    auto const restore_bound = utils::OnScopeExit{[this, &outer_bound] { comprehension_bound_ = outer_bound; }};
+    if (pc.variable_) {
+      comprehension_bound_.insert(symbol_table_.at(*pc.variable_));
+    }
+    for (auto *atom : pc.pattern_->atoms_) {
+      comprehension_bound_.insert(symbol_table_.at(*atom->identifier_));
+    }
+
+    // Only subqueries contribute, so the comprehension's own variables stay out. Suppress rather than erase on
+    // exit: `comprehension_bound_` also holds an outer anchor, which the pattern walk above already collected.
+    auto const outer_only = subquery_externals_only_;
+    auto const restore_only = utils::OnScopeExit{[this, outer_only] { subquery_externals_only_ = outer_only; }};
+    subquery_externals_only_ = true;
+    if (pc.filter_) {
+      pc.filter_->expression_->Accept(*this);
+    }
+    if (pc.resultExpr_) {
+      pc.resultExpr_->Accept(*this);
+    }
     return false;
   }
 
@@ -158,13 +155,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
 
- protected:
-  // Depths, not flags: a nested one's `PostVisit` would clear a flag and let the rest of the outer body collect
-  // anonymous symbols. Both nest - a pattern's property maps and variable-length bounds may hold another
-  // comprehension, and a subquery body may hold another subquery. Protected so a subclass that walks the body itself
-  // can enter without also triggering the base's walk.
-  int in_subquery_depth{0};
+ private:
+  // A depth, not a flag: comprehensions nest in property maps and variable-length bounds.
   int in_pattern_comprehension_depth{0};
+  // Variables bound by the enclosing comprehensions. Nested comprehensions add to this and restore on exit.
+  std::unordered_set<Symbol> comprehension_bound_;
+  // When set, subqueries contribute but identifiers do not.
+  bool subquery_externals_only_{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

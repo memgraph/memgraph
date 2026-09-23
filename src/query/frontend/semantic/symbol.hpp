@@ -66,7 +66,7 @@ class Symbol {
   int64_t token_position() const { return token_position_; }
 
   std::string name_;
-  Position_t position_;
+  Position_t position_{-1};
   bool user_declared_{true};    /*NOT USED IN PLANNER V2*/
   Type type_{Type::ANY};        /*NOT USED IN PLANNER V2*/
   int64_t token_position_{-1};  // from ANTLR token stream /*NOT USED IN PLANNER V2*/
@@ -78,12 +78,9 @@ namespace std {
 
 template <>
 struct hash<memgraph::query::Symbol> {
+  // Positions are unique within a `SymbolTable`.
   size_t operator()(const memgraph::query::Symbol &symbol) const {
-    size_t prime = 265'443'599u;
-    size_t hash = std::hash<int>{}(symbol.position());
-    hash ^= prime * std::hash<std::string>{}(symbol.name());
-    hash ^= prime * std::hash<int>{}(static_cast<int>(symbol.type()));
-    return hash;
+    return std::hash<memgraph::query::Symbol::Position_t>{}(symbol.position());
   }
 };
 

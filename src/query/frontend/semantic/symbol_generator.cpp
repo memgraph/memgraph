@@ -65,6 +65,12 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
+void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
+  for (auto &subquery : open_subqueries_) {
+    subquery.referenced.insert(symbol);
+  }
+}
+
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
 
 // TODO: When is fetching from previous scopes ok?
@@ -440,10 +446,13 @@ bool SymbolGenerator::PostVisit(Match &) {
   scope.in_match = false;
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
+  // Same boundary as `Visit(Identifier &)`: inside `CALL {}` an un-imported outer name is not visible.
+  auto const from = scope.call_subquery_base.value_or(0);
   for (auto &ident : scope.identifiers_in_match) {
-    if (!HasSymbol(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
+    if (!HasSymbol(ident->name_, from) && !ConsumePredefinedIdentifier(ident->name_))
       throw UnboundVariableError(ident->name_);
-    ident->MapTo(scope.symbols[ident->name_]);
+    auto const &symbol = GetOrCreateSymbol(ident->name_, ident->user_declared_, Symbol::Type::ANY);
+    ident->MapTo(symbol);
   }
   scope.identifiers_in_match.clear();
   return true;
@@ -554,6 +563,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
+    // Resolved in `PostVisit(Match &)`. `symbol` is unset, so skip the shared tail.
+    return true;
   } else if (scope.in_call_subquery && !scope.in_with) {
     // Currently only CALL uses WITH to import symbols from outer scope
     // EXISTS implicitly imports outer scope symbols
@@ -577,6 +588,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
+  RecordSubqueryReference(symbol);
   ident.MapTo(symbol);
   return true;
 }
@@ -751,11 +763,21 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
+  open_subqueries_.emplace_back(OpenSubquery{.first_own_position = symbol_table_->max_position()});
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(SubqueryExpression & /*subquery*/) {
+bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
+  const auto &body = open_subqueries_.back();
+  // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
+  subquery.external_symbols_.clear();
+  for (const auto &symbol : body.referenced) {
+    if (symbol.position() < body.first_own_position) {
+      subquery.external_symbols_.insert(symbol);
+    }
+  }
+  open_subqueries_.pop_back();
   scopes_.pop_back();
   return true;
 }

@@ -9,9 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <sstream>
+#include <string>
+#include <unordered_set>
 #include <variant>
+#include <vector>
 
 #include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
@@ -1349,6 +1354,131 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExpression) {
 
     auto symbol = *collector.symbols_.begin();
     ASSERT_EQ(symbol.name(), "n");
+  }
+}
+
+// A MATCH resolves identifiers in its property maps and variable-length bounds after the whole clause. Inside an
+// un-imported `CALL {}` that must reject an outer name; the scoped and `CALL (*)` imports still resolve it.
+TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoundary) {
+  auto body_reading_m = [this] {
+    auto *node = NODE("n");
+    std::get<0>(node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("m");
+    return SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n"));
+  };
+
+  // MATCH (m) CALL { MATCH (n {prop: m}) RETURN n } RETURN n - `m` is never imported.
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(body_reading_m()), RETURN("n")))),
+      UnboundVariableError);
+
+  // MATCH (m) CALL (m) { ... } RETURN n - imported by name.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(body_reading_m(), {"m"}), RETURN("n")))));
+
+  // MATCH (m) CALL (*) { ... } RETURN n - imported wholesale.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED_ALL(body_reading_m()), RETURN("n")))));
+
+  // MATCH (m) MATCH (n {prop: m}) RETURN n - no subquery boundary at all, still resolves.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         MATCH(PATTERN([this] {
+                           auto *node = NODE("n");
+                           std::get<0>(node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("m");
+                           return node;
+                         }())),
+                         RETURN("n")))));
+}
+
+// `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
+// makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
+TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
+  auto names = [](const std::unordered_set<Symbol> &symbols) {
+    std::vector<std::string> out;
+    out.reserve(symbols.size());
+    std::ranges::transform(symbols, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+  using Names = std::vector<std::string>;
+
+  auto check_shapes = [&](auto make_subquery) {
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (x) WHERE x = a } RETURN a
+      // Correlated only through the body's WHERE.
+      auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { WITH a AS q MATCH (q)-[r]->(m) RETURN m } RETURN a
+      // Renamed by a WITH before any pattern uses it. `q` is the body's own.
+      auto *subquery = make_subquery(QUERY(
+          SINGLE_QUERY(WITH(NEXPR("q", IDENT("a"))), MATCH(PATTERN(NODE("q"), EDGE("r"), NODE("m"))), RETURN("m"))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (p)-[r]->(f) MATCH (f)-[r2]->(g) } RETURN a
+      // `f` is declared by the first MATCH and reused by the second, so it is the body's own.
+      auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"), EDGE("r"), NODE("f"))),
+                                                        MATCH(PATTERN(NODE("f"), EDGE("r2"), NODE("g"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (b) WHERE EXISTS { MATCH (c) WHERE c = b } } RETURN a
+      // `b` is external to the inner body and internal to the outer one. Nothing reaches the caller.
+      auto *inner = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("c"))), WHERE(EQ(IDENT("c"), IDENT("b"))))));
+      auto *outer = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("b"))), WHERE(inner))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(outer), RETURN("a"))));
+      EXPECT_EQ(names(inner->external_symbols_), Names{"b"});
+      EXPECT_EQ(names(outer->external_symbols_), Names{});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (x) RETURN x UNION MATCH (y) WHERE y = a RETURN y } RETURN a
+      // Correlated only in the second UNION branch.
+      auto *subquery = make_subquery(
+          QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), RETURN(IDENT("x"), AS("r"))),
+                UNION(SINGLE_QUERY(
+                    MATCH(PATTERN(NODE("y"))), WHERE(EQ(IDENT("y"), IDENT("a"))), RETURN(IDENT("y"), AS("r"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+  };
+
+  check_shapes([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
+}
+
+// The collector takes a subquery's `external_symbols_`, including for a subquery in a comprehension's filter.
+TYPED_TEST(TestSymbolGenerator, UsedSymbolsCollectorTakesSubqueryExternals) {
+  using Names = std::vector<std::string>;
+  auto collect = [](const SymbolTable &symbol_table, Expression *expression) {
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    expression->Accept(collector);
+    Names out;
+    std::ranges::transform(
+        collector.symbols_, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+
+  {
+    // MATCH (a) WHERE EXISTS { MATCH (x)-[r]->(y) WHERE x = a } RETURN a
+    auto *subquery = EXISTS_SUBQUERY(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"), EDGE("r"), NODE("y"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
+    auto symbol_table = MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+    EXPECT_EQ(collect(symbol_table, subquery), Names{"a"});
+  }
+  {
+    // MATCH (a), (b) WHERE [(a)-[e]->(m) WHERE EXISTS { MATCH (x) WHERE x = m AND x = b } | m] RETURN a
+    // `b` is read only inside the filter's subquery. `m` is outside the body but bound by the comprehension.
+    auto *subquery = EXISTS_SUBQUERY(QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(AND(EQ(IDENT("x"), IDENT("m")), EQ(IDENT("x"), IDENT("b")))))));
+    auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("e"), NODE("m")), WHERE(subquery), IDENT("m"));
+    auto symbol_table =
+        MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a")), PATTERN(NODE("b"))), WHERE(pc), RETURN("a"))));
+    EXPECT_EQ(collect(symbol_table, pc), (Names{"a", "b"}));
   }
 }
 

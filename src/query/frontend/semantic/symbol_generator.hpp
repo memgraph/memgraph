@@ -16,6 +16,7 @@
 #pragma once
 
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 #include "query/exceptions.hpp"
@@ -190,6 +191,13 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool has_delete{false};
   };
 
+  /// A subquery body being visited. Its external symbols are the referenced ones created before it opened.
+  struct OpenSubquery {
+    std::unordered_set<Symbol> referenced;
+    /// The first symbol position the body can create.
+    int32_t first_own_position{0};
+  };
+
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   /// The positions an EXISTS may appear in - the ones the planner has a splice point for. Default-deny, because an
@@ -214,6 +222,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
+  // Record a reference in every open body, not just the innermost.
+  void RecordSubqueryReference(const Symbol &symbol);
+
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
   void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &);
@@ -228,6 +239,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
   // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
   std::unordered_set<Symbol> create_clause_symbols_;
+  // Open subquery bodies, outermost first. External means created before the body, not visible outside it:
+  // `CALL (v) {}` imports `v` without creating a symbol, so `v` keeps its outer position.
+  std::vector<OpenSubquery> open_subqueries_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
