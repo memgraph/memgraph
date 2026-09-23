@@ -337,19 +337,24 @@ void ReplicationStorageClient::LogRpcFailure() const {
 }
 
 void ReplicationStorageClient::RetireForSealedTenant(std::optional<ReplicaStream> &stream) const {
-  stream.reset();
-  // Aborting the RPC client severs the shared socket this replica connection uses across all
-  // tenants on the same replica. Any in-flight commits from other tenants will see a transient
-  // error and re-enter MAYBE_BEHIND, from which the heartbeat loop re-establishes the stream.
-  // This disruption is deliberate and bounded: MAYBE_BEHIND -> heartbeat -> re-stream.
-  spdlog::warn(
-      "Retiring shared RPC connection to replica {} for sealed tenant drop. All other tenants "
-      "sharing this connection will transiently enter MAYBE_BEHIND and self-heal within ~1 recheck "
-      "interval (replica_check_frequency_, default 1 s). On SYNC/STRICT_SYNC replicas any "
-      "in-flight commit from an unrelated tenant on this connection is interrupted and the client "
-      "will receive an error — no data loss; the client should retry.",
-      client_.name_);
-  AbortRpcClient();
+  // Only touch the socket when there was an active stream; skip the abort entirely when
+  // stream is nullopt to avoid shutdown(2)-ing a clean socket and killing another tenant's
+  // in-flight RPC.  AbortRpcClient() is called BEFORE stream.reset() so that
+  // needs_reconnect_=true is visible to other threads while the StreamHandler still holds
+  // conn_->mutex_ — no racing tenant can grab the lock and reuse the poisoned socket in
+  // the window between the reset and the abort.  Client::Shutdown() is safe to call on a
+  // live stream; the socket is replaced later, under the lock, by EnsureConnected().
+  if (stream) {
+    AbortRpcClient();
+    stream.reset();
+    spdlog::warn(
+        "Retiring shared RPC connection to replica {} for sealed tenant drop. All other tenants "
+        "sharing this connection will transiently enter MAYBE_BEHIND and self-heal within ~1 recheck "
+        "interval (replica_check_frequency_, default 1 s). On SYNC/STRICT_SYNC replicas any "
+        "in-flight commit from an unrelated tenant on this connection is interrupted and the client "
+        "will receive an error — no data loss; the client should retry.",
+        client_.name_);
+  }
   SetMaybeBehind();
 }
 
