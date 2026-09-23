@@ -1236,13 +1236,15 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
   ASSERT_EQ(store.AfterCommitTriggers().size(), 0);
 }
 
-// A trigger variable first used inside a comprehension is still bound outside it.
-TYPED_TEST(TriggerStoreTest, TriggerVariableFirstUsedInsidePatternComprehension) {
+// A trigger variable first used inside a comprehension or a subquery body is still bound outside it.
+TYPED_TEST(TriggerStoreTest, TriggerVariableFirstUsedInsideComprehensionOrSubquery) {
   memgraph::query::TriggerStore store{this->testing_directory};
 
   const std::array statements{
       "MATCH (a) RETURN size([(a)-->(m) WHERE m IN createdVertices | m])",
       "MATCH (a) RETURN size([(a)-->(m {k: size(createdVertices)}) | m])",
+      "MATCH (a) WHERE EXISTS { MATCH (a)-->(m) WITH m WHERE m IN createdVertices RETURN m } RETURN a",
+      "MATCH (a) WHERE EXISTS { MATCH (a)-->(m) WHERE size([(m)<--(z) WHERE z IN createdVertices | z]) >= 0 } RETURN a",
   };
   for (size_t i = 0; i < statements.size(); ++i) {
     SCOPED_TRACE(statements[i]);

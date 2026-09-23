@@ -226,8 +226,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Record a reference in every open body, not just the innermost.
   void RecordCorrelationReference(const Symbol &symbol);
 
-  // Closes the innermost body and returns its external symbols.
-  std::unordered_set<Symbol> PopExternalSymbols();
+  // Closes the innermost body and returns its external symbols, with the predefined ones if asked.
+  std::unordered_set<Symbol> PopExternalSymbols(bool with_predefined);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 

@@ -71,12 +71,12 @@ void SymbolGenerator::RecordCorrelationReference(const Symbol &symbol) {
   }
 }
 
-std::unordered_set<Symbol> SymbolGenerator::PopExternalSymbols() {
+std::unordered_set<Symbol> SymbolGenerator::PopExternalSymbols(bool with_predefined) {
   auto const open = std::move(open_correlations_.back());
   open_correlations_.pop_back();
   std::unordered_set<Symbol> external;
   for (const auto &symbol : open.referenced) {
-    if (symbol.position() < open.first_own_position || predefined_symbols_.contains(symbol)) {
+    if (symbol.position() < open.first_own_position || (with_predefined && predefined_symbols_.contains(symbol))) {
       external.insert(symbol);
     }
   }
@@ -782,7 +782,8 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
 
 bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
   // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
-  subquery.external_symbols_ = PopExternalSymbols();
+  // No predefined symbols: the enclosing filter's `used_symbols` takes this set, and nothing binds them there.
+  subquery.external_symbols_ = PopExternalSymbols(/*with_predefined=*/false);
   scopes_.pop_back();
   return true;
 }
@@ -1105,7 +1106,7 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 
 bool SymbolGenerator::PostVisit(PatternComprehension &pc) {
   // Overwrite instead of merging, as `PostVisit(SubqueryExpression &)` does.
-  pc.external_symbols_ = PopExternalSymbols();
+  pc.external_symbols_ = PopExternalSymbols(/*with_predefined=*/true);
   scopes_.pop_back();
   return true;
 }
