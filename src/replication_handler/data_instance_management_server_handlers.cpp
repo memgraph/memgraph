@@ -236,6 +236,13 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
             config.instance_name);
         return false;
       }
+      case RegisterReplicaError::LOCKFREE_SNAPSHOT_ENABLED: {
+        spdlog::error(
+            "Error when registering instance {} as replica. The experimental lock-free read snapshot feature is "
+            "enabled on this instance; it is incompatible with replicated configurations. Disable it and restart.",
+            config.instance_name);
+        return false;
+      }
       default: {
         LOG_FATAL("Error in handling RegisterReplicaError. Unknown enum value.");
       }

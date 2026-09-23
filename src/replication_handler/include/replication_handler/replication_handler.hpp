@@ -248,6 +248,14 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto UnregisterReplicaLocked_(LockedReplState &locked_repl_state, std::string_view name)
       -> query::UnregisterReplicaResult;
 
+  // True when the experimental lock-free read snapshot is active on this instance.
+  // Replication is incompatible: STRICT_SYNC 2PC publishes last_committed_mvcc_ts_ before replica
+  // finalization, so a replica reader can observe a commit that has not yet been confirmed. This
+  // helper drives the registration and role-demotion guards below.
+  auto LockfreeSnapshotEnabled() const -> bool {
+    return dbms_handler_.default_config().experimental_lockfree_read_snapshot;
+  }
+
   // Name of the first database found in analytical mode, if any. Registration and unregistration are
   // instance-wide operations, so a single analytical database blocks both.
   auto AnalyticalDatabase() const -> std::optional<std::string> {
@@ -269,6 +277,15 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Reject before any replication state is mutated: persisting the instance-level client while no
     // per-database client can be created leaves the replica permanently unattached, since every retry
     // then fails with NAME_EXISTS.
+    if (LockfreeSnapshotEnabled()) {
+      spdlog::error(
+          "Cannot register replica {} while experimental_lockfree_read_snapshot is enabled. "
+          "The flag is incompatible with replicated configurations; disable it and restart before "
+          "registering replicas.",
+          config.name);
+      return std::unexpected{RegisterReplicaError::LOCKFREE_SNAPSHOT_ENABLED};
+    }
+
     if (auto const analytical_db = AnalyticalDatabase(); analytical_db.has_value()) {
       spdlog::error(
           "Cannot register replica {} while database \"{}\" is in analytical mode.", config.name, *analytical_db);
