@@ -610,6 +610,23 @@ TYPED_TEST(TestPlanner, CreateWithSumWithDistinct) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce());
 }
 
+// An aggregation inside a CASE plans like one inside any other expression: the Aggregate writes it into its own
+// symbol and the Produce evaluates the CASE against the post-aggregate frame.
+TYPED_TEST(TestPlanner, MatchReturnCaseWithAggregationAndImplicitGroupingKey) {
+  // Test MATCH (n) RETURN CASE WHEN n.prop THEN COUNT(n) ELSE 0 END AS c
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto count = COUNT(IDENT("n"), false);
+  auto n_prop = PROPERTY_LOOKUP(dba, "n", prop);
+  auto *case_expr = this->storage.template Create<memgraph::query::IfOperator>(n_prop, count, LITERAL(0));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(case_expr, AS("c"))));
+  // The condition does not aggregate and names `n`, so it is evaluated once per group and becomes the key.
+  auto aggr = ExpectAggregate({count}, {n_prop});
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, MatchWithCreate) {
   // Test MATCH (n) WITH n AS a CREATE (a) -[r :r]-> (b)
   auto r_type = "r";
