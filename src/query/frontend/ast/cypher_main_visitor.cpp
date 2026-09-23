@@ -1901,6 +1901,13 @@ antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::Tran
   return transaction_queue_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitSessionQuery(MemgraphCypher::SessionQueryContext *ctx) {
+  DMG_ASSERT(ctx->children.size() == 1, "SessionQuery should have exactly one child!");
+  auto *session_query = std::any_cast<SessionQuery *>(ctx->children[0]->accept(this));
+  query_ = session_query;
+  return session_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext *ctx) {
   auto *transaction_shower = storage_->Create<TransactionQueueQuery>();
   transaction_shower->action_ = TransactionQueueQuery::Action::SHOW_TRANSACTIONS;
@@ -1930,6 +1937,27 @@ antlrcpp::Any CypherMainVisitor::visitTransactionIdList(MemgraphCypher::Transact
     transaction_ids.push_back(std::any_cast<Expression *>(transaction_id->accept(this)));
   }
   return transaction_ids;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTerminateSessions(MemgraphCypher::TerminateSessionsContext *ctx) {
+  auto *terminator = storage_->Create<SessionQuery>();
+  terminator->action_ = SessionQuery::Action::TERMINATE;
+  terminator->session_id_list_ = std::any_cast<std::vector<Expression *>>(ctx->sessionIdList()->accept(this));
+  return terminator;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSessions(MemgraphCypher::ShowSessionsContext * /*ctx*/) {
+  auto *session_shower = storage_->Create<SessionQuery>();
+  session_shower->action_ = SessionQuery::Action::SHOW;
+  return session_shower;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSessionIdList(MemgraphCypher::SessionIdListContext *ctx) {
+  std::vector<Expression *> session_ids;
+  for (auto *session_id : ctx->sessionId()) {
+    session_ids.push_back(std::any_cast<Expression *>(session_id->accept(this)));
+  }
+  return session_ids;
 }
 
 antlrcpp::Any CypherMainVisitor::visitVersionQuery(MemgraphCypher::VersionQueryContext * /*ctx*/) {

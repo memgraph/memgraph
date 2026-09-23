@@ -118,6 +118,7 @@ class ShowQueryCallableMappingsQuery;
 class CallSubquery;
 class AnalyzeGraphQuery;
 class TransactionQueueQuery;
+class SessionQuery;
 class SubqueryExpression;
 class MultiDatabaseQuery;
 class UseDatabaseQuery;
@@ -188,7 +189,7 @@ class QueryVisitor
           SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, ReplicationInfoQuery, LockPathQuery,
           FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery,
           ShowSnapshotsQuery, ShowNextSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
-          ShowQueryCallableMappingsQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery,
+          ShowQueryCallableMappingsQuery, TransactionQueueQuery, SessionQuery, StorageModeQuery, AnalyzeGraphQuery,
           MultiDatabaseQuery, UseDatabaseQuery, ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery,
           CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery,
           ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,

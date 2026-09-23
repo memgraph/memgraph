@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -54,6 +55,13 @@ class AuthQueryHandler;
 class AuthChecker;
 class Interpreter;
 struct QueryUserOrRole;
+
+bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv);
+
+struct TerminateSessionsResult {
+  std::vector<std::vector<TypedValue>> rows;  // one {session_id, killed} row per requested id, input order
+  std::vector<std::string> to_close;          // uuids the CALLER must hand to the session registry
+};
 
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
@@ -110,6 +118,19 @@ struct InterpreterContext {
   static std::vector<std::vector<TypedValue>> TerminateAllTransactions(
       const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
       std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+
+  // Close is deferred: the destructor chain re-enters InterpreterContext::interpreters. Call this inside
+  // interpreters.WithLock(...) and close `to_close` only after that lock is released, or self-deadlock.
+  //
+  // Each session is authorized against its own current database (roles and privileges are DB-scoped);
+  // a caller may always terminate its own other connections regardless of privilege.
+  //
+  // A dbless target falls back to dbms::kDefaultDB ("memgraph") for the privilege check — a "memgraph"-scoped
+  // admin can therefore reach sessions that hold no database at all.
+  static TerminateSessionsResult TerminateSessions(
+      const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
+      QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
+      std::string_view caller_session_uuid);
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);
