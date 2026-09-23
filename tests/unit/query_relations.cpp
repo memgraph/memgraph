@@ -792,6 +792,19 @@ TEST(Equivalence, HoldsEveryValueEquivalentToItself) {
   }
 }
 
+TEST(Equivalence, HashesTheTwoInfinitiesApart) {
+  // An infinity is whole, so reading it as the integer it equals looks like the
+  // right move, and there is no such integer: the conversion is undefined, and
+  // on a machine that answers it at all both infinities arrive at the same
+  // number. Two values equivalence holds apart would then share a bucket, and a
+  // lookup for one would walk the other.
+  auto const above = TypedValue(std::numeric_limits<double>::infinity());
+  auto const below = TypedValue(-std::numeric_limits<double>::infinity());
+
+  ASSERT_FALSE(equivalence::Equivalent(above, below));
+  EXPECT_NE(equivalence::Hash(above), equivalence::Hash(below));
+}
+
 TEST(Equivalence, HoldsANaNEquivalentToItself) {
   // The one value the property above does not reach through a pair. Equality answers false for a
   // NaN against itself, and taking that answer would leave each NaN its own group under DISTINCT
