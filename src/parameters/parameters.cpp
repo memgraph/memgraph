@@ -156,6 +156,7 @@ bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
   // Recovery replaces local state: a parameter the instance held before joining must not survive,
   // or a $placeholder here resolves to a value that exists nowhere on main.
   std::vector<std::string> stale;
+  stale.reserve(params.size());
   for (auto it = storage_.begin(); it != storage_.end(); ++it) {
     if (!items.contains(it->first)) stale.push_back(it->first);
   }
