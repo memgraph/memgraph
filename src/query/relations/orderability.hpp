@@ -97,6 +97,12 @@ namespace detail {
 /// a convenience: an integer and a double holding the same number are equal, so
 /// seating them apart would put them on either side of every string.
 ///
+/// The types a value can be stored as sit here in the order a stored one is
+/// kept in, so that a scan walking a column of them can stand in for a sort over
+/// it. That order is what puts a zoned date and time after a duration rather
+/// than beside the other three date and time types, and no specification asks
+/// for either placement.
+///
 /// Named one type at a time rather than read off the enumerator, so that the
 /// order a user sees and the number an enumerator happens to carry stay free of
 /// each other. The switch has no default, so a type added to the value has to be
@@ -131,9 +137,9 @@ inline constexpr auto kPositions = [] {
         return 11;
       case LocalDateTime:
         return 12;
-      case ZonedDateTime:
-        return 13;
       case Duration:
+        return 13;
+      case ZonedDateTime:
         return 14;
       case Enum:
         return 15;

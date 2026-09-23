@@ -20,7 +20,9 @@
 // by hand, because what is under test is the plan the planner picks: building
 // the scan directly would assume the swap this is meant to check.
 
+#include <algorithm>
 #include <filesystem>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -182,6 +184,43 @@ class IndexDifferentialTest : public ::testing::Test {
     return false;
   }
 
+  /// A row as it reads, which is how two orders are compared.
+  ///
+  /// A NaN is not equal to itself, so comparing two orders that both hold one
+  /// would fail on values that arrived in the same place. Reading them instead
+  /// tells two NaNs apart from anything else but not from each other.
+  static std::string AsItReads(memgraph::communication::bolt::Value const &value) {
+    auto rendered = std::ostringstream{};
+    rendered << value;
+    return rendered.str();
+  }
+
+  /// The one column a query hands back, in the order it hands it back.
+  std::vector<std::string> Ordered(std::string const &query) {
+    auto stream = interpreter.Interpret(query);
+    auto rows = std::vector<std::string>{};
+    for (auto const &row : stream.GetResults()) rows.push_back(AsItReads(row.front()));
+    return rows;
+  }
+
+  /// Runs each query with no index, then with one, and hands back both.
+  std::pair<std::vector<std::vector<std::string>>, std::vector<std::vector<std::string>>> OrderAgrees(
+      std::vector<std::string> const &values, std::vector<std::string> const &queries,
+      std::vector<std::string> const &index_statements) {
+    Run("MATCH (n) DETACH DELETE n;");
+    for (auto const &value : values) Run("CREATE (:O {p: " + value + "});");
+
+    auto without_index = std::vector<std::vector<std::string>>{};
+    for (auto const &query : queries) without_index.push_back(Ordered(query));
+
+    for (auto const &statement : index_statements) Run(statement);
+
+    auto with_index = std::vector<std::vector<std::string>>{};
+    for (auto const &query : queries) with_index.push_back(Ordered(query));
+
+    return {std::move(without_index), std::move(with_index)};
+  }
+
   /// Names the probe that disagreed rather than only the two lists.
   static std::string Report(std::vector<std::string> const &probes, std::vector<int64_t> const &without,
                             std::vector<int64_t> const &with) {
@@ -272,6 +311,64 @@ TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoes) {
 
   EXPECT_EQ(with_index, without_index) << "a composite index changed the answer";
   EXPECT_EQ(without_index.front(), static_cast<int64_t>(kMixedValues.size()));
+}
+
+TEST_F(IndexDifferentialTest, AnIndexWalksAMixedColumnInTheOrderASortReadsIt) {
+  // A plan drops a sort when the scan beneath it already walked the column. That
+  // answers the sort only where an index walks a column of many types in the
+  // order the sort would have put it in, so a column holding one of each is
+  // where the two would part company if they ever did.
+  auto const queries = std::vector<std::string>{
+      "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
+      "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p DESC;",
+  };
+
+  auto const [without_index, with_index] = OrderAgrees(kMixedValues, queries, {"CREATE INDEX ON :O(p);"});
+
+  EXPECT_EQ(with_index, without_index) << "an index changed the order rows come back in";
+}
+
+TEST_F(IndexDifferentialTest, AnIndexWalksTheTemporalKindsInTheOrderASortReadsThem) {
+  // One stored type carries four of the date and time kinds and tells them apart
+  // before anything else, so a column of all four is walked kind by kind. A sort
+  // gives each kind its own place, and the two placements are the same one.
+  auto const values = std::vector<std::string>{
+      "duration('P1D')",
+      "date('2020-01-01')",
+      "localTime('12:00:00')",
+      "localDateTime('2020-01-01T12:00:00')",
+  };
+  auto const queries = std::vector<std::string>{"MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;"};
+
+  auto const [without_index, with_index] = OrderAgrees(values, queries, {"CREATE INDEX ON :O(p);"});
+
+  EXPECT_EQ(with_index, without_index) << "an index changed the order of a temporal column";
+}
+
+TEST_F(IndexDifferentialTest, AScanStandsInForTheSortItMatches) {
+  // The other half, so that agreeing on an order is not paid for by sorting
+  // anyway.
+  //
+  // A query is cached with its terms stripped out, so the type a bound will hold
+  // is not settled when the plan is. The walk answers the sort whatever that
+  // type turns out to be, which is what lets the sort go in every one of these.
+  for (auto const *predicate : {"n.p = 2", "n.p > 1", "n.p >= 2 AND n.p < 100", "n.p IS NOT NULL"}) {
+    SCOPED_TRACE(predicate);
+    auto const query = "MATCH (n:O) WHERE " + std::string{predicate} + " RETURN n.p AS v ORDER BY n.p;";
+
+    auto const [without_index, with_index] =
+        OrderAgrees({"1", "2", "3", "10", "20"}, {query}, {"CREATE INDEX ON :O(p);"});
+    EXPECT_EQ(with_index, without_index);
+
+    auto plan = std::string{};
+    for (auto const &row : interpreter.Interpret("EXPLAIN " + query).GetResults()) {
+      plan += row.front().ValueString() + "\n";
+    }
+    EXPECT_EQ(plan.find("OrderBy"), std::string::npos) << "the sort was kept where the scan can stand in for it:\n"
+                                                       << plan;
+
+    Run("DROP INDEX ON :O(p);");
+  }
 }
 
 TEST_F(IndexDifferentialTest, TheStringPredicatesAnswerAsTheFilterDoes) {

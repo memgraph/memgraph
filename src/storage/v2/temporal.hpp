@@ -83,7 +83,14 @@ struct ZonedTemporalData {
   explicit ZonedTemporalData(ZonedTemporalType type, std::chrono::sys_time<std::chrono::microseconds> microseconds,
                              utils::Timezone timezone);
 
-  auto operator<=>(const ZonedTemporalData &) const = default;
+  bool operator==(const ZonedTemporalData &) const = default;
+
+  /// Two of these at one instant are the same moment written two ways, and are
+  /// placed by how each is written: the offset it is read at, then the name of
+  /// the zone. Placing them by the zone's name alone would put a moment written
+  /// at one offset either side of a moment written at another according to what
+  /// the zones happen to be called.
+  std::strong_ordering operator<=>(const ZonedTemporalData &other) const;
 
   friend std::ostream &operator<<(std::ostream &os, const ZonedTemporalData &t) {
     switch (t.type) {

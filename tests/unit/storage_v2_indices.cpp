@@ -1753,7 +1753,28 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       ZonedTemporalData{
           ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(40'000), memgraph::utils::DefaultTimezone()}};
 
+  // Listed in the order a walk of the index reaches them, which is the order a
+  // sort reads a column of them: every map, then every list, then the temporal
+  // kinds each in a run of their own, then the strings, the booleans and the
+  // numbers. A type the specification does not name sits below the strings,
+  // since none may sit above a NaN.
   std::vector<PropertyValue> values = {
+      PropertyValue(PropertyValue::map_t()),
+      PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
+      PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}}),
+      PropertyValue(std::vector<PropertyValue>()),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(2)}),
+      PropertyValue(temporals[0]),
+      PropertyValue(temporals[1]),
+      PropertyValue(temporals[2]),
+      PropertyValue(zoned_temporals[0]),
+      PropertyValue(zoned_temporals[1]),
+      PropertyValue(zoned_temporals[2]),
+      PropertyValue(""),
+      PropertyValue("a"),
+      PropertyValue("b"),
+      PropertyValue("c"),
       PropertyValue(false),
       PropertyValue(true),
       PropertyValue(-std::numeric_limits<double>::infinity()),
@@ -1767,22 +1788,6 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       PropertyValue(2),
       PropertyValue(std::numeric_limits<int64_t>::max()),
       PropertyValue(std::numeric_limits<double>::infinity()),
-      PropertyValue(""),
-      PropertyValue("a"),
-      PropertyValue("b"),
-      PropertyValue("c"),
-      PropertyValue(std::vector<PropertyValue>()),
-      PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
-      PropertyValue(std::vector<PropertyValue>{PropertyValue(2)}),
-      PropertyValue(PropertyValue::map_t()),
-      PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
-      PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}}),
-      PropertyValue(temporals[0]),
-      PropertyValue(temporals[1]),
-      PropertyValue(temporals[2]),
-      PropertyValue(zoned_temporals[0]),
-      PropertyValue(zoned_temporals[1]),
-      PropertyValue(zoned_temporals[2]),
   };
 
   // Create vertices, each with one of the values above.
@@ -1868,40 +1873,47 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue("b")),
          memgraph::utils::MakeBoundInclusive(PropertyValue("memgraph")),
          {PropertyValue("b"), PropertyValue("c")});
+  // A list is placed by what its elements hold, so a bound above every list of
+  // numbers holds something a number is placed below. Only a null is: every
+  // type the specification does not name sits below the strings, and so below
+  // the numbers too. A list holding a string sits below a list holding a
+  // number, which the last pair here asks directly.
+  const auto above_every_number = PropertyValue(std::vector<PropertyValue>{PropertyValue()});
   verify(memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         memgraph::utils::MakeBoundExclusive(above_every_number),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
   verify(memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         memgraph::utils::MakeBoundInclusive(above_every_number),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         memgraph::utils::MakeBoundExclusive(above_every_number),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         memgraph::utils::MakeBoundInclusive(above_every_number),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         memgraph::utils::MakeBoundExclusive(above_every_number),
+         {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
+          PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
+  const auto entry_above_every_number = PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue()}});
   verify(memgraph::utils::MakeBoundExclusive(
              PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundExclusive(
-             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue("b")}})),
+         memgraph::utils::MakeBoundExclusive(entry_above_every_number),
          {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
   verify(memgraph::utils::MakeBoundExclusive(
              PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundInclusive(
-             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue("b")}})),
+         memgraph::utils::MakeBoundInclusive(entry_above_every_number),
          {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
   verify(memgraph::utils::MakeBoundInclusive(
              PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundExclusive(
-             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue("b")}})),
+         memgraph::utils::MakeBoundExclusive(entry_above_every_number),
          {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
           PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
   verify(memgraph::utils::MakeBoundInclusive(
              PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundInclusive(
-             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue("b")}})),
+         memgraph::utils::MakeBoundInclusive(entry_above_every_number),
          {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
           PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
 
