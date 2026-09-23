@@ -22,6 +22,7 @@
 #include "kvstore/kvstore.hpp"
 #include "system/state.hpp"
 #include "system/transaction.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::parameters {
 
@@ -95,6 +96,11 @@ struct Parameters {
    * @param scope kGlobalScope for global; database UUID for database-scoped.
    */
   bool DeleteScope(std::string_view scope);
+
+  /**
+   * @brief Delete every parameter belonging to one database, leaving all other scopes untouched.
+   */
+  bool DeleteScope(utils::UUID const &database_uuid);
 
   /**
    * @brief Apply parameter recovery snapshot from main (used by SystemRecoveryHandler).

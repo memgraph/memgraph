@@ -23,6 +23,7 @@
 
 #include "parameters/parameters.hpp"
 #include "utils/file.hpp"
+#include "utils/uuid.hpp"
 
 namespace fs = std::filesystem;
 using memgraph::parameters::kGlobalScope;
@@ -181,4 +182,22 @@ TEST_F(ParametersTest, DeleteScopeOfEmptyScopeSucceeds) {
 
   EXPECT_TRUE(parameters.DeleteScope(kDbScope));
   EXPECT_EQ(parameters.CountParameters(), 1);
+}
+
+// The uuid overload is what the drop and rebind paths call. It has to agree with the string form on
+// the same uuid, or a dropped database keeps its parameters.
+TEST_F(ParametersTest, DeleteScopeByUuidMatchesTheStringForm) {
+  auto parameters = MakeParameters("DeleteScopeByUuidMatchesTheStringForm");
+  memgraph::utils::UUID const uuid;
+  memgraph::utils::UUID const other;
+
+  ASSERT_EQ(parameters.SetParameter("drop", R"("mine")", std::string{uuid}), SetParameterResult::Success);
+  ASSERT_EQ(parameters.SetParameter("keep", R"("theirs")", std::string{other}), SetParameterResult::Success);
+  ASSERT_EQ(parameters.SetParameter("keep", R"("g")", kGlobalScope), SetParameterResult::Success);
+
+  ASSERT_TRUE(parameters.DeleteScope(uuid));
+
+  EXPECT_FALSE(parameters.GetParameter("drop", std::string{uuid}).has_value());
+  EXPECT_EQ(parameters.GetParameter("keep", std::string{other}), R"("theirs")");
+  EXPECT_EQ(parameters.GetParameter("keep", kGlobalScope), R"("g")");
 }

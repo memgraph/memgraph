@@ -161,9 +161,8 @@ class MultiTenantTest : public ::testing::Test {
 
   // main() wires this arm; a test that exercises a uuid-retiring path has to wire it itself.
   void WireParameterPurge() {
-    min_mg->dbms.SetOnUuidRetired([this](memgraph::utils::UUID const &uuid) {
-      [[maybe_unused]] auto purged = Parameters().DeleteScope(std::string{uuid});
-    });
+    min_mg->dbms.SetOnUuidRetired(
+        [this](memgraph::utils::UUID const &uuid) { [[maybe_unused]] auto purged = Parameters().DeleteScope(uuid); });
   }
 
   // Helper function to clean up databases before tests

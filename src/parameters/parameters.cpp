@@ -148,6 +148,10 @@ bool Parameters::DeleteAllParameters(system::Transaction *txn) {
 
 bool Parameters::DeleteScope(std::string_view scope) { return storage_.DeletePrefix(fmt::format("{}/", scope)); }
 
+bool Parameters::DeleteScope(utils::UUID const &database_uuid) {
+  return storage_.DeletePrefix(fmt::format("{}/", std::string{database_uuid}));
+}
+
 bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
   std::map<std::string, std::string> items;
   for (const auto &p : params) {

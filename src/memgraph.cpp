@@ -876,7 +876,7 @@ int main(int argc, char **argv) {
   // an unwired arm is an empty std::function, so the drop leaves the parameters behind for good.
   if (dbms_handler.has_value()) {
     dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
-      [[maybe_unused]] auto purged = parameters->DeleteScope(std::string{uuid});
+      [[maybe_unused]] auto purged = parameters->DeleteScope(uuid);
     });
   }
 #endif
