@@ -43,7 +43,7 @@
            :--data-recovery-on-startup
            :--storage-wal-enabled
            :--replication-restore-state-on-startup
-           "--log-level=TRACE"
+           "--log-level=INFO"
            (str "--storage-snapshot-interval-sec=" (get-rnd-snapshot-interval-sec))
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
@@ -68,7 +68,7 @@
            "--storage-snapshot-interval-sec=300"
            "--telemetry-enabled=false"
            "--metrics-format=OpenMetrics"
-           "--log-level=TRACE"
+           "--log-level=INFO"
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            :--coordinator-id (get node-config :coordinator-id)
            :--coordinator-port (get node-config :coordinator-port)
@@ -87,7 +87,7 @@
           [:--also-log-to-stderr
            :--storage-wal-enabled
            "--storage-snapshot-interval-sec=300"
-           "--log-level=TRACE"
+           "--log-level=INFO"
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            "--telemetry-enabled=false"
            "--metrics-format=OpenMetrics"
