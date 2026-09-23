@@ -1408,6 +1408,164 @@ Feature: Subquery expressions
           | id    |
           | 1     |
 
+  Scenario: Test COUNT with a body that starts with UNWIND
+      Given an empty graph
+      When executing query:
+          """
+          RETURN COUNT { UNWIND [1, 2, 3] AS x RETURN x } AS c;
+          """
+      Then the result should be:
+          | c |
+          | 3 |
+
+  Scenario: Test EXISTS with a body that is only an UNWIND
+      Given an empty graph
+      When executing query:
+          """
+          RETURN EXISTS { UNWIND [1] AS x } AS one, EXISTS { UNWIND [] AS x RETURN x } AS none;
+          """
+      Then the result should be:
+          | one  | none  |
+          | true | false |
+
+  Scenario: Test COUNT with a body that unwinds an outer list
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:P {name: 'A', xs: [1, 2]})-[:K]->(:P {name: 'B', xs: []})
+          CREATE (a)-[:K]->(:P {name: 'C', xs: [3]})
+          CREATE (:V {v: 1}), (:V {v: 3})
+          """
+      When executing query:
+          """
+          MATCH (p:P) RETURN p.name AS n, COUNT { UNWIND p.xs AS x RETURN x } AS c ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   | c |
+          | 'A' | 2 |
+          | 'B' | 0 |
+          | 'C' | 1 |
+
+  Scenario: Test COLLECT with a body that unwinds an outer list
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:P {name: 'A', xs: [1, 2]})-[:K]->(:P {name: 'B', xs: []})
+          CREATE (a)-[:K]->(:P {name: 'C', xs: [3]})
+          CREATE (:V {v: 1}), (:V {v: 3})
+          """
+      When executing query:
+          """
+          MATCH (p:P) RETURN p.name AS n, COLLECT { UNWIND p.xs AS x RETURN x * 10 } AS l ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   | l        |
+          | 'A' | [10, 20] |
+          | 'B' | []       |
+          | 'C' | [30]     |
+
+  # No `:V` has `v: 2`, so `A` matches through its first element only.
+  Scenario: Test EXISTS with a body that matches on an unwound element
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:P {name: 'A', xs: [1, 2]})-[:K]->(:P {name: 'B', xs: []})
+          CREATE (a)-[:K]->(:P {name: 'C', xs: [3]})
+          CREATE (:V {v: 1}), (:V {v: 3})
+          """
+      When executing query:
+          """
+          MATCH (p:P) WHERE EXISTS { UNWIND p.xs AS x MATCH (v:V {v: x}) }
+          RETURN p.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+          | 'C' |
+
+  Scenario: Test EXISTS with a body that filters a match on an unwound element
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:P {name: 'A', xs: [1, 2]})-[:K]->(:P {name: 'B', xs: []})
+          CREATE (a)-[:K]->(:P {name: 'C', xs: [3]})
+          CREATE (:V {v: 1}), (:V {v: 3})
+          """
+      When executing query:
+          """
+          MATCH (p:P) WHERE EXISTS { UNWIND p.xs AS x MATCH (v:V) WHERE v.v = x + 1 }
+          RETURN p.name AS n ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   |
+          | 'A' |
+
+  Scenario: Test COUNT with a body that unwinds after a correlated MATCH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:P {name: 'A', xs: [1, 2]})-[:K]->(:P {name: 'B', xs: []})
+          CREATE (a)-[:K]->(:P {name: 'C', xs: [3]})
+          CREATE (:V {v: 1}), (:V {v: 3})
+          """
+      When executing query:
+          """
+          MATCH (p:P) RETURN p.name AS n, COUNT { MATCH (p)-[:K]->(f) UNWIND f.xs AS x RETURN x } AS c ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   | c |
+          | 'A' | 1 |
+          | 'B' | 0 |
+          | 'C' | 0 |
+
+  Scenario: Test EXISTS with a nested EXISTS that reads an unwound element
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:P {name: 'A', xs: [1, 2]})-[:K]->(:P {name: 'B', xs: []})
+          CREATE (a)-[:K]->(:P {name: 'C', xs: [3]})
+          CREATE (:V {v: 1}), (:V {v: 3})
+          """
+      When executing query:
+          """
+          MATCH (p:P)
+          RETURN p.name AS n, EXISTS { UNWIND p.xs AS x WITH x WHERE EXISTS { MATCH (v:V {v: x}) } RETURN x } AS e
+          ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   | e     |
+          | 'A' | true  |
+          | 'B' | false |
+          | 'C' | true  |
+
+  Scenario: Test COUNT with UNWIND in each UNION branch
+      Given an empty graph
+      When executing query:
+          """
+          RETURN COUNT { UNWIND [1] AS x RETURN x UNION UNWIND [2] AS x RETURN x } AS c;
+          """
+      Then the result should be:
+          | c |
+          | 2 |
+
+  Scenario: Test EXISTS with an UNWIND body in a pattern comprehension filter
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:P {name: 'A', xs: [1, 2]})-[:K]->(:P {name: 'B', xs: []})
+          CREATE (a)-[:K]->(:P {name: 'C', xs: [3]})
+          CREATE (:V {v: 1}), (:V {v: 3})
+          """
+      When executing query:
+          """
+          MATCH (p:P) RETURN p.name AS n, size([(p)-[:K]->(f) WHERE EXISTS { UNWIND f.xs AS x } | f]) AS s ORDER BY n;
+          """
+      Then the result should be, in order:
+          | n   | s |
+          | 'A' | 1 |
+          | 'B' | 0 |
+          | 'C' | 0 |
+
   # CASE holds no position of its own; it carries whichever position it sits in. The fixture keeps one P with an
   # outgoing edge and one without, so an all-true or all-false answer would be visible.
 
