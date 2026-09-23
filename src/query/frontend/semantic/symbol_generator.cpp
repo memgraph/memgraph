@@ -784,7 +784,6 @@ bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
   // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
   // No predefined symbols (trigger variables): this set joins the enclosing filter's `used_symbols`, and the plan never
   // binds them, so that filter could not be placed.
-  // TODO: count a trigger's predefined symbols as bound when it plans, then include them here too.
   subquery.external_symbols_ = PopExternalSymbols(/*with_predefined=*/false);
   scopes_.pop_back();
   return true;

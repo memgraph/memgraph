@@ -113,8 +113,6 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return false;
   }
 
-  // TODO: take `pc.external_symbols_` instead of walking the comprehension, as `PreVisit(SubqueryExpression &)` does.
-  // The walk puts a nested comprehension's own named nodes into the enclosing filter's `used_symbols`.
   bool PreVisit(PatternComprehension &pc) override {
     ++in_pattern_comprehension_depth;
     pc.pattern_->Accept(*this);
