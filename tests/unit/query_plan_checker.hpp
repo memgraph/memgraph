@@ -12,7 +12,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <climits>
+#include <set>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -268,6 +271,27 @@ class ExpectScanAllAndNoIndex : public OpChecker<ScanAll> {
     EXPECT_EQ(scan_all.GetTypeInfo().name, std::string_view{ScanAll::kType.name})
         << "expected a plain ScanAll, got '" << scan_all.GetTypeInfo().name << "'";
   }
+};
+
+/// `ExpectFilter` checks none of what a filter tests. This checks its OR label groups, each as a set of
+/// label names, for tests about which groups survive planning.
+class ExpectFilterOrLabels : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterOrLabels(std::vector<std::set<std::string>> groups) : groups_(std::move(groups)) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    std::vector<std::set<std::string>> actual;
+    for (const auto &filter_info : filter.all_filters_) {
+      for (const auto &group : filter_info.or_labels) {
+        auto &names = actual.emplace_back();
+        for (const auto &label : group) names.insert(label.name);
+      }
+    }
+    EXPECT_THAT(actual, testing::UnorderedElementsAreArray(groups_));
+  }
+
+ private:
+  std::vector<std::set<std::string>> groups_;
 };
 
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;

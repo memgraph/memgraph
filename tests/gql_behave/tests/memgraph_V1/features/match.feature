@@ -1327,9 +1327,11 @@ Feature: Match
             """
         When executing query:
             """
-            RETURN exists(()-->()):!A AS v;
+            RETURN [()-->(m) WHERE exists(()-->()) | m][0]:!A AS v;
             """
-        Then an error should be raised
+        Then the result should be:
+            | v    |
+            | true |
 
     Scenario: Two disjunctions over one node are both tested
         Given an empty graph
@@ -1377,3 +1379,57 @@ Feature: Match
             | 'a'  |
             | 'ab' |
             | 'b'  |
+
+    Scenario: A disjunction in WHERE is tested beside the one in the pattern
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) WHERE n:B OR n:C RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'b'  |
+
+    Scenario: An empty label parameter under an operator only asks for a node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), ({n: 'none'})
+            """
+        And parameters are:
+            | p | [] |
+        When executing query:
+            """
+            MATCH (n:($p)) RETURN n.n AS v, n:$p|B AS either, n:!$p AS neither, null:($p) AS unknown ORDER BY v;
+            """
+        Then the result should be:
+            | v      | either | neither | unknown |
+            | 'a'    | true   | false   | null    |
+            | 'none' | true   | false   | null    |
+
+    Scenario: An empty label parameter under an operator does not match a null
+        Given an empty graph
+        And parameters are:
+            | p | [] |
+        When executing query:
+            """
+            OPTIONAL MATCH (n:Missing) WITH n MATCH (n:($p)) RETURN n;
+            """
+        Then the result should be empty
+
+    Scenario: Creating with an empty label parameter under an operator
+        Given an empty graph
+        And parameters are:
+            | p | [] |
+        When executing query:
+            """
+            CREATE (n:($p)) RETURN labels(n) AS l;
+            """
+        Then the result should be:
+            | l  |
+            | [] |
