@@ -3253,6 +3253,30 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexAppliesTheValuePredicate) {
               UnorderedElementsAre(gamma_id));
 }
 
+TYPED_TEST(IndexTest, EdgePropertyIndexScansNothingForAnEmptyRange) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(1)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, memgraph::storage::PropertyValueRange::Empty(), View::OLD),
+                           View::OLD),
+              IsEmpty());
+}
+
 TYPED_TEST(IndexTest, EdgePropertyIndexAppliesTheValuePredicate) {
   if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     return;
