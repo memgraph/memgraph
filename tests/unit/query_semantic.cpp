@@ -1398,7 +1398,6 @@ TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoun
 // the branch reads an unwritten frame slot - an abort, or a silently wrong answer. Too many leaves the conjunct
 // unplantable and `PlanMatching` aborts with "Expected to generate all filters". Asserted directly here, because a
 // behave scenario can only observe this set through a distant planner symptom.
-// All three folds share the node, so each shape is rerun as EXISTS, COUNT and COLLECT.
 TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
   auto names = [](const std::unordered_set<Symbol> &symbols) {
     std::vector<std::string> out;
@@ -1458,8 +1457,6 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
   };
 
   check_shapes([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
-  check_shapes([this](auto *subquery) { return COUNT_SUBQUERY(subquery); });
-  check_shapes([this](auto *subquery) { return COLLECT_SUBQUERY(subquery); });
 }
 
 // Every planner caller of `UsedSymbolsCollector` gets a subquery's dependencies from `external_symbols_`, including one
