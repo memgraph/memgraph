@@ -249,19 +249,19 @@ def test_a_failed_assertion_leaves_no_writer_running():
     interpreter alive, and the run then ends at the harness timeout rather than
     at the assertion, spending the whole workload budget to report it.
     """
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "no_flags")
-    try:
-        writing = False
-        with pytest.raises(AssertionError):
-            with writing_in_the_background() as writer:
-                writing = writer.is_alive()
-                assert False, "as a missed tick would"
+    with tempfile.TemporaryDirectory() as data_directory:
+        interactive_mg_runner.start(memgraph_instances(data_directory), "no_flags")
+        try:
+            writing = False
+            with pytest.raises(AssertionError):
+                with writing_in_the_background() as writer:
+                    writing = writer.is_alive()
+                    assert False, "as a missed tick would"
 
-        assert writing, "the writer never ran, so this asks nothing"
-        assert not writer.is_alive(), "the writer outlived the failure and would hold the interpreter open"
-    finally:
-        interactive_mg_runner.kill_all()
+            assert writing, "the writer never ran, so this asks nothing"
+            assert not writer.is_alive(), "the writer outlived the failure and would hold the interpreter open"
+        finally:
+            interactive_mg_runner.kill_all()
 
 
 def test_no_flags():
