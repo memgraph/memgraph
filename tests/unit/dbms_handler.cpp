@@ -1052,6 +1052,13 @@ TEST(DBMS_Handler, DroppingTenantIsVisibleInShowDatabases) {
                           "while the pinning accessor is still held";
   }
 
+  // 3b. While the husk is still pinned, re-dropping the same name must return ALREADY_DROPPING from
+  //     both Delete() and TryDelete(). Delete_ checks PendingItems() before touching items_, so the
+  //     still-draining entry is detected synchronously on the calling thread.
+  EXPECT_EQ(dbms.Delete("dropping_visible", static_cast<memgraph::system::Transaction *>(nullptr)),
+            std::unexpected{memgraph::dbms::DeleteError::ALREADY_DROPPING});
+  EXPECT_EQ(dbms.TryDelete("dropping_visible"), std::unexpected{memgraph::dbms::DeleteError::ALREADY_DROPPING});
+
   // 4. Release the pin so the background worker can reach exclusive access and converge.
   pin->reset();
 
