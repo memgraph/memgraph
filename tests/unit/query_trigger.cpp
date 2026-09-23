@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <array>
 #include <filesystem>
 
 #include <fmt/format.h>
@@ -1233,6 +1234,33 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
   ASSERT_EQ(store.BeforeCommitTriggers().size(), 1);
   ASSERT_EQ(store.AfterCommitTriggers().size(), 0);
+}
+
+// A trigger's variables get their symbols at first use. When that use is inside a comprehension, the comprehension
+// must still count the variable as bound outside it, or a filter that reads it cannot be placed.
+TYPED_TEST(TriggerStoreTest, TriggerVariableFirstUsedInsidePatternComprehension) {
+  memgraph::query::TriggerStore store{this->testing_directory};
+
+  const std::array statements{
+      "MATCH (a) RETURN size([(a)-->(m) WHERE m IN createdVertices | m])",
+      "MATCH (a) RETURN size([(a)-->(m {k: size(createdVertices)}) | m])",
+  };
+  for (size_t i = 0; i < statements.size(); ++i) {
+    SCOPED_TRACE(statements[i]);
+    EXPECT_NO_THROW(store.AddTrigger(fmt::format("trigger{}", i),
+                                     statements[i],
+                                     {},
+                                     memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                     memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                     &this->ast_cache,
+                                     &*this->dba,
+                                     memgraph::query::InterpreterConfig::Query{},
+                                     this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                     memgraph::dbms::kDefaultDB,
+                                     memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                     nullptr));
+  }
+  EXPECT_EQ(store.BeforeCommitTriggers().size(), statements.size());
 }
 
 TYPED_TEST(TriggerStoreTest, DropTrigger) {

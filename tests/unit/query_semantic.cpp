@@ -1545,6 +1545,16 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
     EXPECT_EQ(names(inner->external_symbols_), Names{"b"});
     EXPECT_EQ(names(outer->external_symbols_), Names{"a"});
   }
+  {
+    // MATCH (a) RETURN [(a)-[r]->(b) WHERE b = created | b], with `created` predefined, as a trigger's variables are.
+    // Its symbol is created at its first use, inside the comprehension, yet the trigger binds it outside. Missing it
+    // left the WHERE with a symbol nothing binds, so the trigger could not be planned.
+    auto *created = IDENT("created", false);
+    auto *pc = PATTERN_COMPREHENSION(
+        nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), WHERE(EQ(IDENT("b"), IDENT("created"))), IDENT("b"));
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(pc, AS("res")))), {created});
+    EXPECT_EQ(names(pc->external_symbols_), (Names{"a", "created"}));
+  }
 }
 
 // The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a

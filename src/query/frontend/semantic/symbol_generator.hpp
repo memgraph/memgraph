@@ -238,6 +238,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Identifiers which are injected from outside the query. Each identifier
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
+  // Symbols created for consumed predefined identifiers. Created at first use, which can be inside an open body, yet
+  // bound outside every one of them.
+  std::unordered_set<Symbol> predefined_symbols_;
   std::vector<Scope> scopes_;
   Scope global_scope_;
   // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -

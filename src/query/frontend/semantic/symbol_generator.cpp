@@ -76,7 +76,7 @@ std::unordered_set<Symbol> SymbolGenerator::PopExternalSymbols() {
   open_correlations_.pop_back();
   std::unordered_set<Symbol> external;
   for (const auto &symbol : open.referenced) {
-    if (symbol.position() < open.first_own_position) {
+    if (symbol.position() < open.first_own_position || predefined_symbols_.contains(symbol)) {
       external.insert(symbol);
     }
   }
@@ -1161,7 +1161,9 @@ bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
   // a symbol for it
   auto &identifier = it->second;
   MG_ASSERT(!identifier->user_declared_, "Predefined symbols cannot be user declared!");
-  identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
+  auto const symbol = CreateSymbol(identifier->name_, identifier->user_declared_);
+  identifier->MapTo(symbol);
+  predefined_symbols_.insert(symbol);
   predefined_identifiers_.erase(it);
   return true;
 }
