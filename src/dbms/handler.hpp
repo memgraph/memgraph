@@ -236,8 +236,9 @@ class Handler {
     auto gk = std::move(itr->second);
     items_.erase(itr);
 
-    // splice is noexcept; emplace_back's name arg is a std::move (noexcept), so no allocation
-    // occurs here — if emplace_back throws (OOM on node allocation), gk and id are intact for the fallback.
+    // std::list node allocation is the only throwing step; C++ evaluates it before the PendingDeletion
+    // ctor runs, and every member move (Gatekeeper/string/move_only_function) is noexcept —
+    // so an OOM here leaves gk/name/id/steps intact for the fallback.
     std::list<PendingDeletion> node;
     try {
       node.emplace_back(
@@ -246,6 +247,9 @@ class Handler {
       // OOM in emplace_back; gk is intact — run the same teardown sequence.
       PendingDeletion fallback{
           std::move(gk), std::move(name), std::move(id), std::move(stop_step), std::move(post_delete_step)};
+      // TeardownNode_ here runs synchronously under the CALLER's Handler lock_ (Delete_/TryDelete hold it) —
+      // this matches the pre-defer blocking behaviour and only occurs on the OOM fallback, never the normal
+      // deferred path. stop_step MUST NOT re-acquire lock_.
       TeardownNode_(fallback);
       return;
     }
@@ -256,6 +260,9 @@ class Handler {
         // ~Handler has already drained pending_; splicing would orphan this node.
         // Release the lock before the potentially-blocking ~Gatekeeper and user callbacks.
         lock.unlock();
+        // TeardownNode_ here runs synchronously under the CALLER's Handler lock_ (Delete_/TryDelete hold it) —
+        // this matches the pre-defer blocking behaviour and only occurs on the shutdown fallback, never the normal
+        // deferred path. stop_step MUST NOT re-acquire lock_.
         TeardownNode_(node.front());
         return;
       }
@@ -269,6 +276,12 @@ class Handler {
     out.reserve(pending_.size());
     for (auto const &node : pending_) out.emplace_back(node.name, node.id);
     return out;
+  }
+
+  // True iff a husk with @p name is still draining in pending_. No allocation (unlike PendingItems()).
+  bool IsPending(std::string_view name) const {
+    auto lock = std::unique_lock{pending_mutex_};
+    return std::ranges::any_of(pending_, [&](auto const &n) { return n.name == name; });
   }
 
   /**
@@ -345,6 +358,7 @@ class Handler {
   // MUST be called with no Handler lock held: ~Gatekeeper and post_delete_step may block.
   // Each step is independently caught — a throwing stop_step does not skip teardown.
   void TeardownNode_(PendingDeletion &node) {
+    // node.stopped/warned are read lock-free; defer_worker_.Stop()'s join provides the happens-before edge.
     if (!node.stopped) {
       try {
         if (auto a = node.gk.access()) node.stop_step(*a->get());
@@ -381,12 +395,17 @@ class Handler {
           if (!acc) {
             // Value already gone (defensive path — normally we are the only ones
             // with an accessor and try_delete is the one that clears value_).
+            DMG_ASSERT(node.stopped);
             try {
               node.post_delete_step();
             } catch (...) {  // NOLINT(bugprone-empty-catch) best-effort; post_delete failure must not stall the tick
             }
-            auto lock = std::unique_lock{pending_mutex_};
-            pending_.erase(it);
+            std::list<PendingDeletion> dead;
+            {
+              auto lock = std::unique_lock{pending_mutex_};
+              dead.splice(dead.end(), pending_, it);
+            }
+            // `dead` (and ~Gatekeeper) destructs here, outside pending_mutex_.
             continue;
           }
 
@@ -403,9 +422,13 @@ class Handler {
               node.post_delete_step();
             } catch (...) {  // NOLINT(bugprone-empty-catch) best-effort; post_delete failure must not stall the tick
             }
-            // ~Gatekeeper on node destruction: count == 0 + HOT → returns without blocking.
-            auto lock = std::unique_lock{pending_mutex_};
-            pending_.erase(it);
+            std::list<PendingDeletion> dead;
+            {
+              // ~Gatekeeper on node destruction: count == 0 + HOT → returns without blocking.
+              auto lock = std::unique_lock{pending_mutex_};
+              dead.splice(dead.end(), pending_, it);
+            }
+            // `dead` (and ~Gatekeeper) destructs here, outside pending_mutex_.
           } else if (!node.warned && std::chrono::steady_clock::now() - node.enqueued_at > kStuckWarnAfter) {
             // One-shot warning (warned latched). GatekeeperLabelFor<T> returns "" when the
             // type does not declare gatekeeper_label(), producing the unlabeled message variant.

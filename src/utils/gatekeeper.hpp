@@ -406,9 +406,13 @@ struct Gatekeeper {
     return std::nullopt;
   }
 
-  // Sets the deletion seal WITHOUT an Accessor — the drop path's last non-throwing step before
-  // ownership transfers to the teardown worker. Call only after all own Accessors are released and
-  // all fallible drop work has succeeded.
+  // Sets the advisory is_marked_for_deletion flag without holding an Accessor.
+  // This is NOT a hard barrier: access() is gated only on state_ == HOT (not on
+  // is_marked_for_deletion), so new Accessors can still be minted on a sealed HOT
+  // gatekeeper. The seal is a cooperative signal — consumers such as replication
+  // (via DatabaseProtector::sealed()) observe Accessor::operator bool returning false
+  // and retire gracefully. Call only after all own Accessors are released and all
+  // fallible drop work has succeeded.
   void seal() {
     auto guard = std::unique_lock{pimpl_->mutex_};
     pimpl_->is_marked_for_deletion = true;

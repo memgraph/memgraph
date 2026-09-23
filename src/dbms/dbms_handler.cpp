@@ -448,16 +448,13 @@ std::optional<DbmsHandler::DeleteResult> DbmsHandler::TryDeleteColdFastPath_(std
 }
 
 // Returns the DeleteError to propagate when the tenant is not live (name absent from items_):
-// ALREADY_DROPPING if a husk with this name is still draining in PendingItems(), else NON_EXISTENT.
+// ALREADY_DROPPING if a husk with this name is still draining (IsPending), else NON_EXISTENT.
 // A name erased from items_ by DeferDelete but still draining is a known husk (its DROPPING row
 // shows in SHOW DATABASES); report that rather than the misleading NON_EXISTENT. Safe under lock_:
-// PendingItems() takes pending_mutex_ (lock_ -> pending_mutex_ is the only nesting direction).
+// IsPending() takes pending_mutex_ (lock_ -> pending_mutex_ is the only nesting direction).
 // Caller invokes this only when GetConfig(db_name) already returned nullopt. Caller must hold lock_.
 DeleteError DbmsHandler::NotLiveDeleteError_(std::string_view db_name) const {
-  return std::ranges::contains(
-             db_handler_.PendingItems(), db_name, [](auto const &p) { return std::string_view{p.first}; })
-             ? DeleteError::ALREADY_DROPPING
-             : DeleteError::NON_EXISTENT;
+  return db_handler_.IsPending(db_name) ? DeleteError::ALREADY_DROPPING : DeleteError::NON_EXISTENT;
 }
 
 DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
@@ -892,7 +889,18 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   // Announce the retired uuid so uuid-keyed stores (e.g. database-scoped parameters) discard its rows.
   // Placed after the seal + DeferDelete handoff (the drop's point of no return): any earlier failure
   // leaves the tenant HOT and unsealed, so a not-actually-dropped tenant never loses its rows.
-  if (on_uuid_retired_) on_uuid_retired_(*db_uuid);
+  // The drop is already committed at this point — an exception from on_uuid_retired_ must not unwind
+  // Delete_ (which would falsely surface failure to the client while the husk drains in pending_).
+  // Swallow and log instead; the uuid's param rows will be cleaned up on next startup or by GC.
+  if (on_uuid_retired_) {
+    try {
+      on_uuid_retired_(*db_uuid);
+    } catch (const std::exception &e) {
+      spdlog::error("on_uuid_retired_ threw after committed drop of '{}': {}", db_name, e.what());
+    } catch (...) {
+      spdlog::error("on_uuid_retired_ threw (non-std) after committed drop of '{}'", db_name);
+    }
+  }
 
   return {};  // Success
 }
