@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+
+#include <algorithm>
+
 #include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
@@ -599,7 +602,8 @@ Expression *LowerLabelTermNode(AstStorage &storage, Expression *subject, const L
         auto labels = std::vector<LabelIx>{};
         labels.reserve(term.children.size());
         for (const auto &child : term.children) {
-          labels.push_back(child.label);
+          // A repeated label adds nothing to the choice, but index selection would scan it once per copy.
+          if (!std::ranges::contains(labels, child.label)) labels.push_back(child.label);
         }
         return storage.Create<LabelsTest>(leaf_subject(), std::move(labels), /*label_expression=*/true);
       }
