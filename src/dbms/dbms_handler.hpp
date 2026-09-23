@@ -978,6 +978,11 @@ class DbmsHandler {
   // path in that case. Caller must hold lock_ (write).
   std::optional<DeleteResult> TryDeleteColdFastPath_(std::string_view name, system::Transaction *transaction);
 
+  // Returns the DeleteError to propagate when the tenant is not live (name absent from items_):
+  // ALREADY_DROPPING if a husk with this name is still draining in PendingItems(), else NON_EXISTENT.
+  // Caller invokes this only when GetConfig(db_name) already returned nullopt. Caller must hold lock_.
+  DeleteError NotLiveDeleteError_(std::string_view db_name) const;
+
   // Refresh the global cold-databases gauge from the live suspended_ size. Caller MUST hold lock_
   // (every call site already does, or runs before any concurrent reader exists).
   void UpdateColdGauge_() const noexcept {

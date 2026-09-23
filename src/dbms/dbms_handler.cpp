@@ -447,6 +447,19 @@ std::optional<DbmsHandler::DeleteResult> DbmsHandler::TryDeleteColdFastPath_(std
   return DeleteResult{};
 }
 
+// Returns the DeleteError to propagate when the tenant is not live (name absent from items_):
+// ALREADY_DROPPING if a husk with this name is still draining in PendingItems(), else NON_EXISTENT.
+// A name erased from items_ by DeferDelete but still draining is a known husk (its DROPPING row
+// shows in SHOW DATABASES); report that rather than the misleading NON_EXISTENT. Safe under lock_:
+// PendingItems() takes pending_mutex_ (lock_ -> pending_mutex_ is the only nesting direction).
+// Caller invokes this only when GetConfig(db_name) already returned nullopt. Caller must hold lock_.
+DeleteError DbmsHandler::NotLiveDeleteError_(std::string_view db_name) const {
+  return std::ranges::contains(
+             db_handler_.PendingItems(), db_name, [](auto const &p) { return std::string_view{p.first}; })
+             ? DeleteError::ALREADY_DROPPING
+             : DeleteError::NON_EXISTENT;
+}
+
 DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
   auto wr = std::lock_guard{lock_};
   if (db_name == kDefaultDB) {
@@ -462,15 +475,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
 
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
-  if (!conf) {
-    // A name erased from items_ by DeferDelete but still draining is a known husk (its DROPPING row
-    // shows in SHOW DATABASES); report that rather than the misleading NON_EXISTENT. Safe under lock_:
-    // PendingItems() takes pending_mutex_ (lock_ -> pending_mutex_ is the only nesting direction).
-    for (auto const &[pending_name, pending_id] : db_handler_.PendingItems()) {
-      if (pending_name == db_name) return std::unexpected{DeleteError::ALREADY_DROPPING};
-    }
-    return std::unexpected{DeleteError::NON_EXISTENT};
-  }
+  if (!conf) return std::unexpected{NotLiveDeleteError_(db_name)};
   const auto &storage_path = conf->durability.storage_directory;
   const auto &uuid = conf->salient.uuid;
 
@@ -514,15 +519,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
 
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
-  if (!conf) {
-    // A name erased from items_ by DeferDelete but still draining is a known husk (its DROPPING row
-    // shows in SHOW DATABASES); report that rather than the misleading NON_EXISTENT. Safe under lock_:
-    // PendingItems() takes pending_mutex_ (lock_ -> pending_mutex_ is the only nesting direction).
-    for (auto const &[pending_name, pending_id] : db_handler_.PendingItems()) {
-      if (pending_name == db_name) return std::unexpected{DeleteError::ALREADY_DROPPING};
-    }
-    return std::unexpected{DeleteError::NON_EXISTENT};
-  }
+  if (!conf) return std::unexpected{NotLiveDeleteError_(db_name)};
 
   // Force delete
   const auto res = Delete_(db_name);
@@ -883,10 +880,14 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
       spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
     }
   };
-  // Advisory seal — the last step before the nothrow handoff. DeferDelete then either defers teardown
-  // to the worker (off lock_) or, only on an internal allocation failure, tears it down inline.
+  // Build the owned name copy BEFORE the seal so the post-seal suffix contains no allocations:
+  // a bad_alloc here leaves the tenant HOT and unsealed (retriable), never sealed-but-stranded.
+  auto husk_name = std::string{db_name};
+  // Advisory seal — the last step before the nothrow handoff. Every argument to DeferDelete is
+  // already an owned value (std::string by value, move_only_function by move — all noexcept moves),
+  // so no allocation or copy occurs after this point.
   if (auto *gk = db_handler_.GetGatekeeper(db_name)) gk->seal();
-  db_handler_.DeferDelete(db_name, std::move(husk_id), std::move(stop_step), std::move(post_delete_step));
+  db_handler_.DeferDelete(std::move(husk_name), std::move(husk_id), std::move(stop_step), std::move(post_delete_step));
 
   // Announce the retired uuid so uuid-keyed stores (e.g. database-scoped parameters) discard its rows.
   // Placed after the seal + DeferDelete handoff (the drop's point of no return): any earlier failure

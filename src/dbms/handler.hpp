@@ -221,7 +221,7 @@ class Handler {
    * @param id Opaque caller tag (e.g. UUID) surfaced by PendingItems().
    * @param stop_step Before gatekeeper destruction (e.g. StopAllBackgroundTasks); @param post_delete_step after.
    */
-  void DeferDelete(std::string_view name, std::string id, std::move_only_function<void(T &)> stop_step,
+  void DeferDelete(std::string name, std::string id, std::move_only_function<void(T &)> stop_step,
                    std::move_only_function<void()> post_delete_step) {
     auto itr = items_.find(name);
     if (itr == items_.end()) return;
@@ -231,24 +231,21 @@ class Handler {
     DMG_ASSERT(
         itr->second.state() == utils::GatekeeperState::HOT, "DeferDelete requires a HOT gatekeeper (name='{}')", name);
 
-    // Copy the name BEFORE moving/erasing. `name` may alias the items_ key (callers pass it->first as a
-    // string_view) AND std::string{name} can throw (OOM): if we moved the gatekeeper out first, a throw
-    // here would skip items_.erase and leave a moved-from (null-pimpl_) shell in items_ that a later
-    // access()/is_marked_for_deletion() would dereference and crash. Copying first keeps the map entry
-    // intact on throw; the move-ctor and unordered_map::erase(iterator) below are both noexcept.
-    auto name_owned = std::string{name};
+    // `name` is caller-owned (passed by value): no aliasing with the items_ key.
+    // The move-ctor and unordered_map::erase(iterator) are both noexcept.
     auto gk = std::move(itr->second);
     items_.erase(itr);
 
-    // splice is noexcept; if emplace_back throws (OOM), node allocation fails before any arg is moved,
-    // so gk and id are intact for the fallback.
+    // splice is noexcept; emplace_back's name arg is a std::move (noexcept), so no allocation
+    // occurs here — if emplace_back throws (OOM on node allocation), gk and id are intact for the fallback.
     std::list<PendingDeletion> node;
     try {
-      node.emplace_back(std::move(gk), name_owned, std::move(id), std::move(stop_step), std::move(post_delete_step));
+      node.emplace_back(
+          std::move(gk), std::move(name), std::move(id), std::move(stop_step), std::move(post_delete_step));
     } catch (...) {
       // OOM in emplace_back; gk is intact — run the same teardown sequence.
       PendingDeletion fallback{
-          std::move(gk), std::move(name_owned), std::move(id), std::move(stop_step), std::move(post_delete_step)};
+          std::move(gk), std::move(name), std::move(id), std::move(stop_step), std::move(post_delete_step)};
       TeardownNode_(fallback);
       return;
     }
