@@ -151,14 +151,16 @@ void PurgeUnusedMemory() {
   // A forced purge skips an arena that another thread is already purging, and a background thread
   // purges only down to the decay limit, so purging while one is mid-pass leaves pages behind.
   // Stopping the background threads joins them, so none is mid-pass when the purge runs. Callers
-  // are serialised so that one cannot restore the setting while another still has them stopped.
+  // are serialised so that one cannot restart the threads while another is still purging.
   static std::mutex purge_mutex;
   const std::lock_guard lock(purge_mutex);
 
   bool was_enabled = false;
   size_t len = sizeof(was_enabled);
   bool disable = false;
-  je_mallctl("background_thread", &was_enabled, &len, &disable, sizeof(disable));
+  if (const int err = je_mallctl("background_thread", &was_enabled, &len, &disable, sizeof(disable)); err != 0) {
+    spdlog::warn("Failed to stop jemalloc background threads before a purge: {} ({})", strerror(err), err);
+  }
   je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
   if (was_enabled) {
     if (const int err = je_mallctl("background_thread", nullptr, nullptr, &was_enabled, sizeof(was_enabled));

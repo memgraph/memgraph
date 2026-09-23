@@ -587,7 +587,7 @@ add_unit_test(jemalloc_hook_stress_test
 
 add_unit_test(memory_purge_unused_memory
     SOURCES memory_purge_unused_memory.cpp
-    LINK_TARGETS mg-memory mg-memory-utils mg-utils
+    LINK_TARGETS mg-memory-utils mg-utils
 )
 
 add_unit_test(tls_destructor_registration

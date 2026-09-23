@@ -15,13 +15,13 @@
 
 #if USE_JEMALLOC
 
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include <jemalloc/jemalloc.h>
@@ -32,6 +32,7 @@ namespace {
 using namespace std::chrono_literals;
 
 template <typename T>
+  requires std::is_trivially_copyable_v<T>
 T ReadMallctl(const std::string &name) {
   T value{};
   size_t size = sizeof(T);
@@ -40,6 +41,7 @@ T ReadMallctl(const std::string &name) {
 }
 
 template <typename T>
+  requires std::is_trivially_copyable_v<T>
 void WriteMallctl(const std::string &name, T value) {
   ASSERT_EQ(je_mallctl(name.c_str(), nullptr, nullptr, &value, sizeof(T)), 0) << name;
 }
@@ -77,8 +79,11 @@ class HeldPurgeArena {
   HeldPurgeArena(HeldPurgeArena &&) = delete;
   HeldPurgeArena &operator=(HeldPurgeArena &&) = delete;
 
+  // jemalloc keeps a pointer to hooks_, so the arena must be handed back its own hooks first.
   ~HeldPurgeArena() {
     Release();
+    const auto hooks_name = "arena." + std::to_string(arena_) + ".extent_hooks";
+    EXPECT_EQ(je_mallctl(hooks_name.c_str(), nullptr, nullptr, &base_, sizeof(base_)), 0);
     instance_ = nullptr;
   }
 
