@@ -782,7 +782,9 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
 
 bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
   // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
-  // No predefined symbols: the enclosing filter's `used_symbols` takes this set, and nothing binds them there.
+  // No predefined symbols (trigger variables): this set joins the enclosing filter's `used_symbols`, and the plan never
+  // binds them, so that filter could not be placed.
+  // TODO: count a trigger's predefined symbols as bound when it plans, then include them here too.
   subquery.external_symbols_ = PopExternalSymbols(/*with_predefined=*/false);
   scopes_.pop_back();
   return true;
@@ -1105,6 +1107,8 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 }
 
 bool SymbolGenerator::PostVisit(PatternComprehension &pc) {
+  // With predefined symbols: the branch reads this set as already bound, and the trigger writes them before the plan
+  // runs. Without them, a filter in the comprehension that reads one could not be placed.
   // Overwrite instead of merging, as `PostVisit(SubqueryExpression &)` does.
   pc.external_symbols_ = PopExternalSymbols(/*with_predefined=*/true);
   scopes_.pop_back();
