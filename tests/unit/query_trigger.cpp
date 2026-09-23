@@ -1236,8 +1236,7 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
   ASSERT_EQ(store.AfterCommitTriggers().size(), 0);
 }
 
-// A trigger's variables get their symbols at first use. When that use is inside a comprehension, the comprehension
-// must still count the variable as bound outside it, or a filter that reads it cannot be placed.
+// A trigger variable first used inside a comprehension is still bound outside it.
 TYPED_TEST(TriggerStoreTest, TriggerVariableFirstUsedInsidePatternComprehension) {
   memgraph::query::TriggerStore store{this->testing_directory};
 

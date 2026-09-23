@@ -672,8 +672,7 @@ struct PatternComprehensionMatching : Matching {
   Clause *origin_clause = nullptr;
   /// Nested pattern comprehensions found in the result expression
   PatternComprehensionMatchings nested_pattern_comprehensions;
-  /// Symbols the comprehension reads that were declared outside it, taken from
-  /// @c PatternComprehension::external_symbols_. These must be bound before the comprehension can be planned.
+  /// Copy of @c PatternComprehension::external_symbols_. These must be bound before the comprehension is planned.
   std::unordered_set<Symbol> external_symbols;
 };
 

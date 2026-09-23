@@ -1150,14 +1150,9 @@ Feature: Pattern comprehensions
             | name            |
             | 'mg.procedures' |
 
-    # The four scenarios below pin the pattern positions a walk of the filter and the result expression cannot reach.
-    # A comprehension's external symbols are now recorded by the symbol generator from each identifier's resolution,
-    # so a variable-length edge's properties, bounds and lambdas reach them like any other position.
+    # The next four scenarios read an outer name from a variable-length edge's property map, bound and lambdas.
 
-    # The property map on a variable-length edge is turned into two filters whose `used_symbols` hold the expansion's
-    # own inner edge and node. The hand-computed external set took them for outer names and declared them bound, and
-    # `MakeExpansionOperator` asserts that they are not - so this one line aborted the process. `unfiltered` is the
-    # discriminator: it is 3 whether or not the property map is honoured.
+    # This aborted the server. `unfiltered` is 3 whether or not the property map is honoured.
     Scenario: Pattern comprehension over a variable-length edge with a property map
         Given an empty graph
         And having executed:
@@ -1174,10 +1169,7 @@ Feature: Pattern comprehensions
             | filtered | unfiltered |
             | 2        | 3          |
 
-    # A variable-length bound is an expression, and here it reads the FOREACH variable. The bound was invisible to the
-    # old walk, so the comprehension drained onto the main chain, outside the FOREACH, and read an unwritten slot:
-    # "Variable expansion bound must be an int". Two iterations, so a bound that is honoured but frozen at one value
-    # still fails.
+    # Two iterations, so a bound frozen at one value fails.
     Scenario: Pattern comprehension whose variable-length bound reads a FOREACH variable
         Given an empty graph
         And having executed:
@@ -1197,8 +1189,7 @@ Feature: Pattern comprehensions
             | 1 | 1 |
             | 2 | 2 |
 
-    # Same position class, the filter lambda. This one answered rather than erroring: the lambda read a null `k`,
-    # `n.d <= null` is null, the expansion kept nothing and both rows came back 0.
+    # A lambda that reads a null `k` keeps nothing, so both rows are 0.
     Scenario: Pattern comprehension whose BFS filter lambda reads a FOREACH variable
         Given an empty graph
         And having executed:
@@ -1218,10 +1209,7 @@ Feature: Pattern comprehensions
             | 1 | 1 |
             | 2 | 2 |
 
-    # The weight lambda is a third expression on the same edge atom, and it decides which path wShortest keeps. With a
-    # null `k` the weight was null and the expansion produced nothing. The sum of the total weights, not the path
-    # count, is the discriminator: both k values reach two nodes, but k = 10 makes the direct edge to B the cheaper
-    # path.
+    # Sum the total weights, not the paths: both k values reach two nodes, but k = 10 makes the direct edge cheaper.
     Scenario: Pattern comprehension whose wShortest weight lambda reads a FOREACH variable
         Given an empty graph
         And having executed:
@@ -1246,10 +1234,8 @@ Feature: Pattern comprehensions
             | 0  | 3  |
             | 10 | 26 |
 
-    # A quantifier's variable as the pattern's start node is written by the expression, after the RollUpApply has run,
-    # so the branch scans it instead of reading its frame slot. Reading the slot answered from the previous row: the
-    # first row saw null and came back false. The scan is still uncorrelated (#4335); every node here has an outgoing
-    # edge, so both answers are true either way, and only a read of another row's value fails.
+    # `x` is written after the comprehension runs. Reading its slot gives the previous row's value, so row 1 is false.
+    # The scan is still uncorrelated (#4335), but every node has an outgoing edge.
     Scenario: Pattern comprehension anchored on a quantifier's variable does not read another row's value
         Given an empty graph
         And having executed:

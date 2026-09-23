@@ -226,7 +226,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Record a reference in every open body, not just the innermost.
   void RecordCorrelationReference(const Symbol &symbol);
 
-  // Closes the innermost body and answers what it read from outside itself.
+  // Closes the innermost body and returns its external symbols.
   std::unordered_set<Symbol> PopExternalSymbols();
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
@@ -238,8 +238,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Identifiers which are injected from outside the query. Each identifier
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
-  // Symbols created for consumed predefined identifiers. Created at first use, which can be inside an open body, yet
-  // bound outside every one of them.
+  // Predefined identifiers' symbols. Created at first use, possibly inside a body, but bound outside all of them.
   std::unordered_set<Symbol> predefined_symbols_;
   std::vector<Scope> scopes_;
   Scope global_scope_;

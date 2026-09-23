@@ -1482,11 +1482,8 @@ TYPED_TEST(TestSymbolGenerator, UsedSymbolsCollectorTakesSubqueryExternals) {
   }
 }
 
-// `PatternComprehension::external_symbols_` carries the same contract, and the same consequences: too few and the
-// RollUpApply is spliced below the operator that writes the symbol, too many and the set is declared bound, which
-// `MakeExpansionOperator` asserts against for an expansion's own inner edge and node. The hand-computed set this
-// replaced walked the filter and the result expression, so every pattern position that is neither - a variable-length
-// bound, a filter or weight lambda - was invisible to it.
+// `PatternComprehension::external_symbols_` has the same contract. Too few splices the RollUpApply too low; too many
+// declares an expansion's own inner edge and node bound, which `MakeExpansionOperator` asserts against.
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
   auto names = [](const std::unordered_set<Symbol> &symbols) {
     std::vector<std::string> out;
@@ -1499,14 +1496,14 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
 
   {
     // MATCH (a) RETURN [(a)-[r]->(b) | b]
-    // The anchor resolves to the caller's `a`, so it is external; `r` and `b` are the comprehension's own.
+    // `a` is the caller's; `r` and `b` are the comprehension's own.
     auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), nullptr, IDENT("b"));
     MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(pc, AS("res")))));
     EXPECT_EQ(names(pc->external_symbols_), Names{"a"});
   }
   {
     // MATCH (a) RETURN [(x)-[r]->(y) WHERE y = a | y]
-    // Correlated through the filter only. Nothing the pattern declares reaches the caller.
+    // Correlated through the filter only.
     auto *pc = PATTERN_COMPREHENSION(
         nullptr, PATTERN(NODE("x"), EDGE("r"), NODE("y")), WHERE(EQ(IDENT("y"), IDENT("a"))), IDENT("y"));
     MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(pc, AS("res")))));
@@ -1514,8 +1511,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
   }
   {
     // MATCH (a) UNWIND [1] AS k RETURN [(a)-[r*1..k]->(b) | b]
-    // The bound is the whole correlation to `k`. The walk this replaced never looked at the pattern, so `k` was
-    // missing and the comprehension drained before the Unwind that writes it.
+    // Correlated through the bound only.
     auto *edge = EDGE_VARIABLE("r");
     edge->upper_bound_ = IDENT("k");
     auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), edge, NODE("b")), nullptr, IDENT("b"));
@@ -1525,8 +1521,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
   }
   {
     // MATCH (a) UNWIND [1] AS k RETURN [(a)-[r*BFS (e, n | n = k)]->(b) | b]
-    // Same for a filter lambda. Its own inner edge and node are declared here, so they must not be external: declaring
-    // them bound is what aborts `MakeExpansionOperator`.
+    // Correlated through the filter lambda. Its inner edge and node are the comprehension's own.
     auto *edge = EDGE_VARIABLE("r", memgraph::query::EdgeAtom::Type::BREADTH_FIRST);
     edge->filter_lambda_.expression = EQ(IDENT(edge->filter_lambda_.inner_node->name_), IDENT("k"));
     auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), edge, NODE("b")), nullptr, IDENT("b"));
@@ -1536,8 +1531,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
   }
   {
     // MATCH (a) RETURN [(a)-[r]->(b) WHERE size([(b)-[r2]->(c) | c]) = 0 | b]
-    // Nesting, as for a body: what the inner comprehension declares is internal to it and never surfaces on the outer
-    // one, which the old subtraction only covered for a comprehension in the *result* expression.
+    // What the inner comprehension declares stays out of the outer one.
     auto *inner = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("r2"), NODE("c")), nullptr, IDENT("c"));
     auto *outer = PATTERN_COMPREHENSION(
         nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), WHERE(EQ(FN("size", inner), LITERAL(0))), IDENT("b"));
@@ -1547,8 +1541,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
   }
   {
     // MATCH (a) UNWIND [1] AS k RETURN [(a)-[r]->(b) | size([(b)-[r2]->(c) WHERE c = k | c])]
-    // `k` is read only inside the inner comprehension, so the outer one has it only if every open record gets the
-    // reference, not just the innermost.
+    // Only the inner comprehension reads `k`, but the outer one must record it too.
     auto *inner = PATTERN_COMPREHENSION(
         nullptr, PATTERN(NODE("b"), EDGE("r2"), NODE("c")), WHERE(EQ(IDENT("c"), IDENT("k"))), IDENT("c"));
     auto *outer = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), nullptr, FN("size", inner));
@@ -1559,15 +1552,14 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
   }
   {
     // MATCH (a) RETURN [p = (a)-[r]->(b) | p]
-    // The path variable is the comprehension's own, even though it is created before its pattern is visited.
+    // `p` is the comprehension's own, though created before its pattern is visited.
     auto *pc = PATTERN_COMPREHENSION(IDENT("p"), PATTERN(NODE("a"), EDGE("r"), NODE("b")), nullptr, IDENT("p"));
     MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(pc, AS("res")))));
     EXPECT_EQ(names(pc->external_symbols_), Names{"a"});
   }
   {
-    // MATCH (a) RETURN [(a)-[r]->(b) WHERE b = created | b], with `created` predefined, as a trigger's variables are.
-    // Its symbol is created at its first use, inside the comprehension, yet the trigger binds it outside. Missing it
-    // left the WHERE with a symbol nothing binds, so the trigger could not be planned.
+    // MATCH (a) RETURN [(a)-[r]->(b) WHERE b = created | b], with `created` predefined, as a trigger variable is.
+    // Its symbol is created inside the comprehension, but the trigger binds it outside.
     auto *created = IDENT("created", false);
     auto *pc = PATTERN_COMPREHENSION(
         nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), WHERE(EQ(IDENT("b"), IDENT("created"))), IDENT("b"));

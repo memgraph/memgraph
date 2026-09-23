@@ -1199,11 +1199,8 @@ bool SubqueryMatchingCollector::PreVisit(PatternComprehension &op) {
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
 
-  // Every symbol the comprehension reads that it does not declare itself, e.g. the FOREACH variable `x` in
-  // `[(a)-[r]->(b) WHERE a.id = x | b]`. `SymbolGenerator` recorded it from each identifier's resolution, so no
-  // position needs a walk of its own: a property map, a variable-length bound, a nested comprehension's filter and a
-  // subquery body all reach it the same way. `DepsSatisfied` decides from this when a comprehension may drain, and a
-  // miss splices the RollUpApply below the operator that writes the symbol, where it reads an unwritten frame slot.
+  // `DepsSatisfied` drains the comprehension only after all of these are bound. A missing one puts the RollUpApply
+  // below the operator that writes it.
   matching.external_symbols = op.external_symbols_;
 
   pattern_comprehension_matchings_.push_back(std::move(matching));
