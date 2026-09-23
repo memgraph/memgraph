@@ -912,6 +912,23 @@ int main(int argc, char **argv) {
 #endif
   }
 
+  // Startup guard (C2 restart bypass): abort early if the durability-restored replication role is
+  // incompatible with experimental_lockfree_read_snapshot before ReplicationHandler re-arms it.
+  // Both REPLICA and MAIN-with-replicas are hazardous: the flag's 2PC early-publish window
+  // (last_committed_mvcc_ts_ before replica finalization) exists in either direction.
+  if (!is_coordinator_instance && db_config.experimental_lockfree_read_snapshot) {
+    auto const locked = repl_state->ReadLock();
+    bool const is_replica = locked->IsReplica();
+    bool const main_has_replicas = locked->IsMain() && !locked->GetMainRole().registered_replicas_.empty();
+    if (is_replica || main_has_replicas) {
+      LOG_FATAL(
+          "experimental_lockfree_read_snapshot is incompatible with replicated configurations. "
+          "The persisted replication role is {} — this configuration cannot be used with the flag. "
+          "Disable experimental_lockfree_read_snapshot and restart.",
+          is_replica ? "REPLICA" : "MAIN with registered replicas");
+    }
+  }
+
   // TTL will be stopped with StopAllBackgroundTasks in DatabaseHandler
   if (!is_coordinator_instance) {
     dbms_handler->ForEach([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {

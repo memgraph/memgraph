@@ -485,6 +485,13 @@ class ReplQueryHandler {
             name);
       }
 
+      if (error.error() == RegisterReplicaError::LOCKFREE_SNAPSHOT_ENABLED) {
+        throw QueryRuntimeException(
+            "Couldn't register replica {} because the experimental lock-free read snapshot feature is enabled. "
+            "This feature is incompatible with replicated configurations. Disable it and restart the instance.",
+            name);
+      }
+
       throw QueryRuntimeException("Couldn't register replica {}. Error: {}", name, static_cast<uint8_t>(error.error()));
     }
   }
