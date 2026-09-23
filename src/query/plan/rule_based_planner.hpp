@@ -681,7 +681,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     // in `[(a)-[r]->(b) WHERE a.id = x | b]`). These must be in bound_symbols for filter extraction
     // to work correctly.
     auto pc_bound_symbols = bound_symbols;
-    pc_bound_symbols.insert(matching.external_symbols.begin(), matching.external_symbols.end());
+    for (const auto &symbol : matching.external_symbols) {
+      // An unbound pattern atom, e.g. a list comprehension's `x` in `[x IN xs | [(x)-->(y) | y]]`, has no value in its
+      // frame slot yet: the expression writes it after this branch runs. Scan it rather than read the slot.
+      if (matching.expansion_symbols.contains(symbol) && !bound_symbols.contains(symbol)) continue;
+      pc_bound_symbols.insert(symbol);
+    }
 
     MatchContext match_ctx{matching, symbol_table, pc_bound_symbols, view};
     new_input = PlanMatching(match_ctx, std::move(new_input));

@@ -1245,3 +1245,22 @@ Feature: Pattern comprehensions
             | k  | s  |
             | 0  | 3  |
             | 10 | 26 |
+
+    # A quantifier's variable as the pattern's start node is written by the expression, after the RollUpApply has run,
+    # so the branch scans it instead of reading its frame slot. Reading the slot answered from the previous row: the
+    # first row saw null and came back false. The scan is still uncorrelated (#4335); every node here has an outgoing
+    # edge, so both answers are true either way, and only a read of another row's value fails.
+    Scenario: Pattern comprehension anchored on a quantifier's variable does not read another row's value
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A {id: 1})-[:R]->(b:A {id: 2})-[:R]->(a)
+            """
+        When executing query:
+            """
+            MATCH (n:A) RETURN n.id AS id, any(x IN [n] WHERE size([(x)-->(m) | m]) > 0) AS out
+            """
+        Then the result should be:
+            | id | out  |
+            | 1  | true |
+            | 2  | true |
