@@ -35,7 +35,6 @@
 #include "replication_coordination_glue/role.hpp"
 #include "requests/requests.hpp"
 #include "spdlog/spdlog.h"
-#include "storage/v2/commit_probe.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -1154,7 +1153,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // BEGIN can now mint a start_timestamp without waiting on the durability RTT.
   if (lockfree) {
     engine_guard.unlock();
-    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_mint);
   }
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
@@ -1171,9 +1169,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
-  if (lockfree) {
-    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::during_durability);
-  }
   auto const repl_prepare_phase_ok =
       HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
 
@@ -1251,7 +1246,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   std::optional<std::unique_lock<utils::SpinLock>> pub_guard;
   if (acquire_engine_lock) {
-    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_publish);
     pub_guard.emplace(storage_->engine_lock_);
   }
 
@@ -1373,7 +1367,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     DMG_ASSERT(*commit_timestamp_ > mem_storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
                "watermark must strictly increase: commit mint order and publish order have diverged");
     mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
-    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_publish);
   }
   is_transaction_active_ = false;
 }
