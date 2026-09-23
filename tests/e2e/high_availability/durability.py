@@ -409,8 +409,8 @@ def test_branching_point_wal_files_recovery(test_name, enable_backup_dir):
     # 1.
     instance1_cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(instance1_cursor, "CREATE (:Common {prop: range(1, 128)});")
-    assert count_files(wal_dir_instance_1) == 1
-    assert count_files(wal_dir_instance_2) == 1
+    mg_sleep_and_assert(1, partial(count_files, wal_dir_instance_1))
+    mg_sleep_and_assert(1, partial(count_files, wal_dir_instance_2))
 
     # 2.
     interactive_mg_runner.kill(instances_description, "instance_2")
@@ -424,8 +424,8 @@ def test_branching_point_wal_files_recovery(test_name, enable_backup_dir):
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
     execute_and_fetch_all(instance1_cursor, "CREATE (:Single {prop: range(1, 128)});")
     execute_and_fetch_all(instance1_cursor, "CREATE (:Single {prop: range(1, 128)});")
-    assert count_files(wal_dir_instance_1) == 3
-    assert count_files(wal_dir_instance_2) == 1
+    mg_sleep_and_assert(3, partial(count_files, wal_dir_instance_1))
+    mg_sleep_and_assert(1, partial(count_files, wal_dir_instance_2))
 
     # 3.
     interactive_mg_runner.kill(instances_description, "instance_1")
@@ -449,7 +449,7 @@ def test_branching_point_wal_files_recovery(test_name, enable_backup_dir):
     instance1_cursor = connect(host="localhost", port=7687).cursor()
     mg_sleep_and_assert(1, partial(get_vertex_count, instance1_cursor))
 
-    assert count_files(wal_dir_instance_1) == 1
+    mg_sleep_and_assert(1, partial(count_files, wal_dir_instance_1))
 
     old_wal_dir_instance_1 = f"{data_dir_instance_1}/wal/.old"
     old_snapshot_dir_instance_1 = f"{data_dir_instance_1}/snapshots/.old"
