@@ -93,10 +93,19 @@ size_t Hash(const TypedValue &value) {
       if (std::isnan(value.ValueDouble())) return 1'214'729'715;
 
       // Store whole number doubles as int hashes to be consistent with
-      // TypedValue equality in which (2.0 == 2) returns true
+      // TypedValue equality in which (2.0 == 2) returns true. Only where an
+      // integer can hold the value: reading one outside that range as an
+      // integer is undefined, and an infinity is outside it however whole it
+      // looks.
+      //
+      // The edge is taken from the smallest integer rather than the largest,
+      // because that one is a power of two and survives the conversion exactly;
+      // the largest is one short of it and would round.
+      constexpr auto kJustPastTheWidestInteger = -static_cast<double>(std::numeric_limits<int64_t>::min());
       const double double_value = std::trunc(value.ValueDouble());
       double whole_value = 0.0;
-      if (std::modf(double_value, &whole_value) == 0.0) {
+      if (std::modf(double_value, &whole_value) == 0.0 && whole_value >= -kJustPastTheWidestInteger &&
+          whole_value < kJustPastTheWidestInteger) {
         return std::hash<int64_t>{}(static_cast<int64_t>(whole_value));
       }
       return std::hash<double>{}(double_value);
