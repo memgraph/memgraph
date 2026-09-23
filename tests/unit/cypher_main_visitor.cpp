@@ -906,6 +906,54 @@ TEST_P(CypherMainVisitorTest, CaseSimpleForm) {
   CheckRWType(query, kRead);
 }
 
+// Each arm compares its own copy of the test, so the AST stays a tree and every walk reaches a node once.
+TEST_P(CypherMainVisitorTest, CaseSimpleFormCopiesTestPerArm) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN CASE count(n) WHEN 1 THEN 'a' WHEN 2 THEN 'b' END"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *if_operator = dynamic_cast<IfOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(if_operator);
+  auto *if_operator2 = dynamic_cast<IfOperator *>(if_operator->else_expression_);
+  ASSERT_TRUE(if_operator2);
+  auto *condition = dynamic_cast<EqualOperator *>(if_operator->condition_);
+  auto *condition2 = dynamic_cast<EqualOperator *>(if_operator2->condition_);
+  ASSERT_TRUE(condition);
+  ASSERT_TRUE(condition2);
+  ASSERT_TRUE(dynamic_cast<Aggregation *>(condition->expression1_));
+  ASSERT_TRUE(dynamic_cast<Aggregation *>(condition2->expression1_));
+  EXPECT_NE(condition->expression1_, condition2->expression1_);
+}
+
+// The copies are taken once the single query has named its anonymous identifiers, so no copy holds an unnamed one.
+TEST_P(CypherMainVisitorTest, CaseSimpleFormCopiesNameAnonymousIdentifiers) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (a) RETURN CASE exists((a)-[:R]->()) WHEN true THEN 1 WHEN false THEN 2 END"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  ASSERT_TRUE(return_clause);
+  Expression *arm = return_clause->body_.named_expressions[0]->expression_;
+  for (int i = 0; i < 2; ++i) {
+    auto *if_operator = dynamic_cast<IfOperator *>(arm);
+    ASSERT_TRUE(if_operator);
+    auto *condition = dynamic_cast<EqualOperator *>(if_operator->condition_);
+    ASSERT_TRUE(condition);
+    auto *exists = dynamic_cast<SubqueryExpression *>(condition->expression1_);
+    ASSERT_TRUE(exists);
+    ASSERT_TRUE(exists->HasPattern());
+    auto *pattern = exists->GetPattern();
+    EXPECT_TRUE(pattern->identifier_);
+    for (auto *atom : pattern->atoms_) {
+      EXPECT_TRUE(atom->identifier_);
+    }
+    arm = if_operator->else_expression_;
+  }
+}
+
 TEST_P(CypherMainVisitorTest, IsNull) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 iS NulL"));

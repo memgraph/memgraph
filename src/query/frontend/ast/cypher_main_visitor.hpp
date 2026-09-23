@@ -1516,6 +1516,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   std::unordered_set<std::string> users_identifiers;
   // Identifiers that user didn't name.
   std::vector<Identifier **> anonymous_identifiers;
+  // Test slots of a simple CASE's arms past the first; visitSingleQuery replaces each with a copy.
+  std::vector<Expression **> case_test_copies_;
   Query *query_ = nullptr;
   // All return items which are not variables must be aliased in with.
   // We use this variable in visitReturnItem to check if we are in with or

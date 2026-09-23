@@ -69,10 +69,98 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | n         |
             | (:DELete) |
 
-    Scenario: Aggregation in CASE:
+    Scenario: Aggregation in CASE with constant arms:
         Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
         When executing query:
             """
-            MATCH (n) RETURN CASE count(n) WHEN 10 THEN 10 END
+            MATCH (n:Person) RETURN CASE WHEN true THEN count(n) ELSE 0 END AS c
             """
-        Then an error should be raised
+        Then the result should be:
+            | c |
+            | 3 |
+
+    Scenario: Aggregation as the test of a simple CASE:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE count(n) WHEN 3 THEN 'three' WHEN 2 THEN 'two' ELSE 'other' END AS c
+            """
+        Then the result should be:
+            | c       |
+            | 'three' |
+
+    Scenario: Aggregation in an inner arm of a searched CASE with several arms:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN n.age < 15 THEN 'young' WHEN count(n) > 1 THEN 'many' ELSE 'one' END AS c
+            """
+        Then the result should be:
+            | c       |
+            | 'young' |
+            | 'many'  |
+
+    Scenario: Aggregation in CASE over empty input with a list arm:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN true THEN count(n) ELSE [] END AS c
+            """
+        Then the result should be:
+            | c |
+            | 0 |
+
+    Scenario: Aggregation in CASE with a condition correlated through an EXISTS body:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN EXISTS { MATCH (:Person) WHERE n.age > 15 } THEN count(n) ELSE -1 END AS c
+            """
+        Then the result should be:
+            | c  |
+            | -1 |
+            | 2  |
+
+    Scenario: Aggregation in CASE beside an uncorrelated EXISTS over empty input
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN EXISTS { MATCH (:Person) } THEN count(n) ELSE -1 END AS c
+            """
+        Then the result should be empty
+
+    Scenario: Aggregation in CASE beside an uncorrelated comprehension over empty input
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN size([(:Person)-[]-() | 1]) >= 0 THEN count(n) ELSE -1 END AS c
+            """
+        Then the result should be empty

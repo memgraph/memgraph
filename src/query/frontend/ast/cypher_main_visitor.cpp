@@ -2123,6 +2123,12 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
     }
   }
+  // No AST node holds a simple CASE's test once: each arm is an IfOperator on `test = when`. One shared test node
+  // breaks an aggregation, subquery or comprehension in it (one output symbol, one planner visit per arm), so each
+  // arm gets its own copy, and the test is planned and run once per arm. Copied only now, so each copy carries the
+  // anonymous names given above.
+  for (auto **test : case_test_copies_) *test = (*test)->Clone(storage_);
+  case_test_copies_.clear();
 
   single_query->has_update = has_update || subquery_has_update;
   return single_query;
@@ -4318,10 +4324,17 @@ antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpress
   Expression *else_expression = ctx->else_expression ? std::any_cast<Expression *>(ctx->else_expression->accept(this))
                                                      : storage_->Create<PrimitiveLiteral>(TypedValue());
   for (auto *alternative : alternatives) {
-    Expression *condition =
-        test_expression ? storage_->Create<EqualOperator>(
-                              test_expression, std::any_cast<Expression *>(alternative->when_expression->accept(this)))
-                        : std::any_cast<Expression *>(alternative->when_expression->accept(this));
+    Expression *condition = nullptr;
+    if (test_expression) {
+      auto *equal = storage_->Create<EqualOperator>(
+          test_expression, std::any_cast<Expression *>(alternative->when_expression->accept(this)));
+      // Every arm past the outermost gets its own copy of the test at the end of the single query.
+      // TODO: A dedicated simple-CASE node would plan and run the test once.
+      if (alternative != alternatives.back()) case_test_copies_.push_back(&equal->expression1_);
+      condition = equal;
+    } else {
+      condition = std::any_cast<Expression *>(alternative->when_expression->accept(this));
+    }
     auto *then_expression = std::any_cast<Expression *>(alternative->then_expression->accept(this));
     else_expression = storage_->Create<IfOperator>(condition, then_expression, else_expression);
   }

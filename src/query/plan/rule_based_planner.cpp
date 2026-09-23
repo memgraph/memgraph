@@ -17,6 +17,7 @@
 #include <limits>
 #include <memory>
 #include <ranges>
+#include <span>
 #include <stack>
 #include <unordered_set>
 #include <utility>
@@ -57,6 +58,7 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PreVisit(PatternComprehension &pc) override {
+    has_branch_ = true;
     // The base tracks a depth, so a comprehension nested below does not release us early.
     UsedSymbolsCollector::PreVisit(pc);
     if (pc.filter_) {
@@ -69,6 +71,7 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PreVisit(SubqueryExpression &subquery) override {
+    has_branch_ = true;
     // Walk the whole body. The depth keeps the body's own atoms out.
     ++in_subquery_depth_;
     if (subquery.HasPattern()) {
@@ -83,6 +86,9 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
     --in_subquery_depth_;
     return true;
   }
+
+  /// Whether the expression holds a subquery or pattern comprehension, which the planner plans as a branch.
+  bool has_branch_{false};
 
  private:
   // A depth, not a flag: bodies nest.
@@ -129,6 +135,19 @@ class SubqueryResultSymbolCollector : public HierarchicalTreeVisitor {
   std::unordered_set<Symbol> &pc_symbols_;
   std::vector<Symbol> *subquery_symbols_;
 };
+
+/// Whether @p expression holds the same value for every row of a group, so it is not a grouping key of its own.
+/// Wider than @c IsConstantLiteral, which only knows a bare literal or parameter: `1 + 1`, `[]` and `size([1, 2])`
+/// are equally row-independent. A subquery or comprehension never is: its branch is planned below the Aggregate,
+/// so only a grouping key carries its value past it - on an empty input nothing else ever sets it.
+bool IsGroupConstant(Expression *expression, const SymbolTable &symbol_table) {
+  SubqueryReadSymbolsCollector collector{symbol_table};
+  expression->Accept(collector);
+  // TODO: An uncorrelated branch is constant by meaning; it is a grouping key only because it is planned below the
+  // Aggregate. Plan such a branch above the Aggregate, then drop the has_branch_ check, so an empty input keeps
+  // its row.
+  return collector.symbols_.empty() && !collector.has_branch_;
+}
 
 // Ast tree visitor which collects the context for a return body.
 // The return body of WITH and RETURN clauses consists of:
@@ -265,6 +284,23 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
  private:
+  struct ExpressionPart {
+    Expression *expression;
+    bool has_aggregation;
+  };
+
+  /// Whether any part aggregates. If one does, every other part is evaluated once per group, so it becomes a
+  /// grouping key - unless it is the same for every row (@c IsGroupConstant).
+  bool AddGroupingKeys(std::span<ExpressionPart const> parts) {
+    if (std::ranges::none_of(parts, &ExpressionPart::has_aggregation)) return false;
+    for (auto const &part : parts) {
+      if (!part.has_aggregation && !IsGroupConstant(part.expression, symbol_table_)) {
+        group_by_.emplace_back(part.expression);
+      }
+    }
+    return true;
+  }
+
   template <typename TLiteral, typename TIteratorToExpression>
   void PostVisitCollectionLiteral(TLiteral &literal, TIteratorToExpression iterator_to_expression) {
     // If there is an aggregation in the list, and there are group-bys, then we
@@ -472,18 +508,18 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool PreVisit(IfOperator &if_operator) override {
     if_operator.condition_->Accept(*this);
-    bool has_aggr = has_aggregation_.back();
+    bool const condition_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
     if_operator.then_expression_->Accept(*this);
-    has_aggr = has_aggr || has_aggregation_.back();
+    bool const then_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
     if_operator.else_expression_->Accept(*this);
-    has_aggr = has_aggr || has_aggregation_.back();
+    bool const else_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
-    has_aggregation_.emplace_back(has_aggr);
-    // TODO: Once we allow aggregations here, insert appropriate stuff in
-    // group_by.
-    MG_ASSERT(!has_aggr, "Currently aggregations in CASE are not allowed");
+    std::array<ExpressionPart, 3> const parts{{{if_operator.condition_, condition_aggr},
+                                               {if_operator.then_expression_, then_aggr},
+                                               {if_operator.else_expression_, else_aggr}}};
+    has_aggregation_.emplace_back(AddGroupingKeys(parts));
     return false;
   }
 
@@ -554,8 +590,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   bool PostVisit(Aggregation &aggr) override {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
-    aggregations_.emplace_back(
-        Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.op_, symbol, aggr.distinct_});
     // Aggregation expression1_ is optional in COUNT(*), and COLLECT_MAP and PROJECT_LISTS use two expressions, so we
     // can have 0, 1 or 2 elements on the has_aggregation_stack for this Aggregation expression.
     if (aggr.op_ == Aggregation::Op::COLLECT_MAP || aggr.op_ == Aggregation::Op::PROJECT_LISTS ||
@@ -565,6 +599,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       has_aggregation_.back() = true;
     else
       has_aggregation_.emplace_back(true);
+    aggregations_.emplace_back(
+        Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.op_, symbol, aggr.distinct_});
     // Possible optimization is to skip remembering symbols inside aggregation.
     // If and when implementing this, don't forget that Accumulate needs *all*
     // the symbols, including those inside aggregation.
