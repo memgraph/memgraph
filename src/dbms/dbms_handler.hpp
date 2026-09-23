@@ -763,7 +763,7 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
     auto rd = std::shared_lock{lock_};
 #endif
-    ForEachLocked_(std::move(f));
+    this->ForEachLocked_(std::move(f));
   }
 
   /**
@@ -777,7 +777,7 @@ class DbmsHandler {
     auto rd = std::shared_lock{lock_, std::try_to_lock};
     if (!rd.owns_lock()) return false;
 #endif
-    ForEachLocked_(std::move(f));
+    this->ForEachLocked_(std::move(f));
     return true;
   }
 
