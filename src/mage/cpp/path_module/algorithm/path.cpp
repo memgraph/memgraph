@@ -40,17 +40,13 @@ void RefuseIfTooDeep(const int64_t path_size) {
   }
 }
 
-// Below this, a failure is its own explanation; above it, the walk is large enough that what bounds
-// it is worth saying whatever the failure was.
+// Below these, a failure explains itself; above them, it is worth saying how to bound the walk.
 constexpr size_t kAdviseAboveBranches = 1'000'000;
 
-// The last level a walk may reach is emitted and never given branches, so a shallow, wide walk
-// holds what it reached in the tables rather than in `branches_`. Counting only branches would say
-// nothing to exactly the walk that ran out of room holding a neighbourhood per node.
+// The last level never becomes branches, so a shallow, wide walk holds its size in the tables.
 constexpr size_t kAdviseAboveEntries = 1'000'000;
 
-// Naming a bound the caller already gave is no advice at all, so which sentence is said depends on
-// whether the walk has an upper hop bound to begin with.
+// Which advice depends on whether the walk already has an upper hop bound.
 constexpr std::string_view kUnboundedAdvice =
     " -- give the walk an upper hop bound (maxHops, or maxLevel), or use uniqueness NODE_GLOBAL, "
     "which visits each node once.";
@@ -531,7 +527,7 @@ Path::LabelBools Path::PathHelper::GetLabelBools(mgp_vertex *vertex, const Label
                          .terminated = step.wildcards.termination,
                          .end_node = step.wildcards.end_list,
                          .whitelisted = step.wildcards.whitelist};
-  // Read through the borrowed handle: mgp::Labels would copy the whole vertex to iterate it.
+  // Not mgp::Labels, which copies the vertex to iterate it.
   const size_t count = mgp::vertex_labels_count(vertex);
   for (size_t i = 0; i < count; ++i) {
     FilterLabel(mgp::vertex_label_at(vertex, i).name, step, label_bools);
@@ -981,7 +977,6 @@ void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &rela
 void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp_vertex *vertex, const bool outgoing,
                                                const int64_t path_size) {
   const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
-  // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(path_size);
   const bool admits_every_type = PathHelper::AdmitsEveryType(step, outgoing);
 
@@ -1114,7 +1109,6 @@ mgp::Path Path::PathExpand::PathTo(const int64_t index) {
 
 void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth, mgp_vertex *vertex,
                                        const bool outgoing, std::queue<int64_t> &frontier) {
-  // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(depth);
   const bool admits_every_type = PathHelper::AdmitsEveryType(step, outgoing);
   const BorrowedEdges edges{vertex, outgoing};
@@ -1199,9 +1193,7 @@ void Path::PathExpand::RunNodeGlobalBfs() {
 }
 
 bool Path::PathExpand::OnBranch(const int64_t index, const int64_t key) const {
-  // The walk below is a chain of dependent loads into a vector filled breadth-first, so a branch's
-  // parent sits a whole level away and each step is its own cache miss. The summary answers the
-  // common case -- key not on the path -- from one load, and never answers "on the path" wrongly.
+  // A clear bit proves the key is not on the path, so the chain walk is skipped.
   if ((branches_[index].key_bits & KeyBit(key)) == 0) {
     return false;
   }
@@ -1237,8 +1229,6 @@ void Path::PathExpand::EmitChildOf(const int64_t parent, const int64_t relations
     emitted_prefix_.emplace(BranchPath(parent));
     emitted_prefix_parent_ = parent;
   }
-  // Rebuilding the parent's path would cost an allocation and a chain walk per emission; extending
-  // the one already in hand costs a copy of the one relationship, and putting it back costs nothing.
   emitted_prefix_->Expand(relationships_.At(relationship_id));
   Emit(*emitted_prefix_);
   emitted_prefix_->Pop();
@@ -1268,7 +1258,7 @@ void Path::PathExpand::EmitTerminalNeighbours(const int64_t index, mgp_vertex *v
     if (OnBranch(index, key)) {
       continue;
     }
-    // Nothing expands through it, so only the half of the verdict that emits is asked for.
+    // Nothing expands through it, so only `include` matters.
     if (!path_data_.helper_.Evaluate(candidate.next_vertex, candidate.next_id, depth + 1).include ||
         !path_data_.helper_.PathSizeOk(depth + 1)) {
       continue;
@@ -1282,11 +1272,7 @@ bool Path::PathExpand::AskedBefore(const size_t hash) {
   if (asked_.empty()) {
     asked_.assign(kMinAskedBits / 64U, 0);
   } else if (asked_set_ * kAskedBitsPerKey > bits) {
-    // Too full to tell keys apart. Forgetting what it holds only makes the next ask for a
-    // neighbourhood its first again, which delays a store -- it never stores a wrong answer.
-    // At the cap the doubling below is a clear in place, which is the same safe forgetting: letting
-    // it fill instead would answer "asked before" to keys nothing asked for, and store exactly the
-    // entries the filter exists to keep out.
+    // Too full to tell keys apart: grow, or clear in place at the cap. Forgetting only delays a store.
     asked_.assign(std::min(asked_.size() * 2U, kMaxAskedBits / 64U), 0);
     asked_set_ = 0;
   }
@@ -1308,13 +1294,12 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
   if (const std::vector<AdmittedEdge> *stored = admitted_.Find(cache_key); stored != nullptr) {
     return *stored;
   }
-  // Storing costs a map node and a vector, which a walk that never comes back pays for nothing.
+  // Stored only on the second ask: a walk with one route to each node never asks twice.
   const bool worth_storing = AskedBefore(NeighbourhoodHash{}(cache_key));
 
-  // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(depth);
   const bool admits_every_type = PathHelper::AdmitsEveryType(step, outgoing);
-  // Reused across first asks, so they settle into allocating nothing at all.
+  // Reused, so first asks do not allocate.
   std::vector<AdmittedEdge> &admitted = scratch_;
   admitted.clear();
   const BorrowedEdges edges{vertex, outgoing};
@@ -1331,7 +1316,6 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
     auto *next_vertex = outgoing ? mgp::edge_get_to(edge) : mgp::edge_get_from(edge);
     const int64_t next_id = mgp::vertex_get_id(next_vertex).as_int;
     const int64_t relationship_id = mgp::edge_get_id(edge).as_int;
-    // Copied only the first time the walk reaches this relationship or this node.
     relationships_.Emplace(relationship_id, edge);
     mgp::Node &next_node = nodes_.Emplace(next_id, next_vertex);
     admitted.push_back({.next_id = next_id, .relationship_id = relationship_id, .next_vertex = next_node.GetPtr()});
@@ -1339,7 +1323,6 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
   if (!worth_storing) {
     return admitted;
   }
-  // Built whole before it is published: a list cut short by a limit would be wrong for every later ask.
   return admitted_.Emplace(cache_key, admitted);
 }
 
@@ -1349,7 +1332,7 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
   const int64_t node_id = branches_[index].node_id;
   const bool node_keyed = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
 
-  // A reference into a map nothing below this writes to.
+  // Valid for the whole loop: nothing below calls AdmittedNeighbours.
   const std::vector<AdmittedEdge> &admitted = AdmittedNeighbours(node_id, vertex, outgoing, depth);
   for (const AdmittedEdge &candidate : admitted) {
     path_data_.MaybeAbort();
@@ -1359,8 +1342,7 @@ void Path::PathExpand::ExpandBranch(const int64_t index, mgp_vertex *vertex, con
       continue;
     }
 
-    // A branch no filter would emit and none would expand through does nothing in its level, so it is
-    // skipped here. The verdict is kept for the level, which would otherwise ask for it again.
+    // Skip a branch that is neither emitted nor expanded, and keep the verdict for its level.
     const Evaluation next_evaluation = path_data_.helper_.Evaluate(candidate.next_vertex, candidate.next_id, depth + 1);
     if (!next_evaluation.include && !next_evaluation.expand) {
       continue;
@@ -1391,17 +1373,14 @@ void Path::PathExpand::RunPathScopedBfs() {
                          .key_bits = node_keyed ? KeyBit(node.Id().AsInt()) : 0U});
   }
 
-  // A level is a run of branches: they are appended as the level above is expanded, so the branches
-  // of one depth sit together and in the order a queue would have handed them back. Walking the runs
-  // is walking the queue, without the queue.
+  // The branches of one depth are contiguous and in queue order, so each level is an index range.
   for (int64_t level_start = 0; level_start < std::ssize(branches_);) {
     const int64_t level_end = std::ssize(branches_);
-    // One verdict per branch of this level, in its order; the next level's fill in as it expands.
+    // verdicts_[i] belongs to branch level_start + i.
     std::swap(verdicts_, next_verdicts_);
     next_verdicts_.clear();
 
-    // Every path of one length is emitted before any longer one, which is what makes a `limit`
-    // return the shortest paths, so the whole level is emitted before any of it is expanded.
+    // The whole level is emitted before any of it expands, so `limit` keeps the shortest paths.
     for (int64_t index = level_start; index < level_end; ++index) {
       if (path_data_.LimitReached()) {
         return;
@@ -1421,16 +1400,14 @@ void Path::PathExpand::RunPathScopedBfs() {
       // Read before anything expands: pushing a branch can reallocate the vector.
       const int64_t depth = branches_[index].depth;
       const int64_t node_id = branches_[index].node_id;
-      // The node table only ever grows, so a handle taken from it stays good across an expansion.
+      // Stays valid across the expansion: a rehash moves the entry, not the vertex.
       mgp_vertex *vertex = nodes_.At(node_id).GetPtr();
 
       if (!verdicts_[index - level_start].expand || std::cmp_greater(depth + 1, path_data_.helper_.MaxHops())) {
         continue;
       }
 
-      // A child of the last level a walk may reach can only be emitted, never expanded: giving it a
-      // branch and a place in the next level buys nothing, and on a shallow walk over a wide graph
-      // that is most of the branches there are.
+      // Children at the hop bound are emitted directly and never become branches.
       const bool terminal = depth + 1 == path_data_.helper_.MaxHops();
       if (path_data_.helper_.StepAdmitsDirection(depth, false)) {
         terminal ? EmitTerminalNeighbours(index, vertex, false, depth) : ExpandBranch(index, vertex, false);
@@ -1462,19 +1439,15 @@ void Path::PathExpand::RunAlgorithm() {
   try {
     RunPathScopedBfs();
   } catch (const mgp::MustAbortException &) {
-    // A termination, a shutdown or a timeout is not the walk running out of room, whatever it was
-    // holding when it stopped.
+    // A termination or a timeout is not the walk running out of room.
     throw;
   } catch (const std::exception &e) {
     const size_t branches = branches_.size();
-    // What the walk holds is the partial paths plus the part of the graph it copied to reach them,
-    // and either can be what it ran out of room for.
     const size_t entries = nodes_.Size() + relationships_.Size() + admitted_.Size();
     if (branches < kAdviseAboveBranches && entries < kAdviseAboveEntries) {
       throw;
     }
-    // Released first: what threw was most likely an allocation, and the message below needs one.
-    // `admitted_` borrows handles from `nodes_`, so it goes before it.
+    // Released before the message allocates. `admitted_` borrows from `nodes_`, so it goes first.
     branches_ = {};
     admitted_ = {};
     relationships_ = {};
@@ -1562,7 +1535,6 @@ void Path::PathSubgraph::Parse(const mgp::Value &value) {
 
 void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair, mgp_vertex *vertex,
                                                  bool outgoing, std::queue<std::pair<mgp::Node, int64_t>> &queue) {
-  // Fixed for the whole adjacency list below.
   const RelStep &step = path_data_.helper_.RelStepAt(pair.second);
   const bool admits_every_type = PathHelper::AdmitsEveryType(step, outgoing);
   const BorrowedEdges edges{vertex, outgoing};
