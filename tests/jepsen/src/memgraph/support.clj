@@ -47,7 +47,6 @@
            (str "--storage-snapshot-interval-sec=" (get-rnd-snapshot-interval-sec))
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
-           #_"--replication-replica-check-frequency-sec=10"
            "--telemetry-enabled=false"
            "--metrics-format=OpenMetrics"
            :--storage-properties-on-edges]
@@ -92,7 +91,6 @@
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            "--telemetry-enabled=false"
            "--metrics-format=OpenMetrics"
-           #_"--replication-replica-check-frequency-sec=10"
            :--replication-restore-state-on-startup
            :--data-recovery-on-startup
            :--storage-properties-on-edges
