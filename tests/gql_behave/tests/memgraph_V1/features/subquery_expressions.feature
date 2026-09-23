@@ -3347,7 +3347,7 @@ Feature: Subquery expressions
           | 'A' |
           | 'B' |
 
-  # The case above keeps every row, so this twin is needed.
+  # The case above keeps every row. This one keeps none.
   Scenario: Test EXISTS with a body correlated only in its second UNION branch and no match
       Given an empty graph
       And having executed:
@@ -3362,8 +3362,7 @@ Feature: Subquery expressions
           """
       Then the result should be empty
 
-  # The comprehension's filter reads `k`, which a sibling pattern binds, not the comprehension's own element.
-  # If the conjunct is placed too early, the whole filter is dropped and every `n` with an outgoing edge passes.
+  # The comprehension's filter reads `k`, bound by a sibling pattern. Placed too early, every `n` with an edge passes.
   Scenario: Test EXISTS in a pattern comprehension filter comparing to a sibling-bound variable
       Given an empty graph
       And having executed:
@@ -3382,8 +3381,7 @@ Feature: Subquery expressions
           | x   | y   |
           | 'A' | 'B' |
 
-  # The body reads the path the comprehension itself binds. That symbol is bound inside the comprehension's own branch,
-  # so demanding it from outside would make the conjunct unplantable - the subtraction is what keeps this answerable.
+  # The body reads the comprehension's own path, so the conjunct must not require it from outside.
   Scenario: Test EXISTS in a pattern comprehension filter reading the comprehension's own path
       Given an empty graph
       And having executed:
@@ -3401,8 +3399,7 @@ Feature: Subquery expressions
           | x   |
           | 'A' |
 
-  # The one correlation spelling the old atom walk already handled, so it passes before this change as well. It pins
-  # nothing new - it is the regression guard that the rewrite did not lose what the walk already got right.
+  # Passes on master too: guards a correlation spelling the old atom walk already handled.
   Scenario: Test EXISTS with a body correlated through a pattern property map
       Given an empty graph
       And having executed:
@@ -3419,8 +3416,8 @@ Feature: Subquery expressions
           | x   |
           | 'A' |
 
-  # A pruning BFS keeps only the shortest path to each node, so an expansion whose edge list the body reads cannot be
-  # pruned. The graph has a one-hop and a two-hop path to the same node, and only the two-hop one satisfies the body.
+  # A pruning BFS keeps only the shortest path to each node, so it must not prune an expansion whose edge list the body
+  # reads. Only the two-hop path to `d` satisfies the body.
   Scenario: Test EXISTS with a body that reads the variable expansion's edge list
       Given an empty graph
       And having executed:

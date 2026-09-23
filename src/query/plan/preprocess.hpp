@@ -103,10 +103,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(SubqueryExpression &subquery) override {
-    // Take the set @c SymbolGenerator computed rather than walk the body. A walk of the body's pattern atoms misses a
-    // `WHERE`, `WITH` or `UNION` correlation and treats a name the body declared as an outer one.
+    // Take the set @c SymbolGenerator computed; the body is not walked.
     for (const auto &symbol : subquery.external_symbols_) {
-      // Outside the body, but bound inside the comprehension's branch. Requiring it would abort the query.
+      // Skip one an enclosing comprehension binds.
       if (!comprehension_bound_.contains(symbol)) {
         symbols_.insert(symbol);
       }
@@ -118,8 +117,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     ++in_pattern_comprehension_depth;
     pc.pattern_->Accept(*this);
 
-    // A subquery in the filter or the result can correlate an outer name. Without it, the filter is placed below
-    // the scan that binds what the subquery reads.
+    // A subquery in the filter or the result may read an outer name.
     auto const outer_bound = comprehension_bound_;
     auto const restore_bound = utils::OnScopeExit{[this, &outer_bound] { comprehension_bound_ = outer_bound; }};
     if (pc.variable_) {
@@ -129,10 +127,8 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
       comprehension_bound_.insert(symbol_table_.at(*atom->identifier_));
     }
 
-    // Only subqueries contribute. Collecting identifiers would also add the comprehension's own variables.
-    // Note this suppresses, rather than erasing on exit: `comprehension_bound_` holds every pattern atom, including
-    // an outer name the pattern re-uses as its anchor. Erasing at exit would drop that genuine correlation; the
-    // pattern walk above has already collected it, before the suppression is armed, so skipping here cannot lose it.
+    // Only subqueries contribute, so the comprehension's own variables stay out. Suppress rather than erase on
+    // exit: `comprehension_bound_` also holds an outer anchor, which the pattern walk above already collected.
     auto const outer_only = subquery_externals_only_;
     auto const restore_only = utils::OnScopeExit{[this, outer_only] { subquery_externals_only_ = outer_only; }};
     subquery_externals_only_ = true;
@@ -160,8 +156,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   const SymbolTable &symbol_table_;
 
  private:
-  // A depth, not a flag: a nested one's `PostVisit` would clear a flag and let the rest of the outer comprehension
-  // collect anonymous symbols. A pattern's property maps and variable-length bounds may hold another comprehension.
+  // A depth, not a flag: comprehensions nest in property maps and variable-length bounds.
   int in_pattern_comprehension_depth{0};
   // Variables bound by the enclosing comprehensions. Nested comprehensions add to this and restore on exit.
   std::unordered_set<Symbol> comprehension_bound_;

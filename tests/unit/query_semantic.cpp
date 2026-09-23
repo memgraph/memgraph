@@ -1357,11 +1357,8 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExpression) {
   }
 }
 
-// A MATCH stashes the identifiers in its pattern property maps and variable-length bounds, and resolves them once the
-// whole clause has been visited - so they can reference a variable bound later in the same MATCH. That deferred
-// resolution used to ask "is this name visible anywhere" while writing into one scope, so inside an un-imported
-// `CALL {}` it silently bound the name to a default-constructed Symbol instead of reporting it. The scoped and
-// `CALL (*)` spellings import the name and must keep working.
+// A MATCH resolves identifiers in its property maps and variable-length bounds after the whole clause. Inside an
+// un-imported `CALL {}` that must reject an outer name; the scoped and `CALL (*)` imports still resolve it.
 TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoundary) {
   auto body_reading_m = [this] {
     auto *node = NODE("n");
@@ -1393,11 +1390,8 @@ TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoun
                          RETURN("n")))));
 }
 
-// `SubqueryExpression::external_symbols_` is the contract filter placement rests on: exactly the symbols the body
-// reads that were created outside it. Too few plants the conjunct below the operator that binds the outer variable, so
-// the branch reads an unwritten frame slot - an abort, or a silently wrong answer. Too many leaves the conjunct
-// unplantable and `PlanMatching` aborts with "Expected to generate all filters". Asserted directly here, because a
-// behave scenario can only observe this set through a distant planner symptom.
+// `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
+// makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
 TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
   auto names = [](const std::unordered_set<Symbol> &symbols) {
     std::vector<std::string> out;
@@ -1411,15 +1405,14 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
   auto check_shapes = [&](auto make_subquery) {
     {
       // MATCH (a) WHERE EXISTS { MATCH (x) WHERE x = a } RETURN a
-      // Correlated only through the body's WHERE. The top-level atom walk this replaced saw nothing here and left the
-      // set empty, which is what planted the conjunct too low.
+      // Correlated only through the body's WHERE.
       auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
       MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
       EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
     }
     {
       // MATCH (a) WHERE EXISTS { WITH a AS q MATCH (q)-[r]->(m) RETURN m } RETURN a
-      // The caller's variable arrives through a WITH and is renamed before any pattern uses it. `q` is the body's own.
+      // Renamed by a WITH before any pattern uses it. `q` is the body's own.
       auto *subquery = make_subquery(QUERY(
           SINGLE_QUERY(WITH(NEXPR("q", IDENT("a"))), MATCH(PATTERN(NODE("q"), EDGE("r"), NODE("m"))), RETURN("m"))));
       MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
@@ -1427,8 +1420,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
     }
     {
       // MATCH (a) WHERE EXISTS { MATCH (p)-[r]->(f) MATCH (f)-[r2]->(g) } RETURN a
-      // `f` is declared by the first MATCH and re-used as an atom of the second. The atom walk counted it as an outer
-      // dependency nothing binds, so the conjunct was never extracted at all.
+      // `f` is declared by the first MATCH and reused by the second, so it is the body's own.
       auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"), EDGE("r"), NODE("f"))),
                                                         MATCH(PATTERN(NODE("f"), EDGE("r2"), NODE("g"))))));
       MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
@@ -1436,8 +1428,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
     }
     {
       // MATCH (a) WHERE EXISTS { MATCH (b) WHERE EXISTS { MATCH (c) WHERE c = b } } RETURN a
-      // Declaration is tracked by creation site, so a name the OUTER body declared is external to the inner one and
-      // internal to the outer one. Nothing here reaches the caller, so the outer set is empty.
+      // `b` is external to the inner body and internal to the outer one. Nothing reaches the caller.
       auto *inner = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("c"))), WHERE(EQ(IDENT("c"), IDENT("b"))))));
       auto *outer = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("b"))), WHERE(inner))));
       MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(outer), RETURN("a"))));
@@ -1446,7 +1437,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
     }
     {
       // MATCH (a) WHERE EXISTS { MATCH (x) RETURN x UNION MATCH (y) WHERE y = a RETURN y } RETURN a
-      // The correlation lives only in the second UNION branch. Both branches feed the one frame.
+      // Correlated only in the second UNION branch.
       auto *subquery = make_subquery(
           QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), RETURN(IDENT("x"), AS("r"))),
                 UNION(SINGLE_QUERY(
@@ -1459,8 +1450,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
   check_shapes([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
 }
 
-// Every planner caller of `UsedSymbolsCollector` gets a subquery's dependencies from `external_symbols_`, including one
-// in a comprehension's filter. A walk of the body's pattern atoms instead reports the body's own names.
+// The collector takes a subquery's `external_symbols_`, including for a subquery in a comprehension's filter.
 TYPED_TEST(TestSymbolGenerator, UsedSymbolsCollectorTakesSubqueryExternals) {
   using Names = std::vector<std::string>;
   auto collect = [](const SymbolTable &symbol_table, Expression *expression) {

@@ -446,8 +446,7 @@ bool SymbolGenerator::PostVisit(Match &) {
   scope.in_match = false;
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
-  // Resolve with the same boundary `Visit(Identifier &)` uses. Inside `CALL {}` an un-imported outer name is
-  // not visible, and `scope.symbols[name]` would insert a default Symbol rather than report it.
+  // Same boundary as `Visit(Identifier &)`: inside `CALL {}` an un-imported outer name is not visible.
   auto const from = scope.call_subquery_base.value_or(0);
   for (auto &ident : scope.identifiers_in_match) {
     if (!HasSymbol(ident->name_, from) && !ConsumePredefinedIdentifier(ident->name_))
@@ -564,7 +563,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
-    // `PostVisit(Match &)` resolves it. `symbol` is still unset, so it must not reach the shared tail.
+    // Resolved in `PostVisit(Match &)`. `symbol` is unset, so skip the shared tail.
     return true;
   } else if (scope.in_call_subquery && !scope.in_with) {
     // Currently only CALL uses WITH to import symbols from outer scope
@@ -771,8 +770,7 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
 
 bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
   const auto &body = open_subqueries_.back();
-  // `CASE x WHEN ...` plants one `x` node under every WHEN, so this node is visited more than once and
-  // re-creates the body's symbols each time. Keep the last visit's - `MapTo` left those in the AST.
+  // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
   subquery.external_symbols_.clear();
   for (const auto &symbol : body.referenced) {
     if (symbol.position() < body.first_own_position) {

@@ -37,13 +37,10 @@ bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
 
-/// Like UsedSymbolsCollector, but descends into a correlated subquery's body in full: a filter, a result expression
-/// or a body WHERE can correlate an outer name, and whatever restores rows below the branch (Accumulate, OrderBy)
-/// has to remember it. The base class takes only the names the body reads from outside, as its other callers need.
-///
-/// Deliberately a superset of @c SubqueryExpression::external_symbols_ - it keeps the body's own names too.
-/// Do not narrow it. The Accumulate remember-list below only guards against @c output_symbols_. A dropped symbol
-/// loses a frame slot and produces a wrong answer; an extra one only copies a Null.
+/// Like UsedSymbolsCollector, but walks a subquery body and a comprehension's filter and result in full. Feeds the
+/// remember-lists of operators that restore rows below a branch (Accumulate, OrderBy).
+/// A superset of @c SubqueryExpression::external_symbols_ on purpose: a missing symbol loses a value, an extra one
+/// only copies a Null.
 class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
  public:
   using UsedSymbolsCollector::UsedSymbolsCollector;
@@ -72,7 +69,7 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PreVisit(SubqueryExpression &subquery) override {
-    // The whole body, not just the external symbols the base takes. Entering keeps anonymous symbols out.
+    // Walk the whole body. The depth keeps the body's own atoms out.
     ++in_subquery_depth_;
     if (subquery.HasPattern()) {
       subquery.GetPattern()->Accept(*this);
@@ -88,7 +85,7 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
  private:
-  // A depth, not a flag: a body may hold another subquery, and its `PostVisit` must not release the outer one.
+  // A depth, not a flag: bodies nest.
   int in_subquery_depth_{0};
 };
 
