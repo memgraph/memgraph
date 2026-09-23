@@ -657,6 +657,26 @@ void FlattenHelper(const mgp::Value &value, mgp::List &result) {
   }
 }
 
+bool ContainsNull(const mgp::Value &value) {
+  if (value.IsNull()) {
+    return true;
+  }
+  if (value.IsList()) {
+    for (const auto &element : value.ValueList()) {
+      if (ContainsNull(element)) {
+        return true;
+      }
+    }
+  } else if (value.IsMap()) {
+    for (const auto &item : value.ValueMap()) {
+      if (ContainsNull(item.value)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(misc-unused-parameters)
@@ -834,6 +854,38 @@ void Collections::Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_res
     }
 
     result.SetValue(std::move(duplicates));
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}
+
+void Collections::IndexOf(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+  try {
+    if (arguments[0].IsNull() || arguments[1].IsNull()) {
+      result.SetValue();
+      return;
+    }
+
+    const mgp::List list = arguments[0].ValueList();
+    const mgp::Value &value = arguments[1];
+    // `null = x` is always null, so a value holding a null equals no element.
+    if (ContainsNull(value)) {
+      result.SetValue(static_cast<int64_t>(-1));
+      return;
+    }
+
+    for (size_t i = 0; i < list.Size(); i++) {
+      if (list[i] == value) {
+        result.SetValue(static_cast<int64_t>(i));
+        return;
+      }
+    }
+    result.SetValue(static_cast<int64_t>(-1));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
