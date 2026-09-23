@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -147,7 +148,24 @@ void UnsetHooks() {
 
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
+  // A forced purge skips an arena that another thread is already purging, and a background thread
+  // purges only down to the decay limit, so purging while one is mid-pass leaves pages behind.
+  // Stopping the background threads joins them, so none is mid-pass when the purge runs. Callers
+  // are serialised so that one cannot restore the setting while another still has them stopped.
+  static std::mutex purge_mutex;
+  const std::lock_guard lock(purge_mutex);
+
+  bool was_enabled = false;
+  size_t len = sizeof(was_enabled);
+  bool disable = false;
+  je_mallctl("background_thread", &was_enabled, &len, &disable, sizeof(disable));
   je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+  if (was_enabled) {
+    if (const int err = je_mallctl("background_thread", nullptr, nullptr, &was_enabled, sizeof(was_enabled));
+        err != 0) {
+      spdlog::error("Failed to restart jemalloc background threads after a purge: {} ({})", strerror(err), err);
+    }
+  }
 #else
   malloc_trim(0);
 #endif
