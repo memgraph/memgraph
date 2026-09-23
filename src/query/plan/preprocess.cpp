@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <span>
 #include <stack>
 #include <string_view>
 #include <unordered_map>
@@ -1037,6 +1038,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     });
     if (is_each_labels_test) {
       std::unordered_map<uint32_t, std::vector<LabelIx> *> already_seen_symbols;
+      // Filters that this disjunction added a group to, by position: the group is complete only after the loop.
+      std::vector<size_t> grown_filters;
       for (auto &filter : filters) {
         auto *labels_test = utils::Downcast<LabelsTest>(filter);
         auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
@@ -1063,6 +1066,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
             existing_or_labels.emplace_back();
             already_seen_symbols[identifier->symbol_pos_] = &existing_or_labels.back();
             or_labels_vec = &existing_or_labels.back();
+            grown_filters.push_back(std::distance(all_filters_.begin(), it));
           } else {
             or_labels_vec = existing_or_labels_vec_it->second;
           }
@@ -1075,6 +1079,17 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
             }
           }
           it->or_labels = existing_or_labels;
+        }
+      }
+      // A group equal to one the filter already has is redundant, as in the pattern merge. Keeping
+      // it breaks index selection, which erases one copy and expects no other.
+      for (auto filter_pos : grown_filters) {
+        auto &filter_info = all_filters_[filter_pos];
+        auto &groups = dynamic_cast<LabelsTest *>(filter_info.expression)->or_labels_;
+        auto earlier = std::span(groups).first(groups.size() - 1);
+        if (std::ranges::any_of(earlier, [&](const auto &group) { return SameLabelGroup(group, groups.back()); })) {
+          groups.pop_back();
+          filter_info.or_labels = groups;
         }
       }
     } else {
