@@ -78,6 +78,8 @@ struct StorageGatekeeperProtector : memgraph::storage::DatabaseProtector {
     return std::make_unique<StorageGatekeeperProtector>(access_);
   }
 
+  bool sealed() const override { return access_.is_marked_for_deletion(); }
+
  private:
   Access access_;
 };
