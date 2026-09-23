@@ -209,7 +209,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   using ReplicasResT = std::map<std::string, std::map<std::string, int64_t>>;
   using MainResT = std::map<std::string, uint64_t>;
-  std::pair<MainResT, ReplicasResT> GetNumCommittedTxns() const;
+  // Empty when the dbms handler is exclusively locked (database create/drop in flight).
+  std::optional<std::pair<MainResT, ReplicasResT>> GetNumCommittedTxns() const;
 
 #endif
 
