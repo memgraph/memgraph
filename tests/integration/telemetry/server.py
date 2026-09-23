@@ -252,7 +252,8 @@ if __name__ == "__main__":
     # machine slow enough at that it is still starting when the run is over.
     assert storage, (
         f"No telemetry arrived. The client ran for {args.duration}s at an interval of "
-        f"{args.interval}s and sent nothing, which is what a client still starting does."
+        f"{args.interval}s and nothing reached this server: the client was still starting when the run "
+        "ended, or it failed before sending, or what it sent never arrived."
     )
 
     # Split the data into individual startups.
