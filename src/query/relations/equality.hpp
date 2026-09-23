@@ -19,6 +19,7 @@
 #pragma once
 
 #include "query/path.hpp"
+#include "query/relations/payload_order.hpp"
 #include "query/typed_value.hpp"
 // typed_value.hpp only forward-declares these two, and equality reads the
 // identity out of each.
@@ -85,14 +86,21 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
   switch (a.type()) {
     case TypedValue::Type::Bool:
       return TypedValue(a.UnsafeValueBool() == b.UnsafeValueBool(), a.get_allocator());
+    // A number against one of the other numeric type is asked of the shared
+    // placement, which reads each at its own width. Reading either through the
+    // other's type would hold two integers equal to one double while telling
+    // the two apart, and this relation has to agree with the order over the
+    // same pair.
     case TypedValue::Type::Int:
       if (b.type() == TypedValue::Type::Double)
-        return TypedValue(a.UnsafeValueInt() == b.UnsafeValueDouble(), a.get_allocator());
+        return TypedValue(std::is_eq(PlaceIntegerAgainstDouble(a.UnsafeValueInt(), b.UnsafeValueDouble())),
+                          a.get_allocator());
       else
         return TypedValue(a.UnsafeValueInt() == b.UnsafeValueInt(), a.get_allocator());
     case TypedValue::Type::Double:
       if (b.type() == TypedValue::Type::Int)
-        return TypedValue(a.UnsafeValueDouble() == b.UnsafeValueInt(), a.get_allocator());
+        return TypedValue(std::is_eq(PlaceIntegerAgainstDouble(b.UnsafeValueInt(), a.UnsafeValueDouble())),
+                          a.get_allocator());
       else
         return TypedValue(a.UnsafeValueDouble() == b.UnsafeValueDouble(), a.get_allocator());
     case TypedValue::Type::String:

@@ -1595,31 +1595,30 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return value.ValueBool() == bool_v;
     }
     case Type::INT: {
-      // Integer and double values are treated as the same in
-      // `PropertyValue::operator==`. That is why we accept both integer and
-      // double values here and use the `operator==` between them to verify that
-      // they are the same.
+      // A number of either numeric type can equal a stored integer, so both are
+      // accepted and the pair is answered the way the decoded values answer it.
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto int_v = reader->ReadInt(payload_size);
       if (!int_v) return false;
       if (value.IsInt()) {
-        return value.ValueInt() == int_v;
+        return value.ValueInt() == *int_v;
       }
-      return value.ValueDouble() == int_v;
+      // The stored integer is read at its full width rather than as a double,
+      // which is what stops two integers answering true against one double.
+      return std::is_eq(PlaceIntegerAgainstDouble(*int_v, value.ValueDouble()));
     }
     case Type::DOUBLE: {
-      // Integer and double values are treated as the same in
-      // `PropertyValue::operator==`. That is why we accept both integer and
-      // double values here and use the `operator==` between them to verify that
-      // they are the same.
+      // As above, a number of either numeric type can equal a stored double.
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto double_v = ReadDoubleAs(reader, payload_size);
       if (!double_v) return false;
+      if (value.IsInt()) {
+        return std::is_eq(PlaceIntegerAgainstDouble(value.ValueInt(), *double_v));
+      }
       // Read through the one comparison the decoded values use, so this answers
       // as `operator==` does. IEEE equality would part from it over a NaN, which
       // it holds equal to nothing and an index holds alike.
-      auto const lhs = value.IsDouble() ? value.ValueDouble() : static_cast<double>(value.ValueInt());
-      return CompareDoublesNaNLast(lhs, *double_v) == std::weak_ordering::equivalent;
+      return CompareDoublesNaNLast(value.ValueDouble(), *double_v) == std::weak_ordering::equivalent;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;

@@ -740,6 +740,56 @@ TEST(PropertyValue, AListIsOrderedByEveryBitOfTheIntegersItHolds) {
   EXPECT_FALSE(boxed({huge}) == packed({1}));
 }
 
+TEST(PropertyValue, TwoIntegersReachingOneDoubleAreStillOrderedApart) {
+  // Above the point where the doubles stop being spaced one apart, an integer and its
+  // neighbour reach the same double. Ordering the pair through that double would place both
+  // integers where one of them belongs, so a sorted container could hand back the wrong entry
+  // for a key, and the order would not be total: the two are told apart from each other while
+  // each sits alongside the double.
+  auto const widest_exact = int64_t{1} << 53;
+  auto const lower = PropertyValue{widest_exact};
+  auto const higher = PropertyValue{widest_exact + 1};
+  auto const reached = PropertyValue{static_cast<double>(widest_exact)};
+
+  EXPECT_TRUE(std::is_eq(lower <=> reached));
+  EXPECT_TRUE(std::is_gt(higher <=> reached));
+  EXPECT_TRUE(std::is_lt(reached <=> higher));
+  EXPECT_TRUE(std::is_lt(lower <=> higher));
+}
+
+TEST(PropertyValue, AListIsOrderedByAnIntegerNoDoubleInItCanHold) {
+  // The same pair one level down, and across two representations: a boxed list holds the
+  // number at its full width, a packed one holds doubles. A packed integer list is narrower
+  // than this number, so the integer side has to be the boxed one.
+  auto const widest_exact = int64_t{1} << 53;
+  auto const boxed = [](int64_t number) { return PropertyValue{std::vector<PropertyValue>{PropertyValue{number}}}; };
+  auto const doubles = [](double number) {
+    return PropertyValue{DoubleListTag{}, std::vector<PropertyValue>{PropertyValue{number}}};
+  };
+
+  auto const reached = doubles(static_cast<double>(widest_exact));
+  EXPECT_TRUE(std::is_eq(boxed(widest_exact) <=> reached));
+  EXPECT_TRUE(std::is_gt(boxed(widest_exact + 1) <=> reached));
+  EXPECT_TRUE(std::is_lt(reached <=> boxed(widest_exact + 1)));
+}
+
+TEST(PropertyValue, AnIntegerIsOrderedAgainstADoubleNoIntegerCanHold) {
+  // The placement settles the range before converting, since turning a double outside the
+  // integer range into one is undefined rather than merely inexact.
+  auto const widest = PropertyValue{std::numeric_limits<int64_t>::max()};
+  auto const narrowest = PropertyValue{std::numeric_limits<int64_t>::min()};
+
+  EXPECT_TRUE(std::is_lt(widest <=> PropertyValue{1e300}));
+  EXPECT_TRUE(std::is_gt(narrowest <=> PropertyValue{-1e300}));
+  EXPECT_TRUE(std::is_lt(widest <=> PropertyValue{std::numeric_limits<double>::infinity()}));
+  EXPECT_TRUE(std::is_gt(narrowest <=> PropertyValue{-std::numeric_limits<double>::infinity()}));
+
+  // A NaN stays last, whichever side of the pair holds it.
+  auto const nan = PropertyValue{std::numeric_limits<double>::quiet_NaN()};
+  EXPECT_TRUE(std::is_lt(widest <=> nan));
+  EXPECT_TRUE(std::is_gt(nan <=> widest));
+}
+
 TEST(PropertyValue, ANaNIsOrderedAfterEveryNumberAndAlongsideAnotherNaN) {
   // An ordered container needs an answer for every pair it is handed, and IEEE
   // gives none for a NaN. Left unordered, an entry is placed where no later
