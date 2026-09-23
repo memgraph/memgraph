@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from typing import Any, Dict
 
 import interactive_mg_runner
@@ -105,7 +106,10 @@ def number_of_snapshots(dir):
 # Need to constantly make changes to the database to trigger snapshots
 class StoppableThread(threading.Thread):
     def __init__(self):
-        super().__init__()
+        # A daemon, so that a writer somehow left running cannot by itself keep
+        # the interpreter from exiting. Stopping it remains the caller's job;
+        # this only bounds what a missed stop costs.
+        super().__init__(daemon=True)
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -117,6 +121,25 @@ class StoppableThread(threading.Thread):
         while not self._stop_event.is_set():
             cursor.execute("CREATE ()")
             time.sleep(0.25)
+
+
+@contextmanager
+def writing_in_the_background():
+    """Keep the database changing while the body runs, and stop on the way out.
+
+    The assertions the body makes are about wall-clock timing, so they fail on
+    a machine slow enough to miss a tick. Stopping the writer from here rather
+    than after the last assertion is what keeps such a failure to the seconds
+    it takes to reach: a writer still looping holds the interpreter open, and
+    the run then ends at the harness timeout instead.
+    """
+    thread = StoppableThread()
+    thread.start()
+    try:
+        yield thread
+    finally:
+        thread.stop()
+        thread.join(timeout=30)
 
 
 def main_test(snapshots_dir):
@@ -140,47 +163,42 @@ def main_test(snapshots_dir):
     # 3
     execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '*/1 * * * * *';")
 
-    thread = StoppableThread()
-    thread.start()
+    with writing_in_the_background():
+        # 4
+        time.sleep(5)
 
-    # 4
-    time.sleep(5)
+        # 5
+        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '5';")
 
-    # 5
-    execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '5';")
+        # 6
+        n_snapshots2 = number_of_snapshots(snapshots_dir)
+        assert n_snapshots1 + 7 >= n_snapshots2 >= n_snapshots1 + 4, f"Expected {n_snapshots1 + 5} got {n_snapshots2}"
 
-    # 6
-    n_snapshots2 = number_of_snapshots(snapshots_dir)
-    assert n_snapshots1 + 7 >= n_snapshots2 >= n_snapshots1 + 4, f"Expected {n_snapshots1 + 5} got {n_snapshots2}"
+        # 7
+        tries = 0
+        n_snapshots3 = n_snapshots2 + 1
+        while n_snapshots3 > number_of_snapshots(snapshots_dir) and tries < 15:
+            tries = tries + 1
+            time.sleep(1)
+        assert 2 < tries < 15, "Failed to wait for the next snapshot"
+        # Test SHOW SNAPSHOTS (should return only existing snapshots)
+        all_snapshots = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
+        assert len(all_snapshots) == n_snapshots3  # Only existing snapshots
 
-    # 7
-    tries = 0
-    n_snapshots3 = n_snapshots2 + 1
-    while n_snapshots3 > number_of_snapshots(snapshots_dir) and tries < 15:
-        tries = tries + 1
-        time.sleep(1)
-    assert 2 < tries < 15, "Failed to wait for the next snapshot"
-    # Test SHOW SNAPSHOTS (should return only existing snapshots)
-    all_snapshots = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
-    assert len(all_snapshots) == n_snapshots3  # Only existing snapshots
+        # Test SHOW NEXT SNAPSHOT (should return only the next scheduled snapshot)
+        next_snapshot = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
+        assert len(next_snapshot) == 1  # Should return exactly one row
 
-    # Test SHOW NEXT SNAPSHOT (should return only the next scheduled snapshot)
-    next_snapshot = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
-    assert len(next_snapshot) == 1  # Should return exactly one row
+        # Disable snapshots
+        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
 
-    # Disable snapshots
-    execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
+        # Test SHOW SNAPSHOTS (should still return existing snapshots)
+        all_snapshots_after_disable = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
+        assert len(all_snapshots_after_disable) == n_snapshots3  # Still the same existing snapshots
 
-    # Test SHOW SNAPSHOTS (should still return existing snapshots)
-    all_snapshots_after_disable = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
-    assert len(all_snapshots_after_disable) == n_snapshots3  # Still the same existing snapshots
-
-    # Test SHOW NEXT SNAPSHOT (should return no rows when no next snapshot is scheduled)
-    next_snapshot_after_disable = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
-    assert len(next_snapshot_after_disable) == 0  # Should return no rows
-
-    thread.stop()
-    thread.join()
+        # Test SHOW NEXT SNAPSHOT (should return no rows when no next snapshot is scheduled)
+        next_snapshot_after_disable = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
+        assert len(next_snapshot_after_disable) == 0  # Should return no rows
 
 
 def main_test_analytical(snapshots_dir, set):
@@ -207,23 +225,43 @@ def main_test_analytical(snapshots_dir, set):
     # 3
     execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
 
-    thread = StoppableThread()
-    thread.start()
+    with writing_in_the_background():
+        # 4
+        time.sleep(2)
+        assert (
+            number_of_snapshots(snapshots_dir) > n_snapshots1
+        ), "Didn't get new snapshots even though in transactional"
 
-    # 4
-    time.sleep(2)
-    assert number_of_snapshots(snapshots_dir) > n_snapshots1, "Didn't get new snapshots even though in transactional"
+        # 5
+        execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
 
-    # 5
-    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
+        # 6
+        n_snapshots2 = number_of_snapshots(snapshots_dir)
+        time.sleep(2)
+        assert number_of_snapshots(snapshots_dir) == n_snapshots2, "Got new snapshots even though in analytical"
 
-    # 6
-    n_snapshots2 = number_of_snapshots(snapshots_dir)
-    time.sleep(2)
-    assert number_of_snapshots(snapshots_dir) == n_snapshots2, "Got new snapshots even though in analytical"
 
-    thread.stop()
-    thread.join()
+def test_a_failed_assertion_leaves_no_writer_running():
+    """The writer stops however the body ends, so a failure costs seconds.
+
+    The assertions here are about wall-clock timing, so they fail on a machine
+    slow enough to miss a tick. A writer still looping when one does keeps the
+    interpreter alive, and the run then ends at the harness timeout rather than
+    at the assertion, spending the whole workload budget to report it.
+    """
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "no_flags")
+    try:
+        writing = False
+        with pytest.raises(AssertionError):
+            with writing_in_the_background() as writer:
+                writing = writer.is_alive()
+                assert False, "as a missed tick would"
+
+        assert writing, "the writer never ran, so this asks nothing"
+        assert not writer.is_alive(), "the writer outlived the failure and would hold the interpreter open"
+    finally:
+        interactive_mg_runner.kill_all()
 
 
 def test_no_flags():
