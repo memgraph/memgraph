@@ -86,11 +86,11 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   std::optional<uint64_t> current_wal_from_timestamp;
   uint64_t last_durable_timestamp{kTimestampInitialId};
 
-  // EXPERIMENTAL (lock-free-read-snapshot): under the flag the committer holds commit_mutex_ (not engine_lock_)
+  // EXPERIMENTAL (commit-lock-narrowing): under the flag the committer holds commit_mutex_ (not engine_lock_)
   // across its WAL-append window, so take commit_mutex_ here — in the committer's lock order, before engine_lock_ —
   // to keep the current WAL stable while its seq/timestamps are read. Released together with transaction_guard.
   std::optional<std::unique_lock<std::mutex>> commit_serializer;
-  if (main_storage->config_.experimental_lockfree_read_snapshot) {
+  if (main_storage->config_.experimental_commit_lock_narrowing) {
     commit_serializer.emplace(main_storage->commit_mutex_);
   }
   std::unique_lock transaction_guard(

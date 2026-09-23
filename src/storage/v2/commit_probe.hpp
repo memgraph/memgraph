@@ -15,7 +15,7 @@
 
 namespace memgraph::storage {
 
-// Test-only instrumentation for the commit path (lock-free-read-snapshot experiment).
+// Test-only instrumentation for the commit path (commit-lock-narrowing experiment).
 // A test installs a CommitProbe on the storage; the commit path invokes each hook at the
 // corresponding phase boundary so the test can block it on a latch and run another
 // transaction at a precise instant. In production the storage's probe pointer is null and

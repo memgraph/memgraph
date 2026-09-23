@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Phase 2, batch 1 of the lock-free-read-snapshot suite: concern-A (read visibility).
+// Phase 2, batch 1 of the commit-lock-narrowing suite: concern-A (read visibility).
 // A deterministic interleaving harness parks a commit inside the CommitProbe seam so a
 // concurrent reader can be opened at a precise instant and its snapshot boundary asserted.
 
@@ -61,7 +61,7 @@ std::unique_ptr<InMemoryStorage> MakeStorage(bool flag_on) {
   // Logical visibility tests only: disable GC so nothing reclaims deltas underneath us.
   config.gc.type = Config::Gc::Type::NONE;
   // Isolation left at the default (SNAPSHOT_ISOLATION).
-  config.experimental_lockfree_read_snapshot = flag_on;
+  config.experimental_commit_lock_narrowing = flag_on;
   return std::make_unique<InMemoryStorage>(config);
 }
 
@@ -91,7 +91,7 @@ std::unique_ptr<InMemoryStorage> MakeStorageManualGc(bool flag_on) {
   Config config{};
   config.gc.type = Config::Gc::Type::PERIODIC;
   config.gc.interval = std::chrono::seconds(3600);
-  config.experimental_lockfree_read_snapshot = flag_on;
+  config.experimental_commit_lock_narrowing = flag_on;
   return std::make_unique<InMemoryStorage>(config);
 }
 
@@ -812,7 +812,7 @@ void WriteDurable(const std::filesystem::path &dir, bool flag_on) {
   config.durability.storage_directory = dir;
   config.durability.recover_on_startup = false;
   config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-  config.experimental_lockfree_read_snapshot = flag_on;
+  config.experimental_commit_lock_narrowing = flag_on;
 
   auto store = std::make_unique<InMemoryStorage>(config);
   {
@@ -835,7 +835,7 @@ void RecoverAndCheck(const std::filesystem::path &dir, bool flag_on, int expecte
   config.durability.storage_directory = dir;
   config.durability.recover_on_startup = true;
   config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-  config.experimental_lockfree_read_snapshot = flag_on;
+  config.experimental_commit_lock_narrowing = flag_on;
 
   auto store = std::make_unique<InMemoryStorage>(config);
   auto acc = store->Access(memgraph::storage::READ);
@@ -853,7 +853,7 @@ void RecoverAndCheck(const std::filesystem::path &dir, bool flag_on, int expecte
   for (int i = 0; i < expected_count; ++i) expected.push_back(i);
 
   EXPECT_EQ(props, expected) << "CROSS-RECOVERY DATA MISMATCH: the recovered vertex/property set differs from what "
-                                "was written. The experimental_lockfree_read_snapshot flag leaked into durable "
+                                "was written. The experimental_commit_lock_narrowing flag leaked into durable "
                                 "state -- a real violation of the runtime-only invariant, not a test problem.";
 }
 
@@ -871,7 +871,7 @@ class LockFreeReadSnapshotRecovery : public ::testing::Test {
 
   std::filesystem::path storage_directory{
       std::filesystem::temp_directory_path() /
-      ("MG_test_unit_storage_v2_lockfree_read_snapshot_" +
+      ("MG_test_unit_storage_v2_commit_lock_narrowing_" +
        std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()))};
 };
 
@@ -1084,7 +1084,7 @@ TEST(LockFreeReadSnapshot, HorizonGapCommit_RetainsDeltaBetweenSnapshotAndStart_
 
 // Phase 2, batch 7 (V4 -- RC isolation does not depress GC floor): Under flag-ON, only
 // SNAPSHOT_ISOLATION transactions register in the lockfree snapshot ring
-// (transaction.lockfree_snapshot = flag_on && isolation == SI; see storage.cpp). A
+// (transaction.commit_lock_narrowing = flag_on && isolation == SI; see storage.cpp). A
 // READ_COMMITTED accessor therefore does NOT inject a stale snapshot_ts into the ring: its GC
 // footprint is its start_timestamp (same as flag-OFF). This means GC can advance freely past
 // the "committed-as-of-reader-open" tier, unlike with an SI reader whose frozen snapshot_ts
@@ -1107,7 +1107,7 @@ TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
   CommitProp(*store, gid, 2);
   CommitProp(*store, gid, 3);
 
-  // Open a READ_COMMITTED accessor. Its transaction.lockfree_snapshot = false (RC is excluded
+  // Open a READ_COMMITTED accessor. Its transaction.commit_lock_narrowing = false (RC is excluded
   // from the snapshot ring regardless of the flag). The GC horizon treats this txn at its
   // start_timestamp, not at some older snapshot_ts -- so GC can advance past T_2 and T_3 once
   // they have a newer version, without waiting for this reader to close.
@@ -1131,7 +1131,7 @@ TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
       << "RC ISOLATION MISS: expected p=4 (latest committed) but got a stale value. "
          "The Access(READ, IsolationLevel::READ_COMMITTED, ...) override did not take effect; "
          "the accessor is frozen like a SNAPSHOT_ISOLATION reader. Check that "
-         "transaction.lockfree_snapshot is false for RC and that View::OLD re-snapshots per read.";
+         "transaction.commit_lock_narrowing is false for RC and that View::OLD re-snapshots per read.";
 
   // GC with only the RC reader as the sole active transaction. Horizon = rc_reader.start_ts
   // (the RC txn does NOT depress the floor via a stale snapshot_ts). Under that horizon,
@@ -1395,7 +1395,7 @@ TEST_F(LockFreeReadSnapshotRecovery, RecoveredUpdateChain_ReadsLatestUnderFlagOn
     config.durability.storage_directory = storage_directory;
     config.durability.recover_on_startup = false;
     config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-    config.experimental_lockfree_read_snapshot = true;
+    config.experimental_commit_lock_narrowing = true;
 
     auto store = std::make_unique<InMemoryStorage>(config);
     const auto p = store->NameToProperty("p");
@@ -1430,7 +1430,7 @@ TEST_F(LockFreeReadSnapshotRecovery, RecoveredUpdateChain_ReadsLatestUnderFlagOn
     config.durability.storage_directory = storage_directory;
     config.durability.recover_on_startup = true;
     config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-    config.experimental_lockfree_read_snapshot = true;
+    config.experimental_commit_lock_narrowing = true;
 
     auto store = std::make_unique<InMemoryStorage>(config);
     const auto p = store->NameToProperty("p");

@@ -581,10 +581,10 @@ int main(int argc, char **argv) {
                      .release_sent_snapshot_page_cache = FLAGS_storage_release_sent_snapshot_page_cache,
                      .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
-      // EXPERIMENTAL (lock-free-read-snapshot): CLI-only, immutable during execution. Runtime-only, never
+      // EXPERIMENTAL (commit-lock-narrowing): CLI-only, immutable during execution. Runtime-only, never
       // persisted, so durable data is identical regardless of this flag (flip across restart is safe).
-      .experimental_lockfree_read_snapshot =
-          memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::LOCKFREE_READ_SNAPSHOT),
+      .experimental_commit_lock_narrowing =
+          memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::COMMIT_LOCK_NARROWING),
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
@@ -913,18 +913,18 @@ int main(int argc, char **argv) {
   }
 
   // Startup guard (C2 restart bypass): abort early if the durability-restored replication role is
-  // incompatible with experimental_lockfree_read_snapshot before ReplicationHandler re-arms it.
+  // incompatible with experimental_commit_lock_narrowing before ReplicationHandler re-arms it.
   // Both REPLICA and MAIN-with-replicas are hazardous: the flag's 2PC early-publish window
   // (last_committed_mvcc_ts_ before replica finalization) exists in either direction.
-  if (!is_coordinator_instance && db_config.experimental_lockfree_read_snapshot) {
+  if (!is_coordinator_instance && db_config.experimental_commit_lock_narrowing) {
     auto const locked = repl_state->ReadLock();
     bool const is_replica = locked->IsReplica();
     bool const main_has_replicas = locked->IsMain() && !locked->GetMainRole().registered_replicas_.empty();
     if (is_replica || main_has_replicas) {
       LOG_FATAL(
-          "experimental_lockfree_read_snapshot is incompatible with replicated configurations. "
+          "experimental_commit_lock_narrowing is incompatible with replicated configurations. "
           "The persisted replication role is {} — this configuration cannot be used with the flag. "
-          "Disable experimental_lockfree_read_snapshot and restart.",
+          "Disable experimental_commit_lock_narrowing and restart.",
           is_replica ? "REPLICA" : "MAIN with registered replicas");
     }
   }

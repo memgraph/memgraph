@@ -3238,7 +3238,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
 }
 
 // Regression guard for the schema-info gap-commit boundary skew under
-// experimental_lockfree_read_snapshot. Deterministic (CommitProbe + semaphores, GC disabled to prove
+// experimental_commit_lock_narrowing. Deterministic (CommitProbe + semaphores, GC disabled to prove
 // GC-independence). A committer C flips an edge property's TYPE (Integer -> String) and is parked in
 // the commit gap (commit ts minted, engine_lock released, read watermark NOT yet advanced). A writer
 // W begins in that gap (W.snapshot_ts < C_ts < W.start_ts), so W's snapshot EXCLUDES C; W relabels an
@@ -3264,7 +3264,7 @@ TEST(SchemaInfoLockFreeReadSnapshot, EdgePropertyTypeGapSkew) {
   config.salient.items.properties_on_edges = true;
   config.salient.items.enable_schema_info = true;
   config.salient.storage_mode = StorageMode::IN_MEMORY_TRANSACTIONAL;
-  config.experimental_lockfree_read_snapshot = true;
+  config.experimental_commit_lock_narrowing = true;
   config.gc.type = Config::Gc::Type::NONE;  // prove GC-independence
 
   std::filesystem::remove_all(storage_directory);

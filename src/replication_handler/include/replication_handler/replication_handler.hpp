@@ -248,12 +248,12 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto UnregisterReplicaLocked_(LockedReplState &locked_repl_state, std::string_view name)
       -> query::UnregisterReplicaResult;
 
-  // True when the experimental lock-free read snapshot is active on this instance.
+  // True when the experimental commit-lock-narrowing is active on this instance.
   // Replication is incompatible: STRICT_SYNC 2PC publishes last_committed_mvcc_ts_ before replica
   // finalization, so a replica reader can observe a commit that has not yet been confirmed. This
   // helper drives the registration and role-demotion guards below.
   auto LockfreeSnapshotEnabled() const -> bool {
-    return dbms_handler_.default_config().experimental_lockfree_read_snapshot;
+    return dbms_handler_.default_config().experimental_commit_lock_narrowing;
   }
 
   // Name of the first database found in analytical mode, if any. Registration and unregistration are
@@ -279,7 +279,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // then fails with NAME_EXISTS.
     if (LockfreeSnapshotEnabled()) {
       spdlog::error(
-          "Cannot register replica {} while experimental_lockfree_read_snapshot is enabled. "
+          "Cannot register replica {} while experimental_commit_lock_narrowing is enabled. "
           "The flag is incompatible with replicated configurations; disable it and restart before "
           "registering replicas.",
           config.name);

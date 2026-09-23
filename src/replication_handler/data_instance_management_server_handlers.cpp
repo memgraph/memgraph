@@ -238,7 +238,7 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
       }
       case RegisterReplicaError::LOCKFREE_SNAPSHOT_ENABLED: {
         spdlog::error(
-            "Error when registering instance {} as replica. The experimental lock-free read snapshot feature is "
+            "Error when registering instance {} as replica. The experimental commit-lock-narrowing feature is "
             "enabled on this instance; it is incompatible with replicated configurations. Disable it and restart.",
             config.instance_name);
         return false;
