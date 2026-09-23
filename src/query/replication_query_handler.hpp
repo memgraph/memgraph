@@ -36,7 +36,12 @@ enum class RegisterReplicaError : uint8_t {
   NO_ACCESS,
   // Some database is in IN_MEMORY_ANALYTICAL; analytical writes bypass the WAL, so a replica
   // attached now would silently miss them.
-  ANALYTICAL_MODE
+  ANALYTICAL_MODE,
+  // The experimental_lockfree_read_snapshot flag is ON. Under STRICT_SYNC 2PC the flag publishes
+  // last_committed_mvcc_ts_ before replica finalization, so a replica-attached reader could observe
+  // a commit that has not yet been durably confirmed on the replica. Block replication entry points
+  // until the flag is off (or until the 2PC ordering is hardened).
+  LOCKFREE_SNAPSHOT_ENABLED
 };
 
 enum class UnregisterReplicaResult : uint8_t {

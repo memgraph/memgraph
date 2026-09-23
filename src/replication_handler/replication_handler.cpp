@@ -219,6 +219,12 @@ bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({},
 
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
+  if (LockfreeSnapshotEnabled()) {
+    spdlog::error(
+        "Cannot demote to replica while experimental_lockfree_read_snapshot is enabled. "
+        "The flag is incompatible with replicated configurations; disable it and restart.");
+    return false;
+  }
   try {
     // Need to take read-only access to all databases so we have a guranteee all write txns are finished before demoting
     // to replica.
@@ -253,6 +259,12 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
 }
 
 bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config) {
+  if (LockfreeSnapshotEnabled()) {
+    spdlog::error(
+        "Cannot set replication role to REPLICA while experimental_lockfree_read_snapshot is enabled. "
+        "The flag is incompatible with replicated configurations; disable it and restart.");
+    return false;
+  }
   try {
     auto locked_repl_state = repl_state_.TryLock();
     return SetReplicationRoleReplica_<false>(locked_repl_state, config);
