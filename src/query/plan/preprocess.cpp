@@ -11,9 +11,11 @@
 
 #include <algorithm>
 #include <functional>
+#include <span>
 #include <stack>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -213,6 +215,11 @@ auto MatchesIdentifier(Identifier *identifier) {
     return identifier->symbol_pos_ == exisiting_identifier->symbol_pos_;
   };
 };
+
+/// Two OR groups are the same conjunct when they name the same labels, in any order.
+bool SameLabelGroup(const std::vector<LabelIx> &lhs, const std::vector<LabelIx> &rhs) {
+  return std::unordered_set(lhs.begin(), lhs.end()) == std::unordered_set(rhs.begin(), rhs.end());
+}
 
 }  // namespace
 
@@ -868,12 +875,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         // Each OR group is a conjunct of its own, so groups are kept whole: a label an earlier group
         // already names still has to be tested by this one. Only an identical group is redundant.
         auto &existing_or_labels = existing_labels_test->or_labels_;
-        auto as_group = [](const std::vector<LabelIx> &labels) {
-          return std::unordered_set(labels.begin(), labels.end());
-        };
         for (const auto &label_vec : labels_test->or_labels_) {
-          auto group = as_group(label_vec);
-          if (std::ranges::none_of(existing_or_labels, [&](const auto &e) { return as_group(e) == group; })) {
+          if (std::ranges::none_of(existing_or_labels,
+                                   [&](const auto &existing) { return SameLabelGroup(existing, label_vec); })) {
             existing_or_labels.push_back(label_vec);
           }
         }
@@ -1022,6 +1026,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     });
     if (is_each_labels_test) {
       std::unordered_map<uint32_t, std::vector<LabelIx> *> already_seen_symbols;
+      // Filters that this disjunction added a group to, by position: the group is complete only after the loop.
+      std::vector<size_t> grown_filters;
       for (auto &filter : filters) {
         auto *labels_test = utils::Downcast<LabelsTest>(filter);
         auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
@@ -1048,6 +1054,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
             existing_or_labels.emplace_back();
             already_seen_symbols[identifier->symbol_pos_] = &existing_or_labels.back();
             or_labels_vec = &existing_or_labels.back();
+            grown_filters.push_back(std::distance(all_filters_.begin(), it));
           } else {
             or_labels_vec = existing_or_labels_vec_it->second;
           }
@@ -1068,6 +1075,17 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
           it = already_seen_symbols.erase(it);
         } else {
           ++it;
+        }
+      }
+      // A group equal to one the filter already has is redundant, as in the LabelsTest merge above. Keeping
+      // it breaks index selection, which erases one copy and expects no other.
+      for (auto filter_pos : grown_filters) {
+        auto &filter_info = all_filters_[filter_pos];
+        auto &groups = dynamic_cast<LabelsTest *>(filter_info.expression)->or_labels_;
+        auto earlier = std::span(groups).first(groups.size() - 1);
+        if (std::ranges::any_of(earlier, [&](const auto &group) { return SameLabelGroup(group, groups.back()); })) {
+          groups.pop_back();
+          filter_info.or_labels = groups;
         }
       }
     } else {
