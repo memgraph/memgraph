@@ -19,6 +19,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/small_vector.hpp"
 
@@ -1276,4 +1277,50 @@ TEST(PropertyValue, EqualValuesHashAlike) {
   // has not collapsed everything to one bucket.
   EXPECT_NE(hash(PropertyValue(1.0)), hash(PropertyValue(quiet)));
   EXPECT_NE(hash(PropertyValue(1.0)), hash(PropertyValue(2.0)));
+}
+
+TEST(PropertyValue, KeepsAnIntegerWiderThanThePackedFormOutOfAPackedList) {
+  // A packed list holds its integers narrower than a boxed list does. One that
+  // does not fit has to stay boxed, because narrowing it stores a different
+  // number from the one handed over and nothing later can tell that it did.
+  auto const too_wide = int64_t{std::numeric_limits<int>::max()} + 1;
+  auto const too_small = int64_t{std::numeric_limits<int>::min()} - 1;
+
+  EXPECT_FALSE(FitsAPackedList(too_wide));
+  EXPECT_FALSE(FitsAPackedList(too_small));
+  EXPECT_TRUE(FitsAPackedList(std::numeric_limits<int>::max()));
+  EXPECT_TRUE(FitsAPackedList(std::numeric_limits<int>::min()));
+
+  auto wide_list = PropertyValue::list_t{PropertyValue(too_wide)};
+  EXPECT_THROW(PropertyValue(IntListTag{}, wide_list), PropertyValueException);
+
+  auto mixed_list = PropertyValue::list_t{PropertyValue(too_wide), PropertyValue(1.5)};
+  EXPECT_THROW(PropertyValue(NumericListTag{}, mixed_list), PropertyValueException);
+
+  // The boxed list holds it at the width it was given.
+  auto const boxed = PropertyValue(std::vector<PropertyValue>{PropertyValue(too_wide)});
+  EXPECT_EQ(boxed.ValueList()[0].ValueInt(), too_wide);
+}
+
+TEST(PropertyValue, OrdersAListHeldEitherWayAlike) {
+  // A list of numbers is packed, and the same list with one element of another
+  // type is not, so one list arrives as either representation according to what
+  // is in it. A range whose bounds are written the two ways describes the pair
+  // of values it names, and an index entry stored one way is found by the other.
+  auto const boxed = [](std::vector<PropertyValue> elements) { return PropertyValue(std::move(elements)); };
+  auto const packed_ints = [](std::vector<int64_t> elements) {
+    auto list = PropertyValue::list_t{};
+    for (auto const element : elements) list.emplace_back(element);
+    return PropertyValue(IntListTag{}, std::move(list));
+  };
+
+  EXPECT_TRUE(AreComparable(boxed({PropertyValue(int64_t{1})}), packed_ints({1})));
+  EXPECT_EQ(boxed({PropertyValue(int64_t{1})}), packed_ints({1}));
+  EXPECT_TRUE(boxed({PropertyValue(int64_t{1})}) < packed_ints({2}));
+  EXPECT_TRUE(packed_ints({1}) < boxed({PropertyValue(int64_t{2})}));
+
+  // The empty list packs too, so the two ends of a range over lists can differ
+  // in representation without either naming anything unusual.
+  EXPECT_TRUE(AreComparable(packed_ints({}), boxed({PropertyValue(int64_t{1}), PropertyValue("a")})));
+  EXPECT_TRUE(packed_ints({}) < boxed({PropertyValue(int64_t{1}), PropertyValue("a")}));
 }
