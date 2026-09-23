@@ -1025,7 +1025,7 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // observe this transaction's deltas.
   //
   // The safety invariant therefore falls entirely on no_newer_transactions: that read is protected
-  // by engine_lock_ (this function is called from FinalizeCommitPhase while the publish hold is
+  // by engine_lock_ (this function is called from PublishCommit while the pub_guard hold is
   // still active, and on the OFF path from PrepareForCommitPhase's engine_lock_ hold).
   // engine_lock_ serialises the transaction_id_ read against a concurrent CreateTransaction/BEGIN
   // (which increments transaction_id_ at storage.cpp:2980).  If no_newer_transactions is true, no
@@ -1207,16 +1207,23 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
 
+        // Update the WAL commit-status flag (pending→committed) before sealing the file so the
+        // flag byte lands in the sealed segment. Skip when the prepare phase failed: the decision
+        // is abort and the flag must remain false so WAL recovery rolls back this transaction.
         if (repl_prepare_phase_ok) {
-          // All replicas voted yes, hence they want to commit the current transaction
-          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
+          FinalizeWalCommitStatus();
         }
-        // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
-
+        // Seal the WAL file regardless of the commit/abort decision so the file is never left in
+        // a partial-write state that would corrupt replay on restart.
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
-        // Send to all replicas they can finalize a transaction
+        // Send the finalize decision (commit or abort) to all replicas and wait for acks from
+        // STRICT_SYNC ones. MVCC visibility (commit_info->timestamp + watermark) is deliberately
+        // deferred to after this call: until FinalizeTransaction returns, the commit is not durable
+        // on every reachable STRICT_SYNC replica, so a promoted replica could roll it back.
+        // Publishing before this point would expose a value that failover can undo — the
+        // early-visibility hazard introduced by the commit-lock-narrowing flag.
         replicating_txn.FinalizeTransaction(
             repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
@@ -1227,10 +1234,20 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
 
         if (!failures.empty()) {
-          // Release engine lock because we don't have to hold it anymore for abort
+          // Per verified invariant (concurrency analysis): failures is non-empty only when
+          // repl_prepare_phase_ok is false (prepare failed). Neither FinalizeWalCommitStatus
+          // nor PublishCommit was called, so is_transaction_active_ is still true and the
+          // abort carries no risk of double-publish.
           if (engine_guard.owns_lock()) engine_guard.unlock();
           AbortAndResetCommitTs();
           return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
+        }
+
+        // Decision was commit and all replicas acknowledged finalization: now publish MVCC
+        // visibility and the watermark atomically under engine_lock_ (inside PublishCommit).
+        // This deferred publish restores flag-ON ↔ flag-OFF observability parity.
+        if (repl_prepare_phase_ok) {
+          PublishCommit(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
         }
 
         return {};
@@ -1239,10 +1256,24 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return *std::move(res);
 }
 
-void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp,
-                                                            bool const acquire_engine_lock) {
+void InMemoryStorage::InMemoryAccessor::FinalizeWalCommitStatus() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  // Update the 2PC commit-status flag in the WAL from pending to committed. Must run before
+  // FinalizeWalFile seals the file so the flag byte is captured in the sealed segment.
+  // Only needed when 2PC wrote a commit-status entry (commit_flag_wal_position_ != 0).
+  if (wal_txn_positions_.commit_flag_wal_position_ != 0 && needs_wal_update_) {
+    mem_storage->wal_file_->UpdateCommitStatus(wal_txn_positions_);
+  }
+}
+
+void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_commit_timestamp,
+                                                      bool const acquire_engine_lock) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  // Re-acquire engine_lock_ on the commit-lock-narrowing path. The lock must span the entire body
+  // because CheckForFastDiscardOfDeltas reads transaction_id_, which must be serialised against a
+  // concurrent CreateTransaction/BEGIN that increments it. See the invariant note on
+  // CheckForFastDiscardOfDeltas for details.
   std::optional<std::unique_lock<utils::SpinLock>> pub_guard;
   if (acquire_engine_lock) {
     pub_guard.emplace(storage_->engine_lock_);
@@ -1261,12 +1292,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
                          transaction_.SchemaReconstructionBound(),
                          *commit_timestamp_,
                          mem_storage->config_.salient.items.properties_on_edges));
-  }
-
-  // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
-  // is fine.
-  if (wal_txn_positions_.commit_flag_wal_position_ != 0 && needs_wal_update_) {
-    mem_storage->wal_file_->UpdateCommitStatus(wal_txn_positions_);
   }
 
   MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
@@ -1357,17 +1382,21 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   if (mem_storage->config_.experimental_commit_lock_narrowing) {
-    // Publish the watermark: readers that BEGIN after this see this commit. Ordered after the
-    // commit_info->timestamp store and MarkFinished, under the same publish engine_lock hold.
-    // On the STRICT_SYNC 2PC path this precedes replica finalization (acceptable while replicated
-    // flag-on is deferred; revisit when cleared). The watermark must strictly increase: commit_mutex_
-    // before mint guarantees mint-order == publish-order; narrowing commit_mutex_ would break that
-    // silently — this DMG_ASSERT catches divergence.
+    // Publish the watermark together with commit_info->timestamp (both under the same pub_guard
+    // engine_lock_ hold) so no reader observes a partial publish. commit_mutex_ is held by the
+    // caller across the entire PrepareForCommitPhase, guaranteeing mint-order == publish-order;
+    // the strict-increase DMG_ASSERT below verifies that invariant at runtime.
     DMG_ASSERT(*commit_timestamp_ > mem_storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
                "watermark must strictly increase: commit mint order and publish order have diverged");
     mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
   }
   is_transaction_active_ = false;
+}
+
+void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp,
+                                                            bool const acquire_engine_lock) {
+  FinalizeWalCommitStatus();
+  PublishCommit(durability_commit_timestamp, acquire_engine_lock);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)

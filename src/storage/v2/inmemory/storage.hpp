@@ -474,13 +474,26 @@ class InMemoryStorage final : public Storage {
     // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
 
-    // Represents the 2nd phase of the 2PC protocol
-    // NOTE: The engine lock must be held while this runs. Pass acquire_engine_lock=false when the caller
-    // already holds it (the default: legacy path and the replica FinalizeCommit handler); pass true only on
-    // the commit-lock-narrowing path, where the caller released engine_lock after the mint and this method
-    // re-acquires it for the brief publish.
-    // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
-    // independently of PrepareForCommitPhase.
+    // Writes the WAL commit-status flag (2PC pending→committed). Must run before FinalizeWalFile
+    // seals the file. Does not require engine_lock_; only touches wal_txn_positions_/wal_file_.
+    void FinalizeWalCommitStatus();
+
+    // Publishes MVCC visibility: stores commit_info->timestamp (release), advances
+    // ldt/commit_ts_info_, installs indices, runs callbacks, marks commit_log finished, stores the
+    // flag-path watermark, and sets is_transaction_active_=false. Re-acquires engine_lock_ via a
+    // scoped pub_guard when acquire_engine_lock is true (commit-lock-narrowing path); the caller
+    // must already hold it when false.
+    // CONTRACT (engine_lock_): pub_guard spans the entire body — CheckForFastDiscardOfDeltas reads
+    // transaction_id_ which must be serialised against concurrent CreateTransaction/BEGIN.
+    // CONTRACT (commit_mutex_): caller must hold commit_mutex_ across this call; that preserves
+    // mint-order == publish-order and the strict-increase watermark invariant.
+    void PublishCommit(uint64_t durability_commit_timestamp, bool acquire_engine_lock);
+
+    // Convenience wrapper: FinalizeWalCommitStatus() followed by PublishCommit(). Used on all
+    // paths that publish immediately (no-WAL, SYNC/ASYNC replica, non-STRICT_SYNC main). On the
+    // STRICT_SYNC main path call the two methods individually so PublishCommit is deferred past
+    // FinalizeTransaction.
+    // NOTE: PrepareForCommitPhase owns the call; do not invoke independently.
     void FinalizeCommitPhase(uint64_t durability_commit_timestamp, bool acquire_engine_lock = false);
 
     /// @throw std::bad_alloc
