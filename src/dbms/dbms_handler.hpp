@@ -763,7 +763,7 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
     auto rd = std::shared_lock{lock_};
 #endif
-    this->ForEachLocked_(std::move(f));
+    ForEachLocked_(std::move(f));
   }
 
   /**
@@ -777,7 +777,7 @@ class DbmsHandler {
     auto rd = std::shared_lock{lock_, std::try_to_lock};
     if (!rd.owns_lock()) return false;
 #endif
-    this->ForEachLocked_(std::move(f));
+    ForEachLocked_(std::move(f));
     return true;
   }
 
@@ -838,6 +838,21 @@ class DbmsHandler {
   }
 
  private:
+  // Caller holds lock_ (enterprise); visits every HOT database.
+  void ForEachLocked_(std::invocable<DatabaseAccess> auto f) {
+#ifdef MG_ENTERPRISE
+    for (auto &[_, db_gk] : db_handler_) {
+#else
+    {
+      auto &db_gk = db_gatekeeper_;
+#endif
+      auto db_acc = db_gk.access();
+      if (db_acc) {  // This isn't an error, just a defunct db
+        f(*db_acc);
+      }
+    }
+  }
+
 #ifdef MG_ENTERPRISE
   // Hot/cold: rebuild metadata for a suspended (COLD) tenant. The gatekeeper stays in
   // db_handler_ as a COLD shell (value_ == nullopt); this holds what a later resume needs.
@@ -922,21 +937,6 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   DbmsHandler::NewResultT New_(storage::Config storage_config, system::Transaction *txn = nullptr);
-
-  // Caller holds lock_ (enterprise); visits every HOT database.
-  void ForEachLocked_(std::invocable<DatabaseAccess> auto f) {
-#ifdef MG_ENTERPRISE
-    for (auto &[_, db_gk] : db_handler_) {
-#else
-    {
-      auto &db_gk = db_gatekeeper_;
-#endif
-      auto db_acc = db_gk.access();
-      if (db_acc) {  // This isn't an error, just a defunct db
-        f(*db_acc);
-      }
-    }
-  }
 
   // TODO: new overload of Delete_ with DatabaseAccess
   DeleteResult Delete_(std::string_view db_name);
