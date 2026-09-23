@@ -54,7 +54,6 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PreVisit(PatternComprehension &pc) override {
-    has_branch_ = true;
     // The base tracks a depth, so a comprehension nested below does not release us early.
     UsedSymbolsCollector::PreVisit(pc);
     if (pc.filter_) {
@@ -67,7 +66,6 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PreVisit(SubqueryExpression &subquery) override {
-    has_branch_ = true;
     // Walk the whole body. The depth keeps the body's own atoms out.
     ++in_subquery_depth_;
     if (subquery.HasPattern()) {
@@ -82,9 +80,6 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
     --in_subquery_depth_;
     return true;
   }
-
-  /// Whether the expression holds a subquery or pattern comprehension, which the planner plans as a branch.
-  bool has_branch_{false};
 
  private:
   // A depth, not a flag: bodies nest.
@@ -132,17 +127,51 @@ class SubqueryResultSymbolCollector : public HierarchicalTreeVisitor {
   std::vector<Symbol> *subquery_symbols_;
 };
 
-/// Whether @p expression holds the same value for every row of a group, so it is not a grouping key of its own:
-/// a literal or parameter, and equally `1 + 1`, `[]` or `size([1, 2])`. A subquery or comprehension never is: its
-/// branch is planned below the Aggregate, so only a grouping key carries its value past it - on an empty input
-/// nothing else ever sets it.
-bool IsGroupConstant(Expression *expression, const SymbolTable &symbol_table) {
+/// Whether the subquery or comprehension @p branch reads a symbol of @p outer_symbols, so its value can differ per row.
+template <typename TBranch>
+bool IsCorrelated(TBranch &branch, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &outer_symbols) {
   SubqueryReadSymbolsCollector collector{symbol_table};
+  branch.Accept(collector);
+  return std::ranges::any_of(collector.symbols_, [&](const Symbol &symbol) { return outer_symbols.contains(symbol); });
+}
+
+/// Like UsedSymbolsCollector, but a subquery or comprehension adds no symbol: it only sets @c correlated_branch_ when
+/// it reads one of @c outer_symbols_.
+class GroupConstantCollector : public UsedSymbolsCollector {
+ public:
+  GroupConstantCollector(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &outer_symbols)
+      : UsedSymbolsCollector(symbol_table), outer_symbols_(outer_symbols) {}
+
+  bool PreVisit(PatternComprehension &pc) override {
+    correlated_branch_ |= IsCorrelated(pc, symbol_table_, outer_symbols_);
+    return false;
+  }
+
+  bool PostVisit(PatternComprehension & /*unused*/) override { return true; }
+
+  bool PreVisit(SubqueryExpression &subquery) override {
+    correlated_branch_ |= IsCorrelated(subquery, symbol_table_, outer_symbols_);
+    return false;
+  }
+
+  bool PostVisit(SubqueryExpression & /*unused*/) override { return true; }
+
+  bool correlated_branch_{false};
+
+ private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const std::unordered_set<Symbol> &outer_symbols_;
+};
+
+/// Whether @p expression holds the same value for every row of a group, so it is not a grouping key of its own:
+/// a literal or parameter, and equally `1 + 1`, `[]` or `size([1, 2])`. A subquery or comprehension is too when it
+/// reads none of @p outer_symbols: its branch is then planned above the Aggregate, once per group. A correlated one
+/// is planned below, so only a grouping key carries its value past the Aggregate.
+bool IsGroupConstant(Expression *expression, const SymbolTable &symbol_table,
+                     const std::unordered_set<Symbol> &outer_symbols) {
+  GroupConstantCollector collector{symbol_table, outer_symbols};
   expression->Accept(collector);
-  // TODO: An uncorrelated branch is constant by meaning; it is a grouping key only because it is planned below the
-  // Aggregate. Plan such a branch above the Aggregate, then drop the has_branch_ check, so an empty input keeps
-  // its row.
-  return collector.symbols_.empty() && !collector.has_branch_;
+  return collector.symbols_.empty() && !collector.correlated_branch_;
 }
 
 // Ast tree visitor which collects the context for a return body.
@@ -212,6 +241,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         group_by->Accept(collector);
       }
       group_by_used_symbols_ = collector.symbols_;
+      PickBranchesAboveAggregate();
     }
     // ORDER BY and WHERE run after the Produce, so a comprehension there also sees the named expression symbols.
     post_produce_bound_symbols_ = bound_symbols_;
@@ -290,7 +320,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   bool AddGroupingKeys(std::span<ExpressionPart const> parts) {
     if (std::ranges::none_of(parts, &ExpressionPart::has_aggregation)) return false;
     for (auto const &part : parts) {
-      if (!part.has_aggregation && !IsGroupConstant(part.expression, symbol_table_)) {
+      if (!part.has_aggregation && !IsGroupConstant(part.expression, symbol_table_, bound_symbols_)) {
         group_by_.emplace_back(part.expression);
       }
     }
@@ -583,7 +613,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(PatternComprehension & /*unused*/) override {
+  bool PreVisit(PatternComprehension &pattern_comprehension) override {
+    if (aggregations_start_index_stack_.empty() &&
+        !IsCorrelated(pattern_comprehension, symbol_table_, bound_symbols_)) {
+      uncorrelated_branches_.insert(symbol_table_.at(pattern_comprehension));
+    }
     aggregations_start_index_stack_.push_back(has_aggregation_.size());
     return true;
   }
@@ -618,6 +652,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       if (!std::ranges::contains(output_symbols_, symbol)) {
         used_symbols_.insert(symbol);
       }
+    }
+    auto const reads_outer =
+        std::ranges::any_of(collector.symbols_, [&](const Symbol &symbol) { return bound_symbols_.contains(symbol); });
+    if (aggregations_start_index_stack_.empty() && !reads_outer) {
+      uncorrelated_branches_.insert(symbol_table_.at(subquery));
     }
     return false;
   }
@@ -713,7 +752,29 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // EXISTS result symbols that appear inside aggregate expressions.
   const auto &subqueries_in_aggregations() const { return subqueries_in_aggregations_; }
 
+  /// Whether the projection branch writing @p result_symbol is spliced above the Aggregate rather than below it.
+  bool RunsAboveAggregate(const Symbol &result_symbol) const { return above_aggregate_.contains(result_symbol); }
+
  private:
+  /// An uncorrelated branch has the same value for every row, so it can run once per group above the Aggregate -
+  /// which also runs it for the default row of an empty input. Only if no grouping key or aggregation reads it: those
+  /// are evaluated in the Aggregate itself.
+  void PickBranchesAboveAggregate() {
+    std::unordered_set<Symbol> read_comprehensions;
+    std::vector<Symbol> read_subqueries;
+    SubqueryResultSymbolCollector collector(symbol_table_, read_comprehensions, &read_subqueries);
+    for (auto *key : group_by_) {
+      key->Accept(collector);
+    }
+    for (const auto &symbol : uncorrelated_branches_) {
+      if (!read_comprehensions.contains(symbol) && !pattern_comprehensions_in_aggregations_.contains(symbol) &&
+          !std::ranges::contains(read_subqueries, symbol) &&
+          !std::ranges::contains(subqueries_in_aggregations_, symbol)) {
+        above_aggregate_.insert(symbol);
+      }
+    }
+  }
+
   /// What a branch spliced at @c position_ may correlate to: an ORDER BY or WHERE one sits above the Produce, so it
   /// also sees this body's own output symbols.
   const std::unordered_set<Symbol> &BranchBoundSymbols() const {
@@ -792,6 +853,10 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::unordered_set<Symbol> pattern_comprehensions_in_aggregations_;
   // EXISTS result symbols that appear inside aggregate expressions.
   std::vector<Symbol> subqueries_in_aggregations_;
+  // Top-level projection branches that read no symbol bound before this clause.
+  std::unordered_set<Symbol> uncorrelated_branches_;
+  // The subset of them spliced above the Aggregate (@c PickBranchesAboveAggregate).
+  std::unordered_set<Symbol> above_aggregate_;
   // Stack of aggregation start indices for nested pattern comprehensions
   std::vector<size_t> aggregations_start_index_stack_;
   // Context for on-demand planning of pattern comprehensions.
@@ -824,8 +889,8 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
         std::make_unique<RollUpApply>(std::move(last_op), std::move(branch.op), branch.result_symbol, branch.fold);
   };
 
-  // When there are aggregations, ALL pattern comprehensions are planned BEFORE the
-  // Aggregate operator. This ensures correct evaluation per input row rather than per group.
+  // When there are aggregations, a correlated branch is planned BEFORE the Aggregate operator, so it is evaluated
+  // per input row rather than per group. An uncorrelated one is planned after it (@c RunsAboveAggregate).
   const bool has_aggregations = !body.aggregations().empty();
   using BodyPosition = ReturnBodyContext::BodyPosition;
   auto projection = body.branches_at(BodyPosition::kProjection);
@@ -856,7 +921,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // A result the aggregate itself consumes is read below the Aggregate, so only the others have to survive it.
     const auto &pcs_in_aggregations = body.pattern_comprehensions_in_aggregations();
     for (auto &data : projection.comprehensions) {
-      if (!data.op) continue;
+      if (!data.op || body.RunsAboveAggregate(data.result_symbol)) continue;
       auto list_collection_symbols = data.op->ModifiedSymbols(body.symbol_table());
       last_op = std::make_unique<RollUpApply>(
           std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
@@ -867,7 +932,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 
     const auto &subqueries_in_aggregations = body.subqueries_in_aggregations();
     for (auto &branch : projection.subqueries) {
-      if (!branch.op) continue;
+      if (!branch.op || body.RunsAboveAggregate(branch.result_symbol)) continue;
       auto const result_symbol = branch.result_symbol;
       fold_onto(branch);
       if (!std::ranges::contains(subqueries_in_aggregations, result_symbol)) {

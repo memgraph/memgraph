@@ -933,6 +933,36 @@ TYPED_TEST(TestPlanner, PatternComprehensionInForeach) {
   ASSERT_NE(once, nullptr);
 }
 
+TYPED_TEST(TestPlanner, UncorrelatedComprehensionBesideAggregationRunsAboveAggregate) {
+  // Test MATCH (n) RETURN size([(a)--(b) | 1]) + count(n) AS r
+  // The comprehension reads no outer symbol, so it is no grouping key and runs once per group, above the Aggregate.
+  auto *pattern_comp = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("e"), NODE("b")), nullptr, LITERAL(1));
+  auto *count = COUNT(IDENT("n"), false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(ADD(FN("size", pattern_comp), count), AS("r"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectAggregate({count}, {})};
+  Checkers list_branch{ExpectOnce{}, ExpectScanAll{}, ExpectExpand{}, ExpectProduce{}};
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply{std::move(input), std::move(list_branch)}, ExpectProduce{});
+}
+
+TYPED_TEST(TestPlanner, CorrelatedComprehensionBesideAggregationRunsBelowAggregate) {
+  // Test MATCH (n) RETURN size([(n)--(b) | 1]) + count(n) AS r
+  // The comprehension reads n, so it is a grouping key and runs per input row, below the Aggregate.
+  auto *pattern_comp = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("e"), NODE("b")), nullptr, LITERAL(1));
+  auto *size_call = FN("size", pattern_comp);
+  auto *count = COUNT(IDENT("n"), false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(ADD(size_call, count), AS("r"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers list_branch{ExpectOnce{}, ExpectExpand{}, ExpectProduce{}};
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectRollUpApply{std::move(input), std::move(list_branch)},
+                       ExpectAggregate({count}, {size_call}),
+                       ExpectProduce{});
+}
+
 TYPED_TEST(TestPlanner, ReturnDistinctOrderBySkipLimit) {
   // Test RETURN DISTINCT 1 ORDER BY 1 SKIP 1 LIMIT 1
   auto *query = QUERY(
