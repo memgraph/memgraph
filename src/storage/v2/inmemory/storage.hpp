@@ -40,6 +40,7 @@
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/snapshot_progress.hpp"
+#include "storage/v2/snapshot_slot_ring.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -1145,19 +1146,8 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
-  // EXPERIMENTAL (commit-lock-narrowing) GC visibility tracker: maps an active txn's start_timestamp
-  // to its frozen snapshot_ts, so GC can compute min(active snapshot_ts) = the OldestActive txn's snapshot.
-  // Tag-validated ring; any miss falls back to a monotone non-regressing floor (never OldestActive(start_ts)).
-  struct SnapshotSlot {
-    std::atomic<uint64_t> tag{std::numeric_limits<uint64_t>::max()};  // owning start_timestamp; max = empty
-    std::atomic<uint64_t> snap{0};                                    // that txn's snapshot_ts
-  };
-
-  static constexpr size_t kSnapshotSlots = 1ULL
-                                           << 16;  // ring; correctness is independent of size (tag-validated,
-                                                   // relies on the invalidate-first slot write in CreateTransaction)
-  std::unique_ptr<SnapshotSlot[]> snapshot_slots_;
-  std::atomic<uint64_t> gc_visibility_floor_{kTimestampInitialId};
+  // EXPERIMENTAL (commit-lock-narrowing) GC visibility ring — populated iff the flag is ON.
+  std::optional<SnapshotSlotRing> snapshot_ring_;
 
   free_mem_fn free_memory_func_;
 
