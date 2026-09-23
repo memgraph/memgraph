@@ -333,8 +333,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
   if (config_.experimental_commit_lock_narrowing) {
-    // NOLINTNEXTLINE(modernize-avoid-c-arrays) — make_unique<T[]> is the idiomatic heap array (cf. ring_buffer.hpp).
-    snapshot_slots_ = std::make_unique<SnapshotSlot[]>(kSnapshotSlots);
+    snapshot_ring_.emplace();
   }
   MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
             "Light edges require properties on edges (--storage-light-edge implies "
@@ -2979,10 +2978,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
       // Invalidate-first: write sentinel into tag before snap, so GC cannot pair new snap with old owner.
       // If GC's acquire-load of snap observes the new value it synchronizes-with the release below, so it
       // also sees tag == sentinel or the final value — never the stale predecessor. tag last = commit point.
-      auto &gc_slot = snapshot_slots_[start_timestamp % kSnapshotSlots];
-      gc_slot.tag.store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);  // invalidate old owner
-      gc_slot.snap.store(snapshot_ts, std::memory_order_release);                          // carries the invalidation
-      gc_slot.tag.store(start_timestamp, std::memory_order_release);                       // publish, tag last
+      snapshot_ring_->Publish(start_timestamp, snapshot_ts);
     }
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
@@ -3182,21 +3178,7 @@ void InMemoryStorage::SeedReadSnapshotWatermarkFromLocalCounter() {
 
 uint64_t InMemoryStorage::GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns) {
   if (!config_.experimental_commit_lock_narrowing) return raw_oldest_active;  // OFF: byte-identical
-  auto const &gc_slot = snapshot_slots_[raw_oldest_active % kSnapshotSlots];
-  uint64_t const snap = gc_slot.snap.load(std::memory_order_acquire);
-  uint64_t const tag = gc_slot.tag.load(std::memory_order_acquire);
-  if (tag == raw_oldest_active) {
-    // The oldest active txn owns this slot: min(active snapshot_ts) == its snapshot. Advance the floor.
-    uint64_t cur = gc_visibility_floor_.load(std::memory_order_acquire);
-    while (snap > cur && !gc_visibility_floor_.compare_exchange_weak(
-                             cur, snap, std::memory_order_release, std::memory_order_acquire)) {
-    }
-    return std::max(snap, cur);
-  }
-  // Tag mismatch: slot recycled or not yet published. Fall back to the monotone floor unless no active txns
-  // (raw >= timestamp_); NOT `raw > last_committed` — a leapfrogged reader has raw < last_committed but is live.
-  if (no_active_txns) return raw_oldest_active;
-  return gc_visibility_floor_.load(std::memory_order_acquire);
+  return snapshot_ring_->VisibilityHorizon(raw_oldest_active, no_active_txns);
 }
 
 void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic) {
@@ -5526,14 +5508,11 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
   if (config_.experimental_commit_lock_narrowing) {
     // Rewind watermark + GC floor with timestamp_: a post-recovery commit at a low ts must not
     // appear already-committed to a stale-high snapshot. Recovery paths reseed afterward.
-    last_committed_mvcc_ts_.store(kTimestampInitialId, std::memory_order_release);
-    gc_visibility_floor_.store(kTimestampInitialId, std::memory_order_release);
+    last_committed_mvcc_ts_.store(kTimestampInitialId,
+                                  std::memory_order_release);  // watermark, NOT ring state — stays in Clear
     // Reset the ring: a stale slot could pair a post-recovery oldest-active id with a pre-Clear tag
     // and advance the floor to a stale-high snapshot. Recovery is single-threaded; no concurrent GC.
-    for (size_t i = 0; i < kSnapshotSlots; ++i) {
-      snapshot_slots_[i].tag.store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);
-      snapshot_slots_[i].snap.store(0, std::memory_order_relaxed);
-    }
+    snapshot_ring_->Reset();
   }
   transaction_id_ = kTransactionInitialId;
 
