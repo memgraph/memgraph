@@ -1546,6 +1546,25 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
     EXPECT_EQ(names(outer->external_symbols_), Names{"a"});
   }
   {
+    // MATCH (a) UNWIND [1] AS k RETURN [(a)-[r]->(b) | size([(b)-[r2]->(c) WHERE c = k | c])]
+    // `k` is read only inside the inner comprehension, so the outer one has it only if every open record gets the
+    // reference, not just the innermost.
+    auto *inner = PATTERN_COMPREHENSION(
+        nullptr, PATTERN(NODE("b"), EDGE("r2"), NODE("c")), WHERE(EQ(IDENT("c"), IDENT("k"))), IDENT("c"));
+    auto *outer = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), nullptr, FN("size", inner));
+    MakeSymbolTable(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), UNWIND(NEXPR("k", LIST(LITERAL(1)))), RETURN(outer, AS("res")))));
+    EXPECT_EQ(names(inner->external_symbols_), (Names{"b", "k"}));
+    EXPECT_EQ(names(outer->external_symbols_), (Names{"a", "k"}));
+  }
+  {
+    // MATCH (a) RETURN [p = (a)-[r]->(b) | p]
+    // The path variable is the comprehension's own, even though it is created before its pattern is visited.
+    auto *pc = PATTERN_COMPREHENSION(IDENT("p"), PATTERN(NODE("a"), EDGE("r"), NODE("b")), nullptr, IDENT("p"));
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(pc, AS("res")))));
+    EXPECT_EQ(names(pc->external_symbols_), Names{"a"});
+  }
+  {
     // MATCH (a) RETURN [(a)-[r]->(b) WHERE b = created | b], with `created` predefined, as a trigger's variables are.
     // Its symbol is created at its first use, inside the comprehension, yet the trigger binds it outside. Missing it
     // left the WHERE with a symbol nothing binds, so the trigger could not be planned.
