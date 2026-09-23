@@ -67,6 +67,10 @@ int Sign(std::partial_ordering order) {
 
 int Sign(std::weak_ordering order) { return Sign(std::partial_ordering(order)); }
 
+/// How many types a value can be stored as, the last enumerator being the
+/// highest.
+constexpr auto kStoredTypeCount = static_cast<int>(memgraph::storage::PropertyValueType::VectorIndexId) + 1;
+
 }  // namespace
 
 /// Whether a sort can be handed this value.
@@ -79,15 +83,11 @@ int Sign(std::weak_ordering order) { return Sign(std::partial_ordering(order)); 
 /// ordered structure. No column a sort reads holds one.
 bool ASortCanBeHandedThis(PropertyValue const &value) {
   if (value.IsVectorIndexId()) return false;
-  // A sort refuses a pair of maps rather than placing them, so there is no
-  // position to agree with. The two layers could not reach one in any case: a
-  // stored map is keyed by an identifier and a read one by a name, and nothing
-  // below the query layer can see a name.
+  // A stored map is keyed by an identifier and a read one by a name, and
+  // nothing below the query layer can see a name, so there is no one position
+  // for the two layers to agree on.
   if (value.IsMap()) return false;
   if (value.IsList()) return std::ranges::all_of(value.ValueList(), ASortCanBeHandedThis);
-  if (value.IsMap()) {
-    return std::ranges::all_of(value.ValueMap(), [](auto const &entry) { return ASortCanBeHandedThis(entry.second); });
-  }
   return true;
 }
 
@@ -104,4 +104,52 @@ RC_GTEST_PROP(OrderAgreement, AStoredColumnIsWalkedInTheOrderASortReadsIt, ()) {
   // the walk is free to separate two values a read cannot tell apart, and a
   // stored date carrying a part of a day is one such pair.
   if (sorted != 0) RC_ASSERT(stored == sorted);
+}
+
+TEST(OrderAgreement, HandsTheLawEnoughPairsToBeWorthAsking) {
+  // A discarded pair looks exactly like a pair that passed, so a precondition
+  // that grows tighter narrows what the law covers and reports nothing. The
+  // share kept is measured here, drawing pairs the way the property draws them,
+  // and the spread over types with it: a law reached only by strings is a law
+  // about strings.
+  constexpr auto kPairs = 20'000;
+  constexpr auto kLeastKept = 0.5;
+  constexpr auto kLeastShare = 0.02;
+
+  auto kept = 0;
+  auto placed = 0;
+  auto kept_by_type = std::map<memgraph::storage::PropertyValueType, int>{};
+
+  auto const generator = memgraph::test::generators::AnyValue();
+  for (auto draw = 0; draw < kPairs; ++draw) {
+    auto const at = [&](int offset) {
+      auto const seed = static_cast<std::uint64_t>(draw) * 2 + static_cast<std::uint64_t>(offset);
+      return generator(rc::Random(seed), rc::kNominalSize).value();
+    };
+    auto const first = at(0);
+    auto const second = at(1);
+
+    if (!ASortCanBeHandedThis(first) || !ASortCanBeHandedThis(second)) continue;
+    ++kept;
+    ++kept_by_type[first.type()];
+
+    // The law says nothing where the sort ties, so a run kept entirely of ties
+    // would assert nothing while discarding nothing.
+    if (Sign(orderability::Compare(AsRead(first), AsRead(second))) != 0) ++placed;
+  }
+
+  auto const kept_share = static_cast<double>(kept) / kPairs;
+  EXPECT_GT(kept_share, kLeastKept) << "the law is asked of " << kept_share * 100
+                                    << "% of pairs, too few for what it covers to be clear";
+
+  auto const placed_share = static_cast<double>(placed) / kPairs;
+  EXPECT_GT(placed_share, kLeastShare) << "the sort places both rows on " << placed_share * 100
+                                       << "% of pairs, too few to establish that a walk agrees with it";
+
+  // Every stored type but the two the precondition drops should survive it, so
+  // counting the types reached says whether the kept share is spread or is one
+  // type standing in for the rest.
+  constexpr auto kTypesASortCanBeHanded = kStoredTypeCount - 2;
+  EXPECT_GE(std::ssize(kept_by_type), kTypesASortCanBeHanded)
+      << "the law was reached by only " << kept_by_type.size() << " of the types a sort can be handed";
 }

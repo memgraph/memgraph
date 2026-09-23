@@ -117,10 +117,10 @@ bool SharesAPosition(TypedValue const &a, TypedValue const &b) { return !Before(
 
 /// The types orderability places without any chance of refusing a pair.
 ///
-/// The two containers are left out. Two maps it refuses, having no order to read
-/// inside one, and a list is ordered by its elements, so a pair of lists can
-/// still reach a pair of elements it refuses; each has properties of its own
-/// rather than a place in a law that may not throw.
+/// The two containers are left out, because a pair of either may be refused: a
+/// pair of maps outright, and a pair of lists once it reaches a pair of elements
+/// that is. Each has properties of its own rather than a place in a law that may
+/// not throw.
 std::vector<TypedValue::Type> PlaceableScalarTypes() {
   auto types = generators::GraphFreeTypes();
   std::erase_if(types, [](auto type) { return type == TypedValue::Type::List || type == TypedValue::Type::Map; });

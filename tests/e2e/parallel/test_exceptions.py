@@ -18,8 +18,10 @@ parallel branch they originate from:
     - Last branch (last element triggers exception)
     - Multiple branches (multiple elements trigger exception)
 
-The test strategy uses MATCH(n) RETURN min(n.p) where mixing string and int
-values for property 'p' causes a type error during aggregation.
+The test strategy uses MATCH(n) RETURN min(n.p) where a map among the values of
+property 'p' causes a type error during aggregation. A sort places a map against
+a value of another type and has no order for a pair of maps, so MIN and MAX
+refuse a column holding one.
 
 All queries use USING PARALLEL EXECUTION hint via the pq() wrapper.
 """
@@ -65,10 +67,29 @@ def inject_type_error(memgraph, positions: List[int]) -> None:
         memgraph.execute_query(f"MATCH (n:A {{p: {pos}}}) SET n.p = 'invalid_string_{pos}'")
 
 
+def inject_unorderable_value(memgraph, positions: List[int]) -> None:
+    """
+    Replace p with a value a sort has no order for, at the given positions.
+
+    A string is ordered against a number, so a column holding both is one MIN
+    and MAX place rather than refuse. A map is the value they do refuse: it is
+    placed against a value of another type, and a pair of maps is told apart
+    only by the identifiers their keys were interned as, which is an order the
+    sort does not offer.
+
+    Args:
+        memgraph: Memgraph instance
+        positions: List of p values to convert to maps
+    """
+    for pos in positions:
+        memgraph.execute_query(f"MATCH (n:A {{p: {pos}}}) SET n.p = {{k: {pos}}}")
+
+
 def setup_with_type_error(
     memgraph,
     element_count: int,
     origin: ExceptionOrigin,
+    inject=inject_type_error,
 ) -> List[int]:
     """
     Set up database and inject type errors at specified positions.
@@ -77,6 +98,9 @@ def setup_with_type_error(
         memgraph: Memgraph instance
         element_count: Total number of elements to create
         origin: Where to inject the type error
+        inject: What to write at those positions. The default gives a string,
+            which a sort places; pass inject_unorderable_value for a value it
+            refuses.
 
     Returns:
         List of positions where type errors were injected
@@ -103,16 +127,17 @@ def setup_with_type_error(
         error_positions = list(range(1, element_count + 1))
 
     # Inject the type errors
-    inject_type_error(memgraph, error_positions)
+    inject(memgraph, error_positions)
 
     return error_positions
 
 
 def run_aggregation_query(memgraph) -> None:
     """
-    Run an aggregation query with parallel execution that will fail on mixed types.
+    Run an aggregation query with parallel execution that will fail on a value
+    a sort has no order for.
 
-    This uses min() which requires comparable types.
+    This uses min(), which places every value it is handed against the others.
     """
     memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS result"))
 
@@ -165,7 +190,7 @@ class TestExceptionParameterized:
     )
     def test_exception_matrix(self, memgraph, element_count, origin):
         """Test exception handling across different sizes and origins."""
-        setup_with_type_error(memgraph, element_count, origin)
+        setup_with_type_error(memgraph, element_count, origin, inject=inject_unorderable_value)
 
         with pytest.raises((DatabaseError, ClientError, TransientError)):
             run_aggregation_query(memgraph)
@@ -186,7 +211,7 @@ class TestExceptionMessageConsistency:
         exception_messages = []
 
         for origin in [ExceptionOrigin.FIRST, ExceptionOrigin.MIDDLE, ExceptionOrigin.LAST]:
-            setup_with_type_error(memgraph, element_count, origin)
+            setup_with_type_error(memgraph, element_count, origin, inject=inject_unorderable_value)
 
             try:
                 run_aggregation_query(memgraph)
@@ -194,9 +219,10 @@ class TestExceptionMessageConsistency:
             except (DatabaseError, ClientError) as e:
                 exception_messages.append(str(e))
 
-        # All exception messages should indicate type error
+        # All exception messages should name the same refusal
         for msg in exception_messages:
-            assert "unable to get min" in msg.lower(), f"Exception message doesn't match: {msg}"
+            assert "min and max aggregations" in msg.lower(), f"Exception message doesn't match: {msg}"
+        assert len(set(exception_messages)) == 1, f"Messages differ by origin: {exception_messages}"
 
 
 class TestNoExceptionCases:
@@ -244,12 +270,16 @@ class TestDifferentAggregationFunctions:
         setup_with_type_error(memgraph, 10, ExceptionOrigin.FIRST)
 
     def test_min_exception(self, memgraph):
-        """MIN should raise on mixed types."""
+        """MIN should raise on a value a sort has no order for."""
+        setup_with_type_error(memgraph, 10, ExceptionOrigin.FIRST, inject=inject_unorderable_value)
+
         with pytest.raises((DatabaseError, ClientError, TransientError)):
             memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p)"))
 
     def test_max_exception(self, memgraph):
-        """MAX should raise on mixed types."""
+        """MAX should raise on a value a sort has no order for."""
+        setup_with_type_error(memgraph, 10, ExceptionOrigin.FIRST, inject=inject_unorderable_value)
+
         with pytest.raises((DatabaseError, ClientError, TransientError)):
             memgraph.fetch_all(pq("MATCH (n:A) RETURN max(n.p)"))
 
