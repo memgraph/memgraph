@@ -283,18 +283,23 @@ struct CurrentDB {
   }
 
   void ResetDB() {
-    // Narrowed to db_acc_ only: db_transactional_accessor_'s dtor can abort a txn and take storage locks,
-    // which would stall a concurrent foreign_db_view() if held under the same lock. old_db is swapped out
-    // under the lock and destructed below, outside it (see db_acc_mutex_).
+    // Swap db_acc_ out under the lock so a concurrent foreign_db_view() immediately sees "no database";
+    // old_db is destructed below, OUTSIDE the lock, because the storage-accessor dtors take storage locks
+    // and must not run under db_acc_mutex_ (its leaf-lock property).
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};
       old_db.swap(db_acc_);
     }
-    old_db.reset();  // release db access before the accessors below, as before
+    // Release the storage-side accessors FIRST, while old_db still pins the Database/Storage alive.
+    // ~InMemoryAccessor runs Abort()/FinalizeTransaction() which dereference the Storage, and the gatekeeper
+    // never destroys the Storage while an Accessor is live (finish_suspend asserts count_==0). Releasing the
+    // DatabaseAccess (old_db) LAST therefore keeps a concurrent deferred/FORCE teardown from freeing the
+    // Storage out from under those dtors -- the UAF the previous db_acc_-first order left open.
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    old_db.reset();  // db access released last; still outside db_acc_mutex_
   }
 
   // Releases db_acc_ only if held and marked for deletion; db_transactional_accessor_/execution_db_accessor_/
