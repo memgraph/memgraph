@@ -1150,9 +1150,10 @@ Feature: Pattern comprehensions
             | name            |
             | 'mg.procedures' |
 
-    # The next four scenarios read an outer name from a variable-length edge's property map, bound and lambdas.
+    # The next four scenarios cover a variable-length edge's property map, bound and lambdas.
 
-    # This aborted the server. `unfiltered` is 3 whether or not the property map is honoured.
+    # The edge's own inner symbols were taken for outer names, which aborted the server. `unfiltered` is 3 whether or
+    # not the property map is honoured.
     Scenario: Pattern comprehension over a variable-length edge with a property map
         Given an empty graph
         And having executed:
@@ -1189,7 +1190,7 @@ Feature: Pattern comprehensions
             | 1 | 1 |
             | 2 | 2 |
 
-    # A lambda that reads a null `k` keeps nothing, so both rows are 0.
+    # On master the lambda read a null `k` and kept nothing, so both rows were 0.
     Scenario: Pattern comprehension whose BFS filter lambda reads a FOREACH variable
         Given an empty graph
         And having executed:
@@ -1234,8 +1235,8 @@ Feature: Pattern comprehensions
             | 0  | 3  |
             | 10 | 26 |
 
-    # `x` is written after the comprehension runs. Reading its slot gives the previous row's value, so row 1 is false.
-    # The scan is still uncorrelated (#4335), but every node has an outgoing edge.
+    # `x` is written after the comprehension runs. Reading its slot gives row 1 an unwritten value, so it is false,
+    # and row 2 the previous row's node. The scan is still uncorrelated (#4335), but every node has an outgoing edge.
     Scenario: Pattern comprehension anchored on a quantifier's variable does not read another row's value
         Given an empty graph
         And having executed:

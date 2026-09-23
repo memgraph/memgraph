@@ -1495,13 +1495,6 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
   using Names = std::vector<std::string>;
 
   {
-    // MATCH (a) RETURN [(a)-[r]->(b) | b]
-    // `a` is the caller's; `r` and `b` are the comprehension's own.
-    auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), nullptr, IDENT("b"));
-    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(pc, AS("res")))));
-    EXPECT_EQ(names(pc->external_symbols_), Names{"a"});
-  }
-  {
     // MATCH (a) RETURN [(x)-[r]->(y) WHERE y = a | y]
     // Correlated through the filter only.
     auto *pc = PATTERN_COMPREHENSION(
@@ -1530,18 +1523,9 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionExternalSymbols) {
     EXPECT_EQ(names(pc->external_symbols_), (Names{"a", "k"}));
   }
   {
-    // MATCH (a) RETURN [(a)-[r]->(b) WHERE size([(b)-[r2]->(c) | c]) = 0 | b]
-    // What the inner comprehension declares stays out of the outer one.
-    auto *inner = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("r2"), NODE("c")), nullptr, IDENT("c"));
-    auto *outer = PATTERN_COMPREHENSION(
-        nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), WHERE(EQ(FN("size", inner), LITERAL(0))), IDENT("b"));
-    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), RETURN(outer, AS("res")))));
-    EXPECT_EQ(names(inner->external_symbols_), Names{"b"});
-    EXPECT_EQ(names(outer->external_symbols_), Names{"a"});
-  }
-  {
     // MATCH (a) UNWIND [1] AS k RETURN [(a)-[r]->(b) | size([(b)-[r2]->(c) WHERE c = k | c])]
-    // Only the inner comprehension reads `k`, but the outer one must record it too.
+    // Only the inner comprehension reads `k`, but the outer one must record it too. What the inner one declares stays
+    // out of the outer one.
     auto *inner = PATTERN_COMPREHENSION(
         nullptr, PATTERN(NODE("b"), EDGE("r2"), NODE("c")), WHERE(EQ(IDENT("c"), IDENT("k"))), IDENT("c"));
     auto *outer = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("r"), NODE("b")), nullptr, FN("size", inner));
