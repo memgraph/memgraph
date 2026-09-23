@@ -64,7 +64,7 @@ SUPPORTED_ARCHS=(
 SUPPORTED_TESTS=(
     clang-tidy cppcheck-and-clang-format code-analysis
     code-coverage drivers drivers-high-availability durability e2e e2e-parallel gql-behave
-    integration integration-parallel leftover-CTest lockfree-read-snapshot-ab macro-benchmark
+    integration integration-parallel leftover-CTest macro-benchmark
     mgbench stress-plain stress-ssl
     query_modules_e2e query_modules_unit
     unit unit-coverage upload-to-bench-graph
@@ -85,7 +85,6 @@ CARGO_CACHE_CONTAINER_DIR="/home/mg/.cargo"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
 DEFAULT_RUST_VERSION="$MG_RUST_VERSION"
 DEFAULT_NODE_VERSION="$MG_NODE_VERSION"
-UV_VERSION="0.12.17"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -168,7 +167,6 @@ print_help () {
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
   echo -e "  --no-python                   Build memgraph without the embedded Python interpreter (maps to -DMG_PYTHON_SUPPORT=OFF; the package then has no libpython/python3/pip dependencies)."
-  echo -e "  --profile                     Profile the build with tools/build_profile: per-step peak memory/CPU/wall and machine memory over time. Runs the same build with ccache disabled; results are copied to build_profile_results/ on the host."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --no-abi3-rewrite             Skip the abi3 DT_NEEDED rewrite and the libpython3.so symlink (maps to -DMG_PYTHON_REWRITE_DT_NEEDED=OFF). Binaries keep the versioned libpython dependency; faster for CI builds that only test on the build container. Incompatible with --python-runtime-version."
@@ -280,7 +278,6 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd run"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo build-memgraph --community"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type Debug build-memgraph --asan --ubsan --profile"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo test-memgraph unit"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset pokec --size large"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
@@ -729,14 +726,8 @@ build_memgraph () {
   local python_support_flag=""
   local abi3_rewrite=true
   local abi3_rewrite_flag=""
-  local profile=false
-
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
-      --profile)
-        profile=true
-        shift 1
-      ;;
       --community)
         community_flag="-DMG_ENTERPRISE=OFF"
         shift 1
@@ -1113,13 +1104,6 @@ build_memgraph () {
     additional_options="$additional_options -DMG_PYTHON_REWRITE_DT_NEEDED=OFF"
   fi
 
-  local profile_dir=""
-  if [[ "$profile" == "true" ]]; then
-    profile_dir="$MGBUILD_ROOT_DIR/build_profile_results/$(date +%Y%m%d_%H%M%S)"
-    CMD_START="$CMD_START && export MG_BUILD_PROFILE_LOG=$profile_dir/steps.jsonl"
-    additional_options="$additional_options -DCMAKE_PROJECT_INCLUDE=$MGBUILD_ROOT_DIR/tools/build_profile/launcher.cmake"
-  fi
-
   if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
   fi
@@ -1143,24 +1127,11 @@ build_memgraph () {
 
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
-  local BUILD_CMD="cmake --build --preset $PRESET -- -j"'$(nproc)'
-  if [[ "$threads" != "$DEFAULT_THREADS" ]]; then
-    BUILD_CMD="cmake --build --preset $PRESET -- -j $threads"
-  fi
-  if [[ "$profile" == "true" ]]; then
-    echo "Profiling the build (ccache disabled for the run); results -> $profile_dir"
-    local profile_status=0
-    docker exec -u mg "$build_container" bash -c "$CMD_START && tools/build_profile/profile.sh --exec --out $profile_dir -- $BUILD_CMD" || profile_status=$?
-    # Copy the results out even when the build failed: the report names the step that died.
-    mkdir -p "$PROJECT_ROOT/build_profile_results"
-    docker cp "$build_container:$profile_dir" "$PROJECT_ROOT/build_profile_results/"
-    echo "Build profile copied to $PROJECT_ROOT/build_profile_results/$(basename "$profile_dir")"
-    if [[ "$profile_status" -ne 0 ]]; then
-      echo "Error: profiled build exited with $profile_status" >&2
-      exit "$profile_status"
-    fi
+  if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
+    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET -- -j"'$(nproc)'
   else
-    docker exec -u mg "$build_container" bash -c "$CMD_START && $BUILD_CMD"
+    local EXPORT_THREADS="export THREADS=$threads"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET -- -j\$THREADS"
   fi
 
   # upload conan cache if remote is set
@@ -1169,8 +1140,8 @@ build_memgraph () {
     upload_conan_cache $conan_username $conan_password
   fi
 
-  # Show ccache statistics if ccache is enabled (a profiled build ran with it disabled)
-  if [[ "$ccache_enabled" == "true" && "$profile" != "true" ]]; then
+  # Show ccache statistics if ccache is enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
     echo ""
     echo "=== Ccache Statistics (this build only — zeroed at start) ==="
     docker exec -u mg "$build_container" bash -c "ccache -sv" || docker exec -u mg "$build_container" bash -c "ccache -s"
@@ -1207,14 +1178,11 @@ build_memgraph () {
   fi
 }
 
-ensure_uv_cmd() {
-  echo "export PATH=\$HOME/.local/bin:\$PATH && { command -v uv >/dev/null || PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir uv==$UV_VERSION; }"
-}
-
 init_tests() {
   echo "Initializing tests..."
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
-  local ENSURE_UV="$(ensure_uv_cmd)"
+  # The build images don't ship uv; install it for the mg user if it's missing.
+  local ENSURE_UV="export PATH=\$HOME/.local/bin:\$PATH && { command -v uv >/dev/null || PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir uv==0.8.15; }"
   docker exec -u mg "$build_container" bash -c "$ENSURE_UV && $SETUP_MGDEPS_CACHE_ENDPOINT && cd $MGBUILD_ROOT_DIR && ./init-test --ci --uv"
   echo "...Done"
 }
@@ -2111,15 +2079,6 @@ test_memgraph() {
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status_parallel.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status_parallel.html
     ;;
-    lockfree-read-snapshot-ab)
-      # A/B smoke for the experimental lockfree-read-snapshot flag: launches the
-      # freshly built binary OFF vs ON across GOOD/BAD/NEUTRAL and asserts the run
-      # is operationally clean (--fail-on-error gates on crashes/worker-errors, not
-      # on perf direction). Toolchain is activated so the spawned memgraph finds its
-      # runtime libs; ve3 (with the neo4j driver from tests/requirements.txt) is
-      # created on demand if a prior test target has not already built it.
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && ([[ -d ve3 ]] || (python3 -m venv ve3 && source ve3/bin/activate && pip install --upgrade pip && pip install -r requirements.txt)) && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR "'&& python3 tests/benchmark_lockfree_read_snapshot/ab_bench.py --memgraph-binary build/memgraph --scenario all --duration 4 --warmup 1 --vertices 2000 --readers 4 --writers 2 --write-batch 500 --reps 1 --fail-on-error'
-    ;;
     macro-benchmark)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QuerySuite MemgraphRunner --groups aggregation 1000_create unwind_create dense_expand match --no-strict'
     ;;
@@ -2195,6 +2154,27 @@ test_memgraph() {
 
       check_support pokec_size $DATASET_SIZE
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+    ;;
+    mgbench-ha-rust)
+      shift 1
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
+      # Native Rust bolt+routing load-gen against the pinned 2-replica cluster: saturates the replicas
+      # on the ~1ms :Bench read where the python client is client-bound. Builds the load-gen (cargo is
+      # in the image but not on PATH), then runs the orchestrator which brings up the cluster, creates
+      # the dataset, runs rustlg (heavy + mix), and writes the bench-graph result JSON.
+      local THREADS=24
+      local DURATION=30
+      local WRITE_PCT=20
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --export-results-file) EXPORT_RESULTS_FILE="$2"; shift 2 ;;
+          --threads) THREADS="$2"; shift 2 ;;
+          --duration) DURATION="$2"; shift 2 ;;
+          --write-pct) WRITE_PCT="$2"; shift 2 ;;
+          *) echo "Error: Unknown flag '$1' for mgbench-ha-rust"; exit 1 ;;
+        esac
+      done
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source /home/mg/.cargo/env && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && cargo build --release --manifest-path rust_loadgen/Cargo.toml && export MG_REAL_BINARY=$MGBUILD_ROOT_DIR/build/memgraph && ./ha_rust_bench.py --export-results $EXPORT_RESULTS_FILE --threads $THREADS --duration $DURATION --write-pct $WRITE_PCT"
     ;;
     mgbench-supernode)
       shift 1
@@ -2897,13 +2877,6 @@ test_mage() {
       fi
       docker cp src/mage/python/$requirements_file $build_container:/tmp/$requirements_file
       docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
-      local requirements_lock="${requirements_file%.txt}.lock"
-      if [[ -f "$PROJECT_ROOT/src/mage/python/$requirements_lock" ]]; then
-        docker cp src/mage/python/$requirements_lock $build_container:/tmp/$requirements_lock
-      fi
-      if [[ -f "$PROJECT_ROOT/src/auth/reference_modules/requirements.lock" ]]; then
-        docker cp src/auth/reference_modules/requirements.lock $build_container:/tmp/auth_module-requirements.lock
-      fi
       # MAGE's deps are cp312 and memgraph embeds python 3.12, so the python
       # test phase must run under 3.12. CentOS Stream 9 defaults python3 to 3.9,
       # so install and use python3.12 there; other distros already ship 3.12 as
@@ -2913,16 +2886,9 @@ test_mage() {
         pybin="python3.12"
         docker exec -i -u root $build_container bash -c "rpm -q python3.12-pip >/dev/null 2>&1 || dnf install -y python3.12 python3.12-pip python3.12-devel"
       fi
-
-      local ENSURE_UV="$(ensure_uv_cmd)"
-      local UV_ENV="export UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1 UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never"
-      local test_requirements="src/mage/python/tests/requirements.txt"
-      if [[ -f "$PROJECT_ROOT/src/mage/python/tests/requirements.lock" ]]; then
-        test_requirements="src/mage/python/tests/requirements.lock"
-      fi
-      docker exec -i -u mg $build_container bash -c "$ENSURE_UV && $UV_ENV && cd \$HOME/memgraph/release/package/mage/ && \
-        PYTHON=$pybin ./install_python_requirements.sh --ci --uv --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
-        uv pip install --python \$(command -v $pybin) --target \$($pybin -m site --user-site) -r \$HOME/memgraph/$test_requirements"
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/release/package/mage/ && \
+        PYTHON=$pybin ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
+        $pybin -m pip install -r \$HOME/memgraph/src/mage/python/tests/requirements.txt --break-system-packages"
       docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/src/mage/python/ && $pybin -m pytest ."
     ;;
     e2e)
