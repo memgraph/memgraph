@@ -48,6 +48,16 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
  public:
   using UsedSymbolsCollector::UsedSymbolsCollector;
 
+  using UsedSymbolsCollector::PostVisit;
+  using UsedSymbolsCollector::PreVisit;
+  using UsedSymbolsCollector::Visit;
+
+  bool Visit(Identifier &ident) override {
+    // Inside a body, an anonymous identifier is one of the body's own pattern's.
+    if (in_subquery_depth_ > 0 && !ident.user_declared_) return true;
+    return UsedSymbolsCollector::Visit(ident);
+  }
+
   bool PreVisit(PatternComprehension &pc) override {
     // The base tracks a depth, so a comprehension nested below does not release us early.
     UsedSymbolsCollector::PreVisit(pc);
@@ -61,8 +71,8 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PreVisit(SubqueryExpression &subquery) override {
-    // The whole body, not just the base's pattern walk - and entering keeps anonymous symbols out.
-    ++in_subquery_depth;
+    // The whole body, not just the external symbols the base takes. Entering keeps anonymous symbols out.
+    ++in_subquery_depth_;
     if (subquery.HasPattern()) {
       subquery.GetPattern()->Accept(*this);
     } else if (subquery.HasSubquery()) {
@@ -72,9 +82,13 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PostVisit(SubqueryExpression & /*subquery*/) override {
-    --in_subquery_depth;
+    --in_subquery_depth_;
     return true;
   }
+
+ private:
+  // A depth, not a flag: a body may hold another subquery, and its `PostVisit` must not release the outer one.
+  int in_subquery_depth_{0};
 };
 
 /// Visitor to collect correlated-subquery result symbols from expressions.

@@ -93,7 +93,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   bool Visit(Identifier &ident) override {
     if (subquery_externals_only_) return true;
-    const bool is_ordinary_flow = in_subquery_depth == 0 && in_pattern_comprehension_depth == 0;
+    const bool is_ordinary_flow = in_pattern_comprehension_depth == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
     } else if (ident.user_declared_) {
@@ -159,15 +159,10 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
 
- protected:
-  // Depths, not flags: a nested one's `PostVisit` would clear a flag and let the rest of the outer body collect
-  // anonymous symbols. Both nest - a pattern's property maps and variable-length bounds may hold another
-  // comprehension, and a subquery body may hold another subquery. The base never enters a subquery body; the depth
-  // is for a subclass that walks the body itself.
-  int in_subquery_depth{0};
-  int in_pattern_comprehension_depth{0};
-
  private:
+  // A depth, not a flag: a nested one's `PostVisit` would clear a flag and let the rest of the outer comprehension
+  // collect anonymous symbols. A pattern's property maps and variable-length bounds may hold another comprehension.
+  int in_pattern_comprehension_depth{0};
   // Variables bound by the enclosing comprehensions. Nested comprehensions add to this and restore on exit.
   std::unordered_set<Symbol> comprehension_bound_;
   // When set, subqueries contribute but identifiers do not.

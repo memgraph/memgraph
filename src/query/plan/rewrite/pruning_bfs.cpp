@@ -232,7 +232,6 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
  private:
   void CollectSymbolsFromExpression(Expression *expr) {
     if (!expr) return;
-    // Covers a subquery body too: an edge list it reads through its WHERE must register, or the expansion is pruned.
     UsedSymbolsCollector collector(symbol_table_);
     expr->Accept(collector);
     for (auto const &sym : collector.symbols_) {
