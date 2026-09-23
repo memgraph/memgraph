@@ -123,10 +123,10 @@ struct Config {
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
-  // EXPERIMENTAL, per-instance, RUNTIME-ONLY. Enables the lock-free read-snapshot
-  // (commit-lock-narrowing) MVCC path. MUST NOT be persisted or placed in SalientConfig:
+  // EXPERIMENTAL, per-instance, RUNTIME-ONLY. Enables the commit-lock-narrowing
+  // MVCC path. MUST NOT be persisted or placed in SalientConfig:
   // durable data must be identical regardless of this flag (flip across restart is safe).
-  bool experimental_lockfree_read_snapshot{false};
+  bool experimental_commit_lock_narrowing{false};
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};

@@ -476,7 +476,7 @@ class InMemoryStorage final : public Storage {
     // Represents the 2nd phase of the 2PC protocol
     // NOTE: The engine lock must be held while this runs. Pass acquire_engine_lock=false when the caller
     // already holds it (the default: legacy path and the replica FinalizeCommit handler); pass true only on
-    // the lock-free-read-snapshot path, where the caller released engine_lock after the mint and this method
+    // the commit-lock-narrowing path, where the caller released engine_lock after the mint and this method
     // re-acquires it for the brief publish.
     // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
     // independently of PrepareForCommitPhase.
@@ -910,7 +910,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
 
-  // EXPERIMENTAL (lock-free-read-snapshot): compute the GC visibility horizon = min(active snapshot_ts).
+  // EXPERIMENTAL (commit-lock-narrowing): compute the GC visibility horizon = min(active snapshot_ts).
   // Takes the RAW OldestActive() (pre-schema-fold), which keys the visibility ring; the caller clamps the
   // result to the (possibly lower) folded physical horizon. OFF (flag disabled): returns raw_oldest_active,
   // byte-identical to today.
@@ -1145,7 +1145,7 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
-  // EXPERIMENTAL (lock-free-read-snapshot) GC visibility tracker: maps an active txn's start_timestamp
+  // EXPERIMENTAL (commit-lock-narrowing) GC visibility tracker: maps an active txn's start_timestamp
   // to its frozen snapshot_ts, so GC can compute min(active snapshot_ts) = the OldestActive txn's snapshot.
   // Tag-validated ring; any miss falls back to a monotone non-regressing floor (never OldestActive(start_ts)).
   struct SnapshotSlot {
