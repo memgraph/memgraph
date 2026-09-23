@@ -127,7 +127,6 @@ class ReadOnlyAccessTimeout : public utils::BasicException {
 
 struct Transaction;
 class EdgeAccessor;
-struct CommitProbe;
 
 // TODO: list status Populating/Ready
 struct IndicesInfo {
@@ -299,9 +298,6 @@ class Storage {
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
-  // Test-only: install commit-path instrumentation (commit-lock-narrowing experiment). Null in production.
-  void SetCommitProbe(CommitProbe *probe) noexcept { commit_probe_ = probe; }
-
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;
@@ -455,10 +451,6 @@ class Storage {
   // Runtime-only watermark: the last fully-published commit timestamp. Advanced at publish on the ON
   // path, seeded from recovered max commit ts on startup. NEVER persisted (durable data is flag-independent).
   std::atomic<uint64_t> last_committed_mvcc_ts_{kTimestampInitialId};
-  // Test-only instrumentation (null in production). Set by tests to pin the commit path at phase
-  // boundaries. Forward-declared to keep this header light; defined in storage/v2/commit_probe.hpp.
-  CommitProbe *commit_probe_{nullptr};
-
   // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
   // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
   // re-read. Within a transaction read what the accessor pinned instead, transaction_.storage_mode
