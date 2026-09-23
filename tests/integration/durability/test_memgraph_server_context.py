@@ -60,11 +60,11 @@ def test_a_server_that_exits_is_reported_before_the_deadline():
     This is what lets the deadline be generous: it is reached only by a server
     that is alive and still starting, never by one that has already failed.
     """
-    proc = subprocess.Popen([sys.executable, "-c", "raise SystemExit(1)"], stdout=subprocess.PIPE)
-    started = time.time()
+    with subprocess.Popen([sys.executable, "-c", "raise SystemExit(1)"]) as proc:
+        started = time.time()
 
-    with pytest.raises(RuntimeError, match="exited"):
-        wait_for_server(proc, port=1, timeout=30.0)
+        with pytest.raises(RuntimeError, match="exited"):
+            wait_for_server(proc, port=1, timeout=30.0)
 
     assert time.time() - started < 10.0, "a dead server waited out the deadline"
 
@@ -82,7 +82,7 @@ def test_a_server_that_never_starts_is_not_reported_as_a_durability_fault():
         data_dir = Path(directory) / "data"
         data_dir.mkdir()
 
-        with pytest.raises(BaseException) as refusal:
+        with pytest.raises(Exception) as refusal:
             with memgraph_server(
                 memgraph=binary,
                 data_dir=data_dir,
