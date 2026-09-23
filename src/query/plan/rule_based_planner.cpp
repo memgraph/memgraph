@@ -53,7 +53,8 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   using UsedSymbolsCollector::Visit;
 
   bool Visit(Identifier &ident) override {
-    // Inside a body, an anonymous identifier is one of the body's own pattern's.
+    // Inside a body, an atom that declares a name there is marked undeclared, as is an anonymous one. Both belong
+    // to the body, so skip them.
     if (in_subquery_depth_ > 0 && !ident.user_declared_) return true;
     return UsedSymbolsCollector::Visit(ident);
   }
