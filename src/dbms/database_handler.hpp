@@ -19,6 +19,7 @@
 #include <optional>
 #include <string_view>
 
+#include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 
@@ -72,7 +73,11 @@ class DatabaseHandler : public Handler<Database> {
         // occupy it before this (old) tenant's background threads stop. On a UUID mismatch the
         // name now points at a different tenant — return null so the caller treats it as "tenant
         // gone" (same as absence) instead of pinning/consulting the wrong tenant's protector.
-        if (db_gatekeeper_opt->get()->uuid() != expected_uuid) return nullptr;
+        // The default DB is exempt: it is never dropped/recreated, so it cannot be recycled under
+        // its name. Its UUID is instead realigned in place on HA main-UUID change (DbmsHandler:
+        // "have to just update the UUID"), which would otherwise make the frozen expected_uuid a
+        // false-positive and null out the live protector of a promoted main (breaking TTL/indexing).
+        if (db_name != kDefaultDB && db_gatekeeper_opt->get()->uuid() != expected_uuid) return nullptr;
         return std::make_unique<DatabaseProtector>(*db_gatekeeper_opt);
       }
       // Fallback: return null if database not found (shouldn't happen in normal operation)
