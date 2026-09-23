@@ -241,9 +241,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
-  // EXPERIMENTAL (commit-lock-narrowing): engine_lock_ alone is stale for the ldt read at ~line 287;
-  // under the flag, ldt advances at publish outside the post-mint engine_lock_ hold, so hold commit_mutex_
-  // first (committer's order: commit_mutex_ then engine_lock_) to exclude any in-flight committer.
+  // EXPERIMENTAL (commit-lock-narrowing): under the flag, ldt advances at publish (fresh engine_lock_ hold
+  // after post-mint release); hold commit_mutex_ first (committer: commit_mutex_ → engine_lock_).
   std::optional<std::unique_lock<std::mutex>> commit_serializer;
   if (static_cast<InMemoryStorage *>(main_storage)->config_.experimental_commit_lock_narrowing) {
     commit_serializer.emplace(static_cast<InMemoryStorage *>(main_storage)->commit_mutex_);
@@ -891,9 +890,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                main_uuid = main_uuid_,
                &main_db_name,
                repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
-                // EXPERIMENTAL (commit-lock-narrowing): serialize against the committer (which holds commit_mutex_,
-                // not engine_lock_, across its WAL window) before reading/flush-toggling the current WAL. Released
-                // with transaction_guard; the subsequent Path()/transfer is covered by DisableFlushing()'s flush_lock_.
+                // EXPERIMENTAL (commit-lock-narrowing): committer holds commit_mutex_ (not engine_lock_) across
+                // the WAL window; acquire commit_mutex_ then engine_lock_ to serialize the WAL read and flush-toggle.
                 std::optional<std::unique_lock<std::mutex>> commit_serializer;
                 if (main_mem_storage->config_.experimental_commit_lock_narrowing) {
                   commit_serializer.emplace(main_mem_storage->commit_mutex_);
@@ -986,11 +984,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   // replica state to ready. When the next txn starts, we are in state ready without
   // actually sending data to replica
   //
-  // EXPERIMENTAL (commit-lock-narrowing): engine_lock_ alone is insufficient for the ldt read below.
-  // Under the flag, ldt advances at publish (a separate engine_lock_ hold after the post-mint release),
-  // so a reader holding only engine_lock_ can see a stale ldt and mark the replica READY across a commit
-  // it will miss. Hold commit_mutex_ first (committer's order: commit_mutex_ then engine_lock_) to exclude
-  // any in-flight committer so the READY decision reflects it.
+  // EXPERIMENTAL (commit-lock-narrowing): under the flag, ldt advances at publish (fresh engine_lock_ hold
+  // after post-mint release); hold commit_mutex_ first (committer: commit_mutex_ → engine_lock_).
   std::optional<std::unique_lock<std::mutex>> commit_serializer;
   if (main_mem_storage->config_.experimental_commit_lock_narrowing) {
     commit_serializer.emplace(main_mem_storage->commit_mutex_);

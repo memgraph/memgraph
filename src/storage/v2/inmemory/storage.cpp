@@ -1029,9 +1029,9 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // The safety invariant therefore falls entirely on no_newer_transactions: that read is protected
   // by engine_lock_ (this function is called from FinalizeCommitPhase while the publish hold is
   // still active, and on the OFF path from PrepareForCommitPhase's engine_lock_ hold).
-  // engine_lock_ serialises the transaction_id_ read against a concurrent GetCommitTimestamp()
-  // (which increments transaction_id_).  If no_newer_transactions is true, no gap-BEGIN can exist
-  // because the gap was closed before a new transaction_id_ was issued.
+  // engine_lock_ serialises the transaction_id_ read against a concurrent CreateTransaction/BEGIN
+  // (which increments transaction_id_ at storage.cpp:2980).  If no_newer_transactions is true, no
+  // gap-BEGIN can exist because the gap was closed before a new transaction_id_ was issued.
   //
   // Consequence: moving fast-discard outside of the engine_lock_ hold would make the
   // transaction_id_ read unsynchronised and could discard deltas that a concurrent gap-BEGIN
@@ -1110,18 +1110,13 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   }
 
   // Serialize committers across mint->durability->publish for two reasons:
-  //
-  // 1. Watermark contiguity: mint-order must equal publish-order so the read-snapshot watermark
-  //    advances without gaps.  Acquired BEFORE the mint.  Held for the whole function.
-  //
-  // 2. Unique-constraint correctness: UniqueConstraintsViolation() runs during the brief phase-1
-  //    engine_lock_ hold (~line below) and must see every already-committed value.  That requires
-  //    that no other committer can sit between its own mint and publish while the validation runs
-  //    -- an unpublished committer's values are not yet visible through the normal MVCC read path,
-  //    so they would be invisible to the validator and a duplicate could slip through.
-  //    commit_mutex_ provides exactly this guarantee.  Releasing commit_mutex_ earlier (e.g. after
-  //    the WAL append) would break unique-constraint validation even if watermark ordering were
-  //    re-established through another mechanism.
+  // 1. Watermark contiguity: mint-order must equal publish-order. Acquired before the mint;
+  //    held for the whole function.
+  // 2. Unique-constraint correctness: UniqueConstraintsViolation() runs under the phase-1
+  //    engine_lock_ hold and must see every already-published value. An unpublished committer's
+  //    writes are invisible to MVCC; commit_mutex_ prevents a concurrent committer from sitting
+  //    between its own mint and publish during validation. Releasing it after the WAL append
+  //    would break this guarantee even if watermark ordering were re-established separately.
   std::optional<std::unique_lock<std::mutex>> commit_serializer;
   if (lockfree) commit_serializer.emplace(mem_storage->commit_mutex_);
 
@@ -1369,14 +1364,12 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   if (mem_storage->config_.experimental_commit_lock_narrowing) {
-    // Publish the watermark: readers that BEGIN after this see this commit. Ordered AFTER the
+    // Publish the watermark: readers that BEGIN after this see this commit. Ordered after the
     // commit_info->timestamp store and MarkFinished, under the same publish engine_lock hold.
-    // On the STRICT_SYNC 2PC path this publish precedes replica finalization, so a reader can
-    // observe the commit before 2PC completes; acceptable while replicated flag-on is deferred
-    // (replicated clusters are not yet cleared for the flag). Revisit ordering when they are.
-    // The watermark must strictly increase: it is a single atomic max only because commit_mutex_ is
-    // taken before the mint, so commits publish in mint order. A future attempt to narrow commit_mutex_
-    // would break that silently (stale reads under load); this debug assert makes the divergence loud.
+    // On the STRICT_SYNC 2PC path this precedes replica finalization (acceptable while replicated
+    // flag-on is deferred; revisit when cleared). The watermark must strictly increase: commit_mutex_
+    // before mint guarantees mint-order == publish-order; narrowing commit_mutex_ would break that
+    // silently — this DMG_ASSERT catches divergence.
     DMG_ASSERT(*commit_timestamp_ > mem_storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
                "watermark must strictly increase: commit mint order and publish order have diverged");
     mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
@@ -1414,9 +1407,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
-  // PERIODIC COMMIT advances the SI snapshot boundary too, so the next batch sees the batch just
-  // committed above (and does not pin GC). Unconditional: with the experiment OFF, snapshot_ts equals
-  // start_timestamp and is unused by the read path, so this copy is inert.
+  // Advance the SI snapshot boundary so the next batch sees this one (and does not pin GC).
+  // With the experiment OFF, snapshot_ts equals start_timestamp and is inert to the read path.
   transaction_.snapshot_ts = new_transaction.snapshot_ts;
   transaction_.commit_info.reset();
   // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
@@ -2979,28 +2971,21 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
-    // Capture the SI snapshot boundary under the same engine_lock as the mint so it is consistent with
-    // start_timestamp. When the commit-lock-narrowing experiment is ON, SI reads use this frozen
-    // last-published-commit watermark (snapshot_ts < start_timestamp, since the watermark holds an
-    // earlier commit ts). When OFF it equals start_timestamp (legacy semantics; SI reads still key off
-    // start_timestamp in mvcc.hpp, so this is inert).
+    // Capture the SI snapshot boundary under the same engine_lock hold as the mint (consistent with
+    // start_timestamp). ON: frozen to last_committed_mvcc_ts_ (< start_timestamp). OFF: == start_timestamp.
     snapshot_ts = config_.experimental_commit_lock_narrowing ? last_committed_mvcc_ts_.load(std::memory_order_acquire)
                                                              : start_timestamp;
     // Publish this SI txn's frozen snapshot_ts into the GC visibility ring so GC can recover min(active snapshot_ts).
     // RC/RU do not freeze a snapshot_ts and must not hold the GC floor down; skip them.
     if (config_.experimental_commit_lock_narrowing && isolation_level == IsolationLevel::SNAPSHOT_ISOLATION) {
-      // PRECONDITION — one engine_lock hold: the slot mint (start_timestamp above), the snapshot_ts read, and
-      // this ring publish MUST stay under a single engine_lock_ hold. GcVisibilityHorizon reads the OLDEST
-      // active slot's snap as min(active snapshot_ts); that is exact only because a txn's snapshot is published
-      // in the same breath as its slot is minted, so the oldest slot always carries the oldest snapshot.
-      // Splitting the mint from the publish (the ring store is lock-free, so it looks free to move out of the
-      // lock) lets the lowest-slot txn publish last with a higher watermark → the oldest slot returns a snap
-      // ABOVE the true minimum → GC over-reclaims a version an older reader can still reach → use-after-free.
-      // Invalidate-first message passing (writers serialized under engine_lock_; the GC reader is lock-free):
-      // publish the empty sentinel into tag BEFORE overwriting snap, so a concurrent GC read can never pair
-      // this slot's NEW snap with the PREVIOUS owner's tag. If the reader's acquire-load of snap observes the
-      // new value, it synchronizes-with the release store below and therefore also observes tag == sentinel
-      // (or the final tag), never the stale predecessor start_ts. tag last, as the commit point.
+      // PRECONDITION — one engine_lock hold: mint, snapshot_ts read, and ring publish must be atomic.
+      // GcVisibilityHorizon reads the oldest slot's snap as min(active snapshot_ts); that is exact
+      // only because each txn publishes its snapshot in the same breath as its slot is minted. Splitting
+      // them lets the lowest-slot txn publish last with a higher watermark → GC over-reclaims a version
+      // a live reader still needs → use-after-free.
+      // Invalidate-first: write sentinel into tag before snap, so GC cannot pair new snap with old owner.
+      // If GC's acquire-load of snap observes the new value it synchronizes-with the release below, so it
+      // also sees tag == sentinel or the final value — never the stale predecessor. tag last = commit point.
       auto &gc_slot = snapshot_slots_[start_timestamp % kSnapshotSlots];
       gc_slot.tag.store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);  // invalidate old owner
       gc_slot.snap.store(snapshot_ts, std::memory_order_release);                          // carries the invalidation
@@ -3082,19 +3067,14 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
         storage_mode_ = StorageMode::IN_MEMORY_ANALYTICAL;
       });
 
-      // Finalize the WAL so the episode leaves a file-level signature: the pre-import file's [from, to]
-      // range then ends before the switch-back snapshot's timestamp, which is how GetRecoverySteps
-      // detects that no WAL can reproduce the imported data. Placed after every check that throws, so a
-      // rejected switch has no side effect, and under engine_lock_ because GetRecoverySteps holds that
-      // lock specifically to read wal_file_. Lock order main_lock_ -> engine_lock_ is respected, since
-      // the UNIQUE hold above is on main_lock_.
-      //
-      // The UNIQUE hold on main_lock_ (via unique_accessor) is also what serializes this finalize
-      // against every in-flight phase-2 committer: a committer holds main_lock_ SHARED for its
-      // entire accessor lifetime, which covers its WAL append; UNIQUE blocks until all SHARED
-      // holders have released. This serialization is provided by main_lock_ UNIQUE, NOT by
-      // commit_mutex_. Weakening this to a SHARED hold would allow a concurrent phase-2 committer
-      // to append to wal_file_ simultaneously, racing the FinalizeWal/reset here.
+      // Finalize the WAL: the pre-import file's range ends before the switch-back snapshot's
+      // timestamp, which is how GetRecoverySteps detects that no WAL can reproduce the imported
+      // data. Placed after every throwing check (rejected switch has no side effect). Runs under
+      // engine_lock_ because GetRecoverySteps reads wal_file_ under that lock; lock order
+      // main_lock_ → engine_lock_ is respected since the UNIQUE hold above is on main_lock_.
+      // This finalize is serialized against in-flight phase-2 committers by main_lock_ UNIQUE,
+      // NOT by commit_mutex_: a committer holds main_lock_ SHARED for its accessor lifetime,
+      // which covers its WAL append; UNIQUE blocks until all SHARED holders release.
       {
         std::unique_lock const engine_guard(engine_lock_);
         if (wal_file_) {
@@ -3181,30 +3161,26 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
 void InMemoryStorage::SeedReadSnapshotWatermarkFromLocalCounter() {
   // PRECONDITION: quiescent storage only — no concurrent committer may be running.
   // This function performs a non-atomic read-modify-write on last_committed_mvcc_ts_
-  // (load-relaxed + store-release as two separate operations). That sequence is safe only
-  // when no committer can race it: a live committer's last_committed_mvcc_ts_.store
-  // (~storage.cpp:1382) could overwrite a higher value, silently losing it.
+  // (load-relaxed + store-release). A live committer's store (~storage.cpp:1382) could
+  // overwrite a higher value, silently losing it.
   //
   // All three call sites satisfy the precondition:
-  //   1. InMemoryStorage constructor — called after RecoverData completes, before any
-  //      accessor is ever created; storage object construction is inherently single-threaded.
-  //   2. RecoverSnapshot() — holds engine_lock_ + gc_lock_; only called on empty or
-  //      just-Clear()'d storage; the comment there states "only active transaction".
-  //   3. Replica snapshot-load handler — recovery context; similarly stated quiescent.
+  //   1. Constructor — after RecoverData, before any accessor is created; single-threaded.
+  //   2. RecoverSnapshot() — holds engine_lock_ + gc_lock_; only on empty or just-Clear()'d
+  //      storage (NonEmptyStorage guard at storage.cpp:4838).
+  //   3. Replica snapshot-load handler — the comment there states "only active transaction"
+  //      (replication_handlers.cpp:771); similarly quiescent.
   //
-  // There is no runtime DMG_ASSERT here for two independent reasons:
-  //   a) At call site 1 (constructor) commit_log_ is std::optional<CommitLog> and is not
-  //      yet engaged — it is emplaced after this point; accessing it would be UB.
-  //   b) At call sites 2 and 3, timestamp_ has just been bumped to the recovered value but
-  //      MarkFinishedInRange(0, timestamp_-1) has not yet been called, so a freshly-reset
-  //      commit_log_->OldestActive() returns 0, which is < timestamp_; any
-  //      "OldestActive() >= timestamp_" check would false-fire on every valid recovery.
-  // The precondition is enforced by call-site discipline, not an assertion.
+  // No DMG_ASSERT for two reasons:
+  //   a) At call site 1, commit_log_ is not yet engaged (emplaced after this call) —
+  //      accessing it is UB.
+  //   b) At call sites 2–3, MarkFinishedInRange has not yet been called, so OldestActive()
+  //      returns 0, which is < timestamp_; any "OldestActive() >= timestamp_" check would
+  //      false-fire on every valid recovery.
   //
-  // EXPERIMENTAL (commit-lock-narrowing): seed the read-snapshot watermark from the local MVCC
-  // counter (timestamp_ - 1 = highest committed ts in this storage's own timestamp space), which is
-  // space-correct because readers compare it against local MVCC delta timestamps. No-op with the
-  // flag off; guards underflow at the initial counter value.
+  // EXPERIMENTAL (commit-lock-narrowing): seeds the read-snapshot watermark from
+  // timestamp_ - 1 (highest committed ts in this storage's timestamp space). No-op when off;
+  // guards underflow at the initial counter value.
   if (!config_.experimental_commit_lock_narrowing) return;
   last_committed_mvcc_ts_.store(std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed),
                                          timestamp_ > kTimestampInitialId ? timestamp_ - 1 : kTimestampInitialId),
@@ -3224,12 +3200,8 @@ uint64_t InMemoryStorage::GcVisibilityHorizon(uint64_t raw_oldest_active, bool n
     }
     return std::max(snap, cur);
   }
-  // Tag mismatch: raw_oldest_active does not name an active txn's slot. If there are NO active transactions
-  // there is nothing to protect -> reclaim fully (same as OFF). Otherwise a real older reader's slot was
-  // recycled or not yet written; fall back to the monotone floor (<= min active snapshot_ts).
-  // no_active_txns is `raw_oldest_active >= timestamp_` (the next-to-mint id), computed by the caller under
-  // engine_lock_. We gate on that, NOT on `raw > last_committed`, which would false-positive on a leapfrogged
-  // reader whose slot recycled while its snapshot stayed low (a leapfrogged reader has raw < timestamp_).
+  // Tag mismatch: slot recycled or not yet published. Fall back to the monotone floor unless no active txns
+  // (raw >= timestamp_); NOT `raw > last_committed` — a leapfrogged reader has raw < last_committed but is live.
   if (no_active_txns) return raw_oldest_active;
   return gc_visibility_floor_.load(std::memory_order_acquire);
 }
@@ -3318,10 +3290,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   if (config_.salient.items.enable_schema_info) {
     std::lock_guard<std::mutex> const lock{schema_queue_mutex_};
     if (!pending_schema_updates_.empty()) {
-      // Establish the earliest reconstruction boundary still queued: each pending update's deferred
-      // reconstruction walks version chains down to `ts < snapshot_bound`, so no delta at or after
-      // that boundary may be unlinked yet. snapshot_bound <= start_timestamp, so this is at least as
-      // conservative as (and correctly aligned with) the boundary the reconstruction actually uses.
+      // snapshot_bound is the earliest reconstruction boundary still queued: each update walks
+      // version chains down to ts < snapshot_bound, so no delta at or above that point may be unlinked.
       uint64_t min_queued_bound = std::numeric_limits<uint64_t>::max();
       for (const auto &[commit_ts, update_data] : pending_schema_updates_) {
         min_queued_bound = std::min(min_queued_bound, update_data.snapshot_bound);
@@ -3330,10 +3300,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     }
   }
 
-  // EXPERIMENTAL (commit-lock-narrowing): idle == "no active transactions" iff the oldest active start
-  // timestamp has reached the next-to-mint counter timestamp_ (every issued id is finished). Read timestamp_
-  // under engine_lock_ (as the fast-discard checks below already do). A leapfrogged reader has
-  // raw_oldest_active < timestamp_, so this correctly protects it (unlike a `raw > last_committed` test).
+  // EXPERIMENTAL: no active txns iff raw_oldest_active >= timestamp_ (every issued id finished).
+  // Read under engine_lock_; a leapfrogged reader has raw < timestamp_, so this correctly protects it.
   bool no_active_txns = false;
   if (config_.experimental_commit_lock_narrowing) {
     auto const engine_guard = std::scoped_lock{engine_lock_};
@@ -3384,12 +3352,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
             break;
           }
 
-          // Track highest commit timestamp among all contributors. We can only
-          // unlink when ALL contributors are inactive, so we must wait until
-          // highest_commit_ts < visibility_horizon (the reclaim gate this feeds at the
-          // `unlinkable_timestamp >= visibility_horizon` check below). Under the commit-lock-narrowing
-          // flag visibility_horizon is min(snapshot-based horizon, oldest_active_start_timestamp), so it
-          // is at or below the old oldest_active_start_timestamp bound; OFF the two coincide.
+          // Track the highest commit ts across all contributors: we wait until it drops below
+          // visibility_horizon (the reclaim gate at `unlinkable_timestamp >= visibility_horizon`).
           if (ts > highest_commit_ts) {
             highest_commit_ts = ts;
           }
@@ -3579,10 +3543,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
                 // - the GC is serialized via gc_lock_.
                 // Safe for concurrent readers: all deltas beyond this point are
                 // also inactive (guaranteed by waiting_gc_deltas_), so no
-                // active transaction needs to read past here. Under the flag the
-                // horizon is visibility_horizon (min active snapshot_ts), not a
-                // start-ts, so "no active transaction needs to read past here"
-                // holds against snapshot-based visibility as well.
+                // active transaction needs to read past here; under the flag visibility_horizon is
+                // min(active snapshot_ts), so the guarantee holds against snapshot-based visibility too.
                 prev.delta->next.store(nullptr, std::memory_order_release);
               }
               break;
@@ -5569,16 +5531,12 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
 
   timestamp_ = kTimestampInitialId;
   if (config_.experimental_commit_lock_narrowing) {
-    // Recovery via Clear() rewinds timestamp_; the read-snapshot watermark and GC visibility floor
-    // must rewind with it, or a post-recovery commit at a low ts appears committed-before a reader's
-    // stale-high snapshot_ts (SI phantom read) and the floor stalls. Recovery paths reseed the
-    // watermark to the recovered durable ts afterward.
+    // Rewind watermark + GC floor with timestamp_: a post-recovery commit at a low ts must not
+    // appear already-committed to a stale-high snapshot. Recovery paths reseed afterward.
     last_committed_mvcc_ts_.store(kTimestampInitialId, std::memory_order_release);
     gc_visibility_floor_.store(kTimestampInitialId, std::memory_order_release);
-    // No txn is active after Clear(), so the GC visibility ring must return to empty. A stale slot
-    // could otherwise pair a post-recovery oldest-active id with a reused pre-Clear tag (in-flight
-    // pre-crash SI tags can exceed the recovered next_timestamp) and advance the floor to a
-    // stale-high snap. Recovery runs single-threaded here (no concurrent GC reader).
+    // Reset the ring: a stale slot could pair a post-recovery oldest-active id with a pre-Clear tag
+    // and advance the floor to a stale-high snapshot. Recovery is single-threaded; no concurrent GC.
     for (size_t i = 0; i < kSnapshotSlots; ++i) {
       snapshot_slots_[i].tag.store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);
       snapshot_slots_[i].snap.store(0, std::memory_order_relaxed);
