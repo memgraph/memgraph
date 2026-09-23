@@ -65,10 +65,22 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
-void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
-  for (auto &subquery : open_subqueries_) {
-    subquery.referenced.insert(symbol);
+void SymbolGenerator::RecordCorrelationReference(const Symbol &symbol) {
+  for (auto &open : open_correlations_) {
+    open.referenced.insert(symbol);
   }
+}
+
+std::unordered_set<Symbol> SymbolGenerator::PopExternalSymbols() {
+  auto const open = std::move(open_correlations_.back());
+  open_correlations_.pop_back();
+  std::unordered_set<Symbol> external;
+  for (const auto &symbol : open.referenced) {
+    if (symbol.position() < open.first_own_position) {
+      external.insert(symbol);
+    }
+  }
+  return external;
 }
 
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
@@ -588,7 +600,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
-  RecordSubqueryReference(symbol);
+  RecordCorrelationReference(symbol);
   ident.MapTo(symbol);
   return true;
 }
@@ -763,21 +775,14 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
-  open_subqueries_.emplace_back(OpenSubquery{.first_own_position = symbol_table_->max_position()});
+  open_correlations_.emplace_back(OpenCorrelation{.first_own_position = symbol_table_->max_position()});
 
   return true;
 }
 
 bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
-  const auto &body = open_subqueries_.back();
   // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
-  subquery.external_symbols_.clear();
-  for (const auto &symbol : body.referenced) {
-    if (symbol.position() < body.first_own_position) {
-      subquery.external_symbols_.insert(symbol);
-    }
-  }
-  open_subqueries_.pop_back();
+  subquery.external_symbols_ = PopExternalSymbols();
   scopes_.pop_back();
   return true;
 }

@@ -191,8 +191,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool has_delete{false};
   };
 
-  /// A subquery body being visited. Its external symbols are the referenced ones created before it opened.
-  struct OpenSubquery {
+  /// A subquery body or pattern comprehension being visited. Its external symbols are the referenced ones created
+  /// before it opened.
+  struct OpenCorrelation {
     std::unordered_set<Symbol> referenced;
     /// The first symbol position the body can create.
     int32_t first_own_position{0};
@@ -223,7 +224,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // types match. Otherwise, returns a new symbol.
 
   // Record a reference in every open body, not just the innermost.
-  void RecordSubqueryReference(const Symbol &symbol);
+  void RecordCorrelationReference(const Symbol &symbol);
+
+  // Closes the innermost body and answers what it read from outside itself.
+  std::unordered_set<Symbol> PopExternalSymbols();
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
@@ -239,9 +243,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
   // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
   std::unordered_set<Symbol> create_clause_symbols_;
-  // Open subquery bodies, outermost first. External means created before the body, not visible outside it:
-  // `CALL (v) {}` imports `v` without creating a symbol, so `v` keeps its outer position.
-  std::vector<OpenSubquery> open_subqueries_;
+  // Open subquery bodies and pattern comprehensions, outermost first. External means created before the body, not
+  // visible outside it: `CALL (v) {}` imports `v` without creating a symbol, so `v` keeps its outer position.
+  std::vector<OpenCorrelation> open_correlations_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
