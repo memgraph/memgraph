@@ -1,4 +1,4 @@
-# Lock-free read snapshot (`--experimental-enabled=lockfree-read-snapshot`)
+# Commit lock narrowing (`--experimental-enabled=commit-lock-narrowing`)
 
 **Status:** Experimental (opt-in, off by default)
 **Area:** storage/v2 (MVCC, durability, garbage collection), replication
@@ -23,7 +23,7 @@ aggregate read throughput drops far below what the hardware can do.
 
 ## Solution
 
-An opt-in, startup-only flag, `--experimental-enabled=lockfree-read-snapshot`
+An opt-in, startup-only flag, `--experimental-enabled=commit-lock-narrowing`
 (default off). When enabled, a new transaction no longer has to wait for an in-flight
 commit's durability/replication round trip in order to start. New `BEGIN`s proceed
 immediately; a reader is given a consistent view of the database **as of the last commit
@@ -60,7 +60,7 @@ Concretely, with the flag on:
 
 | | |
 |---|---|
-| Flag | `--experimental-enabled=lockfree-read-snapshot` |
+| Flag | `--experimental-enabled=commit-lock-narrowing` |
 | Default | off |
 | Scope | per instance, set at startup, immutable while running |
 | Combine with other experiments | yes — `--experimental-enabled` takes a comma-separated list |

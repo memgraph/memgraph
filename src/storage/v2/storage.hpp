@@ -299,7 +299,7 @@ class Storage {
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
-  // Test-only: install commit-path instrumentation (lock-free-read-snapshot experiment). Null in production.
+  // Test-only: install commit-path instrumentation (commit-lock-narrowing experiment). Null in production.
   void SetCommitProbe(CommitProbe *probe) noexcept { commit_probe_ = probe; }
 
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
@@ -448,7 +448,7 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
-  // EXPERIMENTAL (lock-free-read-snapshot). All three are inert when the experiment is OFF.
+  // EXPERIMENTAL (commit-lock-narrowing). All three are inert when the experiment is OFF.
   // Serializes committers across mint->durability->publish and (in that mode) guards the WAL group;
   // acquired only on the experiment's ON path, so the OFF path is byte-for-byte unchanged.
   mutable std::mutex commit_mutex_;
