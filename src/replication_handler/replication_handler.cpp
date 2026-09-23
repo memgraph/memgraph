@@ -487,12 +487,12 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
   return lag_info;
 }
 
-std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> ReplicationHandler::GetNumCommittedTxns()
-    const {
+std::optional<std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT>>
+ReplicationHandler::GetNumCommittedTxns() const {
   ReplicasResT replicas;
   MainResT main;
 
-  dbms_handler_.ForEach([&replicas, &main](dbms::DatabaseAccess db_acc) {
+  bool const visited = dbms_handler_.TryForEach([&replicas, &main](dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
     auto const db_name = db_acc->name();
 
@@ -523,7 +523,11 @@ std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> Replic
         });
   });
 
-  return std::pair{main, replicas};
+  if (!visited) {
+    spdlog::trace("Skipping committed txns collection, dbms handler is exclusively locked.");
+    return std::nullopt;
+  }
+  return std::pair{std::move(main), std::move(replicas)};
 }
 
 #endif

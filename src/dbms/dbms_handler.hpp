@@ -762,16 +762,23 @@ class DbmsHandler {
   void ForEach(std::invocable<DatabaseAccess> auto f) {
 #ifdef MG_ENTERPRISE
     auto rd = std::shared_lock{lock_};
-    for (auto &[_, db_gk] : db_handler_) {
-#else
-    {
-      auto &db_gk = db_gatekeeper_;
 #endif
-      auto db_acc = db_gk.access();
-      if (db_acc) {  // This isn't an error, just a defunct db
-        f(*db_acc);
-      }
-    }
+    ForEachLocked_(std::move(f));
+  }
+
+  /**
+   * @brief Iterates over all DBs only if the handler lock can be taken without waiting.
+   *        Returns false, without invoking f, when a database is being created, dropped or updated.
+   *
+   * @param f
+   */
+  bool TryForEach(std::invocable<DatabaseAccess> auto f) {
+#ifdef MG_ENTERPRISE
+    auto rd = std::shared_lock{lock_, std::try_to_lock};
+    if (!rd.owns_lock()) return false;
+#endif
+    ForEachLocked_(std::move(f));
+    return true;
   }
 
   // Iterates over all DBs, applies the function on it but stops after
@@ -915,6 +922,21 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   DbmsHandler::NewResultT New_(storage::Config storage_config, system::Transaction *txn = nullptr);
+
+  // Caller holds lock_ (enterprise); visits every HOT database.
+  void ForEachLocked_(std::invocable<DatabaseAccess> auto f) {
+#ifdef MG_ENTERPRISE
+    for (auto &[_, db_gk] : db_handler_) {
+#else
+    {
+      auto &db_gk = db_gatekeeper_;
+#endif
+      auto db_acc = db_gk.access();
+      if (db_acc) {  // This isn't an error, just a defunct db
+        f(*db_acc);
+      }
+    }
+  }
 
   // TODO: new overload of Delete_ with DatabaseAccess
   DeleteResult Delete_(std::string_view db_name);
