@@ -1923,9 +1923,11 @@ void InMemoryStorage::ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts) {
   }
 
   for (auto &update : to_process) {
-    schema_info_.ProcessTransaction(
-        update.schema_diff, update.post_process, update.snapshot_bound, update.local_commit_ts,
-        update.property_on_edges);
+    schema_info_.ProcessTransaction(update.schema_diff,
+                                    update.post_process,
+                                    update.snapshot_bound,
+                                    update.local_commit_ts,
+                                    update.property_on_edges);
   }
 }
 
@@ -3086,6 +3088,13 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // rejected switch has no side effect, and under engine_lock_ because GetRecoverySteps holds that
       // lock specifically to read wal_file_. Lock order main_lock_ -> engine_lock_ is respected, since
       // the UNIQUE hold above is on main_lock_.
+      //
+      // The UNIQUE hold on main_lock_ (via unique_accessor) is also what serializes this finalize
+      // against every in-flight phase-2 committer: a committer holds main_lock_ SHARED for its
+      // entire accessor lifetime, which covers its WAL append; UNIQUE blocks until all SHARED
+      // holders have released. This serialization is provided by main_lock_ UNIQUE, NOT by
+      // commit_mutex_. Weakening this to a SHARED hold would allow a concurrent phase-2 committer
+      // to append to wal_file_ simultaneously, racing the FinalizeWal/reset here.
       {
         std::unique_lock const engine_guard(engine_lock_);
         if (wal_file_) {
@@ -3170,6 +3179,28 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
 }
 
 void InMemoryStorage::SeedReadSnapshotWatermarkFromLocalCounter() {
+  // PRECONDITION: quiescent storage only — no concurrent committer may be running.
+  // This function performs a non-atomic read-modify-write on last_committed_mvcc_ts_
+  // (load-relaxed + store-release as two separate operations). That sequence is safe only
+  // when no committer can race it: a live committer's last_committed_mvcc_ts_.store
+  // (~storage.cpp:1382) could overwrite a higher value, silently losing it.
+  //
+  // All three call sites satisfy the precondition:
+  //   1. InMemoryStorage constructor — called after RecoverData completes, before any
+  //      accessor is ever created; storage object construction is inherently single-threaded.
+  //   2. RecoverSnapshot() — holds engine_lock_ + gc_lock_; only called on empty or
+  //      just-Clear()'d storage; the comment there states "only active transaction".
+  //   3. Replica snapshot-load handler — recovery context; similarly stated quiescent.
+  //
+  // There is no runtime DMG_ASSERT here for two independent reasons:
+  //   a) At call site 1 (constructor) commit_log_ is std::optional<CommitLog> and is not
+  //      yet engaged — it is emplaced after this point; accessing it would be UB.
+  //   b) At call sites 2 and 3, timestamp_ has just been bumped to the recovered value but
+  //      MarkFinishedInRange(0, timestamp_-1) has not yet been called, so a freshly-reset
+  //      commit_log_->OldestActive() returns 0, which is < timestamp_; any
+  //      "OldestActive() >= timestamp_" check would false-fire on every valid recovery.
+  // The precondition is enforced by call-site discipline, not an assertion.
+  //
   // EXPERIMENTAL (lock-free-read-snapshot): seed the read-snapshot watermark from the local MVCC
   // counter (timestamp_ - 1 = highest committed ts in this storage's own timestamp space), which is
   // space-correct because readers compare it against local MVCC delta timestamps. No-op with the
