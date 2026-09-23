@@ -748,7 +748,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// the operator is not an ordered edge scan.
   void TryRecordEdgeScan(LogicalOperator *op) {
     using ProvidedScan = typename OrderByEliminator<TDbAccessor>::ProvidedScan;
-    const auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
+    auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
 
     // A value scan fed by an Unwind is invoked once per unwound element (e.g.
     // an `x IN list` lowering, or a user UNWIND driving the lookup). When the
@@ -763,9 +763,9 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     std::optional<ProvidedScan> scan;
-    if (const auto *etp = dynamic_cast<const ScanAllByEdgeTypeProperty *>(target)) {
+    if (auto *etp = dynamic_cast<ScanAllByEdgeTypeProperty *>(target)) {
       scan = etp;
-    } else if (const auto *ep = dynamic_cast<const ScanAllByEdgeProperty *>(target)) {
+    } else if (auto *ep = dynamic_cast<ScanAllByEdgeProperty *>(target)) {
       scan = ep;
     }
     order_by_eliminator_.NotifyScan(scan);
