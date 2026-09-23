@@ -1236,7 +1236,7 @@ Feature: Pattern comprehensions
             | 10 | 26 |
 
     # `x` is written after the comprehension runs. Reading its slot gives row 1 an unwritten value, so it is false,
-    # and row 2 the previous row's node. The scan is still uncorrelated (#4335), but every node has an outgoing edge.
+    # and row 2 the previous row's node. The scan is still uncorrelated, but every node has an outgoing edge.
     Scenario: Pattern comprehension anchored on a quantifier's variable does not read another row's value
         Given an empty graph
         And having executed:
