@@ -126,7 +126,8 @@ struct Config {
   // EXPERIMENTAL, per-instance, RUNTIME-ONLY. Enables the commit-lock-narrowing
   // MVCC path. MUST NOT be persisted or placed in SalientConfig:
   // durable data must be identical regardless of this flag (flip across restart is safe).
-  bool experimental_commit_lock_narrowing{false};
+  bool experimental_commit_lock_narrowing{
+      true};  // TEMP(CI): default ON to run the suite with the flag on. REVERT before merge.
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};

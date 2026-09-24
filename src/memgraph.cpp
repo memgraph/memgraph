@@ -584,7 +584,10 @@ int main(int argc, char **argv) {
       // EXPERIMENTAL (commit-lock-narrowing): CLI-only, immutable during execution. Runtime-only, never
       // persisted, so durable data is identical regardless of this flag (flip across restart is safe).
       .experimental_commit_lock_narrowing =
-          memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::COMMIT_LOCK_NARROWING),
+          // TEMP(CI): force ON so server/e2e CI runs with the flag on regardless of --experimental-enabled.
+          // REVERT to `memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::COMMIT_LOCK_NARROWING)`
+          // before merge.
+      true,
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
