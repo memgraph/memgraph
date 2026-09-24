@@ -4,6 +4,7 @@
 # Intended to be called from a workflow's `if: failure()` step. It:
 #   1. checks the test container for core dumps in /tmp/mg-cores,
 #   2. analyzes them with gdb INSIDE the container (analyze_core_dumps.sh),
+#      noting which executable each core maps (memgraph or a test binary),
 #   3. copies the resulting stack traces out to the host,
 #   4. uploads them to S3 and pings monitoring (upload_stack_trace.sh).
 #
@@ -132,15 +133,18 @@ fi
 echo "Found $core_count core dump(s) in ${BUILD_CONTAINER}:${CORES_DIR}."
 
 container_out="${CORES_DIR}/stacktraces"
+# Kept outside container_out: everything in there is uploaded as a stack trace.
+mapped_executables="${CORES_DIR}/mapped_executables.txt"
 
 # Copy the analyze script into the container and run gdb there as $EXEC_USER.
 # Copying it in (rather than assuming the repo is present) lets this work for
 # any container: the mgbuild container, or a runtime image (e.g. the MAGE debug
 # image) where gdb + debug symbols are already installed.
 docker exec -u root "$BUILD_CONTAINER" rm -f /tmp/analyze_core_dumps.sh >/dev/null 2>&1 || true
+docker exec -u root "$BUILD_CONTAINER" rm -f "$mapped_executables" >/dev/null 2>&1 || true
 if docker cp "$SCRIPT_DIR/analyze_core_dumps.sh" "${BUILD_CONTAINER}:/tmp/analyze_core_dumps.sh" >/dev/null 2>&1; then
   docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-    "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN' --core-glob '$CORE_GLOB'" \
+    "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN' --core-glob '$CORE_GLOB' --executables-out '$mapped_executables'" \
     || echo "Warning: analyze step exited non-zero (continuing)." >&2
 else
   echo "Warning: could not copy analyze script into ${BUILD_CONTAINER}; skipping analysis." >&2
@@ -188,6 +192,7 @@ if [[ "$UPLOAD_CORE" != false ]]; then
     --core-size-limit "$CORE_SIZE_LIMIT" \
     --exec-user "$EXEC_USER" \
     --core-glob "$CORE_GLOB" \
+    --extra-files "$mapped_executables" \
     --url-out "$url_out" \
     || echo "Warning: core upload step exited non-zero (continuing)." >&2
   binaries_url="$(sed -n 's/^binaries_url=//p' "$url_out" 2>/dev/null | head -n1)"
