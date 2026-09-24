@@ -425,29 +425,28 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, Gid max_gid)
-    : pin_accessor_edge_(std::move(edge_pin)),
-      pin_accessor_vertex_(std::move(vertex_accessor)),
-      index_accessor_(std::move(index_accessor)),
-      property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound),
-      bounds_valid_(ValidateBounds(lower_bound_, upper_bound_, /*allow_whole_type_span=*/true)),
-      view_(view),
-      storage_(storage),
-      transaction_(transaction),
-      max_gid_(max_gid) {}
+    : Iterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), property,
+               PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage, transaction, max_gid) {}
 
 InMemoryEdgePropertyIndex::Iterable::Iterable(
     utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
     PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction, Gid max_gid)
-    : Iterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), property, range.lower_,
-               range.upper_, view, storage, transaction, max_gid) {
-  // A range no value satisfies says so by its type, having no pair of bounds that would; the scan
-  // reads the bounds, so it has to be told here.
-  if (range.type_ == PropertyRangeType::INVALID) bounds_valid_ = false;
-  value_predicate_ = range.GetValuePredicate();
-}
+    : pin_accessor_edge_(std::move(edge_pin)),
+      pin_accessor_vertex_(std::move(vertex_accessor)),
+      index_accessor_(std::move(index_accessor)),
+      property_(property),
+      lower_bound_(range.lower_),
+      upper_bound_(range.upper_),
+      value_predicate_(range.GetValuePredicate()),
+      // A range no value satisfies says so by its type, having no pair of bounds that would, so a
+      // scan reading only the bounds would read the whole index.
+      bounds_valid_(range.type_ != PropertyRangeType::INVALID &&
+                    ValidateBounds(lower_bound_, upper_bound_, /*allow_whole_type_span=*/true)),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction),
+      max_gid_(max_gid) {}
 
 InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Iterator index_iterator)
@@ -616,33 +615,29 @@ void InMemoryEdgePropertyIndex::CleanupAllIndices() {
 InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
-    PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction, size_t num_chunks,
-    Gid max_gid)
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks, Gid max_gid)
     : ChunkedIterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), property,
-                      range.lower_, range.upper_, view, storage, transaction, num_chunks, max_gid) {
-  // A range no value satisfies says so by its type, having no pair of bounds that would. Its bounds
-  // span the whole index, and the constructor this one delegates to has already chunked them, so the
-  // chunks are what must be dropped for the scan to read nothing.
-  if (range.type_ == PropertyRangeType::INVALID) {
-    bounds_valid_ = false;
-    chunks_ = {};
-  }
-  value_predicate_ = range.GetValuePredicate();
-}
+                      PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage, transaction, num_chunks,
+                      max_gid) {}
 
 InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction, size_t num_chunks, Gid max_gid)
+    PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction, size_t num_chunks,
+    Gid max_gid)
     : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound),
-      bounds_valid_(ValidateBounds(lower_bound_, upper_bound_, /*allow_whole_type_span=*/true)),
+      lower_bound_(range.lower_),
+      upper_bound_(range.upper_),
+      value_predicate_(range.GetValuePredicate()),
+      // A range no value satisfies says so by its type, having no pair of bounds that would, so a
+      // scan reading only the bounds would read the whole index.
+      bounds_valid_(range.type_ != PropertyRangeType::INVALID &&
+                    ValidateBounds(lower_bound_, upper_bound_, /*allow_whole_type_span=*/true)),
       view_(view),
       storage_(storage),
       transaction_(transaction),

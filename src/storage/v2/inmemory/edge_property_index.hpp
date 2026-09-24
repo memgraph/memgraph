@@ -137,7 +137,6 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     EdgePin pin_accessor_edge_;
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
-    [[maybe_unused]] EdgeTypeId edge_type_;
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
