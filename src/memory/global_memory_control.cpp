@@ -153,7 +153,7 @@ void PurgeUnusedMemory() {
   // Stopping the background threads joins them, so none is mid-pass when the purge runs. Callers
   // are serialised so that one cannot restart the threads while another is still purging.
   static std::mutex purge_mutex;
-  const std::lock_guard lock(purge_mutex);
+  const std::scoped_lock lock(purge_mutex);
 
   bool was_enabled = false;
   size_t len = sizeof(was_enabled);
