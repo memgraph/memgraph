@@ -879,6 +879,34 @@ TEST(Equivalence, LeavesEqualityAnsweringAsItDidOverANaN) {
   EXPECT_FALSE(equality::EqualsItself(nan));
 }
 
+TEST(Equivalence, HashesADoubleByWhatItHoldsPastThePoint) {
+  // A whole double hashes as the integer it equals, so that a column holding
+  // both finds one key. What the double carries past the point has to reach the
+  // hash as well: sending every double between two integers to the lower one
+  // puts a whole run of distinct keys in one bucket, and the probe that follows
+  // walks the run.
+  EXPECT_EQ(equivalence::Hash(TypedValue(2.0)), equivalence::Hash(TypedValue(int64_t{2})));
+
+  EXPECT_NE(equivalence::Hash(TypedValue(2.5)), equivalence::Hash(TypedValue(2.0)));
+  EXPECT_NE(equivalence::Hash(TypedValue(2.5)), equivalence::Hash(TypedValue(2.25)));
+}
+
+TEST(Equivalence, HashesADoubleNoIntegerCanHold) {
+  // Reading a double as an integer is only defined while it is in the integer's
+  // range. A double outside it, an infinity among them, has to be hashed as the
+  // double it is.
+  auto const vast = TypedValue(1e300);
+  auto const other = TypedValue(-1e300);
+  auto const endless = TypedValue(std::numeric_limits<double>::infinity());
+
+  // Asking at all is the test: reading either as an integer is undefined, and a
+  // sanitizer stops here.
+  EXPECT_EQ(equivalence::Hash(vast), equivalence::Hash(TypedValue(1e300)));
+  EXPECT_EQ(equivalence::Hash(endless), equivalence::Hash(TypedValue(std::numeric_limits<double>::infinity())));
+  EXPECT_NE(equivalence::Hash(vast), equivalence::Hash(other));
+  EXPECT_NE(equivalence::Hash(endless), equivalence::Hash(TypedValue(-std::numeric_limits<double>::infinity())));
+}
+
 TEST(Equivalence, HashesEquivalentValuesAlike) {
   auto const holding_null = TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue(int64_t{1})});
   auto const same = TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue(int64_t{1})});

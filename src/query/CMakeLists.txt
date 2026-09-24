@@ -270,6 +270,7 @@ endif() # MG_PYTHON_SUPPORT
 
 target_link_libraries(mg-query
     PUBLIC
+    mg::value-order
     dl
     cppitertools::cppitertools
     range-v3::range-v3

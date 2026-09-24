@@ -31,6 +31,7 @@ module;
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/small_vector.hpp"
+#include "value_order/numbers.hpp"
 
 export module memgraph.storage.property_value;
 
@@ -62,6 +63,11 @@ struct IntListTag {};
 struct DoubleListTag {};
 
 struct NumericListTag {};
+
+/// The three tags naming a packed form of a list.
+template <typename T>
+concept OneOfTheListTags =
+    std::same_as<T, IntListTag> || std::same_as<T, DoubleListTag> || std::same_as<T, NumericListTag>;
 
 /// Whether the type is one of the four a list is held in.
 ///
@@ -162,13 +168,6 @@ constexpr Stretch StretchOf(PropertyValueType type) {
   return Stretch::Null;
 }
 
-/// Orders two doubles, giving a NaN the place it has nowhere else: after every
-/// number, and alongside another NaN.
-///
-/// An ordered structure needs an answer for every pair it is handed. IEEE
-/// leaves a NaN unordered against everything, itself included, which is not an
-/// answer a sorted container can be given: it would place an entry where no
-/// later search could find it again.
 /// Reads a number held as either of the types a list packs its elements at.
 ///
 /// A list that packs its elements holds them at one width and a list that boxes
@@ -183,84 +182,12 @@ inline double AsDouble(std::variant<Int, Double> const &numeric) noexcept {
   std::unreachable();
 }
 
-inline std::weak_ordering CompareDoublesNaNLast(double lhs, double rhs) noexcept {
-  if (auto const order = lhs <=> rhs; order != std::partial_ordering::unordered) {
-    if (order == std::partial_ordering::less) return std::weak_ordering::less;
-    if (order == std::partial_ordering::greater) return std::weak_ordering::greater;
-    return std::weak_ordering::equivalent;
-  }
-  auto const lhs_is_nan = std::isnan(lhs);
-  auto const rhs_is_nan = std::isnan(rhs);
-  if (lhs_is_nan && rhs_is_nan) return std::weak_ordering::equivalent;
-  return lhs_is_nan ? std::weak_ordering::greater : std::weak_ordering::less;
-}
-
-/// The same order read from the other side.
-inline std::weak_ordering ReversedOrder(std::weak_ordering order) noexcept {
-  if (order == std::weak_ordering::less) return std::weak_ordering::greater;
-  if (order == std::weak_ordering::greater) return std::weak_ordering::less;
-  return order;
-}
-
-inline std::partial_ordering ReversedOrder(std::partial_ordering order) noexcept {
-  if (order == std::partial_ordering::less) return std::partial_ordering::greater;
-  if (order == std::partial_ordering::greater) return std::partial_ordering::less;
-  return order;
-}
-
-/// Places an integer against a double by what each holds, rather than by
-/// reading one of them at the other's type.
-///
-/// Widening the integer is exact only while the doubles are still spaced one
-/// apart. Past that point two integers arrive at one double, and a sorted
-/// container ordered that way holds the two in one place while an equality
-/// tells them apart, so an entry can be filed under a key that is not its own.
-///
-/// Spelled here as well as over the query layer's value, since storage may not
-/// depend on that layer and the two have to answer a pair alike.
-///
-/// @return unordered only where the double is a NaN.
-inline std::partial_ordering PlaceIntegerAgainstDouble(std::int64_t whole, double other) noexcept {
-  if (std::isnan(other)) [[unlikely]]
-    return std::partial_ordering::unordered;
-
-  // One past the widest integer, exactly a double. A double outside the range it
-  // fences cannot be made into an integer at all, so the range is settled before
-  // the conversion below rather than trusted to it.
-  //
-  // Taken from the smallest integer rather than the largest, because that one is
-  // a power of two and survives the conversion exactly; the largest is one short
-  // of it and would round.
-  constexpr auto kJustPastTheWidest = -static_cast<double>(std::numeric_limits<std::int64_t>::min());
-  if (other >= kJustPastTheWidest) [[unlikely]]
-    return std::partial_ordering::less;
-  if (other < -kJustPastTheWidest) [[unlikely]]
-    return std::partial_ordering::greater;
-
-  auto const truncated = static_cast<std::int64_t>(other);
-  if (auto const by_whole_part = whole <=> truncated; std::is_neq(by_whole_part)) return by_whole_part;
-
-  // The two share a whole part, so whatever the double carries past it decides.
-  // Truncation is toward zero, so the remainder takes the double's own sign.
-  //
-  // Reading the whole part back as a double is exact either way: where the
-  // doubles are still spaced one apart it is small enough to carry, and past
-  // that point the double was already whole and the remainder is zero.
-  auto const remainder = other - static_cast<double>(truncated);
-  if (remainder > 0) return std::partial_ordering::less;
-  if (remainder < 0) return std::partial_ordering::greater;
-  return std::partial_ordering::equivalent;
-}
-
-/// The same placement, with a NaN last, which is where this order keeps one.
-inline std::weak_ordering PlaceIntegerAgainstDoubleNaNLast(std::int64_t whole, double other) noexcept {
-  auto const placed = PlaceIntegerAgainstDouble(whole, other);
-  if (placed == std::partial_ordering::less) return std::weak_ordering::less;
-  if (placed == std::partial_ordering::greater) return std::weak_ordering::greater;
-  if (placed == std::partial_ordering::equivalent) return std::weak_ordering::equivalent;
-  // Unordered only for a NaN, and every number comes before one.
-  return std::weak_ordering::less;
-}
+// The arithmetic below is stated over the numbers alone, so that the store and
+// a query place a pair the same way without either carrying a copy of it.
+using value_order::CompareDoublesNaNLast;
+using value_order::PlaceIntegerAgainstDouble;
+using value_order::PlaceIntegerAgainstDoubleNaNLast;
+using value_order::ReversedOrder;
 
 /// Orders two numbers, whichever numeric types the two variants hold.
 ///
@@ -347,6 +274,17 @@ class PropertyValueImpl {
   using numeric_list_t =
       std::vector<std::variant<int, double>, typename alloc_trait::template rebind_alloc<std::variant<int, double>>>;
 
+  /// What a tag names: the list a packed form is held in, and the element it
+  /// holds. Written beside the three lists so that a fourth is added here.
+  template <typename Tag>
+  using packed_list_t =
+      std::conditional_t<std::same_as<Tag, NumericListTag>, numeric_list_t,
+                         std::conditional_t<std::same_as<Tag, IntListTag>, int_list_t, double_list_t>>;
+
+  template <typename Tag>
+  using packed_element_t = std::conditional_t<std::same_as<Tag, NumericListTag>, std::variant<int, double>,
+                                              std::conditional_t<std::same_as<Tag, IntListTag>, int, double>>;
+
   using vector_index_id_t = utils::small_vector<VectorIndexIdType>;
 
   struct VectorIndexIdData {
@@ -424,102 +362,78 @@ class PropertyValueImpl {
       : alloc_{alloc}, list_v{.val_ = list_t{std::move(value), alloc}} {}
 
  private:
-  /// Reads a list into the form a packed list holds its numbers in.
+  /// Reads a list into the form the tag names, element by element.
   ///
   /// The whole run is built before the value owns any of it. An element of the
   /// wrong type, or an integer too wide for the packed form, leaves the
   /// conversion part way through, and a value whose constructor has not
   /// returned is never destroyed, so anything it had already taken would not be
   /// given back.
-  static auto PackedAsNumbers(list_t const &value, allocator_type const &alloc) -> numeric_list_t {
-    auto packed = numeric_list_t{alloc};
+  template <typename Tag>
+  static auto PackedAs(list_t const &value, allocator_type const &alloc) -> packed_list_t<Tag> {
+    auto packed = packed_list_t<Tag>{alloc};
     packed.reserve(value.size());
     std::transform(
-        value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> std::variant<int, double> {
-          if (elem.IsDouble()) {
-            return elem.ValueDouble();
+        value.begin(), value.end(), std::back_inserter(packed), [](auto const &elem) -> packed_element_t<Tag> {
+          if constexpr (!std::same_as<Tag, IntListTag>) {
+            if (elem.IsDouble()) return elem.ValueDouble();
           }
           if (elem.IsInt()) {
-            return PackedForAList(elem.ValueInt());
+            if constexpr (std::same_as<Tag, DoubleListTag>) {
+              return static_cast<double>(elem.ValueInt());
+            } else {
+              return PackedForAList(elem.ValueInt());
+            }
           }
-          throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+          if constexpr (std::same_as<Tag, IntListTag>) {
+            throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
+          } else if constexpr (std::same_as<Tag, DoubleListTag>) {
+            throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
+          } else {
+            throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+          }
         });
     return packed;
   }
 
-  static auto PackedAsIntegers(list_t const &value, allocator_type const &alloc) -> int_list_t {
-    auto packed = int_list_t{alloc};
-    packed.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> int {
-      if (elem.IsInt()) {
-        return PackedForAList(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
-    });
-    return packed;
-  }
-
-  static auto PackedAsDoubles(list_t const &value, allocator_type const &alloc) -> double_list_t {
-    auto packed = double_list_t{alloc};
-    packed.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(packed), [](const auto &elem) -> double {
-      if (elem.IsDouble()) {
-        return elem.ValueDouble();
-      }
-      if (elem.IsInt()) {
-        return static_cast<double>(elem.ValueInt());
-      }
-      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
-    });
-    return packed;
-  }
-
  public:
+  /// Builds a list in the packed form the tag names.
+  ///
+  /// One constructor over the three tags rather than one per tag: each reads
+  /// the same list the same way and differs only in what it holds the elements
+  /// at, which the tag settles.
+  ///
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
-    auto packed = PackedAsNumbers(value, alloc);
-    type_ = Type::NumericList;
-    alloc_trait::construct(alloc_, &numeric_list_v.val_, std::move(packed));
+  /// @throw PropertyValueException if an element does not fit the packed form
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    auto packed = PackedAs<Tag>(value, alloc);
+    if constexpr (std::same_as<Tag, NumericListTag>) {
+      type_ = Type::NumericList;
+      alloc_trait::construct(alloc_, &numeric_list_v.val_, std::move(packed));
+    } else if constexpr (std::same_as<Tag, IntListTag>) {
+      type_ = Type::IntList;
+      alloc_trait::construct(alloc_, &int_list_v.val_, std::move(packed));
+    } else {
+      type_ = Type::DoubleList;
+      alloc_trait::construct(alloc_, &double_list_v.val_, std::move(packed));
+    }
   }
 
-  explicit PropertyValueImpl(NumericListTag tag, list_t const &value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
+  /// Reads the list rather than taking it, whichever way it arrives: an element
+  /// is held at a different width once packed, so there is nothing to move.
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t const &value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
 
-  explicit PropertyValueImpl(NumericListTag tag, list_t &&value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t &&value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
 
-  explicit PropertyValueImpl(NumericListTag tag, list_t &&value, allocator_type const &alloc)
-      : PropertyValueImpl{tag, value, alloc} {}
-
-  /// @throw std::bad_alloc
-  explicit PropertyValueImpl(IntListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
-    auto packed = PackedAsIntegers(value, alloc);
-    type_ = Type::IntList;
-    alloc_trait::construct(alloc_, &int_list_v.val_, std::move(packed));
-  }
-
-  explicit PropertyValueImpl(IntListTag tag, list_t const &value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
-
-  explicit PropertyValueImpl(IntListTag tag, list_t &&value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
-
-  explicit PropertyValueImpl(IntListTag tag, list_t &&value, allocator_type const &alloc)
-      : PropertyValueImpl{tag, value, alloc} {}
-
-  /// @throw std::bad_alloc
-  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
-    auto packed = PackedAsDoubles(value, alloc);
-    type_ = Type::DoubleList;
-    alloc_trait::construct(alloc_, &double_list_v.val_, std::move(packed));
-  }
-
-  explicit PropertyValueImpl(DoubleListTag tag, list_t const &value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
-
-  explicit PropertyValueImpl(DoubleListTag tag, list_t &&value)
-      : PropertyValueImpl{tag, value, value.get_allocator()} {}
-
-  explicit PropertyValueImpl(DoubleListTag tag, list_t &&value, allocator_type const &alloc)
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t &&value, allocator_type const &alloc)
       : PropertyValueImpl{tag, value, alloc} {}
 
   /// @throw std::bad_alloc

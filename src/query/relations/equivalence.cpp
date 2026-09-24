@@ -16,6 +16,7 @@
 #include <limits>
 
 #include "utils/temporal.hpp"
+#include "value_order/numbers.hpp"
 
 import memgraph.utils.fnv;
 
@@ -90,25 +91,19 @@ size_t Hash(const TypedValue &value) {
       // Every NaN is equivalent to every other, and more than one bit pattern
       // spells one, so a hash over the bits would send two of them to different
       // buckets and the lookup would never reach the comparison.
-      if (std::isnan(value.ValueDouble())) return 1'214'729'715;
+      auto const held = value.UnsafeValueDouble();
+      if (std::isnan(held)) return 1'214'729'715;
 
-      // Store whole number doubles as int hashes to be consistent with
-      // TypedValue equality in which (2.0 == 2) returns true. Only where an
-      // integer can hold the value: reading one outside that range as an
-      // integer is undefined, and an infinity is outside it however whole it
-      // looks.
-      //
-      // The edge is taken from the smallest integer rather than the largest,
-      // because that one is a power of two and survives the conversion exactly;
-      // the largest is one short of it and would round.
-      constexpr auto kJustPastTheWidestInteger = -static_cast<double>(std::numeric_limits<int64_t>::min());
-      const double double_value = std::trunc(value.ValueDouble());
-      double whole_value = 0.0;
-      if (std::modf(double_value, &whole_value) == 0.0 && whole_value >= -kJustPastTheWidestInteger &&
-          whole_value < kJustPastTheWidestInteger) {
-        return std::hash<int64_t>{}(static_cast<int64_t>(whole_value));
+      // A whole double hashes as the integer it equals, since equality holds
+      // the two equal and a hash container has to find one key for both. What
+      // a double carries past the point reaches the hash as itself: sending
+      // every double between two integers to the lower one would file a whole
+      // run of distinct keys in one bucket.
+      double whole = 0.0;
+      if (std::modf(held, &whole) == 0.0 && value_order::AnIntegerCanHold(held)) {
+        return std::hash<int64_t>{}(static_cast<int64_t>(whole));
       }
-      return std::hash<double>{}(double_value);
+      return std::hash<double>{}(held);
     }
     case TypedValue::Type::String:
       return std::hash<std::string_view>{}(value.ValueString());
