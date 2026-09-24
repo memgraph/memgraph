@@ -42,6 +42,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
 #include "value_generators.hpp"
+#include "wire_format/property_tag.hpp"
 
 namespace {
 
@@ -173,27 +174,41 @@ TEST(WireRoundTrip, EveryTypeArrivesAsItself) {
   }
 }
 
-/// What a type is sent as is the number the enumerator holds, written straight
-/// onto the stream and looked up again by the reader. Renumbering the type
-/// compiles, passes every other suite, and breaks a main against a replica
-/// built from another version, which nothing else here pairs.
-TEST(WireRoundTrip, ATypeIsSentAsTheNumberItHasAlwaysBeenSentAs) {
-  EXPECT_EQ(std::to_underlying(PropertyValueType::Null), 0);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::Bool), 1);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::Int), 2);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::Double), 3);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::String), 4);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::List), 5);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::Map), 6);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::TemporalData), 7);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::ZonedTemporalData), 8);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::Enum), 9);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::Point2d), 10);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::Point3d), 11);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::IntList), 12);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::DoubleList), 13);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::NumericList), 14);
-  EXPECT_EQ(std::to_underlying(PropertyValueType::VectorIndexId), 15);
+/// What a type is sent as is a tag of the wire format's own, so the numbering
+/// the value carries in memory is free to change without parting a main from a
+/// replica built from another version.
+///
+/// These numbers are the format. Changing one is a breaking change to
+/// replication and has to be paired with a version, which is what this pins.
+TEST(WireRoundTrip, ATypeIsSentAsTheTagItHasAlwaysBeenSentAs) {
+  using memgraph::wire_format::PropertyTag;
+  using memgraph::wire_format::TagOf;
 
-  EXPECT_EQ(kEveryType.size(), 16) << "a type was added, and the reader has to be told the number it arrives as";
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::Null)), 0);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::Bool)), 1);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::Int)), 2);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::Double)), 3);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::String)), 4);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::List)), 5);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::Map)), 6);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::TemporalData)), 7);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::ZonedTemporalData)), 8);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::Enum)), 9);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::Point2d)), 10);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::Point3d)), 11);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::IntList)), 12);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::DoubleList)), 13);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::NumericList)), 14);
+  EXPECT_EQ(std::to_underlying(TagOf(PropertyValueType::VectorIndexId)), 15);
+
+  EXPECT_EQ(kEveryType.size(), 16) << "a type was added, and the reader has to be told the tag it arrives as";
+}
+
+/// Every tag names a type and every type names a tag, so a value read back is
+/// the type that was sent rather than whichever one shares a number with it.
+TEST(WireRoundTrip, EveryTagAndTypeNameEachOther) {
+  for (auto const type : kEveryType) {
+    EXPECT_EQ(memgraph::wire_format::TypeOf(memgraph::wire_format::TagOf(type)), type)
+        << "type " << static_cast<unsigned>(type);
+  }
 }
