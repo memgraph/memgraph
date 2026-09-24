@@ -16,9 +16,16 @@ def is_port_free(port: int, host: str = "127.0.0.1") -> bool:
 
 
 def wait_for_server(
-    proc: subprocess.Popen, port: int, host: str = "127.0.0.1", delay: float = 0.1, timeout: float = 10.0
+    proc: subprocess.Popen, port: int, host: str = "127.0.0.1", delay: float = 0.1, timeout: float = 120.0
 ):
-    """Wait until server is accepting TCP connections on the given port, while the process is alive."""
+    """Wait until server is accepting TCP connections on the given port, while the process is alive.
+
+    The deadline is generous because a server that has failed is recognised by
+    exiting rather than by running out of time: the check below ends the wait
+    the moment it does. What is left for the deadline to catch is a server that
+    is alive and has stopped making progress, and a recovery on a loaded
+    machine takes long enough that a tight one refuses that too.
+    """
     start_time = time.time()
 
     while True:
@@ -37,7 +44,7 @@ def wait_for_server(
 
 
 @contextmanager
-def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, timeout=10):
+def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, timeout=10, start_timeout=120.0):
     """Context manager for managing the Memgraph server lifecycle."""
 
     if not is_port_free(port):
@@ -58,7 +65,21 @@ def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, tim
 
     try:
         # Wait for the server to be ready
-        wait_for_server(memgraph_proc, port)
+        wait_for_server(memgraph_proc, port, timeout=start_timeout)
+    except BaseException:
+        # A server that never opened its port recovered nothing to compare, so
+        # there is no durability result here to report on. The shutdown below
+        # refuses in its own terms, one of which reads as though the recovered
+        # data were wrong; going through it would name the wrong fault.
+        memgraph_proc.kill()
+        stdout, stderr = memgraph_proc.communicate()
+        logger.error(
+            f"Memgraph did not start, return code {memgraph_proc.returncode}\n\n"
+            f"Stdout:\n{stdout.decode(errors='replace')}\n\nStderr:\n{stderr.decode(errors='replace')}"
+        )
+        raise
+
+    try:
         yield memgraph_proc  # Give control back to the caller within the context
     finally:
         stdout, stderr = None, None
