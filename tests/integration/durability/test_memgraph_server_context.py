@@ -38,6 +38,7 @@ LOGGER = logging.getLogger(__name__)
 STILL_STARTING = """\
 import signal, time
 signal.signal(signal.SIGINT, signal.SIG_IGN)
+print("still recovering", file=sys.stderr, flush=True)
 time.sleep(300)
 """
 
@@ -69,7 +70,7 @@ def test_a_server_that_exits_is_reported_before_the_deadline():
     assert time.time() - started < 10.0, "a dead server waited out the deadline"
 
 
-def test_a_server_that_never_starts_is_not_reported_as_a_durability_fault():
+def test_a_server_that_never_starts_is_not_reported_as_a_durability_fault(caplog):
     """A start that never finished leaves no dump to judge, so the report says so.
 
     Shutting the server down raises refusals of its own, and one of them reads
@@ -97,3 +98,4 @@ def test_a_server_that_never_starts_is_not_reported_as_a_durability_fault():
         refusal.value
     ), f"a failed start was reported as a durability fault: {refusal.value}"
     assert "did not start" in str(refusal.value), f"the report does not name the failed start: {refusal.value}"
+    assert "still recovering" in caplog.text, "what the server wrote before it was killed was not reported"

@@ -72,7 +72,11 @@ def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, tim
         # refuses in its own terms, one of which reads as though the recovered
         # data were wrong; going through it would name the wrong fault.
         memgraph_proc.kill()
-        memgraph_proc.communicate()
+        stdout, stderr = memgraph_proc.communicate()
+        logger.error(
+            f"Memgraph did not start, return code {memgraph_proc.returncode}\n\n"
+            f"Stdout:\n{stdout.decode(errors='replace')}\n\nStderr:\n{stderr.decode(errors='replace')}"
+        )
         raise
 
     try:
