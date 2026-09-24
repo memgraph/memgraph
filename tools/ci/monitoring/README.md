@@ -45,8 +45,9 @@ or host + optional ports/schemes:
 - `MEMGRAPH_METRICS_HOST` (default: `host.docker.internal`)
 - `MEMGRAPH_METRICS_PORT` (default: `9091`)
 - `MEMGRAPH_METRICS_TARGETS` (comma-separated, e.g. `mgbuild_v7_ubuntu-24.04:9091,mgbuild_v7_debian-12:9091`; enables multi-instance scraping)
+  - a target may be prefixed with a name, `ssl=mgbuild_v8:30102`; the name becomes the `instance` label (metrics) and `pod` label (logs), otherwise `host:port` is used
 - `MEMGRAPH_LOG_WS_PORT` (default: `7444`)
-- `MEMGRAPH_LOG_WS_TARGETS` (comma-separated websocket targets; accepts `host`, `host:port`, or full `ws://...`; defaults to `MEMGRAPH_METRICS_TARGETS` when present)
+- `MEMGRAPH_LOG_WS_TARGETS` (comma-separated websocket targets; accepts `host`, `host:port`, or full `ws://...`, each optionally `name=`-prefixed; defaults to `MEMGRAPH_METRICS_TARGETS` when present)
 - `MONITORING_USERNAME` / `MONITORING_PASSWORD` (optional basic auth for both VictoriaMetrics remote write and VictoriaLogs push; also supports `CI_MONITORING_USER` / `CI_MONITORING_PASSWORD`)
 - `COMPOSE_PROJECT_NAME` (default: `memgraph-monitoring`)
 

@@ -9,13 +9,13 @@ PORT_STRIDE=10
 
 print_help() {
   echo -e "$0 [jobs]                    => run all under tests/integration in parallel (default jobs: nproc)"
-  echo -e "$0 monitoring-targets <host> => print MEMGRAPH_METRICS_TARGETS/MEMGRAPH_LOG_WS_TARGETS for every suite"
+  echo -e "$0 monitoring-targets <host> => print MEMGRAPH_METRICS_TARGETS/MEMGRAPH_LOG_WS_TARGETS (suite=host:port) for every suite"
   echo -e "$0 monitoring-mapping <host> => print which pod/instance label each suite's logs/metrics carry"
   exit 1
 }
 
 # Suite i (sorted directory order) always gets the same block, so monitoring
-# targets can be computed before anything runs.
+# targets can be computed before anything runs and labelled with the suite name.
 list_suites() {
   cd "$DIR"
   for name in *; do
@@ -55,8 +55,8 @@ if [ "$1" = "monitoring-targets" ]; then
   log_ws_targets=()
   index=0
   for name in $(list_suites); do
-    metrics_targets+=("$host:$(metrics_port "$index")")
-    log_ws_targets+=("$host:$(monitoring_port "$index")")
+    metrics_targets+=("$name=$host:$(metrics_port "$index")")
+    log_ws_targets+=("$name=$host:$(monitoring_port "$index")")
     index=$((index + 1))
   done
   echo "MEMGRAPH_METRICS_TARGETS=$(IFS=,; echo "${metrics_targets[*]}")"
