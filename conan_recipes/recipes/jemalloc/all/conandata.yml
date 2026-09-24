@@ -11,3 +11,7 @@ patches:
       patch_description: "Disable background threads when thread 0 cannot be created, so decay falls back to application threads."
       patch_type: "backport"
       patch_source: "https://github.com/jemalloc/jemalloc/pull/2979"
+    - patch_file: "patches/0003-wait-on-condition-variable-while-paused-for-arena-reset.patch"
+      patch_description: "Pause a background thread for an arena reset on its condition variable, so stopping the threads straight after a reset cannot deadlock."
+      patch_type: "backport"
+      patch_source: "https://github.com/jemalloc/jemalloc/commit/6957341f19"
