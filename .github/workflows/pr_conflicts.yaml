@@ -1,7 +1,6 @@
 name: "PR Conflict Check"
 
 on:
-  push:  # DO NOT MERGE
   pull_request_target:
     types: [opened]
 
@@ -16,25 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - name: Get PR number
-        id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          # Outside a pull_request_target event (e.g. a push), fall back to the
-          # open PR for the pushed branch.
-          if [[ -z "$PR_NUMBER" ]]; then
-            PR_NUMBER=$(gh pr list --state open --head "$GITHUB_REF_NAME" --json number --jq '.[0].number')
-          fi
-          if [[ -z "$PR_NUMBER" ]]; then
-            echo "No open PR found for $GITHUB_REF_NAME, nothing to check."
-          fi
-          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-
       - name: List files touched by open PRs
-        if: ${{ steps.pr.outputs.number != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -42,15 +23,13 @@ jobs:
           gh pr list --state open --limit 200 --json number,files > "$RUNNER_TEMP/open_prs.json"
 
       - name: Find conflicting PRs
-        if: ${{ steps.pr.outputs.number != '' }}
         run: |
           python3 tools/ci/pr-conflicts/find_pr_conflicts.py \
             "$RUNNER_TEMP/open_prs.json" \
-            "4828" \
-            "$RUNNER_TEMP/pr_conflicts.md"  # DO NOT MERGE: use "${{ steps.pr.outputs.number }}"
+            "${{ github.event.pull_request.number }}" \
+            "$RUNNER_TEMP/pr_conflicts.md"
 
       - name: Comment on PR
-        if: ${{ steps.pr.outputs.number != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -59,4 +38,4 @@ jobs:
           if [[ ! -f "$RUNNER_TEMP/pr_conflicts.md" ]]; then
             exit 0
           fi
-          gh pr comment "${{ steps.pr.outputs.number }}" --body-file "$RUNNER_TEMP/pr_conflicts.md"
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file "$RUNNER_TEMP/pr_conflicts.md"
