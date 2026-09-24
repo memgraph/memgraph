@@ -39,6 +39,10 @@ modifications:
     value: "/var/log/memgraph/memgraph.log"
     override: true
 
+  - name: "audit_log_file"
+    value: "/var/log/memgraph/audit/audit.log"
+    override: true
+
   - name: "log_level"
     value: "WARNING"
     override: true
