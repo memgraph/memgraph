@@ -15,10 +15,13 @@ print_help() {
 
 # Suite i (sorted directory order) always gets the same block, so monitoring
 # targets can be computed before anything runs.
+is_suite() { [ -d "$1" ] && { [ -e "$1/runner.py" ] || [ -e "$1/runner.sh" ]; }; }
 list_suites() {
   cd "$DIR"
   for name in *; do
-    if [ -d "$name" ]; then echo "$name"; fi
+    # A suite is a directory with a runner. Skipping the rest keeps __pycache__
+    # from taking a port block and shifting every suite after it.
+    if is_suite "$name"; then echo "$name"; fi
   done
 }
 bolt_port() { echo $((PORT_BASE + $1 * PORT_STRIDE)); }
