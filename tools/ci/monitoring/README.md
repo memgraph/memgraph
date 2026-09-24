@@ -55,9 +55,8 @@ or host + optional ports/schemes:
 
 - One `vmagent` can scrape multiple Memgraph instances directly using `MEMGRAPH_METRICS_TARGETS`.
 - One `vector` is enough because it can connect to multiple websocket targets.
-- Each instance is told apart by `instance` (metrics) and `pod` (logs), both `host:port` of the
-  scraped target. For the parallel integration suites, `tests/integration/run-parallel.sh
-  monitoring-mapping <host>` prints which suite owns which value; CI prints it when monitoring starts.
+- Each instance is told apart by `instance` (metrics) and `pod` (logs): the target's `name=` prefix
+  when given (the parallel integration suites use the suite name), otherwise `host:port`.
 - For parallel monitoring stacks, use different `COMPOSE_PROJECT_NAME` values.
 
 ## Start
