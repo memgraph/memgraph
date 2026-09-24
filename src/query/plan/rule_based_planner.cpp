@@ -516,9 +516,10 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if_operator.else_expression_->Accept(*this);
     bool const else_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
-    std::array<ExpressionPart, 3> const parts{{{if_operator.condition_, condition_aggr},
-                                               {if_operator.then_expression_, then_aggr},
-                                               {if_operator.else_expression_, else_aggr}}};
+    std::array<ExpressionPart, 3> const parts{
+        {{.expression = if_operator.condition_, .has_aggregation = condition_aggr},
+         {.expression = if_operator.then_expression_, .has_aggregation = then_aggr},
+         {.expression = if_operator.else_expression_, .has_aggregation = else_aggr}}};
     has_aggregation_.emplace_back(AddGroupingKeys(parts));
     return false;
   }
@@ -599,8 +600,19 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       has_aggregation_.back() = true;
     else
       has_aggregation_.emplace_back(true);
-    aggregations_.emplace_back(
-        Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.op_, symbol, aggr.distinct_});
+    // Every arm of a simple CASE compares against the same test node, so an aggregation in the test is reached once
+    // per arm. The symbol is the node's, so a second element would accumulate the same rows into the same slot: the
+    // answer would stand but the work and the accumulator would be paid for again.
+    auto const already_collected = [&symbol](Aggregate::Element const &element) {
+      return element.output_sym == symbol;
+    };
+    if (!std::ranges::any_of(aggregations_, already_collected)) {
+      aggregations_.emplace_back(Aggregate::Element{.arg1 = aggr.expression1_,
+                                                    .arg2 = aggr.expression2_,
+                                                    .op = aggr.op_,
+                                                    .output_sym = symbol,
+                                                    .distinct = aggr.distinct_});
+    }
     // Possible optimization is to skip remembering symbols inside aggregation.
     // If and when implementing this, don't forget that Accumulate needs *all*
     // the symbols, including those inside aggregation.

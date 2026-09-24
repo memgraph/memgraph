@@ -627,6 +627,25 @@ TYPED_TEST(TestPlanner, MatchReturnCaseWithAggregationAndImplicitGroupingKey) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
+// Every arm of a simple CASE compares against the same test node, so the return body reaches an aggregation in the
+// test once per arm. A query the parse cache clones arrives as a tree; one that is not cacheable keeps the shared
+// node. Either way the Aggregate holds one element for the one aggregation written.
+TYPED_TEST(TestPlanner, MatchReturnSimpleCaseOnAggregationSharingOneTest) {
+  // Test MATCH (n) RETURN CASE COUNT(n) WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'c' END AS c
+  FakeDbAccessor dba;
+  auto count = COUNT(IDENT("n"), false);
+  auto *first_arm =
+      this->storage.template Create<memgraph::query::IfOperator>(EQ(count, LITERAL(1)), LITERAL("a"), LITERAL("c"));
+  auto *case_expr =
+      this->storage.template Create<memgraph::query::IfOperator>(EQ(count, LITERAL(2)), LITERAL("b"), first_arm);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(case_expr, AS("c"))));
+  // Every arm holds a literal, so nothing is row-dependent and the aggregation groups over the whole input.
+  auto aggr = ExpectAggregate({count}, {});
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, MatchWithCreate) {
   // Test MATCH (n) WITH n AS a CREATE (a) -[r :r]-> (b)
   auto r_type = "r";
