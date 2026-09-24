@@ -1,0 +1,41 @@
+name: "PR Conflict Check"
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  CheckConflicts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: List files touched by open PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh pr list --state open --limit 200 --json number,files > "$RUNNER_TEMP/open_prs.json"
+
+      - name: Find conflicting PRs
+        run: |
+          python3 tools/ci/pr-conflicts/find_pr_conflicts.py \
+            "$RUNNER_TEMP/open_prs.json" \
+            "${{ github.event.pull_request.number }}" \
+            "$RUNNER_TEMP/pr_conflicts.md"
+
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # The script only writes the message when there are conflicts.
+          if [[ ! -f "$RUNNER_TEMP/pr_conflicts.md" ]]; then
+            exit 0
+          fi
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file "$RUNNER_TEMP/pr_conflicts.md"
