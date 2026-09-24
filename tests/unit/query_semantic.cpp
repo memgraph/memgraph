@@ -1832,21 +1832,30 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
 // hold one. The list's own elements are not rows, and the identifier the lambda binds is not on the frame the
 // Aggregate writes.
 TYPED_TEST(TestSymbolGenerator, AggregationInsideExpressionOverList) {
-  auto refused = [this](Expression *expression) {
+  // Pinned by message, not by type: the position gate a line above throws SemanticException too, and it is what
+  // answers for these same constructs outside a RETURN. A type-only assertion would pass with this gate removed.
+  auto refused = [this](std::string_view query_text, Expression *expression) {
+    SCOPED_TRACE(query_text);
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(expression, AS("r"))));
-    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()},
+                "Using aggregation functions inside an expression over a list is not allowed.");
+    }
   };
-  // MATCH (n) RETURN [x IN [1] | count(n)] AS r
-  refused(LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), nullptr, COUNT(IDENT("n"), false)));
-  // MATCH (n) RETURN [x IN [1] WHERE count(n) > 0] AS r
+  refused("MATCH (n) RETURN [x IN [1] | count(n)] AS r",
+          LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), nullptr, COUNT(IDENT("n"), false)));
   refused(
+      "MATCH (n) RETURN [x IN [1] WHERE count(n) > 0] AS r",
       LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0))), nullptr));
-  // MATCH (n) RETURN all(x IN [1] WHERE count(n) > 0) AS r
-  refused(ALL("x", LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0)))));
-  // MATCH (n) RETURN reduce(s = 0, x IN [1] | s + count(n)) AS r
-  refused(REDUCE("s", LITERAL(0), "x", LIST(LITERAL(1)), ADD(IDENT("s"), COUNT(IDENT("n"), false))));
-  // MATCH (n) RETURN extract(x IN [1] | count(n)) AS r
-  refused(EXTRACT("x", LIST(LITERAL(1)), COUNT(IDENT("n"), false)));
+  refused("MATCH (n) RETURN all(x IN [1] WHERE count(n) > 0) AS r",
+          ALL("x", LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0)))));
+  refused("MATCH (n) RETURN reduce(s = 0, x IN [1] | s + count(n)) AS r",
+          REDUCE("s", LITERAL(0), "x", LIST(LITERAL(1)), ADD(IDENT("s"), COUNT(IDENT("n"), false))));
+  refused("MATCH (n) RETURN extract(x IN [1] | count(n)) AS r",
+          EXTRACT("x", LIST(LITERAL(1)), COUNT(IDENT("n"), false)));
   // An aggregation over the list itself is not inside the lambda, so it stays allowed.
   auto *over_the_list = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))), RETURN(ALL("x", COLLECT_LIST(IDENT("n"), false), WHERE(LITERAL(true))), AS("r"))));
