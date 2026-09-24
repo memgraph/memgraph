@@ -645,5 +645,51 @@ def test_null_regex_pattern_matches_nothing(memgraph):
     memgraph.execute("DROP INDEX ON :RXNULL(p);")
 
 
+@pytest.mark.parametrize("op", ["CONTAINS", "ENDS WITH", "=~"])
+def test_row_varying_search_term_is_answered_the_same_on_a_node(memgraph, op):
+    # These three narrow the scan to the whole string type and carry their search term in the value
+    # predicate alone, which is read once for the whole scan. A term reading a symbol the rows vary
+    # over therefore has to keep the scan off the index, or every row past the first is asked for the
+    # first row's term.
+    memgraph.execute("CREATE (:VT {p: 'aa'}), (:VT {p: 'bb'});")
+    query = f"UNWIND ['aa', 'bb'] AS x MATCH (n:VT) WHERE n.p {op} x RETURN x + ':' + n.p AS r ORDER BY r"
+    without_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
+    memgraph.execute("CREATE INDEX ON :VT(p);")
+    plan = get_plan(memgraph, query)
+    with_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
+    memgraph.execute("DROP INDEX ON :VT(p);")
+    assert without_index == ["aa:aa", "bb:bb"]
+    assert with_index == without_index
+    assert "ScanAllByLabelProperties" not in operator_names(plan), f"A per-row term must not key a seek: {plan}"
+
+
+@pytest.mark.parametrize("op", ["CONTAINS", "ENDS WITH", "=~"])
+def test_row_varying_search_term_is_answered_the_same_on_an_edge(memgraph, op):
+    memgraph.execute("CREATE ()-[:ET {p: 'aa'}]->(), ()-[:ET {p: 'bb'}]->();")
+    query = f"UNWIND ['aa', 'bb'] AS x MATCH ()-[e:ET]->() WHERE e.p {op} x RETURN x + ':' + e.p AS r ORDER BY r"
+    without_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
+    memgraph.execute("CREATE EDGE INDEX ON :ET(p);")
+    plan = get_plan(memgraph, query)
+    with_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
+    memgraph.execute("DROP EDGE INDEX ON :ET(p);")
+    assert without_index == ["aa:aa", "bb:bb"]
+    assert with_index == without_index
+    assert "ScanAllByEdgeTypeProperty" not in operator_names(plan), f"A per-row term must not key a seek: {plan}"
+
+
+@pytest.mark.parametrize("op", ["CONTAINS", "ENDS WITH", "=~"])
+def test_row_varying_search_term_is_answered_the_same_on_a_global_edge_index(memgraph, op):
+    memgraph.execute("CREATE ()-[:GT {gp: 'aa'}]->(), ()-[:GT {gp: 'bb'}]->();")
+    query = f"UNWIND ['aa', 'bb'] AS x MATCH ()-[e]->() WHERE e.gp {op} x RETURN x + ':' + e.gp AS r ORDER BY r"
+    without_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
+    memgraph.execute("CREATE GLOBAL EDGE INDEX ON :(gp);")
+    plan = get_plan(memgraph, query)
+    with_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
+    memgraph.execute("DROP GLOBAL EDGE INDEX ON :(gp);")
+    assert without_index == ["aa:aa", "bb:bb"]
+    assert with_index == without_index
+    assert "ScanAllByEdgeProperty" not in operator_names(plan), f"A per-row term must not key a seek: {plan}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
