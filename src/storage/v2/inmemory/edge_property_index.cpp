@@ -620,9 +620,13 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
     Gid max_gid)
     : ChunkedIterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), property,
                       range.lower_, range.upper_, view, storage, transaction, num_chunks, max_gid) {
-  // A range no value satisfies says so by its type, having no pair of bounds that would; the scan
-  // reads the bounds, so it has to be told here.
-  if (range.type_ == PropertyRangeType::INVALID) bounds_valid_ = false;
+  // A range no value satisfies says so by its type, having no pair of bounds that would. Its bounds
+  // span the whole index, and the constructor this one delegates to has already chunked them, so the
+  // chunks are what must be dropped for the scan to read nothing.
+  if (range.type_ == PropertyRangeType::INVALID) {
+    bounds_valid_ = false;
+    chunks_ = {};
+  }
   value_predicate_ = range.GetValuePredicate();
 }
 

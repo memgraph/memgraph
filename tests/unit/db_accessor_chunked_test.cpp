@@ -430,6 +430,60 @@ TEST_F(DbAccessorChunkedTest, PropertyChunkIteratorAppliesTheValuePredicate) {
   EXPECT_EQ(read_gids, matching_gids);
 }
 
+TEST_F(DbAccessorChunkedTest, PropertyChunkIteratorScansNothingForAnEmptyRange) {
+  {
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+    auto dba = DbAccessor(acc.get());
+    auto v1 = dba.InsertVertex();
+    auto v2 = dba.InsertVertex();
+    for (int i = 0; i < 100; ++i) {
+      auto e = dba.InsertEdge(&v1, &v2, type_id_);
+      ASSERT_TRUE(e.has_value());
+      ASSERT_TRUE(e->SetProperty(prop_id_, PropertyValue(static_cast<int64_t>(i))).has_value());
+    }
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+  auto dba = DbAccessor(acc.get());
+
+  auto chunks = dba.ChunkedEdges(View::OLD, prop_id_, storage::PropertyValueRange::Empty(), 4);
+
+  size_t read = 0;
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    auto chunk = chunks.get_chunk(i);
+    for ([[maybe_unused]] auto edge : chunk) ++read;
+  }
+  EXPECT_EQ(read, 0);
+}
+
+TEST_F(DbAccessorChunkedTest, TypePropertyChunkIteratorScansNothingForAnEmptyRange) {
+  {
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+    auto dba = DbAccessor(acc.get());
+    auto v1 = dba.InsertVertex();
+    auto v2 = dba.InsertVertex();
+    for (int i = 0; i < 100; ++i) {
+      auto e = dba.InsertEdge(&v1, &v2, type_id_);
+      ASSERT_TRUE(e.has_value());
+      ASSERT_TRUE(e->SetProperty(prop_id_, PropertyValue(static_cast<int64_t>(i))).has_value());
+    }
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+  auto dba = DbAccessor(acc.get());
+
+  auto chunks = dba.ChunkedEdges(View::OLD, type_id_, prop_id_, storage::PropertyValueRange::Empty(), 4);
+
+  size_t read = 0;
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    auto chunk = chunks.get_chunk(i);
+    for ([[maybe_unused]] auto edge : chunk) ++read;
+  }
+  EXPECT_EQ(read, 0);
+}
+
 TEST_F(DbAccessorChunkedTest, PropertyRangeChunkIterator) {
   std::vector<Gid> matching_gids;
   {
