@@ -1,6 +1,7 @@
 name: "PR Conflict Check"
 
 on:
+  push:  # DO NOT MERGE
   pull_request_target:
     types: [opened]
 
