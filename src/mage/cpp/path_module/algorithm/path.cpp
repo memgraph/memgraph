@@ -1276,7 +1276,7 @@ bool Path::PathExpand::AskedBefore(const size_t hash) {
     asked_.assign(std::min(asked_.size() * 2U, kMaxAskedBits / 64U), 0);
     asked_set_ = 0;
   }
-  const size_t bit = hash & (asked_.size() * 64U - 1U);
+  const size_t bit = hash & ((asked_.size() * 64U) - 1U);
   uint64_t &word = asked_[bit / 64U];
   const uint64_t mask = uint64_t{1} << (bit % 64U);
   const bool asked_before = (word & mask) != 0U;
@@ -1317,7 +1317,7 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
     const int64_t next_id = mgp::vertex_get_id(next_vertex).as_int;
     const int64_t relationship_id = mgp::edge_get_id(edge).as_int;
     relationships_.Emplace(relationship_id, edge);
-    mgp::Node &next_node = nodes_.Emplace(next_id, next_vertex);
+    const mgp::Node &next_node = nodes_.Emplace(next_id, next_vertex);
     admitted.push_back({.next_id = next_id, .relationship_id = relationship_id, .next_vertex = next_node.GetPtr()});
   }
   if (!worth_storing) {
