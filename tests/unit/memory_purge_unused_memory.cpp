@@ -11,12 +11,15 @@
 
 #include <gtest/gtest.h>
 
+#include "memory/db_arena.hpp"
 #include "memory/global_memory_control.hpp"
 
 #if USE_JEMALLOC
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <csignal>
 #include <cstddef>
 #include <mutex>
 #include <string>
@@ -28,6 +31,8 @@
 #include <pthread.h>
 #include <sys/resource.h>
 #include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace {
 
@@ -239,11 +244,132 @@ class HeldPurgeArena {
 constexpr size_t kObjectBytes = 64 * 1024;
 constexpr int kObjects = 256;
 
+// An arena whose extent hooks stall the thread that destroys it in the first hook that thread
+// enters. jemalloc pauses the arena's background thread for the whole destroy, so the stall gives
+// that thread time to wake and find itself paused, and another thread time to act while the destroy
+// is under way. The hooks find the arena through a static pointer, so only one may exist at a time.
+// Failures end the process, which runs as a forked child.
+class SlowlyDestroyedArena {
+ public:
+  SlowlyDestroyedArena() {
+    instance_ = this;
+    size_t size = sizeof(arena_);
+    Require(je_mallctl("arenas.create", &arena_, &size, nullptr, 0) == 0);
+    size = sizeof(base_);
+    Require(je_mallctl(Name("extent_hooks").c_str(), &base_, &size, nullptr, 0) == 0);
+    hooks_ = *base_;
+    if (hooks_.dalloc != nullptr) hooks_.dalloc = &Dalloc;
+    if (hooks_.destroy != nullptr) hooks_.destroy = &Destroy;
+    if (hooks_.purge_lazy != nullptr) hooks_.purge_lazy = &PurgeLazy;
+    if (hooks_.purge_forced != nullptr) hooks_.purge_forced = &PurgeForced;
+    extent_hooks_t *mine = &hooks_;
+    Require(je_mallctl(Name("extent_hooks").c_str(), nullptr, nullptr, &mine, sizeof(mine)) == 0);
+  }
+
+  SlowlyDestroyedArena(const SlowlyDestroyedArena &) = delete;
+  SlowlyDestroyedArena &operator=(const SlowlyDestroyedArena &) = delete;
+  SlowlyDestroyedArena(SlowlyDestroyedArena &&) = delete;
+  SlowlyDestroyedArena &operator=(SlowlyDestroyedArena &&) = delete;
+  ~SlowlyDestroyedArena() = default;
+
+  static void Require(bool ok) {
+    if (!ok) _exit(1);
+  }
+
+  int Flags() const { return MALLOCX_ARENA(arena_) | MALLOCX_TCACHE_NONE; }
+
+  std::string Name(const char *leaf) const { return "arena." + std::to_string(arena_) + "." + leaf; }
+
+  void Destroy() {
+    destroyer_ = std::this_thread::get_id();
+    stall_.store(true);
+    Require(je_mallctl(Name("destroy").c_str(), nullptr, nullptr, nullptr, 0) == 0);
+  }
+
+  void WaitUntilStalled() const { stalled_.wait(false); }
+
+ private:
+  static void MaybeStall() {
+    if (std::this_thread::get_id() == instance_->destroyer_ && instance_->stall_.exchange(false)) {
+      instance_->stalled_.store(true);
+      instance_->stalled_.notify_all();
+      std::this_thread::sleep_for(1s);
+    }
+  }
+
+  static bool Dalloc(extent_hooks_t * /*hooks*/, void *addr, size_t size, bool committed, unsigned arena_ind) {
+    MaybeStall();
+    return instance_->base_->dalloc(instance_->base_, addr, size, committed, arena_ind);
+  }
+
+  static void Destroy(extent_hooks_t * /*hooks*/, void *addr, size_t size, bool committed, unsigned arena_ind) {
+    MaybeStall();
+    instance_->base_->destroy(instance_->base_, addr, size, committed, arena_ind);
+  }
+
+  static bool PurgeLazy(extent_hooks_t * /*hooks*/, void *addr, size_t size, size_t offset, size_t length,
+                        unsigned arena_ind) {
+    MaybeStall();
+    return instance_->base_->purge_lazy(instance_->base_, addr, size, offset, length, arena_ind);
+  }
+
+  static bool PurgeForced(extent_hooks_t * /*hooks*/, void *addr, size_t size, size_t offset, size_t length,
+                          unsigned arena_ind) {
+    MaybeStall();
+    return instance_->base_->purge_forced(instance_->base_, addr, size, offset, length, arena_ind);
+  }
+
+  static inline SlowlyDestroyedArena *instance_ = nullptr;
+
+  unsigned arena_{0};
+  extent_hooks_t *base_{nullptr};
+  extent_hooks_t hooks_{};
+  std::thread::id destroyer_;
+  std::atomic<bool> stall_{false};
+  std::atomic<bool> stalled_{false};
+};
+
+// Purges while an arena is being destroyed and its background thread keeps waking. With a single
+// background thread, thread 0 serves the arena, and pages still decaying keep it sleeping on a
+// short timer rather than indefinitely. The purge is issued before the thread first wakes during
+// the destroy, so it is first in line when the destroy ends.
+void DestroyArenaThenPurge() {
+  size_t one = 1;
+  SlowlyDestroyedArena::Require(je_mallctl("max_background_threads", nullptr, nullptr, &one, sizeof(one)) == 0);
+  memgraph::memory::EnableBackgroundThreads();
+
+  SlowlyDestroyedArena arena;
+  ssize_t decay_ms = 1000;
+  SlowlyDestroyedArena::Require(
+      je_mallctl(arena.Name("dirty_decay_ms").c_str(), nullptr, nullptr, &decay_ms, sizeof(decay_ms)) == 0);
+  std::vector<void *> objects;
+  objects.reserve(kObjects);
+  for (int i = 0; i < kObjects; ++i) objects.push_back(je_mallocx(kObjectBytes, arena.Flags()));
+  for (void *object : objects) je_dallocx(object, arena.Flags());
+  // An application thread checks an arena's decay only once enough of its calls in the arena have
+  // passed, and the first check after the frees wakes the background thread, which then keeps
+  // waking while the freed pages decay.
+  const auto deadline = std::chrono::steady_clock::now() + 200ms;
+  while (std::chrono::steady_clock::now() < deadline) {
+    je_dallocx(je_mallocx(kObjectBytes, arena.Flags()), arena.Flags());
+  }
+
+  std::jthread purger([&arena] {
+    arena.WaitUntilStalled();
+    memgraph::memory::PurgeUnusedMemory();
+  });
+  arena.Destroy();
+}
+
 // Background threads are process-wide, so every test starts with them running and leaves them
-// running however it ends.
+// running however it ends. The arenas a test creates must also be ones no thread is bound to by the
+// CPU it runs on, as the server ensures at startup.
 class PurgeUnusedMemoryTest : public ::testing::Test {
  protected:
-  void SetUp() override { memgraph::memory::EnableBackgroundThreads(); }
+  void SetUp() override {
+    memgraph::memory::EnsureCpuArenaCoverage();
+    memgraph::memory::EnableBackgroundThreads();
+  }
 
   void TearDown() override { memgraph::memory::EnableBackgroundThreads(); }
 };
@@ -289,6 +415,31 @@ TEST_F(PurgeUnusedMemoryTest, LeavesBackgroundThreadsAsItFoundThem) {
   EXPECT_FALSE(ReadMallctl<bool>("background_thread"));
 }
 
+TEST_F(PurgeUnusedMemoryTest, CompletesRightAfterAnArenaIsDestroyed) {
+  // A deadlock cannot be undone in this process, so the purge runs in a child that is killed if it
+  // does not finish.
+  const pid_t child = fork();
+  ASSERT_NE(child, -1);
+  if (child == 0) {
+    DestroyArenaThenPurge();
+    _exit(0);
+  }
+
+  int status = 0;
+  pid_t waited = 0;
+  const auto deadline = std::chrono::steady_clock::now() + 10s;
+  while ((waited = waitpid(child, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(10ms);
+  }
+  if (waited == 0) {
+    kill(child, SIGKILL);
+    waitpid(child, &status, 0);
+    FAIL() << "the purge did not finish";
+  }
+  ASSERT_EQ(waited, child);
+  EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0) << "child status " << status;
+}
+
 TEST_F(PurgeUnusedMemoryTest, FailedRestartLeavesBackgroundThreadsOff) {
   if (!PurgeWithThreadCreationRefused()) GTEST_SKIP() << "this user can create threads past the process limit";
   EXPECT_FALSE(ReadMallctl<bool>("background_thread"));
@@ -316,15 +467,18 @@ TEST_F(PurgeUnusedMemoryTest, BackgroundThreadsCanBeEnabledAfterAFailedRestart) 
   DecayingArena arena;
   ASSERT_NO_FATAL_FAILURE(arena.Create());
 
-  // With background threads enabled no application thread purges, and nothing touches this arena
-  // after the frees, so pages purged from it were purged by a background thread.
+  // With background threads enabled an application thread does not purge dirty pages: once enough
+  // of its calls in the arena have passed, it wakes the arena's background thread instead. Pages
+  // purged from this arena were therefore purged by a background thread.
   std::vector<void *> objects;
   objects.reserve(kObjects);
   for (int i = 0; i < kObjects; ++i) objects.push_back(je_mallocx(kObjectBytes, arena.Flags()));
   for (void *object : objects) je_dallocx(object, arena.Flags());
 
   const auto deadline = std::chrono::steady_clock::now() + 10s;
-  while (arena.PurgedPages() == 0 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(10ms);
+  while (arena.PurgedPages() == 0 && std::chrono::steady_clock::now() < deadline) {
+    je_dallocx(je_mallocx(kObjectBytes, arena.Flags()), arena.Flags());
+  }
   EXPECT_GT(arena.PurgedPages(), 0U);
 }
 
