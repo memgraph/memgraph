@@ -623,7 +623,7 @@ class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
 };
 
 /// Thrown inside Interpreter::Commit() (first action, pre-mutation) when commit_mutex_ is
-/// contended (experimental_lockfree_read_snapshot ON). Never a client Bolt error; the Bolt
+/// contended (experimental_commit_lock_narrowing ON). Never a client Bolt error; the Bolt
 /// driver (U4b) catches, parks under WaitResource::CommitLock, and retries — re-entry is safe.
 class CommitWouldBlockException final : public std::exception {
  public:
@@ -633,7 +633,7 @@ class CommitWouldBlockException final : public std::exception {
 };
 
 /// Thrown inside CurrentDB::SetupDatabaseTransaction() when main_lock_ is contended and the
-/// storage-access deadline has NOT yet passed (experimental_lockfree_read_snapshot ON). Never a
+/// storage-access deadline has NOT yet passed (experimental_commit_lock_narrowing ON). Never a
 /// client Bolt error; Bolt driver (U3b) catches, parks under WaitResource::MainLock, then retries.
 class BeginWouldBlockException final : public std::exception {
  public:
