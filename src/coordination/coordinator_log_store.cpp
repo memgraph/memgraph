@@ -23,7 +23,6 @@
 #include <libnuraft/log_val_type.hxx>
 #include <nlohmann/json.hpp>
 #include <optional>
-#include <ranges>
 #include <string>
 
 #include "coordination/constants.hpp"
@@ -74,11 +73,25 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       }
 
       uint64_t const last_log_entry = std::stoull(maybe_last_log_entry.value());
-      auto const durable_start_idx_value = std::stoull(maybe_start_idx.value());
+      uint64_t const durable_start_idx_value = std::stoull(maybe_start_idx.value());
       start_idx_.store(durable_start_idx_value, std::memory_order_release);
 
+      // A store written by a version that advanced the start index alone on compaction can hold the two disagreeing,
+      // and such a directory has to stay startable. The start index is the one to keep: it says everything below it
+      // is already in a snapshot, and claiming entries this store does not hold would be the unsafe direction.
+      if (durable_start_idx_value > last_log_entry + 1) {
+        spdlog::warn(
+            "Coordinator log store begins at index {} while its last stored entry is recorded as {}. Treating the log "
+            "as empty from {} and repairing the record.",
+            durable_start_idx_value,
+            last_log_entry,
+            durable_start_idx_value);
+        durability_->Put(kLastLogEntry, std::to_string(durable_start_idx_value - 1));
+        return true;
+      }
+
       // Compaction might have happened so we might be missing some logs.
-      for (auto const id : std::ranges::iota_view{durable_start_idx_value, last_log_entry + 1}) {
+      for (uint64_t id = durable_start_idx_value; id <= last_log_entry; ++id) {
         auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
         if (!entry) {
@@ -348,6 +361,15 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
     auto const new_idx = last_log_index + 1;
     start_idx_.store(new_idx, std::memory_order_release);
     put_batch.emplace(kStartIdx, std::to_string(new_idx));
+
+    // Recovery loads the entries between the two durable indices, so the start index must never overtake the
+    // last-entry index by more than one. Nothing else holds them in step: the last-entry index moves only when an
+    // entry is stored, while NuRaft compacts a follower that takes an install-snapshot up to the leader's snapshot
+    // index, which can sit above every entry this store has held.
+    auto const durable_last_log_entry = durability_->Get(kLastLogEntry);
+    if (!durable_last_log_entry || std::stoull(*durable_last_log_entry) < last_log_index) {
+      put_batch.emplace(kLastLogEntry, std::to_string(last_log_index));
+    }
   }
 
   durability_->PutAndDeleteMultiple(put_batch, del_batch);
