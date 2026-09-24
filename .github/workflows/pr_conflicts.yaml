@@ -46,8 +46,8 @@ jobs:
         run: |
           python3 tools/ci/pr-conflicts/find_pr_conflicts.py \
             "$RUNNER_TEMP/open_prs.json" \
-            "${{ steps.pr.outputs.number }}" \
-            "$RUNNER_TEMP/pr_conflicts.md"
+            "4828" \
+            "$RUNNER_TEMP/pr_conflicts.md"  # DO NOT MERGE: use "${{ steps.pr.outputs.number }}"
 
       - name: Comment on PR
         if: ${{ steps.pr.outputs.number != '' }}
