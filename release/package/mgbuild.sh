@@ -2187,6 +2187,25 @@ test_memgraph() {
       check_support pokec_size $DATASET_SIZE
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
     ;;
+    mgbench-ha-rust)
+      shift 1
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
+      # Native Rust bolt+routing load-gen against the pinned 2-replica cluster: saturates the replicas
+      # on the ~1ms :Bench read where the python client is client-bound. Builds the load-gen (cargo is
+      # in the image but not on PATH), then runs the orchestrator which brings up the cluster, runs the
+      # point / heavy / split-read-write arms, and writes the bench-graph result JSON.
+      local THREADS=24
+      local DURATION=30
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --export-results-file) EXPORT_RESULTS_FILE="$2"; shift 2 ;;
+          --threads) THREADS="$2"; shift 2 ;;
+          --duration) DURATION="$2"; shift 2 ;;
+          *) echo "Error: Unknown flag '$1' for mgbench-ha-rust"; exit 1 ;;
+        esac
+      done
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source /home/mg/.cargo/env && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && cargo build --release --manifest-path rust_loadgen/Cargo.toml && export MG_REAL_BINARY=$MGBUILD_ROOT_DIR/build/memgraph && ./ha_rust_bench.py --export-results $EXPORT_RESULTS_FILE --threads $THREADS --duration $DURATION"
+    ;;
     mgbench-supernode)
       shift 1
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
