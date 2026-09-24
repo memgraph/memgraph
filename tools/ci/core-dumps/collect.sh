@@ -141,6 +141,7 @@ mapped_executables="${CORES_DIR}/mapped_executables.txt"
 # any container: the mgbuild container, or a runtime image (e.g. the MAGE debug
 # image) where gdb + debug symbols are already installed.
 docker exec -u root "$BUILD_CONTAINER" rm -f /tmp/analyze_core_dumps.sh >/dev/null 2>&1 || true
+docker exec -u root "$BUILD_CONTAINER" rm -f "$mapped_executables" >/dev/null 2>&1 || true
 if docker cp "$SCRIPT_DIR/analyze_core_dumps.sh" "${BUILD_CONTAINER}:/tmp/analyze_core_dumps.sh" >/dev/null 2>&1; then
   docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
     "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN' --core-glob '$CORE_GLOB' --executables-out '$mapped_executables'" \
