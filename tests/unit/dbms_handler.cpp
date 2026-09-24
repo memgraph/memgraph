@@ -290,7 +290,7 @@ TEST(DBMS_Handler, Delete) {
   auto db1_acc = dbms.Get("db1");  // Holds access to database
 
   {
-    auto del = dbms.TryDelete(memgraph::dbms::kDefaultDB);
+    auto del = dbms.TryDelete(std::string{memgraph::dbms::kDefaultDB});
     ASSERT_EQ(del, std::unexpected{memgraph::dbms::DeleteError::DEFAULT_DB});
   }
   {

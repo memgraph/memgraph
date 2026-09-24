@@ -457,7 +457,21 @@ DeleteError DbmsHandler::NotLiveDeleteError_(std::string_view db_name) const {
   return db_handler_.IsPending(db_name) ? DeleteError::ALREADY_DROPPING : DeleteError::NON_EXISTENT;
 }
 
-DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
+void DbmsHandler::NotifyUuidRetired_(utils::UUID const &uuid, std::string_view name_for_log) {
+  if (!on_uuid_retired_) return;
+  // The drop is already committed (husk draining or COLD removed). An exception from the hook must
+  // NOT surface as a false failure to the caller. If the hook throws, that uuid's parameter rows
+  // stay orphaned — nothing reclaims them.
+  try {
+    on_uuid_retired_(uuid);
+  } catch (const std::exception &e) {
+    spdlog::error("on_uuid_retired_ threw after committed drop of '{}': {}", name_for_log, e.what());
+  } catch (...) {
+    spdlog::error("on_uuid_retired_ threw (non-std) after committed drop of '{}'", name_for_log);
+  }
+}
+
+DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string db_name, system::Transaction *transaction) {
   auto wr = std::lock_guard{lock_};
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
@@ -495,7 +509,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
   }
 
-  if (on_uuid_retired_) on_uuid_retired_(uuid);
+  NotifyUuidRetired_(uuid, db_name);
 
   // Success
   // Save delta
@@ -519,7 +533,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
   if (!conf) return std::unexpected{NotLiveDeleteError_(db_name)};
 
   // Force delete
-  const auto res = Delete_(db_name);
+  const auto res = Delete_(std::string{db_name});
   if (res) {
     // Success; save delta
     if (transaction) {
@@ -534,7 +548,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
   if (auto cold_res = TryDeleteColdFastPath_(db_name, /*transaction=*/nullptr)) {
     return *cold_res;
   }
-  return Delete_(db_name);
+  return Delete_(std::string{db_name});
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
@@ -824,12 +838,12 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   if (ec) {
     spdlog::error(R"(Failed to clean disk while dropping suspended database "{}" at {})", name_copy, data_dir.string());
   }
-  if (on_uuid_retired_) on_uuid_retired_(uuid);
+  NotifyUuidRetired_(uuid, name_copy);
   UpdateColdGauge_();
   return uuid;
 }
 
-DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
+DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string db_name) {
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
     return std::unexpected{DeleteError::DEFAULT_DB};
@@ -870,7 +884,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     db.StopAllBackgroundTasks();
     db.streams()->DropAll();
   };
-  std::move_only_function<void()> post_delete_step = [storage_path = *storage_path, db_name = std::string{db_name}]() {
+  std::move_only_function<void()> post_delete_step = [storage_path = *storage_path, db_name = db_name]() {
     std::error_code ec;
     (void)std::filesystem::remove_all(storage_path, ec);
     if (ec) {
@@ -879,28 +893,18 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   };
   // Build the owned name copy BEFORE the seal so the post-seal suffix contains no allocations:
   // a bad_alloc here leaves the tenant HOT and unsealed (retriable), never sealed-but-stranded.
-  auto husk_name = std::string{db_name};
+  auto husk_name = db_name;
   // Advisory seal — the last step before the nothrow handoff. Every argument to DeferDelete is
   // already an owned value (std::string by value, move_only_function by move — all noexcept moves),
   // so no allocation or copy occurs after this point.
-  if (auto *gk = db_handler_.GetGatekeeper(db_name)) gk->seal();
+  auto *gk = db_handler_.GetGatekeeper(db_name);
+  MG_ASSERT(gk, "Delete_: gatekeeper for '{}' vanished under lock_", db_name);
+  gk->seal();
   db_handler_.DeferDelete(std::move(husk_name), std::move(husk_id), std::move(stop_step), std::move(post_delete_step));
 
-  // Announce the retired uuid so uuid-keyed stores (e.g. database-scoped parameters) discard its rows.
-  // Placed after the seal + DeferDelete handoff (the drop's point of no return): any earlier failure
-  // leaves the tenant HOT and unsealed, so a not-actually-dropped tenant never loses its rows.
-  // The drop is already committed at this point — an exception from on_uuid_retired_ must not unwind
-  // Delete_ (which would falsely surface failure to the client while the husk drains in pending_).
-  // Swallow and log instead; the uuid's param rows will be cleaned up on next startup or by GC.
-  if (on_uuid_retired_) {
-    try {
-      on_uuid_retired_(*db_uuid);
-    } catch (const std::exception &e) {
-      spdlog::error("on_uuid_retired_ threw after committed drop of '{}': {}", db_name, e.what());
-    } catch (...) {
-      spdlog::error("on_uuid_retired_ threw (non-std) after committed drop of '{}'", db_name);
-    }
-  }
+  // Announce the retired uuid. Placed after the point of no return (seal + DeferDelete): any earlier
+  // failure leaves the tenant HOT and unsealed, so a not-actually-dropped tenant never loses its rows.
+  NotifyUuidRetired_(*db_uuid, db_name);
 
   return {};  // Success
 }

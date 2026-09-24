@@ -10646,13 +10646,17 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     transaction_queries_->push_back(parsed_query.query_string);
     AdvanceCommand();
   } else {
-    ResetInterpreter();
-    transaction_queries_->push_back(parsed_query.query_string);
-    if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
-      // If we're not in an explicit transaction block and we have an open
-      // transaction, abort it since we're about to prepare a new query.
+    // Abort any leftover storage transaction BEFORE ResetInterpreter so that db_acc_ still pins
+    // the Database/Storage alive during Abort() → CleanupDBTransaction().  ResetInterpreter()
+    // calls ReleaseDbIfMarked(), which may drop the last gatekeeper pin on a sealed DB; doing so
+    // while db_transactional_accessor_ is alive is a UAF on the Storage (same ordering as ResetDB).
+    if (current_db_.db_transactional_accessor_) {
+      // Not in an explicit transaction (else branch above); there is an open autocommit transaction
+      // left over from a previous query — abort it before starting the next one.
       AbortCommand(nullptr);
     }
+    ResetInterpreter();
+    transaction_queries_->push_back(parsed_query.query_string);
 
     SetupInterpreterTransaction(extras);
     memgraph::logging::EmitSessionTraceEvent(

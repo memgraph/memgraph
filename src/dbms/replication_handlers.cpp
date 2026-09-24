@@ -400,8 +400,10 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   auto hot_cold = dbms_handler.AllWithHotColdStatus();
   std::vector<std::string> old;
   old.reserve(hot_cold.size());
-  std::ranges::transform(
-      hot_cold | std::views::keys, std::back_inserter(old), [](auto &name) { return std::move(name); });
+  for (auto &[name, state] : hot_cold) {
+    // Husks are already being torn down; exclude them so they are not treated as leftover tenants to drop.
+    if (state != "DROPPING") old.push_back(std::move(name));
+  }
 
   // Check/create the incoming HOT dbs.
   for (const auto &config : database_configs) {

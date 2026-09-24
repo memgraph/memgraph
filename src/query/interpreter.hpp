@@ -302,11 +302,15 @@ struct CurrentDB {
     old_db.reset();  // db access released last; still outside db_acc_mutex_
   }
 
-  // Releases db_acc_ only if held and marked for deletion; db_transactional_accessor_/execution_db_accessor_/
-  // trigger_context_collector_ are untouched -- that's ResetDB()'s job. is_marked_for_deletion() only reads
-  // an atomic_bool (no GKInternals::mutex_), so it's safe to call under db_acc_mutex_; the swapped-out
-  // Accessor itself is destructed after the lock is released (see db_acc_mutex_).
+  // Releases db_acc_ only if held, marked for deletion, and no storage-side accessor is live.
+  // Those accessors hold raw Storage references without a pin of their own, so dropping the last
+  // gatekeeper pin under them would let a deferred teardown free the Storage (same ordering as ResetDB).
+  // E.g. a nested BEGIN inside an open explicit transaction reaches here before it throws; the pin is
+  // then released by the next ResetInterpreter after the transaction ends, or by ResetDB.
+  // is_marked_for_deletion() reads an atomic_bool (no GKInternals::mutex_), so it is safe to call
+  // under db_acc_mutex_; the swapped-out Accessor is destructed after the lock is released.
   void ReleaseDbIfMarked() {
+    if (db_transactional_accessor_ || execution_db_accessor_ || trigger_context_collector_) return;
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};

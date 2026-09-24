@@ -247,9 +247,9 @@ class Handler {
       // OOM in emplace_back; gk is intact — run the same teardown sequence.
       PendingDeletion fallback{
           std::move(gk), std::move(name), std::move(id), std::move(stop_step), std::move(post_delete_step)};
-      // TeardownNode_ here runs synchronously under the CALLER's Handler lock_ (Delete_/TryDelete hold it) —
-      // this matches the pre-defer blocking behaviour and only occurs on the OOM fallback, never the normal
-      // deferred path. stop_step MUST NOT re-acquire lock_.
+      // Synchronous teardown under the caller's DbmsHandler lock_. stop_step joins the database's
+      // background threads; those threads must not be waiting for lock_. Same blocking behaviour as
+      // pre-defer master; here it is limited to the OOM fallback, never the normal deferred path.
       TeardownNode_(fallback);
       return;
     }
@@ -258,11 +258,10 @@ class Handler {
       auto lock = std::unique_lock{pending_mutex_};
       if (shutting_down_) {
         // ~Handler has already drained pending_; splicing would orphan this node.
-        // Release the lock before the potentially-blocking ~Gatekeeper and user callbacks.
+        // This branch is only reachable after sessions and background tasks are already stopped.
         lock.unlock();
-        // TeardownNode_ here runs synchronously under the CALLER's Handler lock_ (Delete_/TryDelete hold it) —
-        // this matches the pre-defer blocking behaviour and only occurs on the shutdown fallback, never the normal
-        // deferred path. stop_step MUST NOT re-acquire lock_.
+        // Synchronous teardown under the caller's DbmsHandler lock_; same lock_ constraint
+        // as the OOM fallback above applies.
         TeardownNode_(node.front());
         return;
       }
@@ -355,7 +354,8 @@ class Handler {
           enqueued_at{std::chrono::steady_clock::now()} {}
   };
 
-  // MUST be called with no Handler lock held: ~Gatekeeper and post_delete_step may block.
+  // Must not be called with pending_mutex_ held: ~Gatekeeper and post_delete_step may block.
+  // Fallback callers hold the outer DbmsHandler lock_; joined threads must not be waiting for it (see DeferDelete).
   // Each step is independently caught — a throwing stop_step does not skip teardown.
   void TeardownNode_(PendingDeletion &node) {
     // node.stopped/warned are read lock-free; defer_worker_.Stop()'s join provides the happens-before edge.
@@ -374,7 +374,7 @@ class Handler {
     }
   }
 
-  // Must be noexcept: Scheduler calls f() without a try/catch (scheduler.cpp:188),
+  // Must be noexcept: utils::Scheduler invokes the job without catching exceptions,
   // so an uncaught exception would call std::terminate on the jthread.
   void Tick_() noexcept {
     try {
@@ -467,7 +467,8 @@ class Handler {
   mutable std::mutex pending_mutex_;
   bool shutting_down_ = false;  //!< set by ~Handler before Stop(); guards the DeferDelete/drain race
   std::list<PendingDeletion> pending_;
-  utils::Scheduler defer_worker_;  //!< background teardown worker; cadence default 10 s, injectable via constructor
+  utils::Scheduler defer_worker_;  //!< deferred-teardown worker; the Handler ctor calls SetInterval (default 10 s) — a
+                                   //!< Scheduler has no interval until then; override the constructor argument in tests
 };
 
 }  // namespace memgraph::dbms

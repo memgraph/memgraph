@@ -292,7 +292,7 @@ class DbmsHandler {
    * @param transaction system transaction
    * @return DeleteResult error on failure
    */
-  DeleteResult TryDelete(std::string_view db_name, system::Transaction *transaction = nullptr);
+  DeleteResult TryDelete(std::string db_name, system::Transaction *transaction = nullptr);
 
   /**
    * @brief Delete or defer deletion of database.
@@ -951,7 +951,7 @@ class DbmsHandler {
   DbmsHandler::NewResultT New_(storage::Config storage_config, system::Transaction *txn = nullptr);
 
   // TODO: new overload of Delete_ with DatabaseAccess
-  DeleteResult Delete_(std::string_view db_name);
+  DeleteResult Delete_(std::string db_name);
 
   // Drop a COLD (suspended) tenant: erases suspended_ entry, durable cold marker, on-disk data dir,
   // cold shell, and tenant-profile attachment. Returns the dropped UUID on success, or DeleteError
@@ -982,6 +982,12 @@ class DbmsHandler {
   // ALREADY_DROPPING if a husk with this name is still draining in PendingItems(), else NON_EXISTENT.
   // Caller invokes this only when GetConfig(db_name) already returned nullopt. Caller must hold lock_.
   DeleteError NotLiveDeleteError_(std::string_view db_name) const;
+
+  // Invoke on_uuid_retired_ after a committed drop; swallow and log any exception.
+  // The drop is already committed (husk draining or COLD removed) — a hook exception must NOT
+  // surface as a false failure to the caller. If the hook throws, that uuid's parameter rows
+  // stay orphaned; nothing reclaims them. No-op when on_uuid_retired_ is empty.
+  void NotifyUuidRetired_(utils::UUID const &uuid, std::string_view name_for_log);
 
   // Refresh the global cold-databases gauge from the live suspended_ size. Caller MUST hold lock_
   // (every call site already does, or runs before any concurrent reader exists).
