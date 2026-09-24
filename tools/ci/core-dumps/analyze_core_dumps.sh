@@ -17,6 +17,7 @@ BINARY="/home/mg/memgraph/build/memgraph"
 OUT_DIR="/tmp/mg-cores/stacktraces"
 TOOLCHAIN=""
 CORE_GLOB="core.*"
+EXECUTABLES_OUT=""
 
 print_usage() {
   cat <<EOF
@@ -28,6 +29,9 @@ Options:
   --out-dir DIR     Directory to write stack traces to (default: $OUT_DIR)
   --toolchain VER   Toolchain version used to locate gdb (e.g. v7)
   --core-glob PAT   Glob (relative to --cores-dir) matching cores (default: $CORE_GLOB)
+  --executables-out FILE
+                    Also write the path of every executable a core maps (one per
+                    line) to FILE, so the upload can include test binaries
   -h, --help        Show this help
 EOF
 }
@@ -39,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --out-dir)   OUT_DIR="$2"; shift 2 ;;
     --toolchain) TOOLCHAIN="$2"; shift 2 ;;
     --core-glob) CORE_GLOB="$2"; shift 2 ;;
+    --executables-out) EXECUTABLES_OUT="$2"; shift 2 ;;
     -h|--help)   print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
   esac
@@ -133,6 +138,8 @@ resolve_binary_for_core() {
 }
 
 mkdir -p "$OUT_DIR"
+# Start the list empty so a previous run's entries are never re-uploaded.
+[[ -n "$EXECUTABLES_OUT" ]] && : > "$EXECUTABLES_OUT"
 
 count=0
 for core in "${cores[@]}"; do
@@ -165,6 +172,7 @@ for core in "${cores[@]}"; do
     echo "Analyzing $core ($(basename "$core_binary"), fallback) -> $out"
   else
     echo "Analyzing $core ($(basename "$core_binary")) -> $out"
+    [[ -n "$EXECUTABLES_OUT" ]] && printf '%s\n' "$core_binary" >> "$EXECUTABLES_OUT"
   fi
   {
     echo "=== Memgraph CI core dump stack trace ==="
