@@ -370,7 +370,8 @@ inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction 
 // pair of two types describes an empty range.
 inline bool AreComparableBounds(utils::Bound<PropertyValue> const &lower_bound,
                                 utils::Bound<PropertyValue> const &upper_bound) {
-  return AreComparable(lower_bound.value(), upper_bound.value()) || BoundsMarkAWholeStretch(lower_bound, upper_bound);
+  return AreComparable(lower_bound.value(), upper_bound.value()) ||
+         BoundsRunToTheEndOfAStretch(lower_bound, upper_bound);
 }
 
 // `allow_whole_type_span` admits the bound pair that marks an entire type (see AreComparableBounds).
