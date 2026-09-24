@@ -81,12 +81,18 @@ export MEMGRAPH_METRICS_HOST MEMGRAPH_METRICS_PORT
 # instance (metrics) / pod (logs) label so several instances on one host stay distinguishable.
 parse_target() {
   local raw default_port
-  raw="$(echo "$1" | xargs)"
+  raw="$1"
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  raw="${raw%"${raw##*[![:space:]]}"}"
   default_port="$2"
   target_name=""
   if [[ "${raw}" == *=* && "${raw%%=*}" != *[:/]* ]]; then
     target_name="${raw%%=*}"
     raw="${raw#*=}"
+    if [[ ! "${target_name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+      echo "error: target name '${target_name}' may only contain letters, digits, '_', '.' and '-'." >&2
+      exit 2
+    fi
   fi
   target_addr="${raw}"
   target_host="${raw%:*}"
