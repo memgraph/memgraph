@@ -1975,6 +1975,9 @@ antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryContext *ctx) {
+  // A subquery body is a single query of its own and takes its copies at the end of its own visit. Whatever this
+  // query has pending waits here, so it is copied once this query has named its identifiers, not once the body has.
+  auto enclosing_case_test_copies = std::exchange(case_test_copies_, {});
   auto *single_query = storage_->Create<SingleQuery>();
   for (auto *child : ctx->clause()) {
     antlrcpp::Any got = child->accept(this);
@@ -2128,7 +2131,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   // arm gets its own copy, and the test is planned and run once per arm. Copied only now, so each copy carries the
   // anonymous names given above.
   for (auto **test : case_test_copies_) *test = (*test)->Clone(storage_);
-  case_test_copies_.clear();
+  case_test_copies_ = std::move(enclosing_case_test_copies);
 
   single_query->has_update = has_update || subquery_has_update;
   return single_query;

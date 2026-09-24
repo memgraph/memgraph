@@ -954,6 +954,39 @@ TEST_P(CypherMainVisitorTest, CaseSimpleFormCopiesNameAnonymousIdentifiers) {
   }
 }
 
+// A copy is taken when the query that holds it has named its own anonymous identifiers, so it carries the same
+// names as the arm it was copied from. A nested query naming its identifiers first must not take the copy.
+TEST_P(CypherMainVisitorTest, CaseSimpleFormCopiesTestAfterItsOwnQueryIsNamed) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (a) "
+                               "WITH a, CASE exists((a)-[:R]->()) WHEN true THEN count(a) WHEN false THEN 0 END AS x "
+                               "CALL { MATCH (b) RETURN b } "
+                               "MATCH (anon1) "
+                               "RETURN x, b, anon1"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *with_clause = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+  ASSERT_TRUE(with_clause);
+  auto names_of_test_pattern = [](Expression *arm) {
+    auto *if_operator = dynamic_cast<IfOperator *>(arm);
+    EXPECT_TRUE(if_operator);
+    auto *condition = dynamic_cast<EqualOperator *>(if_operator->condition_);
+    EXPECT_TRUE(condition);
+    auto *exists = dynamic_cast<SubqueryExpression *>(condition->expression1_);
+    EXPECT_TRUE(exists);
+    EXPECT_TRUE(exists->HasPattern());
+    auto *pattern = exists->GetPattern();
+    std::vector<std::string> names{pattern->identifier_->name_};
+    for (auto *atom : pattern->atoms_) names.push_back(atom->identifier_->name_);
+    return std::pair{names, if_operator->else_expression_};
+  };
+  // The last arm keeps the test the parser built; every arm before it holds a copy.
+  auto [original_names, inner_arm] = names_of_test_pattern(with_clause->body_.named_expressions[1]->expression_);
+  auto [copy_names, _] = names_of_test_pattern(inner_arm);
+  EXPECT_EQ(copy_names, original_names);
+}
+
 TEST_P(CypherMainVisitorTest, IsNull) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 iS NulL"));
