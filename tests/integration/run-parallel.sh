@@ -69,9 +69,14 @@ for name in $(list_suites); do
   while [ "$(jobs -rp | wc -l)" -ge "$jobs" ]; do
     wait -n
   done
+  # Memgraph reads MEMGRAPH_CONFIG before its command line, so this gives every instance
+  # a suite-scoped log file while any --log-file/--log-level a runner passes still wins.
+  mkdir -p "$log_dir/$name"
+  printf -- '--log-file=%s/memgraph.log\n--log-level=TRACE\n' "$log_dir/$name" >"$log_dir/$name/memgraph.conf"
   MG_INTEGRATION_BOLT_PORT=$(bolt_port "$index") \
   MG_INTEGRATION_MONITORING_PORT=$(monitoring_port "$index") \
   MG_INTEGRATION_METRICS_PORT=$(metrics_port "$index") \
+  MEMGRAPH_CONFIG="$log_dir/$name/memgraph.conf" \
     "$DIR/run.sh" "$name" >"$log_dir/$name.log" 2>&1 &
   names+=("$name")
   pids+=($!)
