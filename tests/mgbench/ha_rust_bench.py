@@ -78,12 +78,22 @@ _WRITE_RETRY_DELAY_S = 2.0
 # local probe showed batch≈5000 makes the commit ~2× the heavy read, i.e. commit-dominated
 _SLOW_WRITE_BATCH = 5000
 
-# Benchmark arms: (label, rustlg_mode, write_batch).  label keys the result dict and JSON cells.
+# Fixed writer-thread count for split arms: 2 writers saturate the write path while the
+# remaining (args.threads - 2) threads all drive reads against the two replicas.
+_SPLIT_WRITERS = 2
+
+# Batched wipe parameters for full graph reset between benchmark cells.
+_WIPE_BATCH_LIMIT = 50_000
+_WIPE_MAX_ITERS = 200  # safety cap: 200 × 50 K = 10 M-node ceiling
+
+# Benchmark arms: (label, rustlg_mode, write_batch, nthreads).
+# nthreads=None means "use args.threads".  Split arms use the full thread pool so that
+# (args.threads - _SPLIT_WRITERS) reader threads saturate the two replicas; _SPLIT_WRITERS
+# controls the writer-thread count passed in the 5th CLI slot (see arm loop below).
 _BENCH_ARMS = [
-    ("point", "point", 1),
-    ("heavy", "heavy", 1),
-    ("mix", "mix", 1),
-    ("slowmix", "mix", _SLOW_WRITE_BATCH),
+    ("point",        "point", 1,                None),
+    ("heavy",        "heavy", 1,                None),
+    ("splitslowmix", "split", _SLOW_WRITE_BATCH, None),
 ]
 
 _REPLICA_SYNC_TIMEOUT_S = 300
@@ -149,24 +159,43 @@ def _run_query(conn, query: str, params: Optional[dict] = None):
     return cursor.fetchall()
 
 
-def _create_bench_dataset(main_port: int) -> None:
-    """Create 500 000 :Bench nodes and :Bench(id) index on MAIN.
-    Retries every write: Memgraph raises "cannot get read-only access" while a replica is catching up.
-    """
-    logger.info("Creating :Bench dataset on MAIN (port %d) — %d nodes", main_port, _EXPECTED_NODES)
+def _reset_and_seed(main_port: int, replica_port: int) -> None:
+    """Wipe ALL nodes (batched), recreate 500 K :Bench nodes + :Bench(id) index, wait for replica sync.
 
+    Every benchmark cell calls this so each arm starts from an identical clean state with no
+    accumulated :WNode junk from previous arms.  DROP GRAPH is not usable on a transactional
+    cluster, so we use a batched DETACH DELETE loop instead.
+    """
+    logger.info("Resetting graph on MAIN (port %d) …", main_port)
     conn = _mgclient_connect(main_port)
 
-    # Wipe any :Bench nodes left by a previous run.
-    for attempt in range(_WRITE_MAX_RETRIES):
-        try:
-            _run_query(conn, "MATCH (n:Bench) DETACH DELETE n")
+    # Batched wipe: loop until the graph is empty.  Each iteration deletes at most
+    # _WIPE_BATCH_LIMIT nodes so no single transaction spans millions of nodes.
+    for iteration in range(_WIPE_MAX_ITERS):
+        for attempt in range(_WRITE_MAX_RETRIES):
+            try:
+                _run_query(conn, f"MATCH (n) WITH n LIMIT {_WIPE_BATCH_LIMIT} DETACH DELETE n")
+                break
+            except Exception as exc:
+                if attempt >= _WRITE_MAX_RETRIES - 1:
+                    raise RuntimeError(
+                        f"Wipe batch {iteration} failed after {_WRITE_MAX_RETRIES} attempts"
+                    ) from exc
+                logger.debug("Wipe batch %d transient error (attempt %d): %s", iteration, attempt, exc)
+                time.sleep(_WRITE_RETRY_DELAY_S)
+
+        rows = _run_query(conn, "MATCH (n) RETURN count(n) AS c")
+        remaining = rows[0][0] if rows else 0
+        logger.debug("  After wipe batch %d: %d nodes remaining", iteration, remaining)
+        if remaining == 0:
             break
-        except Exception as exc:
-            if attempt >= _WRITE_MAX_RETRIES - 1:
-                raise RuntimeError("Could not clear old :Bench nodes") from exc
-            logger.debug("DETACH DELETE transient error (attempt %d): %s", attempt, exc)
-            time.sleep(_WRITE_RETRY_DELAY_S)
+    else:
+        raise RuntimeError(
+            f"Graph wipe did not complete within {_WIPE_MAX_ITERS} batches "
+            f"(safety cap: {_WIPE_MAX_ITERS * _WIPE_BATCH_LIMIT} nodes)"
+        )
+
+    logger.info("Graph wiped; seeding %d :Bench nodes …", _EXPECTED_NODES)
 
     for batch in range(_NUM_BATCHES):
         lo = batch * _BATCH_SIZE
@@ -188,17 +217,24 @@ def _create_bench_dataset(main_port: int) -> None:
         if (batch + 1) % 10 == 0:
             logger.info("  … inserted %d / %d nodes", (batch + 1) * _BATCH_SIZE, _EXPECTED_NODES)
 
+    # The :Bench(id) index may already exist if the previous cell's wipe only removed nodes
+    # (schema objects survive a data wipe).  Tolerate "already exists" errors.
     for attempt in range(_WRITE_MAX_RETRIES):
         try:
             _run_query(conn, "CREATE INDEX ON :Bench(id)")
             break
         except Exception as exc:
+            exc_str = str(exc).lower()
+            if "already exists" in exc_str or "index already" in exc_str:
+                logger.debug("CREATE INDEX ON :Bench(id) — index already exists, skipping.")
+                break
             if attempt >= _WRITE_MAX_RETRIES - 1:
-                raise RuntimeError("Could not create index") from exc
+                raise RuntimeError("Could not create :Bench(id) index") from exc
             logger.debug("CREATE INDEX transient error (attempt %d): %s", attempt, exc)
             time.sleep(_WRITE_RETRY_DELAY_S)
 
-    logger.info(":Bench dataset and index created on MAIN.")
+    logger.info(":Bench dataset and index ready on MAIN.")
+    _wait_for_replica_sync(replica_port, _EXPECTED_NODES)
 
 
 def _wait_for_replica_sync(replica_port: int, expected_nodes: int) -> None:
@@ -249,18 +285,22 @@ def _run_rustlg(
     """Run rustlg under the client pin (numactl in numa mode, taskset otherwise); return QPS breakdown.
 
     CLI: rustlg <nthreads> <dur> <mode> <target> [write_pct] [write_batch]  — write_pct and
-    write_batch are only passed for mode == "mix".
+    write_batch are only passed for mode in {"mix", "split"}.  For split mode rustlg spawns
+    nthreads/2 reader threads + nthreads/2 writer threads.
 
     Returns a dict with keys ``combined_qps``, ``read_qps``, ``write_qps``.  For point/heavy
     (no reads=/writes= tokens in output) read_qps == combined_qps and write_qps == 0.0.
     """
     cmd = list(client_pin) + [str(_RUSTLG), str(threads), str(duration), mode, target]
-    if mode == "mix":
+    if mode in ("mix", "split"):
         cmd.append(str(write_pct))
         cmd.append(str(write_batch))
 
+    # splitslowmix commits 5 000-node transactions; allow extra drain time after the run window.
+    grace = 120 if (mode in ("mix", "split") and write_batch >= _SLOW_WRITE_BATCH) else 60
+
     logger.info("Running rustlg: %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 60)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + grace)
 
     logger.info("rustlg stdout: %s", result.stdout.strip())
     if result.returncode != 0:
@@ -472,13 +512,15 @@ def main() -> None:
         main_port = runner.get_database_port()
         logger.info("MAIN is on bolt port %d.", main_port)
 
-        _create_bench_dataset(main_port)
-        _wait_for_replica_sync(_REPLICA_PORT, _EXPECTED_NODES)
-
-        for label, rustlg_mode, write_batch in _BENCH_ARMS:
+        for label, rustlg_mode, write_batch, arm_nthreads in _BENCH_ARMS:
+            nthreads = arm_nthreads if arm_nthreads is not None else args.threads
+            # For split mode the 5th CLI slot is n_writers, not write_pct; all other modes
+            # use args.write_pct as the mix write-percentage.
+            slot5 = _SPLIT_WRITERS if rustlg_mode == "split" else args.write_pct
             for target in ("direct", "routing"):
+                _reset_and_seed(main_port, _REPLICA_PORT)
                 results[(label, target)] = _run_rustlg(
-                    rustlg_mode, target, args.threads, args.duration, args.write_pct, client_pin, write_batch
+                    rustlg_mode, target, nthreads, args.duration, slot5, client_pin, write_batch
                 )
 
     finally:
