@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -147,7 +148,32 @@ void UnsetHooks() {
 
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
+  // A forced purge skips an arena that another thread is already purging, and a background thread
+  // purges only down to the decay limit, so purging while one is mid-pass leaves pages behind.
+  // Stopping the background threads joins them, so none is mid-pass when the purge runs. Callers
+  // are serialised so that one cannot restart the threads while another is still purging. Each call
+  // joins and recreates the threads, which is acceptable for a purge a user's query asks for but not
+  // for one run periodically.
+  static std::mutex purge_mutex;
+  const std::scoped_lock lock(purge_mutex);
+
+  bool was_enabled = false;
+  size_t len = sizeof(was_enabled);
+  bool disable = false;
+  if (const int err = je_mallctl("background_thread", &was_enabled, &len, &disable, sizeof(disable)); err != 0) {
+    spdlog::warn("Failed to stop jemalloc background threads before a purge: {} ({})", strerror(err), err);
+  }
   je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+  if (was_enabled) {
+    if (const int err = je_mallctl("background_thread", nullptr, nullptr, &was_enabled, sizeof(was_enabled));
+        err != 0) {
+      spdlog::error(
+          "Failed to restart jemalloc background threads after a purge, so application threads purge instead: {} "
+          "({})",
+          strerror(err),
+          err);
+    }
+  }
 #else
   malloc_trim(0);
 #endif
