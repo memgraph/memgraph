@@ -157,17 +157,6 @@ auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> std::shared_pt
   return entry->second;
 }
 
-void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
-  for (uint64_t i = start; i <= end; i++) {
-    auto const entry = logs_.find(i);
-    if (entry == logs_.end()) {
-      continue;
-    }
-    logs_.erase(entry);
-    durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, i));
-  }
-}
-
 uint64_t CoordinatorLogStore::next_slot() const {
   auto lock = std::lock_guard{logs_lock_};
   return GetNextSlot();

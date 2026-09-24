@@ -22,10 +22,12 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <chrono>
 #include <future>
 #include <memory>
 #include <thread>
+#include <utility>
 
 using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;
@@ -514,6 +516,76 @@ TEST_F(CoordinatorLogStoreTests, CompactAboveEveryStoredEntryReopensAsEmptyLog) 
   ASSERT_NE(log_store, nullptr);
   EXPECT_EQ(log_store->start_index(), kLeaderSnapshotIdx + 1);
   EXPECT_EQ(log_store->next_slot(), kLeaderSnapshotIdx + 1);
+}
+
+// Recovery reads the two durable indices as one range, and they are written by three operations that do not consult
+// each other. Enumerating short sequences of those operations checks the invariant against each of them in turn,
+// which a test of any single operation cannot: the pair only has to disagree once for the store to stop opening.
+TEST_F(CoordinatorLogStoreTests, EveryOperationSequenceLeavesTheDurableIndicesOrdered) {
+  enum class Op : uint8_t { Append, CompactAtLastEntry, CompactPastLastEntry, CompactAtZero, WriteAtStart };
+  constexpr std::array kOps{
+      Op::Append, Op::CompactAtLastEntry, Op::CompactPastLastEntry, Op::CompactAtZero, Op::WriteAtStart};
+
+  auto const apply = [](CoordinatorLogStore &store, Op const op, int const term) {
+    switch (op) {
+      case Op::Append: {
+        auto buf = MakeAppLogBuffer("appended");
+        auto entry = nuraft::cs_new<log_entry>(term, buf, nuraft::log_val_type::app_log);
+        store.append(entry);
+        break;
+      }
+      case Op::CompactAtLastEntry:
+        store.compact(store.next_slot() - 1);
+        break;
+      case Op::CompactPastLastEntry:
+        store.compact(store.next_slot() + 4);
+        break;
+      case Op::CompactAtZero:
+        store.compact(0);
+        break;
+      case Op::WriteAtStart: {
+        auto buf = MakeAppLogBuffer("overwritten");
+        auto entry = nuraft::cs_new<log_entry>(term, buf, nuraft::log_val_type::app_log);
+        store.write_at(store.start_index(), entry);
+        break;
+      }
+    }
+  };
+
+  auto const durable_indices = [](memgraph::kvstore::KVStore const &kv) {
+    auto const start = kv.Get(memgraph::coordination::kStartIdx);
+    auto const last = kv.Get(memgraph::coordination::kLastLogEntry);
+    EXPECT_TRUE(start.has_value() && last.has_value());
+    return std::pair{std::stoull(start.value_or("0")), std::stoull(last.value_or("0"))};
+  };
+
+  int sequence_id = 0;
+  for (auto const first : kOps) {
+    for (auto const second : kOps) {
+      for (auto const third : kOps) {
+        SCOPED_TRACE("sequence " + std::to_string(sequence_id));
+        auto const path = test_folder_ / ("Sequence" + std::to_string(sequence_id++));
+        int term = 1;
+
+        {
+          auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+          memgraph::coordination::LogStoreDurability durability{kv};
+          CoordinatorLogStore log_store{CoordinatorLogStoreTests::GetLogger(), durability};
+
+          for (auto const op : {first, second, third}) {
+            apply(log_store, op, term++);
+            auto const [start, last] = durable_indices(*kv);
+            EXPECT_LE(start, last + 1) << "durable indices describe a range that runs backwards";
+          }
+        }
+
+        auto reopened = OpenWithLivenessBound(std::make_shared<memgraph::kvstore::KVStore>(path),
+                                              CoordinatorLogStoreTests::GetLogger());
+        ASSERT_NE(reopened, nullptr);
+        EXPECT_GE(reopened->next_slot(), reopened->start_index());
+      }
+    }
+  }
 }
 
 // The same durable state, reached by a version that advanced the start index alone. Such a directory already exists in
