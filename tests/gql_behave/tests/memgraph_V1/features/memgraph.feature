@@ -112,20 +112,11 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | false | 'a' | 'small' |
             | true  | 'c' | 'big'   |
 
-    Scenario: Aggregation in every arm of a simple CASE on an aggregation, without the parse cache:
-        Given an empty graph
-        And having executed
-            """
-            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
-            """
-        When executing query:
-            """
-            USING PARALLEL EXECUTION 2 MATCH (n:Person) RETURN n.age > 15 AS old, CASE count(n) WHEN 1 THEN min(n.name) WHEN 2 THEN max(n.name) ELSE 'many' END AS c, CASE WHEN sum(n.age) > 30 THEN 'big' ELSE 'small' END AS s
-            """
-        Then the result should be:
-            | old   | c   | s       |
-            | false | 'a' | 'small' |
-            | true  | 'c' | 'big'   |
+    # The query above is the one shape a scenario here cannot cover under USING PARALLEL EXECUTION, which is how it
+    # reaches the planner with its CASE test node still shared rather than cloned by the parse cache. This suite is
+    # also run with the directive prepended to every query, and setting it twice is refused, so a scenario that
+    # spells it can never pass both runs. TestPlanner.MatchReturnSimpleCaseOnAggregationSharingOneTest pins the
+    # shared node instead, without depending on a storage mode or on how the query arrives.
 
     Scenario: Aggregation in an inner arm of a searched CASE with several arms:
         Given an empty graph

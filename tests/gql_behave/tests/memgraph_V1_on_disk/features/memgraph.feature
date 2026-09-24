@@ -112,10 +112,10 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | false | 'a' | 'small' |
             | true  | 'c' | 'big'   |
 
-    # The in-memory file holds one more scenario here: the same query under USING PARALLEL EXECUTION, which is how a
-    # query reaches the planner without the parse cache having cloned its shared CASE test node. Disk storage refuses
-    # that directive ("ChunkedVertices is not implemented for DiskStorage"), so the shared node is pinned by
-    # TestPlanner.MatchReturnSimpleCaseOnAggregationSharingOneTest, which does not depend on a storage mode.
+    # The query above is the one shape a scenario here cannot cover under USING PARALLEL EXECUTION, which is how it
+    # reaches the planner with its CASE test node still shared rather than cloned by the parse cache. Disk storage
+    # refuses the directive outright, so the shared node is pinned by
+    # TestPlanner.MatchReturnSimpleCaseOnAggregationSharingOneTest instead.
 
     Scenario: Aggregation in an inner arm of a searched CASE with several arms:
         Given an empty graph
