@@ -1122,12 +1122,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   using CandidateLabelPropertiesIndices =
       std::multimap<std::pair<LabelIx, std::vector<query::PropertyIxPath>>, LabelPropertiesIndexCandidate, std::less<>>;
 
-  // A correlated string predicate is left as a filter over a scan; see PropertyFilter::IsStringPredicate.
-  static bool IsCorrelatedStringPredicate(const Symbol &scanned_symbol, FilterInfo const &filter) {
-    if (!PropertyFilter::IsStringPredicate(filter.property_filter->type_)) return false;
-    return std::ranges::any_of(filter.used_symbols, [&scanned_symbol](Symbol const &s) { return s != scanned_symbol; });
-  }
-
   // Whether a scan of `scanned_symbol` may read this filter's value expression. Every path that
   // hands a filter to a scan asks here, so none of them can admit a value the scan cannot evaluate
   // where it runs.

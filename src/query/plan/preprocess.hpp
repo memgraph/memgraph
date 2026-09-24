@@ -305,11 +305,8 @@ class PropertyFilter {
   }
 
   /// The predicates that read a search term to narrow a scan over the property's string values,
-  /// as the seek key or as the predicate that skips whole groups of equal values. One whose search
-  /// term reads a symbol other than the scanned one is refused as an index candidate: the term
-  /// then describes a single row of the other branch, while a Cartesian evaluates it once for the
-  /// whole pass. It stays a filter over a scan, which is also why an indexed search term is the
-  /// same for the whole execution.
+  /// as the seek key or as the predicate that skips whole groups of equal values.
+  /// IsCorrelatedStringPredicate says which of them the planner declines to key a seek on.
   static constexpr bool IsStringPredicate(Type t) {
     return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH || t == Type::REGEX_MATCH;
   }
@@ -462,6 +459,16 @@ struct FilterInfo {
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
 };
+
+/// Whether this filter searches for a term read from somewhere other than the entity being scanned.
+/// Such a term describes a single row of the branch that produces it, while the scan it would key
+/// makes a pass per row of that branch, so the planner leaves it as a filter over a scan: keying a
+/// seek on it either absorbs that branch into the scan which then reads what it produces, or is
+/// refused outright inside an OPTIONAL branch.
+inline bool IsCorrelatedStringPredicate(Symbol const &scanned_symbol, FilterInfo const &filter) {
+  if (!filter.property_filter || !PropertyFilter::IsStringPredicate(filter.property_filter->type_)) return false;
+  return std::ranges::any_of(filter.used_symbols, [&scanned_symbol](Symbol const &s) { return s != scanned_symbol; });
+}
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
 ///

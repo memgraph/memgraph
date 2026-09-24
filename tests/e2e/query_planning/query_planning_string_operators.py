@@ -647,19 +647,22 @@ def test_null_regex_pattern_matches_nothing(memgraph):
 
 @pytest.mark.parametrize("op", ["CONTAINS", "ENDS WITH", "=~"])
 def test_row_varying_search_term_is_answered_the_same_on_a_node(memgraph, op):
-    # These three narrow the scan to the whole string type and carry their search term in the value
-    # predicate alone, which is read once for the whole scan. A term reading a symbol the rows vary
-    # over therefore has to keep the scan off the index, or every row past the first is asked for the
-    # first row's term.
+    # A search term read from another branch describes one row of it, while the scan it would key
+    # makes a pass per row of that branch. The planner leaves such a term as a filter over a scan,
+    # so the answer must not depend on whether the index exists.
     memgraph.execute("CREATE (:VT {p: 'aa'}), (:VT {p: 'bb'});")
     query = f"UNWIND ['aa', 'bb'] AS x MATCH (n:VT) WHERE n.p {op} x RETURN x + ':' + n.p AS r ORDER BY r"
     without_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
     memgraph.execute("CREATE INDEX ON :VT(p);")
     plan = get_plan(memgraph, query)
+    control = get_plan(memgraph, f"MATCH (n:VT) WHERE n.p {op} 'a' RETURN n.p")
     with_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
     memgraph.execute("DROP INDEX ON :VT(p);")
     assert without_index == ["aa:aa", "bb:bb"]
     assert with_index == without_index
+    # The control fixes a term, so the index is a candidate; without it the assertion below would
+    # hold just as well for an index that was never usable here.
+    assert "ScanAllByLabelProperties" in operator_names(control), f"the index must be usable: {control}"
     assert "ScanAllByLabelProperties" not in operator_names(plan), f"A per-row term must not key a seek: {plan}"
 
 
@@ -670,10 +673,12 @@ def test_row_varying_search_term_is_answered_the_same_on_an_edge(memgraph, op):
     without_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
     memgraph.execute("CREATE EDGE INDEX ON :ET(p);")
     plan = get_plan(memgraph, query)
+    control = get_plan(memgraph, f"MATCH ()-[e:ET]->() WHERE e.p {op} 'a' RETURN e.p")
     with_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
     memgraph.execute("DROP EDGE INDEX ON :ET(p);")
     assert without_index == ["aa:aa", "bb:bb"]
     assert with_index == without_index
+    assert "ScanAllByEdgeTypeProperty" in operator_names(control), f"the index must be usable: {control}"
     assert "ScanAllByEdgeTypeProperty" not in operator_names(plan), f"A per-row term must not key a seek: {plan}"
 
 
@@ -684,11 +689,38 @@ def test_row_varying_search_term_is_answered_the_same_on_a_global_edge_index(mem
     without_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
     memgraph.execute("CREATE GLOBAL EDGE INDEX ON :(gp);")
     plan = get_plan(memgraph, query)
+    control = get_plan(memgraph, f"MATCH ()-[e]->() WHERE e.gp {op} 'a' RETURN e.gp")
     with_index = [r["r"] for r in memgraph.execute_and_fetch(query)]
     memgraph.execute("DROP GLOBAL EDGE INDEX ON :(gp);")
     assert without_index == ["aa:aa", "bb:bb"]
     assert with_index == without_index
+    assert "ScanAllByEdgeProperty" in operator_names(control), f"the index must be usable: {control}"
     assert "ScanAllByEdgeProperty" not in operator_names(plan), f"A per-row term must not key a seek: {plan}"
+
+
+@pytest.mark.parametrize(
+    "scan,create,drop,pattern",
+    [
+        ("node", "CREATE INDEX ON :RD(p);", "DROP INDEX ON :RD(p);", "MATCH (n:RD)"),
+        ("edge", "CREATE EDGE INDEX ON :RD(p);", "DROP EDGE INDEX ON :RD(p);", "MATCH ()-[n:RD]->()"),
+    ],
+)
+def test_a_search_term_is_read_again_for_each_input_row(memgraph, scan, create, drop, pattern):
+    # A scan narrows by one search term for the whole pass it makes, so the term belongs to the input
+    # row that drove the pass. Read once for the cursor instead, it would answer every later input row
+    # with the first one's term, and a term that differs between rows would be lost.
+    if scan == "node":
+        memgraph.execute("CREATE (:RD {p: 'aa'}), (:RD {p: 'bb'});")
+    else:
+        memgraph.execute("CREATE ()-[:RD {p: 'aa'}]->(), ()-[:RD {p: 'bb'}]->();")
+    term = "CASE WHEN toInteger(rand() * 2) = 0 THEN 'aa' ELSE 'bb' END"
+    query = f"UNWIND range(1, 100) AS i {pattern} WHERE n.p CONTAINS {term} RETURN DISTINCT n.p AS p ORDER BY p"
+    memgraph.execute(create)
+    found = [r["p"] for r in memgraph.execute_and_fetch(query)]
+    memgraph.execute(drop)
+    # Each input row rolls its own term, so over this many rows both values turn up unless the term
+    # was read once for the whole cursor, in which case only one of them ever can.
+    assert found == ["aa", "bb"], f"a term read once per cursor cannot return both values: {found}"
 
 
 if __name__ == "__main__":
