@@ -100,9 +100,10 @@ def retrying_raft_write(write, deadline_s=30.0, now=time.monotonic, sleep=time.s
         except Exception as refusal:
             if RAFT_LOG_REFUSAL not in str(refusal):
                 raise
+            sleep(min(0.05 * attempt, 0.5))
+            # Checked after the wait so that no attempt starts once the budget is spent.
             if now() >= ends_at:
                 raise
-            sleep(min(0.05 * attempt, 0.5))
 
 
 def wait_until_main_writeable(cursor, query):

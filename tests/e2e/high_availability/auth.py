@@ -35,9 +35,9 @@ file = "auth"
 def execute_and_fetch_all(cursor, query, params={}):
     """Run a query against a coordinator, asking again while it is refused for a reason that passes.
 
-    Every query in this file is addressed to a coordinator, and a coordinator refuses a write whose append lands
-    after the leadership it checked for has moved. Only a write is ever refused that way, so a read reaching here
-    is run exactly once.
+    A coordinator refuses a write whose append lands after the leadership it checked for has moved. Only a
+    coordinator write is ever refused that way, so a read, or a query addressed to a data instance, is run
+    exactly once.
     """
     return retrying_raft_write(lambda: run_once(cursor, query, params))
 
@@ -705,7 +705,7 @@ def test_a_write_refused_while_leadership_settles_is_tried_again():
     """
     coordinator = RefusesThenCommits(refusals=3)
 
-    assert retrying_raft_write(coordinator) == [("committed",)]
+    assert retrying_raft_write(coordinator, sleep=lambda _: None) == [("committed",)]
     assert coordinator.calls == 4
 
 
@@ -724,7 +724,7 @@ def test_a_leader_that_never_settles_is_given_up_on():
     clock = iter([0.0, 0.0, 5.0, 11.0])
 
     with pytest.raises(Exception, match="Raft log"):
-        retrying_raft_write(coordinator, deadline_s=10.0, now=lambda: next(clock))
+        retrying_raft_write(coordinator, deadline_s=10.0, now=lambda: next(clock), sleep=lambda _: None)
     assert coordinator.calls < 10_000, "it kept asking past its budget"
 
 
@@ -1469,7 +1469,7 @@ def test_sso_privilege_revocation_applies_to_connected_session(test_name):
     with sso_driver(leader_port, "oidc", "ops") as driver:
         with driver.session() as session:
             # The session mutates freely while its role carries COORDINATOR_WRITE.
-            list(session.run("CREATE ROLE from_ops"))
+            retrying_raft_write(lambda: list(session.run("CREATE ROLE from_ops")))
 
             # Downgrade the role from a separate admin session: grant READ first so the session keeps read access,
             # then revoke WRITE.
@@ -1478,7 +1478,7 @@ def test_sso_privilege_revocation_applies_to_connected_session(test_name):
 
             # The open session is downgraded in place: mutating queries are now denied...
             try:
-                list(session.run("CREATE ROLE from_ops_after_revoke"))
+                retrying_raft_write(lambda: list(session.run("CREATE ROLE from_ops_after_revoke")))
                 assert False, "A session whose role lost COORDINATOR_WRITE must not run a mutating query"
             except Exception as e:
                 assert "required privilege" in str(e), f"Unexpected error: {e}"
