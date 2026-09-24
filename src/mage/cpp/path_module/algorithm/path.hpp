@@ -203,7 +203,7 @@ class PathHelper {
   // Identifies that step, so depths that share it share a cached answer.
   [[nodiscard]] int64_t RelStepIndexAt(int64_t depth) const;
   // Whether a relationship of this type, traversed this way, may be followed under `step`.
-  [[nodiscard]] bool RelationshipAdmitted(const RelStep &step, std::string_view rel_type, bool outgoing) const;
+  [[nodiscard]] static bool RelationshipAdmitted(const RelStep &step, std::string_view rel_type, bool outgoing);
 
   // True when the step names no type for this direction, so the type need not be read.
   [[nodiscard]] static bool AdmitsEveryType(const RelStep &step, const bool outgoing) noexcept {

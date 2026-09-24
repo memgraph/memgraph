@@ -508,7 +508,7 @@ bool Path::PathHelper::StepAdmitsDirection(const int64_t depth, const bool outgo
   return outgoing ? step.admits_outgoing : step.admits_incoming;
 }
 
-bool Path::PathHelper::RelationshipAdmitted(const RelStep &step, std::string_view rel_type, const bool outgoing) const {
+bool Path::PathHelper::RelationshipAdmitted(const RelStep &step, std::string_view rel_type, const bool outgoing) {
   const bool any_directed = outgoing ? step.any_outgoing : step.any_incoming;
 
   const auto it = step.types.find(rel_type);
@@ -990,7 +990,7 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp_vertex *vert
     path_data_.MaybeAbort();
 
     // Only the type name is needed here; everything below this copies.
-    if (!admits_every_type && !path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
+    if (!admits_every_type && !PathHelper::RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
       continue;
     }
 
@@ -1125,7 +1125,7 @@ void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth,
       continue;
     }
 
-    if (!admits_every_type && !path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
+    if (!admits_every_type && !PathHelper::RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
       continue;
     }
 
@@ -1309,7 +1309,7 @@ const std::vector<Path::PathExpand::AdmittedEdge> &Path::PathExpand::AdmittedNei
     path_data_.MaybeAbort();
 
     // Only the type name is needed here; everything below this copies.
-    if (!admits_every_type && !path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
+    if (!admits_every_type && !PathHelper::RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
       continue;
     }
 
@@ -1549,7 +1549,7 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       continue;
     }
 
-    if (admits_every_type || path_data_.helper_.RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
+    if (admits_every_type || PathHelper::RelationshipAdmitted(step, mgp::edge_get_type(edge).name, outgoing)) {
       // Enqueue only; TryInsertNode emits it on dequeue, once the checks are applied.
       path_data_.visited_.insert(next_id);
       queue.emplace(mgp::Node(next_vertex), pair.second + 1);
