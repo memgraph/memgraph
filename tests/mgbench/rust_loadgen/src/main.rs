@@ -22,6 +22,7 @@ enum Mode {
     Point,
     Heavy,
     Mix { write_pct: u8, write_batch: u32 },
+    Split { write_batch: u32 },
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +37,7 @@ struct ThreadResult {
     served: HashMap<String, u64>,
 }
 
-fn worker(driver: Arc<Driver>, duration: Duration, mode: Mode, thread_idx: u64) -> ThreadResult {
+fn worker(driver: Arc<Driver>, duration: Duration, mode: Mode, thread_idx: u64, is_reader: bool) -> ThreadResult {
     let db = Arc::new(String::from("memgraph"));
     let deadline = Instant::now() + duration;
     let mut reads: u64 = 0;
@@ -112,6 +113,40 @@ fn worker(driver: Arc<Driver>, duration: Duration, mode: Mode, thread_idx: u64) 
                     (r, false)
                 }
             }
+            Mode::Split { write_batch } => {
+                if is_reader {
+                    let lo = (xorshift64(&mut rng) % 492001) as i64;
+                    let hi = lo + 8000;
+                    let r = driver
+                        .execute_query(
+                            "MATCH (n:Bench) WHERE n.id >= $lo AND n.id < $hi RETURN sum(n.x)",
+                        )
+                        .with_database(Arc::clone(&db))
+                        .with_routing_control(RoutingControl::Read)
+                        .with_parameters(value_map!({"lo": lo, "hi": hi}))
+                        .run();
+                    (r, false)
+                } else {
+                    let r = if *write_batch <= 1 {
+                        let id = (xorshift64(&mut rng) % 1_000_000_000) as i64;
+                        driver
+                            .execute_query("CREATE (:WNode {id: $id})")
+                            .with_database(Arc::clone(&db))
+                            .with_routing_control(RoutingControl::Write)
+                            .with_parameters(value_map!({"id": id}))
+                            .run()
+                    } else {
+                        let k = *write_batch as i64;
+                        driver
+                            .execute_query("UNWIND range(1, $k) AS i CREATE (:WNode {id: i})")
+                            .with_database(Arc::clone(&db))
+                            .with_routing_control(RoutingControl::Write)
+                            .with_parameters(value_map!({"k": k}))
+                            .run()
+                    };
+                    (r, true)
+                }
+            }
         };
 
         match result {
@@ -157,12 +192,20 @@ fn main() {
         .unwrap_or(1)
         .max(1);
 
+    // For split mode arg[5] is reinterpreted as n_writers (not write_pct).
+    // Default to 2 when absent; clamp so there is always >= 1 writer and >= 1 reader.
+    let n_writers_clamped: usize = {
+        let raw = if args.get(5).is_some() { write_pct as usize } else { 2 };
+        raw.clamp(1, nthreads.saturating_sub(1).max(1))
+    };
+
     let mode = match mode_str {
         "point" => Mode::Point,
         "heavy" => Mode::Heavy,
         "mix" => Mode::Mix { write_pct, write_batch },
+        "split" => Mode::Split { write_batch },
         other => {
-            eprintln!("unknown mode '{}'; expected point, heavy, or mix", other);
+            eprintln!("unknown mode '{}'; expected point, heavy, mix, or split", other);
             std::process::exit(1);
         }
     };
@@ -191,11 +234,19 @@ fn main() {
     let duration = Duration::from_secs(duration_secs);
     let start = Instant::now();
 
+    // Split: the LAST n_writers_clamped threads are writers; all earlier threads are readers.
+    // Other modes: is_reader is ignored by the worker arm; nthreads/2 is a neutral placeholder.
+    let n_readers = match &mode {
+        Mode::Split { .. } => nthreads - n_writers_clamped,
+        _ => nthreads / 2,
+    };
+
     let handles: Vec<_> = (0..nthreads)
         .map(|i| {
             let driver = Arc::clone(&driver);
             let mode = mode.clone();
-            std::thread::spawn(move || worker(driver, duration, mode, i as u64))
+            let is_reader = i < n_readers;
+            std::thread::spawn(move || worker(driver, duration, mode, i as u64, is_reader))
         })
         .collect();
 
@@ -231,6 +282,9 @@ fn main() {
     match &mode {
         Mode::Mix { write_pct: wpct, write_batch: wbatch } => println!(
             "nthreads={nthreads} qps={qps:.0} mode=Mix target={target_str} wpct={wpct} wbatch={wbatch} reads={total_reads} writes={total_writes} served={served_str}"
+        ),
+        Mode::Split { write_batch: wbatch } => println!(
+            "nthreads={nthreads} qps={qps:.0} mode=Split target={target_str} wbatch={wbatch} reads={total_reads} writes={total_writes} served={served_str}"
         ),
         Mode::Point => println!(
             "nthreads={nthreads} qps={qps:.0} mode=Point target={target_str} served={served_str}"
