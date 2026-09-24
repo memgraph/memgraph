@@ -70,20 +70,6 @@ bool HoldsANull(const TypedValue &value) { return AnyValueWithin(value, kIsNull)
 
 bool EqualsItself(const TypedValue &value) { return !AnyValueWithin(value, kIsUndecidable); }
 
-bool HoldsANull(const storage::PropertyValue &value) {
-  switch (value.type()) {
-    case storage::PropertyValueType::Null:
-      return true;
-    case storage::PropertyValueType::List:
-      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return HoldsANull(element); });
-    case storage::PropertyValueType::Map:
-      return std::ranges::any_of(value.ValueMap(), [](auto const &entry) { return HoldsANull(entry.second); });
-    default:
-      // The packed numeric representations of a list have no way to hold a Null.
-      return false;
-  }
-}
-
 TypedValue EqualOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b, TypedValue::allocator_type alloc) {
   // A list is equal only to a list of the same length holding equal elements,
   // so `2 = [2]` is false however deeply either side is nested. Neo4j differs

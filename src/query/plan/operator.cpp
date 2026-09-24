@@ -387,7 +387,7 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       auto const &bound = std::get<obpv>(bounded_property_value);
       // The same rule the evaluated form follows: nothing equals a value holding
       // a Null, so the scan finds nothing and its cost is estimated on that.
-      if (bound && relations::equality::HoldsANull(bound->value())) {
+      if (bound && storage::HoldsANull(bound->value())) {
         return storage::PropertyValueRange::Empty();
       }
       return storage::PropertyValueRange::Bounded(bound, bound);

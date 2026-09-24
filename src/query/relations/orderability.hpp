@@ -165,11 +165,12 @@ inline constexpr auto kPositions = [] {
 
 }  // namespace detail
 
-/// Whether a sort has an order for two values of this type.
+/// Whether a sort has an order among the values of this type.
 ///
-/// Orderability places any two values of unlike type, and refuses a pair whose
-/// one type carries no order of its own. `Compare` refuses exactly the types
-/// this denies; the two are separate switches and a test holds them together.
+/// Not which values a sort will take: a pair of unlike types is placed by where
+/// the two types sit, whatever those types are. `Compare` refuses a pair
+/// exactly where both sides are a type this denies, and the two are separate
+/// switches that a test holds together.
 constexpr bool ValidFor(TypedValue::Type type) {
   switch (type) {
     using enum TypedValue::Type;
@@ -273,7 +274,7 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case List:
         return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
 
-      // The types `Admits` denies. Named so that a type added to the value has
+      // The types `ValidFor` denies. Named so that a type added to the value has
       // to be placed, and broken out of rather than throwing here, so the
       // refusal is written once below.
       case Map:

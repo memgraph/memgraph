@@ -1059,7 +1059,7 @@ inline std::optional<std::variant<int64_t, double>> GetNumericValueAt(
   }
 }
 
-/// Helper function to compare two lists of different types
+/// Places two lists against each other, whichever of the four forms holds each.
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
                                        const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
@@ -1070,9 +1070,10 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
   // Where an element read against another holds nothing the other can be read
   // against, the two are placed by where their types sit, as any other such pair
   // is.
-  auto stretch_at = [](const std::optional<std::variant<int64_t, double>> &val,
-                       const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
-                       auto index) {
+  // The list is taken as whatever type holds it. Naming one side's allocator
+  // here would convert the other side to match, and that conversion copies the
+  // whole value and allocates, inside a comparison declared not to raise.
+  auto stretch_at = [](const std::optional<std::variant<int64_t, double>> &val, auto const &list, auto index) {
     if (val) return Stretch::Number;
     return StretchOf(list.ValueListUnchecked()[index].type());
   };
@@ -1881,6 +1882,45 @@ inline size_t HashOfDouble(double value) noexcept {
   return std::hash<double>{}(value);
 }
 
+/// A hash for a list, read through whichever of the four forms holds it.
+///
+/// The order compares the four as one value, so a list packed into numbers and
+/// the same list boxed are one key and have to reach one bucket. Each element
+/// is hashed by the number it is rather than by the width it is held at, and an
+/// element that is no number is hashed as the value it is.
+template <typename Value, typename HashOfValue>
+size_t HashOfAList(Value const &value, HashOfValue const &hash_of_value) noexcept {
+  auto combined = size_t{6'543'457};
+  auto const fold = [&combined](size_t one) { combined = (combined * 31U) + one; };
+
+  switch (value.type()) {
+    case PropertyValueType::IntList:
+      for (auto const number : value.ValueIntList()) fold(HashOfDouble(static_cast<double>(number)));
+      return combined;
+    case PropertyValueType::DoubleList:
+      for (auto const number : value.ValueDoubleList()) fold(HashOfDouble(number));
+      return combined;
+    case PropertyValueType::NumericList:
+      for (auto const &number : value.ValueNumericList()) {
+        fold(HashOfDouble(std::holds_alternative<int>(number) ? static_cast<double>(std::get<int>(number))
+                                                              : std::get<double>(number)));
+      }
+      return combined;
+    default:
+      // A boxed list, the only form that holds anything but a number.
+      for (auto const &element : value.ValueList()) {
+        if (element.IsInt()) {
+          fold(HashOfDouble(static_cast<double>(element.ValueInt())));
+        } else if (element.IsDouble()) {
+          fold(HashOfDouble(element.ValueDouble()));
+        } else {
+          fold(hash_of_value(element));
+        }
+      }
+      return combined;
+  }
+}
+
 }  // namespace memgraph::storage
 
 export namespace std {
@@ -1904,7 +1944,9 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
       memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> const &value) const noexcept {
     using enum memgraph::storage::PropertyValueType;
 
-    // Hashing here based on the choices made when we hash TypedValues
+    // A value has to reach the bucket the order would put it in, which is
+    // what each arm below answers to. The query layer keeps its own hash
+    // against its own order, and the two need not agree with each other.
     switch (value.type()) {
       case Null:
         return 31;
@@ -1916,11 +1958,13 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
         return memgraph::storage::HashOfDouble(value.ValueDouble());
       case String:
         return std::hash<std::string_view>{}(value.ValueString());
-      case List: {
-        return memgraph::utils::FnvCollection<
-            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::list_t,
-            memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>>{}(value.ValueList());
-      }
+      // The four ways a list is held are one value to the order, so they are one
+      // key here.
+      case List:
+      case IntList:
+      case DoubleList:
+      case NumericList:
+        return memgraph::storage::HashOfAList(value, *this);
       case Map: {
         size_t hash = 6'543'457;
         for (const auto &kv : value.ValueMap()) {
@@ -1936,28 +1980,36 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
         return std::hash<memgraph::storage::ZonedTemporalData>{}(value.ValueZonedTemporalData());
       case Enum:
         return std::hash<memgraph::storage::Enum>{}(value.ValueEnum());
-      case Point2d:
-        return std::hash<memgraph::storage::Point2d>{}(value.ValuePoint2d());
-      case Point3d:
-        return std::hash<memgraph::storage::Point3d>{}(value.ValuePoint3d());
-      case IntList: {
-        return memgraph::utils::FnvCollection<
-            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::int_list_t,
-            int>{}(value.ValueIntList());
+      // A point's own equality reads its coordinates as IEEE does, so two of
+      // them holding a NaN are not equal and its own hash owes them nothing.
+      // The order this hash answers to places them alongside each other, so the
+      // coordinates are read through the rule that says so.
+      case Point2d: {
+        auto const &point = value.ValuePoint2d();
+        size_t seed = 0;
+        boost::hash_combine(seed, point.crs());
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.x()));
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.y()));
+        return seed;
       }
-      case DoubleList: {
-        return memgraph::utils::FnvCollection<
-            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::double_list_t,
-            double>{}(value.ValueDoubleList());
+      case Point3d: {
+        auto const &point = value.ValuePoint3d();
+        size_t seed = 0;
+        boost::hash_combine(seed, point.crs());
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.x()));
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.y()));
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.z()));
+        return seed;
       }
-      case NumericList: {
-        return memgraph::utils::FnvCollection<
-            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::numeric_list_t,
-            std::variant<int, double>>{}(value.ValueNumericList());
-      }
+      // A coordinate here is a float, which spells a NaN its own several ways,
+      // and the order places two of them alongside each other. It is read
+      // through the same rule the wider coordinates are.
       case VectorIndexId: {
-        return memgraph::utils::FnvCollection<memgraph::utils::small_vector<float>, float>{}(
-            value.ValueVectorIndexList());
+        size_t seed = 0;
+        for (auto const coordinate : value.ValueVectorIndexList()) {
+          boost::hash_combine(seed, memgraph::storage::HashOfDouble(coordinate));
+        }
+        return seed;
       }
     }
   }
