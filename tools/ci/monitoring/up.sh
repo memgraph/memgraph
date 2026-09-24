@@ -182,7 +182,8 @@ for target in "${ws_targets[@]}"; do
       target_port="${MEMGRAPH_LOG_WS_PORT}"
     fi
     ws_url="ws://${target_host}:${target_port}"
-    instance_label="${target_host}"
+    # Keep the port: several instances often share one host (parallel suites, native HA).
+    instance_label="${target_host}:${target_port}"
   fi
 
   source_name="memgraph_logs_${ws_index}"

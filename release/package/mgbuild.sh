@@ -1921,6 +1921,8 @@ test_memgraph() {
   resolve_integration_parallel_monitoring_targets() {
     # Suites run on fixed per-suite port blocks, so the targets are known up front.
     _import_monitoring_targets "$("$PROJECT_ROOT/tests/integration/run-parallel.sh" monitoring-targets "$build_container")"
+    echo -e "${GREEN_BOLD}Integration suite -> monitoring label mapping:${RESET}"
+    "$PROJECT_ROOT/tests/integration/run-parallel.sh" monitoring-mapping "$build_container"
   }
 
   resolve_eks_ha_monitoring_targets() {

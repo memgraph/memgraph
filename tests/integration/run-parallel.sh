@@ -10,6 +10,7 @@ PORT_STRIDE=10
 print_help() {
   echo -e "$0 [jobs]                    => run all under tests/integration in parallel (default jobs: nproc)"
   echo -e "$0 monitoring-targets <host> => print MEMGRAPH_METRICS_TARGETS/MEMGRAPH_LOG_WS_TARGETS for every suite"
+  echo -e "$0 monitoring-mapping <host> => print which pod/instance label each suite's logs/metrics carry"
   exit 1
 }
 
@@ -24,6 +25,26 @@ list_suites() {
 bolt_port() { echo $((PORT_BASE + $1 * PORT_STRIDE)); }
 monitoring_port() { echo $(( $(bolt_port "$1") + 1 )); }
 metrics_port() { echo $(( $(bolt_port "$1") + 2 )); }
+
+# One row per suite: the values to filter by in VictoriaLogs (pod) and VictoriaMetrics (instance).
+print_mapping() {
+  local host=$1
+  local index=0
+  printf '%-22s %-6s %-40s %s\n' "SUITE" "BOLT" "LOGS (pod)" "METRICS (instance)"
+  for name in $(list_suites); do
+    printf '%-22s %-6s %-40s %s\n' "$name" "$(bolt_port "$index")" \
+      "$host:$(monitoring_port "$index")" "$host:$(metrics_port "$index")"
+    index=$((index + 1))
+  done
+}
+
+if [ "$1" = "monitoring-mapping" ]; then
+  if [ "$#" -ne 2 ] || [ -z "$2" ]; then
+    print_help
+  fi
+  print_mapping "$2"
+  exit 0
+fi
 
 if [ "$1" = "monitoring-targets" ]; then
   host=$2
