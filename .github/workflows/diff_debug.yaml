@@ -341,6 +341,15 @@ jobs:
           --cluster-env $CLUSTER_ENV \
           test-memgraph integration-parallel
 
+      - name: Save integration test logs
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "integration_logs_Debug${{ env.RUN_ID }}"
+          path: build/integration-logs/
+          if-no-files-found: warn
+
       - name: Collect core dumps
         if: failure()
         continue-on-error: true

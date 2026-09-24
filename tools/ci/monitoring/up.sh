@@ -77,31 +77,58 @@ VECTOR_CONFIG="${GENERATED_DIR}/vector.yaml"
 
 export MEMGRAPH_METRICS_HOST MEMGRAPH_METRICS_PORT
 
+# Targets are "[name=]host[:port]" (logs also accept "[name=]ws://..."). The name becomes the
+# instance (metrics) / pod (logs) label so several instances on one host stay distinguishable.
+parse_target() {
+  local raw default_port
+  raw="$1"
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  raw="${raw%"${raw##*[![:space:]]}"}"
+  default_port="$2"
+  target_name=""
+  if [[ "${raw}" == *=* && "${raw%%=*}" != *[:/]* ]]; then
+    target_name="${raw%%=*}"
+    raw="${raw#*=}"
+    if [[ ! "${target_name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+      echo "error: target name '${target_name}' may only contain letters, digits, '_', '.' and '-'." >&2
+      exit 2
+    fi
+  fi
+  target_addr="${raw}"
+  target_host="${raw%:*}"
+  target_port="${raw##*:}"
+  if [[ "${target_host}" == "${target_port}" ]]; then
+    target_host="${raw}"
+    target_port="${default_port}"
+  fi
+}
+
 # vmagent scrapes Memgraph's OpenMetrics endpoint directly (no mg-exporter in
 # between). Each instance must run with --metrics-format=OpenMetrics so that the
 # metrics port serves Prometheus/OpenMetrics text instead of the legacy JSON.
 MEMGRAPH_SCRAPE_TARGETS_BLOCK=""
+add_scrape_target() {
+  local addr="$1" name="$2"
+  MEMGRAPH_SCRAPE_TARGETS_BLOCK+=$'      - targets: ["'"${addr}"$'"]\n'
+  if [[ -n "${name}" ]]; then
+    MEMGRAPH_SCRAPE_TARGETS_BLOCK+=$'        labels:\n          instance: "'"${name}"$'"\n'
+  fi
+}
 if [[ -n "${MEMGRAPH_METRICS_TARGETS}" ]]; then
   IFS=',' read -r -a metrics_targets <<< "${MEMGRAPH_METRICS_TARGETS}"
   for target in "${metrics_targets[@]}"; do
-    trimmed_target="$(echo "${target}" | xargs)"
-    if [[ -z "${trimmed_target}" ]]; then
+    parse_target "${target}" "${MEMGRAPH_METRICS_PORT}"
+    if [[ -z "${target_addr}" ]]; then
       continue
     fi
-    target_host="${trimmed_target%:*}"
-    target_port="${trimmed_target##*:}"
-    if [[ "${target_host}" == "${target_port}" ]]; then
-      target_host="${trimmed_target}"
-      target_port="${MEMGRAPH_METRICS_PORT}"
-    fi
-    MEMGRAPH_SCRAPE_TARGETS_BLOCK+=$'          - '"${target_host}:${target_port}"$'\n'
+    add_scrape_target "${target_host}:${target_port}" "${target_name}"
   done
   if [[ -z "${MEMGRAPH_SCRAPE_TARGETS_BLOCK}" ]]; then
     echo "error: MEMGRAPH_METRICS_TARGETS was provided, but no valid targets were parsed." >&2
     exit 2
   fi
 else
-  MEMGRAPH_SCRAPE_TARGETS_BLOCK+=$'          - '"${MEMGRAPH_METRICS_HOST}:${MEMGRAPH_METRICS_PORT}"$'\n'
+  add_scrape_target "${MEMGRAPH_METRICS_HOST}:${MEMGRAPH_METRICS_PORT}" ""
 fi
 
 if [[ -z "${MEMGRAPH_LOG_WS_TARGETS}" ]]; then
@@ -109,17 +136,12 @@ if [[ -z "${MEMGRAPH_LOG_WS_TARGETS}" ]]; then
     MEMGRAPH_LOG_WS_TARGETS=""
     IFS=',' read -r -a metrics_targets_for_ws <<< "${MEMGRAPH_METRICS_TARGETS}"
     for metrics_target in "${metrics_targets_for_ws[@]}"; do
-      trimmed_metrics_target="$(echo "${metrics_target}" | xargs)"
-      [[ -z "${trimmed_metrics_target}" ]] && continue
-      metrics_host="${trimmed_metrics_target%:*}"
-      metrics_port="${trimmed_metrics_target##*:}"
-      if [[ "${metrics_host}" == "${metrics_port}" ]]; then
-        metrics_host="${trimmed_metrics_target}"
-      fi
+      parse_target "${metrics_target}" "${MEMGRAPH_METRICS_PORT}"
+      [[ -z "${target_addr}" ]] && continue
       if [[ -n "${MEMGRAPH_LOG_WS_TARGETS}" ]]; then
         MEMGRAPH_LOG_WS_TARGETS+=","
       fi
-      MEMGRAPH_LOG_WS_TARGETS+="${metrics_host}:${MEMGRAPH_LOG_WS_PORT}"
+      MEMGRAPH_LOG_WS_TARGETS+="${target_name:+${target_name}=}${target_host}:${MEMGRAPH_LOG_WS_PORT}"
     done
   else
     MEMGRAPH_LOG_WS_TARGETS="${MEMGRAPH_METRICS_HOST}:${MEMGRAPH_LOG_WS_PORT}"
@@ -164,25 +186,22 @@ VECTOR_ENRICH_INPUTS=""
 ws_index=1
 IFS=',' read -r -a ws_targets <<< "${MEMGRAPH_LOG_WS_TARGETS}"
 for target in "${ws_targets[@]}"; do
-  trimmed_target="$(echo "${target}" | xargs)"
-  if [[ -z "${trimmed_target}" ]]; then
+  parse_target "${target}" "${MEMGRAPH_LOG_WS_PORT}"
+  if [[ -z "${target_addr}" ]]; then
     continue
   fi
   ws_url=""
   instance_label=""
-  if [[ "${trimmed_target}" =~ ^wss?:// ]]; then
-    ws_url="${trimmed_target}"
-    target_without_scheme="${trimmed_target#*://}"
+  if [[ "${target_addr}" =~ ^wss?:// ]]; then
+    ws_url="${target_addr}"
+    target_without_scheme="${target_addr#*://}"
     instance_label="${target_without_scheme%%/*}"
   else
-    target_host="${trimmed_target%:*}"
-    target_port="${trimmed_target##*:}"
-    if [[ "${target_host}" == "${target_port}" ]]; then
-      target_host="${trimmed_target}"
-      target_port="${MEMGRAPH_LOG_WS_PORT}"
-    fi
     ws_url="ws://${target_host}:${target_port}"
-    instance_label="${target_host}"
+    instance_label="${target_host}:${target_port}"
+  fi
+  if [[ -n "${target_name}" ]]; then
+    instance_label="${target_name}"
   fi
 
   source_name="memgraph_logs_${ws_index}"
@@ -252,14 +271,8 @@ if command -v timeout >/dev/null 2>&1; then
   if [[ -n "${MEMGRAPH_METRICS_TARGETS}" ]]; then
     IFS=',' read -r -a metrics_probe_targets <<< "${MEMGRAPH_METRICS_TARGETS}"
     for target in "${metrics_probe_targets[@]}"; do
-      trimmed_target="$(echo "${target}" | xargs)"
-      [[ -z "${trimmed_target}" ]] && continue
-      target_host="${trimmed_target%:*}"
-      target_port="${trimmed_target##*:}"
-      if [[ "${target_host}" == "${target_port}" ]]; then
-        target_host="${trimmed_target}"
-        target_port="${MEMGRAPH_METRICS_PORT}"
-      fi
+      parse_target "${target}" "${MEMGRAPH_METRICS_PORT}"
+      [[ -z "${target_addr}" ]] && continue
       probe_metrics_target "${target_host}" "${target_port}"
     done
   else

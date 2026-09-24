@@ -2012,7 +2012,15 @@ test_memgraph() {
       if [[ "$threads" != "$DEFAULT_THREADS" ]]; then
         integration_jobs="$threads"
       fi
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && tests/integration/run-parallel.sh $integration_jobs"
+      # Per-suite logs land in a known dir so they can be copied out and uploaded, pass or fail.
+      local integration_log_dir="$BUILD_DIR/integration-logs"
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && MG_INTEGRATION_LOG_DIR=$integration_log_dir tests/integration/run-parallel.sh $integration_jobs" || status=$?
+      mkdir -p "$PROJECT_ROOT/build/integration-logs"
+      if ! docker cp "$build_container:$integration_log_dir/." "$PROJECT_ROOT/build/integration-logs/" 2>&1; then
+        echo "Warning: could not copy integration logs out of $build_container." >&2
+      fi
+      return "$status"
     ;;
     cppcheck-and-clang-format)
       local test_output_path="$MGBUILD_ROOT_DIR/tools/github/cppcheck_and_clang_format.txt"
