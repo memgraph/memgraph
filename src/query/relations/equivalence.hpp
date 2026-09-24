@@ -54,15 +54,26 @@ bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b);
 /// The types equality declines to decide against themselves, as a bit per type,
 /// so that ruling a type out is one test rather than one per type.
 ///
+/// The two containers are absent because a container is answered for before
+/// equality is asked at all.
+///
 /// One bit per type is only a mask while the types fit the word holding it.
 static_assert(TypedValue::kTypeCount <= std::numeric_limits<unsigned>::digits, "More types than a bit each fits in");
-inline constexpr unsigned kDeclinedOver =
-    (1U << static_cast<unsigned>(TypedValue::Type::Double)) | (1U << static_cast<unsigned>(TypedValue::Type::Point2d)) |
-    (1U << static_cast<unsigned>(TypedValue::Type::Point3d)) | (1U << static_cast<unsigned>(TypedValue::Type::List)) |
-    (1U << static_cast<unsigned>(TypedValue::Type::Map));
+inline constexpr unsigned kDeclinedOver = (1U << static_cast<unsigned>(TypedValue::Type::Double)) |
+                                          (1U << static_cast<unsigned>(TypedValue::Type::Point2d)) |
+                                          (1U << static_cast<unsigned>(TypedValue::Type::Point3d));
 
 inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
+
+  // A container is walked once, by the relation that answers for each pair of
+  // elements it reaches. Asking equality first would walk it again, and where
+  // one holds a Null there is nothing to be gained by the first walk: equality
+  // reaches the end of it only to say it could not decide, which is a walk
+  // spent to learn that the second one is needed.
+  if (lhs.type() == TypedValue::Type::List || lhs.type() == TypedValue::Type::Map) {
+    return EquivalentOfContainers(lhs, rhs);
+  }
 
   // Equality deciding a pair equal decides this too, and is the answer a hash
   // lookup gets on the key it is looking for. Every hash lookup reaches here, so
@@ -72,15 +83,15 @@ inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
     return true;
   }
 
-  // Anything else is equality declining rather than deciding: a Null leaves the
-  // pair undecided and a NaN answers false against everything, itself included.
-  // Taking either answer would leave a value holding one not equivalent to
-  // itself, and a hash container would never find such a key again.
+  // Anything else is equality declining rather than deciding: a NaN answers
+  // false against everything, itself included. Taking that answer would leave a
+  // value holding one not equivalent to itself, and a hash container would
+  // never find such a key again.
   //
-  // A Null, a NaN or a container holding one is all that equality declines
-  // over, and the left value's type rules the first two out without reading
-  // either value. A probe that misses on any other type is then one test past
-  // the cost of equality alone, which is what it was before.
+  // A NaN, on its own or as a point's coordinate, is all that equality declines
+  // over here, and the left value's type rules it out without reading either
+  // value. A probe that misses on any other type is then one test past the cost
+  // of equality alone, which is what it was before.
   if ((kDeclinedOver >> static_cast<unsigned>(lhs.type()) & 1U) == 0U) [[likely]]
     return false;
 
@@ -89,15 +100,7 @@ inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
            std::isnan(rhs.UnsafeValueDouble());
   }
 
-  if (lhs.type() == TypedValue::Type::Point2d || lhs.type() == TypedValue::Type::Point3d) {
-    return EquivalentOfPoints(lhs, rhs);
-  }
-
-  // Equality answering Null says a Null sits inside and it declined. A false
-  // answer stands unless a NaN sits inside, which one walk over the leaves
-  // rules out, and that is cheaper than walking the pair against each other.
-  if (equality_result.type() == TypedValue::Type::Bool && equality::EqualsItself(lhs)) return false;
-  return EquivalentOfContainers(lhs, rhs);
+  return EquivalentOfPoints(lhs, rhs);
 }
 
 /// A hash agreeing with Equivalent: two equivalent values hash alike.
