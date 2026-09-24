@@ -495,7 +495,9 @@ class Storage {
 
   /// Creates a database protector for async operations
   /// @return DatabaseProtector instance for committing async transactions
-  /// @note Never returns nullptr - always provides a valid protector
+  /// @note May return nullptr once the tenant's gatekeeper has been moved out of the live set by an
+  ///       in-flight FORCE drop (i.e. after Delete_ hands it to the deferred teardown worker).
+  ///       Callers must treat a nullptr result as "tenant gone" and abort the async operation.
   auto make_database_protector() const -> std::unique_ptr<DatabaseProtector> { return database_protector_factory_(); }
 
   /// Gets the database protector factory for copying to new storage instances

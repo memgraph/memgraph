@@ -386,11 +386,12 @@ struct Gatekeeper {
 
   std::optional<Accessor> access() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    // Intentionally gated ONLY on state_ == HOT, NOT on is_marked_for_deletion: a tenant being deleted
-    // can still be HOT, and the marked-for-deletion guard is surfaced via Accessor::operator bool (the
-    // caller checks it and releases). access() minting on a marked-but-HOT shell is benign — the minted
-    // Accessor's operator bool is false, so callers won't use it, and the count returns to 0 so a
-    // waiting ~Gatekeeper proceeds. Adding a marked check here is NOT a correctness requirement.
+    // Intentionally gated ONLY on state_ == HOT, NOT on is_marked_for_deletion. The deletion seal is an
+    // ADVISORY cooperative signal: holders that check Accessor::operator bool see it is false and retire
+    // gracefully — replication finalize and recovery bail-out paths use this to retire the RPC connection
+    // and stop driving recovery on a tenant that is going away. access() is NOT gated on the seal so
+    // the teardown worker can still mint an Accessor to run its own stop steps on a HOT-but-sealed shell,
+    // and so the accessor count drains to 0 allowing ~Gatekeeper to proceed.
     if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT) {
       return Accessor{this};
     }
@@ -403,6 +404,18 @@ struct Gatekeeper {
       return pimpl_->is_marked_for_deletion;
     }
     return std::nullopt;
+  }
+
+  // Sets the advisory is_marked_for_deletion flag without holding an Accessor.
+  // This is NOT a hard barrier: access() is gated only on state_ == HOT (not on
+  // is_marked_for_deletion), so new Accessors can still be minted on a sealed HOT
+  // gatekeeper. The seal is a cooperative signal — consumers such as replication
+  // (via DatabaseProtector::sealed()) observe Accessor::operator bool returning false
+  // and retire gracefully. Call only after all own Accessors are released and all
+  // fallible drop work has succeeded.
+  void seal() {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    pimpl_->is_marked_for_deletion = true;
   }
 
   // Returns the current lifecycle state (locks mutex_).

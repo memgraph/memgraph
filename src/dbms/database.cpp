@@ -216,6 +216,9 @@ void Database::AddTask(utils::ThreadPool::TaskSignature new_task) {
 
 void Database::StopAllBackgroundTasks() {
   streams()->Shutdown();
+  // Signal any in-flight after-commit trigger to abort, so the pool join below cannot block on a
+  // long-running trigger that holds an accessor pinning this database.
+  after_commit_trigger_status_.store(query::TransactionStatus::TERMINATED, std::memory_order_release);
   auto const discarded = thread_pool()->ShutDown();
   if (discarded != 0) {
     spdlog::warn(

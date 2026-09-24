@@ -29,6 +29,8 @@
 #include <string>
 #include <system_error>
 #include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include <nlohmann/json_fwd.hpp>
@@ -290,7 +292,7 @@ class DbmsHandler {
    * @param transaction system transaction
    * @return DeleteResult error on failure
    */
-  DeleteResult TryDelete(std::string_view db_name, system::Transaction *transaction = nullptr);
+  DeleteResult TryDelete(std::string db_name, system::Transaction *transaction = nullptr);
 
   /**
    * @brief Delete or defer deletion of database.
@@ -514,11 +516,34 @@ class DbmsHandler {
     out.reserve(suspended_.size() + db_handler_.size());
     // Every suspended tenant is a user-initiated (or restored) COLD shell: a HOT recovery that fails at
     // boot aborts the process, so a degraded "recovery failed" tenant can never appear here.
+    std::unordered_set<std::string> live_names;
     for (const auto &[name, entry] : suspended_) {
       out.emplace_back(name, "COLD");
+      live_names.insert(name);
     }
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
-      if (!suspended_.contains(name)) out.emplace_back(std::move(name), "HOT");
+      if (!suspended_.contains(name)) {
+        live_names.insert(name);
+        out.emplace_back(std::move(name), "HOT");
+      }
+    }
+    // Source DROPPING rows from the deferred-drop worker's pending list. Lock order: lock_ (already
+    // held shared above) -> pending_mutex_ (taken inside PendingItems()). The worker's Tick_ takes
+    // pending_mutex_ only, never lock_, so this is the only nesting direction — no inversion possible.
+    //
+    // Disambiguate the DROPPING row with the tenant UUID when the name is ambiguous: a live (HOT/COLD)
+    // tenant retook the name while the old husk is still draining, or more than one husk of the same
+    // name is concurrently draining (drop, recreate, drop again before the first husk finishes). In the
+    // unambiguous case — a single husk whose name has no live claimant — the plain name is shown.
+    auto const pending = db_handler_.PendingItems();  // vector<(name, uuid)>
+    std::unordered_map<std::string, int> husk_name_count;
+    for (auto const &[name, uuid] : pending) ++husk_name_count[name];
+    for (auto const &[name, uuid] : pending) {
+      if (live_names.contains(name) || husk_name_count[name] > 1) {
+        out.emplace_back(fmt::format("{} ({})", name, uuid), "DROPPING");
+      } else {
+        out.emplace_back(name, "DROPPING");
+      }
     }
     return out;
   }
@@ -948,7 +973,7 @@ class DbmsHandler {
   DbmsHandler::NewResultT New_(storage::Config storage_config, system::Transaction *txn = nullptr);
 
   // TODO: new overload of Delete_ with DatabaseAccess
-  DeleteResult Delete_(std::string_view db_name);
+  DeleteResult Delete_(std::string db_name);
 
   // Drop a COLD (suspended) tenant: erases suspended_ entry, durable cold marker, on-disk data dir,
   // cold shell, and tenant-profile attachment. Returns the dropped UUID on success, or DeleteError
@@ -974,6 +999,17 @@ class DbmsHandler {
   // Returns std::nullopt when `name` is NOT suspended — the caller should fall through to the HOT
   // path in that case. Caller must hold lock_ (write).
   std::optional<DeleteResult> TryDeleteColdFastPath_(std::string_view name, system::Transaction *transaction);
+
+  // Returns the DeleteError to propagate when the tenant is not live (name absent from items_):
+  // ALREADY_DROPPING if a husk with this name is still draining in PendingItems(), else NON_EXISTENT.
+  // Caller invokes this only when GetConfig(db_name) already returned nullopt. Caller must hold lock_.
+  DeleteError NotLiveDeleteError_(std::string_view db_name) const;
+
+  // Invoke on_uuid_retired_ after a committed drop; swallow and log any exception.
+  // The drop is already committed (husk draining or COLD removed) — a hook exception must NOT
+  // surface as a false failure to the caller. If the hook throws, that uuid's parameter rows
+  // stay orphaned; nothing reclaims them. No-op when on_uuid_retired_ is empty.
+  void NotifyUuidRetired_(utils::UUID const &uuid, std::string_view name_for_log);
 
   // Refresh the global cold-databases gauge from the live suspended_ size. Caller MUST hold lock_
   // (every call site already does, or runs before any concurrent reader exists).
@@ -1119,7 +1155,8 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
-  DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
+
+  DatabaseHandler db_handler_;  //!< multi-tenancy storage handler
   // COLD tenant rebuild metadata; guarded by lock_. The transparent std::less<> comparator is LOAD-BEARING
   // for the Resume_ publish block's noexcept guarantee: that block does suspended_.find(name) (string_view,
   // no temporary std::string -> no allocation) AFTER the gatekeeper has been committed HOT, so it must not

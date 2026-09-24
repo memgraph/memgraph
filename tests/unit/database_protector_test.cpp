@@ -28,6 +28,8 @@ namespace {
 // Common test protector implementation
 struct TestProtector : memgraph::storage::DatabaseProtector {
   auto clone() const -> memgraph::storage::DatabaseProtectorPtr override { return std::make_unique<TestProtector>(); }
+
+  bool sealed() const override { return false; }
 };
 
 // Synchronization helper for async indexer testing
@@ -75,6 +77,8 @@ struct StorageGatekeeperProtector : memgraph::storage::DatabaseProtector {
   auto clone() const -> memgraph::storage::DatabaseProtectorPtr override {
     return std::make_unique<StorageGatekeeperProtector>(access_);
   }
+
+  bool sealed() const override { return access_.is_marked_for_deletion(); }
 
  private:
   Access access_;

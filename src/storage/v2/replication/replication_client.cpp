@@ -68,6 +68,12 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   auto &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
+  // Tenant is being dropped; stay MAYBE_BEHIND (not RECOVERY) — ForEach skips destroyed tenants via access() nullopt.
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return;
+  }
+
   // A broken main holds no valid data for this tenant. Driving recovery from it would overwrite a
   // healthy replica with corrupt/empty state, so skip until the tenant is cured. Recovery resumes
   // automatically once the broken flag is cleared.
@@ -219,6 +225,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
               const memory::DbArenaScope db_arena_scope{arena_pool};
               this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                    main_storage,
+                                   *gk,
                                    true);  // needs force reset so we need to recover from 0.
             } catch (...) {
               // The task runs raw on the maintenance worker; left in RECOVERY the replica would never
@@ -304,7 +311,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                                          this] {
         try {
           const memory::DbArenaScope db_arena_scope{arena_pool};
-          this->RecoverReplica(current_commit_timestamp, main_storage);
+          this->RecoverReplica(current_commit_timestamp, main_storage, *gk);
         } catch (...) {
           // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
           // rechecked, the frequent check reacts to MAYBE_BEHIND alone.
@@ -329,7 +336,33 @@ void ReplicationStorageClient::LogRpcFailure() const {
       utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
 }
 
+void ReplicationStorageClient::RetireForSealedTenant(std::optional<ReplicaStream> &stream) const {
+  // Only touch the socket when there was an active stream; skip the abort entirely when
+  // stream is nullopt to avoid shutdown(2)-ing a clean socket and killing another tenant's
+  // in-flight RPC.  AbortRpcClient() is called BEFORE stream.reset() so that
+  // needs_reconnect_=true is visible to other threads while the StreamHandler still holds
+  // conn_->mutex_ — no racing tenant can grab the lock and reuse the poisoned socket in
+  // the window between the reset and the abort.  Client::Shutdown() is safe to call on a
+  // live stream; the socket is replaced later, under the lock, by EnsureConnected().
+  if (stream) {
+    AbortRpcClient();
+    stream.reset();
+    spdlog::warn(
+        "Retiring shared RPC connection to replica {} for sealed tenant drop. All other tenants "
+        "sharing this connection will transiently enter MAYBE_BEHIND and self-heal within ~1 recheck "
+        "interval (replica_check_frequency_, default 1 s). On SYNC/STRICT_SYNC replicas any "
+        "in-flight commit from an unrelated tenant on this connection is interrupted and the client "
+        "will receive an error — no data loss; the client should retry.",
+        client_.name_);
+  }
+  SetMaybeBehind();
+}
+
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return;
+  }
   client_.maintenance_pool_.AddTask(
       [main_storage, protector = protector.clone(), arena_pool = main_storage->DbArenaPool(), this]() {
         try {
@@ -345,6 +378,10 @@ void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, 
 }
 
 void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseProtector const &protector) const {
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return;
+  }
   spdlog::debug(
       "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
@@ -355,6 +392,7 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
             const memory::DbArenaScope db_arena_scope{arena_pool};
             this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                  main_storage,
+                                 *gk,
                                  true);  // needs force reset so we need to recover from 0.
           } catch (...) {
             // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
@@ -396,6 +434,15 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
                                                            uint64_t const durability_commit_timestamp)
     -> std::expected<ReplicaStream, StartTxnReplicationError> {
+  // Sealed tenant (DROP in progress): skip opening a PrepareCommit stream entirely, matching the
+  // sibling entry points (UpdateReplicaState / TryCheckReplicaStateAsync / ForceRecoverReplica).
+  // ReplicaNotInSyncErr matches the RECOVERY/REPLICATING/MAYBE_BEHIND arms; the caller handles it
+  // exactly as any other start failure. The downstream ShipOne sealed check remains for the
+  // seal-after-start race.
+  if (protector.sealed()) {
+    SetMaybeBehind();
+    return std::unexpected{StartTxnReplicationError{ReplicaNotInSyncErr{}}};
+  }
   metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.start_txn_replication_seconds};
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
@@ -585,6 +632,15 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
   metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.finalize_txn_replication_seconds};
+
+  // Tenant is being dropped: retire the RPC connection (framing correctness — ~StreamHandler releases
+  // the lock but does NOT close the socket; the next RPC would reuse a stream the replica is still
+  // mid-read on and corrupt framing) and stop replicating to a tenant that is going away.
+  if (protector.sealed()) {
+    RetireForSealedTenant(replica_stream);
+    return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+  }
+
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString(state));
 
@@ -622,6 +678,13 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
                commit_num_committed_txns,
                is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
+    // Tenant was sealed between AddTask and this task executing: retire the RPC connection (framing
+    // correctness — the stream is still open on the replica's side; a subsequent RPC would read stale
+    // bytes from it) and stop replicating to a tenant that is going away.
+    if (protector->sealed()) {
+      this->RetireForSealedTenant(replica_stream_obj);
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+    }
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       const memory::DbArenaScope db_arena_scope{arena_pool};
@@ -704,7 +767,7 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &
 // The replica will be considered as READY if it gets fully recovered. If there are commits taking place while recovery
 // is running, the replica will be again set to MAYBE_BEHIND state.
 void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage,
-                                              bool const reset_needed) const {
+                                              DatabaseProtector const &protector, bool const reset_needed) const {
   auto const &main_db_name = main_storage->name();
 
   // A guardrail, not a decision point: read without a hold, so the mode could flip right after.
@@ -722,6 +785,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                  client_.name_,
                  main_db_name);
     metrics::Metrics().global.replica_recovery_skip->Increment();
+    return;
+  }
+
+  if (protector.sealed()) {
+    spdlog::info("Tenant for replica {} is being dropped; stopping recovery.", client_.name_);
+    replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
     return;
   }
 

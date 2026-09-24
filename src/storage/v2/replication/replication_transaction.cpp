@@ -137,6 +137,17 @@ auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::
                                      replica_stream);
   // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
   if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+    // Tenant is being dropped; skip the 2PC finalize RPC (data is about to be deleted).
+    if (db_acc.sealed()) {
+      // Tenant is being dropped. Reset the stream so FinalizeTransaction does not schedule a
+      // FinalizeCommitRpc on this unfinalized PrepareCommit stream, and abort the RPC client so the
+      // socket (which ~StreamHandler releases the lock on but does NOT close) is retired — otherwise the
+      // next RPC on this connection (e.g. DropDatabaseRpc) reuses a stream the replica is still mid-read
+      // on and corrupts framing. Unlike the recovery-races-txn sibling bail-outs (which keep the
+      // connection for reuse), a sealed tenant is going away, so retiring the socket is correct.
+      raw_client->RetireForSealedTenant(replica_stream);
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+    }
     return raw_client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp);
   }
   // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
@@ -165,6 +176,9 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       // A streamless replica was down before voting, so there is no prepared transaction to decide on
       // (SendFinalizeCommitRpc succeeds trivially without a stream). Queueing a task the commit thread
       // must await could deadlock behind a recovery or state-check task blocking on engine_lock_.
+      // Also the sealed-tenant firewall: ShipOne calls RetireForSealedTenant (resets the stream) for a
+      // sealed tenant before this runs, so a null stream here means "sealed or failed" — the decision
+      // lambda (which captures no protector) is correctly skipped. No FinalizeCommitRpc for a dropped tenant.
       if (!replica_stream) {
         continue;
       }

@@ -367,3 +367,27 @@ TEST(HotColdGatekeeper, TryDeleteDestroysValueWithMutexReleased) {
   EXPECT_TRUE(dtor_saw_nullopt);          // access() during ~Reentrant saw value_ gone
   EXPECT_FALSE(gk.access().has_value());  // value destroyed
 }
+
+// prepare_for_deletion() sets the advisory seal; access() still mints in HOT
+// regardless of the seal (advisory, not a hard gate).
+TEST(HotColdGatekeeper, SealIsAdvisory) {
+  auto gk = make_hot();
+
+  EXPECT_EQ(gk.is_marked_for_deletion(), std::optional<bool>{false});
+
+  auto a = gk.access();
+  ASSERT_TRUE(a.has_value());
+  EXPECT_TRUE(bool(*a));
+  EXPECT_FALSE(a->is_marked_for_deletion());
+
+  a->prepare_for_deletion();
+
+  EXPECT_EQ(gk.is_marked_for_deletion(), std::optional<bool>{true});
+  EXPECT_TRUE(a->is_marked_for_deletion());
+  EXPECT_FALSE(bool(*a));
+
+  // advisory: access() still mints on a sealed-but-HOT gatekeeper.
+  auto b = gk.access();
+  ASSERT_TRUE(b.has_value());
+  EXPECT_FALSE(bool(*b));
+}

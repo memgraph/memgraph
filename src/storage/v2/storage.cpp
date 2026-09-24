@@ -102,6 +102,7 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         // This ensures async operations never get nullptr in test environments
         struct DefaultDatabaseProtector : DatabaseProtector {
           auto clone() const -> DatabaseProtectorPtr override { return std::make_unique<DefaultDatabaseProtector>(); }
+          bool sealed() const override { return false; }
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {

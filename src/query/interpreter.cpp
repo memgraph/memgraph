@@ -8846,6 +8846,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                     throw QueryRuntimeException("Cannot delete the default database.");
                   case dbms::DeleteError::NON_EXISTENT:
                     throw QueryRuntimeException("{} does not exist.", db_name);
+                  case dbms::DeleteError::ALREADY_DROPPING:
+                    throw QueryRuntimeException("Database {} is currently being dropped.", db_name);
                   case dbms::DeleteError::USING:
                     throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
                   case dbms::DeleteError::FAIL:
@@ -9132,8 +9134,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // SHOW DATABASES carries a "state" column (HOT/COLD) and a "health" column (ready/broken), and lists
-  // COLD tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
+  // SHOW DATABASES carries a "state" column (HOT/COLD, or DROPPING for a tenant whose FORCE drop is still
+  // draining and has no live same-name replacement) and a "health" column (ready/broken), and lists COLD
+  // tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
   callback.header = std::vector<std::string>{"Name", "State", "Health"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
@@ -9144,7 +9147,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
     // (AllWithHotColdStatus de-dups: suspended_ wins).
     std::vector<std::string> all_names;
-    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD"
+    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD" | "DROPPING"
     for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
       all_names.push_back(name);
       status_of.emplace(std::move(name), std::move(st));
@@ -9171,9 +9174,12 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
         // status_of carries the HOT/COLD string. A granted name not in the
         // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
         auto it = status_of.find(ns);
-        status.push_back({TypedValue(ns),
-                          TypedValue(it != status_of.end() ? it->second : std::string{"HOT"}),
-                          TypedValue(health_of(ns))});
+        const std::string state = (it != status_of.end()) ? it->second : std::string{"HOT"};
+        // A DROPPING husk has already been erased from items_ by DeferDelete; calling health_of
+        // would throw UnknownDatabaseException and fall back to "ready" — misleading.  Report
+        // "draining" directly, matching the semantic implied by the DROPPING state.
+        const std::string health = (state == "DROPPING") ? std::string{"draining"} : health_of(ns);
+        status.push_back({TypedValue(ns), TypedValue(state), TypedValue(health)});
       }
 
       std::erase_if(status, [&](auto const &row) {
@@ -10752,13 +10758,17 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     transaction_queries_->push_back(parsed_query.query_string);
     AdvanceCommand();
   } else {
-    ResetInterpreter();
-    transaction_queries_->push_back(parsed_query.query_string);
-    if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
-      // If we're not in an explicit transaction block and we have an open
-      // transaction, abort it since we're about to prepare a new query.
+    // Abort any leftover storage transaction BEFORE ResetInterpreter so that db_acc_ still pins
+    // the Database/Storage alive during Abort() → CleanupDBTransaction().  ResetInterpreter()
+    // calls ReleaseDbIfMarked(), which may drop the last gatekeeper pin on a sealed DB; doing so
+    // while db_transactional_accessor_ is alive is a UAF on the Storage (same ordering as ResetDB).
+    if (current_db_.db_transactional_accessor_) {
+      // Not in an explicit transaction (else branch above); there is an open autocommit transaction
+      // left over from a previous query — abort it before starting the next one.
       AbortCommand(nullptr);
     }
+    ResetInterpreter();
+    transaction_queries_->push_back(parsed_query.query_string);
 
     SetupInterpreterTransaction(extras);
     memgraph::logging::EmitSessionTraceEvent(
@@ -11563,7 +11573,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       execution_memory.resource(),
                       flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down,
-                      /* transaction_status = */ nullptr,
+                      /* transaction_status = */ db_acc->after_commit_trigger_status(),
                       trigger_context,
                       is_main,
                       triggering_user,
