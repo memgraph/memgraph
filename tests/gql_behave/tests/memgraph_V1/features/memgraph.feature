@@ -141,6 +141,9 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | -1 |
             | 2  |
 
+    # Issue #4917: the expected result here is the defect, not the intent. An uncorrelated branch is a grouping key
+    # only because it is planned below the Aggregate, so an empty input leaves no row to carry it and the one row
+    # the query should return is lost. This scenario and the next one change when #4917 is fixed.
     Scenario: Aggregation in CASE beside an uncorrelated EXISTS over empty input
         Given an empty graph
         And having executed
@@ -164,6 +167,20 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             MATCH (n:Nope) RETURN CASE WHEN size([(:Person)-[]-() | 1]) >= 0 THEN count(n) ELSE -1 END AS c
             """
         Then the result should be empty
+
+    # An arm that does not aggregate becomes a grouping key, so it is evaluated for every input row and not only for
+    # the rows whose condition selects it. The ELSE here divides by the zero its WHEN excludes, and still throws.
+    Scenario: An arm of a CASE that aggregates is evaluated for every row
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', d: 0}), (:Person {name: 'b', d: 2})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN n.d <> 0 THEN count(n) ELSE 10 / n.d END AS c
+            """
+        Then an error should be raised
 
     Scenario: Create enum:
         Given an empty graph
