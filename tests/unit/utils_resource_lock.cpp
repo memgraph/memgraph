@@ -834,6 +834,13 @@ TEST_F(ResourceLockTest, ReadOnlyLatencyIndependentOfNewWriterCount) {
   RecordProperty("ro_latency_small_burst_us", std::to_string(latency_small_burst.count()));
   RecordProperty("ro_latency_large_burst_us", std::to_string(latency_large_burst.count()));
 
+  // A 50ms budget is smaller than the scheduling noise a sanitizer build sees on a loaded machine,
+  // and widening it far enough to be safe there would stop it catching the regression it exists
+  // for. The late_before_ro check above is the load-independent half and still runs everywhere.
+#if __has_feature(address_sanitizer)
+  GTEST_SKIP() << "READ_ONLY latency budget is below sanitizer scheduling noise";
+#endif
+
   // The large burst queues far more new writers behind the READ_ONLY request; if priority is
   // honoured, that should barely move the READ_ONLY latency (bounded by in-flight-writer drain
   // time), not scale with the queue length.
@@ -1176,10 +1183,21 @@ TEST_F(ResourceLockTest, TimedUniqueGatesNewSharedAcquisitionsWhilePending) {
   // otherwise compatible with READ, so a refused probe below can only be the pending-UNIQUE gate.
   auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);
 
-  auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(1s); });
+  // The UNIQUE has to wait its timeout out for the assertion below, so keep it short; the probes
+  // are ordered against the gate closing, not against this duration.
+  auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(200ms); });
 
-  // Let it register as pending before probing.
-  std::this_thread::sleep_for(50ms);
+  // Spin until the gate is observably closed rather than sleeping a fixed amount: under load a
+  // fixed sleep can elapse before the UNIQUE has registered, leaving the probes testing nothing.
+  // READ is compatible with the held READ, so it can only be refused by the pending-UNIQUE gate.
+  // The deadline only bounds the spin; leaving the loop without the gate closing lets the probes
+  // below fail and report, which no early return from here could do without abandoning the future.
+  const auto gate_deadline = std::chrono::steady_clock::now() + 60s;
+  while (lock.try_lock_shared<ResourceLock::LockReq::READ>()) {
+    lock.unlock_shared<ResourceLock::LockReq::READ>();
+    if (std::chrono::steady_clock::now() >= gate_deadline) break;
+    std::this_thread::yield();
+  }
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ>());
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::WRITE>());
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ_ONLY>());
@@ -1197,10 +1215,19 @@ TEST_F(ResourceLockTest, TimedUniqueTimeoutWakesSharedAcquirerItGated) {
 
   auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);  // keeps state SHARED
 
-  auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(200ms); });
+  // Long enough that the reader below is certainly parked before the timeout fires: the wake-up on
+  // timeout is what this test is about, so the timeout must not expire during the setup.
+  auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(2s); });
 
-  // Let the timed UNIQUE register before the reader parks on its gate.
-  std::this_thread::sleep_for(50ms);
+  // Spin until the gate is observably closed, so the reader really does park on it. A fixed sleep
+  // can elapse before the UNIQUE has registered, in which case the reader acquires immediately and
+  // the test proves nothing. READ is compatible with the held READ, so only the gate refuses it.
+  const auto gate_deadline = std::chrono::steady_clock::now() + 60s;
+  while (lock.try_lock_shared<ResourceLock::LockReq::READ>()) {
+    lock.unlock_shared<ResourceLock::LockReq::READ>();
+    if (std::chrono::steady_clock::now() >= gate_deadline) break;
+    std::this_thread::yield();
+  }
 
   std::atomic<bool> reader_acquired{false};
   auto reader = std::async(std::launch::async, [&] {
@@ -1209,8 +1236,8 @@ TEST_F(ResourceLockTest, TimedUniqueTimeoutWakesSharedAcquirerItGated) {
     lock.unlock_shared<ResourceLock::LockReq::READ>();
   });
 
-  // Let the reader reach cv.wait, then confirm the gate (not scheduling) is holding it.
-  std::this_thread::sleep_for(50ms);
+  // Confirm the gate (not scheduling) is holding the reader. The gate is already closed, so the
+  // reader cannot legitimately acquire until the UNIQUE gives up.
   ASSERT_FALSE(reader_acquired.load(std::memory_order_acquire));
 
   EXPECT_FALSE(timed_unique.get()) << "timed UNIQUE acquired while a READ was held";
@@ -1420,7 +1447,9 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
 // UNIQUE waiter of either kind the interleaving cannot arise and the test asserts nothing.
 TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   using namespace std::chrono_literals;
-  constexpr auto kUniqueTimeout = 500ms;
+  // Well above any plausible scheduling delay, so a timeout means the pending UNIQUE was genuinely
+  // not woken rather than that its thread was starved of CPU.
+  constexpr auto kUniqueTimeout = 30s;
   constexpr auto kDuration = 2s;
   constexpr int kSharedCyclers = 4;
   constexpr int kUniqueWaiters = 4;
@@ -1464,5 +1493,5 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
 
   EXPECT_GT(unique_acquisitions.load(), 0) << "the UNIQUE waiter never acquired; the test proved nothing";
   EXPECT_EQ(unique_timeouts.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
-                                       << "ms while " << kSharedCyclers << " shared acquirers were parked";
+                                       << "s while " << kSharedCyclers << " shared acquirers were parked";
 }
