@@ -272,26 +272,32 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
   }
 }
 
-auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
-    -> storage::PropertyValueRange::ValuePredicate {
-  if (!lower_) return nullptr;
+auto ExpressionRange::EvaluateSearchTerm(ExpressionEvaluator &evaluator) const -> std::optional<std::string> {
+  if (!lower_) return std::nullopt;
 
-  // Only a search term yields a predicate, and the bound has already been read to build the
-  // range. Reading it again for a range that will not use one would repeat whatever the
-  // expression does.
+  // Only these three search by a term. Every other range has already read the bound to build its
+  // bounds, and reading it again would repeat whatever the expression does.
   switch (type_) {
     case Type::CONTAINS:
     case Type::ENDS_WITH:
     case Type::REGEX_MATCH:
       break;
     default:
-      return nullptr;
+      return std::nullopt;
   }
 
   auto const typed_value = lower_->value()->Accept(evaluator);
-  if (!typed_value.IsString()) return nullptr;
-  auto const &search_term = typed_value.ValueString();
+  if (!typed_value.IsString()) return std::nullopt;
+  return std::string{typed_value.ValueString()};
+}
 
+auto ExpressionRange::MakeValuePredicate(std::optional<std::string> const &search_term) const
+    -> storage::PropertyValueRange::ValuePredicate {
+  if (!search_term) return nullptr;
+
+  // A chunked scan hands one predicate to every worker, so each test runs on several threads at
+  // once. Only a const call is safe: nothing here may be a mutable lambda, whatever the shared_ptr
+  // says, since std::function invokes its target's non-const call operator.
   auto const make = [](auto match) {
     return std::make_shared<storage::PropertyValueRange::ValuePredicateFn>(
         [match = std::move(match)](storage::PropertyValue const &value) {
@@ -301,14 +307,14 @@ auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
 
   switch (type_) {
     case Type::CONTAINS:
-      return make([s = std::string(search_term)](auto const &v) { return v.contains(s); });
+      return make([s = *search_term](auto const &v) { return v.contains(s); });
     case Type::ENDS_WITH:
-      return make([s = std::string(search_term)](auto const &v) { return v.ends_with(s); });
+      return make([s = *search_term](auto const &v) { return v.ends_with(s); });
     case Type::REGEX_MATCH:
       try {
         // Raising here would let an index decide whether the query raises at all. Left to the
         // filter, an unusable pattern raises once a row reaches it, as it does without an index.
-        return make([re = std::regex(search_term)](auto const &v) { return std::regex_match(v, re); });
+        return make([re = std::regex(*search_term)](auto const &v) { return std::regex_match(v, re); });
       } catch (std::regex_error const &) {
         return nullptr;
       }
@@ -316,6 +322,33 @@ auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
       return nullptr;
   }
 }
+
+namespace {
+
+/// The value predicate for the input row driving a scan. One pass over an index narrows by one
+/// search term, so the term belongs to the row that started the pass: read once for the whole
+/// cursor, every later row would be answered with the first row's term.
+///
+/// Both members start empty, which is exactly the state a range carrying no search term produces,
+/// so the first call needs no flag to tell it the predicate has yet to be built.
+class ValuePredicateForRow {
+ public:
+  auto Get(ExpressionRange const &range, ExpressionEvaluator &evaluator)
+      -> storage::PropertyValueRange::ValuePredicate {
+    auto term = range.EvaluateSearchTerm(evaluator);
+    if (term != term_) {
+      predicate_ = range.MakeValuePredicate(term);
+      term_ = std::move(term);
+    }
+    return predicate_;
+  }
+
+ private:
+  std::optional<std::string> term_;
+  storage::PropertyValueRange::ValuePredicate predicate_;
+};
+
+}  // namespace
 
 std::optional<storage::ExternalPropertyValue> ConstExternalPropertyValue(const Expression *expression,
                                                                          Parameters const &parameters) {
@@ -1366,21 +1399,21 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
                                                       metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_type_property_operator.Increment();
 
-  auto const get_edges = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Edges(
-          view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
+  auto get_edges = [this, value_predicate = ValuePredicateForRow{}](
+                       Frame &frame, ExecutionContext &context) mutable -> std::optional<EdgesIterable> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
 
     if (range.type_ == storage::PropertyRangeType::INVALID) return std::nullopt;
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
-      return std::make_optional(db->Edges(view_, common_.edge_types[0], property_));
+      return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range));
     }
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range.lower_, range.upper_));
+    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1448,20 +1481,21 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
                                                   metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_property_operator.Increment();
 
-  auto const get_edges = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Edges(view_, property_, std::nullopt, std::nullopt))> {
+  auto get_edges = [this, value_predicate = ValuePredicateForRow{}](
+                       Frame &frame, ExecutionContext &context) mutable -> std::optional<EdgesIterable> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
 
     if (range.type_ == storage::PropertyRangeType::INVALID) return std::nullopt;
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
-      return std::make_optional(db->Edges(view_, property_));
+      return std::make_optional(db->Edges(view_, property_, range));
     }
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    return std::make_optional(db->Edges(view_, property_, range.lower_, range.upper_));
+    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    return std::make_optional(db->Edges(view_, property_, range));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1560,8 +1594,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                      metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_label_properties_operator.Increment();
 
-  // The predicates outlive the row they were built from; see ExpressionRange::MakeValuePredicate.
-  auto vertices = [this, value_predicates = std::vector<storage::PropertyValueRange::ValuePredicate>{}](
+  auto vertices = [this, value_predicates = std::vector<ValuePredicateForRow>(expression_ranges_.size())](
                       Frame &frame, ExecutionContext &context) mutable
       -> std::optional<decltype(context.db_accessor->Vertices(
           view_, label_, properties_, std::span<storage::PropertyValueRange>{}))> {
@@ -1573,14 +1606,9 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
       return std::nullopt;
     }
 
-    if (value_predicates.size() != expression_ranges_.size()) {
-      value_predicates = expression_ranges_ | rv::transform([&](ExpressionRange const &expression_range) {
-                           return expression_range.MakeValuePredicate(evaluator);
-                         }) |
-                         ranges::to_vector;
-    }
-    for (auto &&[range, predicate] : rv::zip(*maybe_prop_value_ranges, value_predicates)) {
-      range.SetValuePredicate(predicate);
+    for (auto &&[range, expression_range, value_predicate] :
+         rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
+      range.SetValuePredicate(value_predicate.Get(expression_range, evaluator));
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
@@ -10701,8 +10729,7 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                                           metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_label_properties_operator.Increment();
 #ifdef MG_ENTERPRISE
-  // The predicates outlive the row they were built from; see ExpressionRange::MakeValuePredicate.
-  auto get_chunks = [this, value_predicates = std::vector<storage::PropertyValueRange::ValuePredicate>{}](
+  auto get_chunks = [this, value_predicates = std::vector<ValuePredicateForRow>(expression_ranges_.size())](
                         Frame &frame, ExecutionContext &context) mutable {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
@@ -10715,14 +10742,9 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
 
     // Carried on the range exactly as the serial scan carries it. Without it every value in the
     // band is handed to the filter above, which is most of the column for a search term.
-    if (value_predicates.size() != expression_ranges_.size()) {
-      value_predicates = expression_ranges_ | rv::transform([&](ExpressionRange const &expression_range) {
-                           return expression_range.MakeValuePredicate(evaluator);
-                         }) |
-                         ranges::to_vector;
-    }
-    for (auto &&[range, predicate] : rv::zip(*maybe_prop_value_ranges, value_predicates)) {
-      range.SetValuePredicate(predicate);
+    for (auto &&[range, expression_range, value_predicate] :
+         rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
+      range.SetValuePredicate(value_predicate.Get(expression_range, evaluator));
     }
 
     return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_, index_order_);
@@ -10782,13 +10804,13 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
                                                            metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_type_property_operator.Increment();
 #ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+  auto get_chunks = [this, value_predicate = ValuePredicateForRow{}](Frame &frame, ExecutionContext &context) mutable {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
 
     if (range.type_ == storage::PropertyRangeType::INVALID) {
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
+      return db->ChunkedEdges(view_, edge_type_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
@@ -10796,10 +10818,11 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
     }
 
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
+      return db->ChunkedEdges(view_, edge_type_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
-    return db->ChunkedEdges(view_, edge_type_, property_, range.lower_, range.upper_, num_threads_);
+    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    return db->ChunkedEdges(view_, edge_type_, property_, range, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10839,13 +10862,13 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
                                                        metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_property_operator.Increment();
 #ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+  auto get_chunks = [this, value_predicate = ValuePredicateForRow{}](Frame &frame, ExecutionContext &context) mutable {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
 
     if (range.type_ == storage::PropertyRangeType::INVALID) {
-      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
+      return db->ChunkedEdges(view_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
@@ -10853,10 +10876,11 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
     }
 
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
-      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
+      return db->ChunkedEdges(view_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
-    return db->ChunkedEdges(view_, property_, range.lower_, range.upper_, num_threads_);
+    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    return db->ChunkedEdges(view_, property_, range, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));

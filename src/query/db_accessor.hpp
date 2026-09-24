@@ -502,14 +502,6 @@ class DbAccessor final {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, view, num_chunks)};
   }
 
-  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
-                                    size_t num_chunks) {
-    return EdgesChunkedIterable{
-        accessor_->ChunkedEdges(edge_type, property, lower_bound, upper_bound, view, num_chunks)};
-  }
-
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property, size_t num_chunks) {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, view, num_chunks)};
   }
@@ -517,13 +509,6 @@ class DbAccessor final {
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
                                     const storage::PropertyValue value, size_t num_chunks) {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, value, view, num_chunks)};
-  }
-
-  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
-                                    size_t num_chunks) {
-    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, lower_bound, upper_bound, view, num_chunks)};
   }
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
@@ -542,20 +527,27 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, view));
   }
 
-  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
-    return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
-  }
-
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
     return EdgesIterable(accessor_->Edges(property, view));
   }
 
-  EdgesIterable Edges(storage::View view, storage::PropertyId property,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
-    return EdgesIterable(accessor_->Edges(property, lower, upper, view));
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                      storage::PropertyValueRange const &range) {
+    return EdgesIterable(accessor_->Edges(edge_type, property, range, view));
+  }
+
+  EdgesIterable Edges(storage::View view, storage::PropertyId property, storage::PropertyValueRange const &range) {
+    return EdgesIterable(accessor_->Edges(property, range, view));
+  }
+
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                    storage::PropertyValueRange const &range, size_t num_chunks) {
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, range, view, num_chunks)};
+  }
+
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
+                                    storage::PropertyValueRange const &range, size_t num_chunks) {
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, range, view, num_chunks)};
   }
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }

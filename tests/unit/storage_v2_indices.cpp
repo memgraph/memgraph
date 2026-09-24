@@ -3226,6 +3226,134 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
   }
 }
 
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexAppliesTheValuePredicate) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  // Only "gamma" holds "mm", so the id it is given is the one the scan must come back with.
+  int64_t gamma_id = -1;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (auto const *word : {"alpha", "beta", "gamma"}) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(word)));
+      if (std::string_view{word} == "gamma") {
+        gamma_id = edge_acc.GetProperty(this->prop_id, View::NEW)->ValueInt();
+      }
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // The band a CONTAINS scan seeks: every string. The predicate is what narrows it.
+  auto range = memgraph::storage::PropertyValueRange::Bounded(
+      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue("")),
+      memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::String));
+  range.SetValuePredicate(std::make_shared<memgraph::storage::PropertyValueRange::ValuePredicateFn const>(
+      [](memgraph::storage::PropertyValue const &value) {
+        return value.IsString() && value.ValueString().contains("mm");
+      }));
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, range, View::OLD), View::OLD),
+              UnorderedElementsAre(gamma_id));
+}
+
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexScansNothingForAnEmptyRange) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(1)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(
+      this->GetIds(
+          acc->Edges(
+              this->edge_type_id1, this->edge_prop_id1, memgraph::storage::PropertyValueRange::Empty(), View::OLD),
+          View::OLD),
+      IsEmpty());
+}
+
+TYPED_TEST(IndexTest, EdgePropertyIndexScansNothingForAnEmptyRange) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(1)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, memgraph::storage::PropertyValueRange::Empty(), View::OLD),
+                           View::OLD),
+              IsEmpty());
+}
+
+TYPED_TEST(IndexTest, EdgePropertyIndexAppliesTheValuePredicate) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  // Only "gamma" holds "mm", so the id it is given is the one the scan must come back with.
+  int64_t gamma_id = -1;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (auto const *word : {"alpha", "beta", "gamma"}) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(word)));
+      if (std::string_view{word} == "gamma") {
+        gamma_id = edge_acc.GetProperty(this->prop_id, View::NEW)->ValueInt();
+      }
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto range = memgraph::storage::PropertyValueRange::Bounded(
+      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue("")),
+      memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::String));
+  range.SetValuePredicate(std::make_shared<memgraph::storage::PropertyValueRange::ValuePredicateFn const>(
+      [](memgraph::storage::PropertyValue const &value) {
+        return value.IsString() && value.ValueString().contains("mm");
+      }));
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, range, View::OLD), View::OLD),
+              UnorderedElementsAre(gamma_id));
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
@@ -3607,33 +3735,37 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBoundedScan) {
   // Inclusive bounds keep the boundary entries 5 and 10.
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
                                       this->prop_id,
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10)),
+                                      memgraph::storage::PropertyValueRange::Bounded(
+                                          memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
+                                          memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10))),
                                       View::OLD)),
               UnorderedElementsAre(5, 6, 7, 8, 9, 10));
 
   // Exclusive bounds drop the boundary entries 5 and 10.
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
                                       this->prop_id,
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10)),
+                                      memgraph::storage::PropertyValueRange::Bounded(
+                                          memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
+                                          memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10))),
                                       View::OLD)),
               UnorderedElementsAre(6, 7, 8, 9));
 
   // Lower bound only.
-  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
-                                      this->prop_id,
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)),
-                                      std::nullopt,
-                                      View::OLD)),
+  EXPECT_THAT(this->GetIds(acc->Edges(
+                  this->edge_type_id1,
+                  this->prop_id,
+                  memgraph::storage::PropertyValueRange::Bounded(
+                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)), std::nullopt),
+                  View::OLD)),
               UnorderedElementsAre(17, 18, 19));
 
   // Upper bound only.
-  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
-                                      this->prop_id,
-                                      std::nullopt,
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3)),
-                                      View::OLD)),
+  EXPECT_THAT(this->GetIds(acc->Edges(
+                  this->edge_type_id1,
+                  this->prop_id,
+                  memgraph::storage::PropertyValueRange::Bounded(
+                      std::nullopt, memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3))),
+                  View::OLD)),
               UnorderedElementsAre(0, 1, 2));
 }
 
@@ -4121,30 +4253,34 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBoundedScan) {
 
   // Inclusive bounds keep the boundary entries 5 and 10.
   EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10)),
+                                      memgraph::storage::PropertyValueRange::Bounded(
+                                          memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
+                                          memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10))),
                                       View::OLD)),
               UnorderedElementsAre(5, 6, 7, 8, 9, 10));
 
   // Exclusive bounds drop the boundary entries 5 and 10.
   EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10)),
+                                      memgraph::storage::PropertyValueRange::Bounded(
+                                          memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
+                                          memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10))),
                                       View::OLD)),
               UnorderedElementsAre(6, 7, 8, 9));
 
   // Lower bound only.
-  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
-                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)),
-                                      std::nullopt,
-                                      View::OLD)),
+  EXPECT_THAT(this->GetIds(acc->Edges(
+                  this->prop_id,
+                  memgraph::storage::PropertyValueRange::Bounded(
+                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)), std::nullopt),
+                  View::OLD)),
               UnorderedElementsAre(17, 18, 19));
 
   // Upper bound only.
-  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
-                                      std::nullopt,
-                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3)),
-                                      View::OLD)),
+  EXPECT_THAT(this->GetIds(acc->Edges(
+                  this->prop_id,
+                  memgraph::storage::PropertyValueRange::Bounded(
+                      std::nullopt, memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3))),
+                  View::OLD)),
               UnorderedElementsAre(0, 1, 2));
 }
 

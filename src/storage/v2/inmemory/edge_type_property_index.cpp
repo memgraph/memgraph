@@ -125,7 +125,8 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_edge, EdgeAccessor &current_accessor,
                         PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                        Transaction *transaction, EdgeTypeId edge_type, Gid max_gid) {
+                        Transaction *transaction, EdgeTypeId edge_type, Gid max_gid,
+                        PropertyValueRange::ValuePredicateFn const *value_predicate) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->edge == current_edge.ptr) {
       continue;
@@ -138,6 +139,10 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
     if (!IsValueIncludedByUpperBound(index_iterator->value, upper_bound)) {
       index_iterator = end;
       break;
+    }
+
+    if (value_predicate && !(*value_predicate)(index_iterator->value)) {
+      continue;
     }
 
     // Visibility filters run after the value-bounds check: bounds depend only on the
@@ -444,14 +449,26 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, Gid max_gid)
+    : Iterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), edge_type, property,
+               PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage, transaction, max_gid) {}
+
+InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                                                  utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                                  EdgePin edge_pin, EdgeTypeId edge_type, PropertyId property,
+                                                  PropertyValueRange const &range, View view, Storage *storage,
+                                                  Transaction *transaction, Gid max_gid)
     : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
       property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound),
-      bounds_valid_(ValidateBounds(lower_bound_, upper_bound_, /*allow_whole_type_span=*/true)),
+      lower_bound_(range.lower_),
+      upper_bound_(range.upper_),
+      value_predicate_(range.GetValuePredicate()),
+      // A range no value satisfies says so by its type, having no pair of bounds that would, so a
+      // scan reading only the bounds would read the whole index.
+      bounds_valid_(range.type_ != PropertyRangeType::INVALID &&
+                    ValidateBounds(lower_bound_, upper_bound_, /*allow_whole_type_span=*/true)),
       view_(view),
       storage_(storage),
       transaction_(transaction),
@@ -484,7 +501,8 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->storage_,
                      self_->transaction_,
                      self_->edge_type_,
-                     self_->max_gid_);
+                     self_->max_gid_,
+                     self_->value_predicate_.get());
 }
 
 void InMemoryEdgeTypePropertyIndex::RunGC() {
@@ -521,6 +539,53 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
           view,
           storage,
           transaction,
+          max_gid};
+}
+
+InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveIndices::Edges(
+    EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction) {
+  auto it = index_container_->find({edge_type, property});
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
+            property.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
+  return {it->second->skiplist.access(),
+          std::move(vertex_accessor),
+          std::move(edge_pin),
+          edge_type,
+          property,
+          range,
+          view,
+          storage,
+          transaction,
+          max_gid};
+}
+
+InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::ActiveIndices::ChunkedEdges(
+    EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction, size_t num_chunks) {
+  auto it = index_container_->find({edge_type, property});
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
+            property.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
+  return {it->second->skiplist.access(),
+          std::move(vertex_accessor),
+          std::move(edge_pin),
+          edge_type,
+          property,
+          range,
+          view,
+          storage,
+          transaction,
+          num_chunks,
           max_gid};
 }
 
@@ -595,14 +660,27 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks, Gid max_gid)
+    : ChunkedIterable(std::move(index_accessor), std::move(vertex_accessor), std::move(edge_pin), edge_type, property,
+                      PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage, transaction, num_chunks,
+                      max_gid) {}
+
+InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
+    utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Accessor index_accessor,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+    PropertyId property, PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction,
+    size_t num_chunks, Gid max_gid)
     : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
       property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound),
-      bounds_valid_(ValidateBounds(lower_bound_, upper_bound_, /*allow_whole_type_span=*/true)),
+      lower_bound_(range.lower_),
+      upper_bound_(range.upper_),
+      value_predicate_(range.GetValuePredicate()),
+      // A range no value satisfies says so by its type, having no pair of bounds that would, so a
+      // scan reading only the bounds would read the whole index.
+      bounds_valid_(range.type_ != PropertyRangeType::INVALID &&
+                    ValidateBounds(lower_bound_, upper_bound_, /*allow_whole_type_span=*/true)),
       view_(view),
       storage_(storage),
       transaction_(transaction),
@@ -633,7 +711,8 @@ void InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid
                      self_->storage_,
                      self_->transaction_,
                      self_->edge_type_,
-                     self_->max_gid_);
+                     self_->max_gid_,
+                     self_->value_predicate_.get());
 }
 
 }  // namespace memgraph::storage

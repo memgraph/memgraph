@@ -891,11 +891,15 @@ EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, Propert
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
-                                               const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
-                                               const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/,
-                                               View /*view*/) {
+                                               PropertyValueRange const & /*range*/, View /*view*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, PropertyValueRange const & /*range*/,
+                                               View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge property index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, View /*view*/) {
@@ -904,14 +908,6 @@ EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, View /*v
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, const PropertyValue & /*value*/,
-                                               View /*view*/) {
-  throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
-                                 kErrorMessage);
-}
-
-EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/,
-                                               const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
-                                               const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/,
                                                View /*view*/) {
   throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);

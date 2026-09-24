@@ -72,13 +72,18 @@ struct ExpressionRange {
 
   auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
 
+  /// The string a CONTAINS, ENDS WITH or regex range searches for. Null for every other range, and
+  /// for a search term that is not a string, neither of which narrows by a term.
+  auto EvaluateSearchTerm(ExpressionEvaluator &evaluator) const -> std::optional<std::string>;
+
   /// Which of the values inside the evaluated bounds satisfy the range, where the bounds alone
   /// cannot say. Null unless the bounds merely narrow the scan to the string type.
   ///
-  /// Kept apart from Evaluate because the two have different lifetimes: bounds may read a symbol
-  /// and so are evaluated per row, while a search term never can (PropertyFilter::IsStringPredicate
-  /// says why), leaving the predicate the same for the whole execution.
-  auto MakeValuePredicate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange::ValuePredicate;
+  /// Takes the term rather than reading it, leaving the caller to decide how often EvaluateSearchTerm
+  /// runs: a scan has to narrow by the term belonging to the row it is reading for, while building
+  /// the predicate may compile a regex and is worth doing only once per term.
+  auto MakeValuePredicate(std::optional<std::string> const &search_term) const
+      -> storage::PropertyValueRange::ValuePredicate;
 
   auto ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
       -> std::optional<storage::PropertyValueRange>;

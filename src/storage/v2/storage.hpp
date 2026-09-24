@@ -32,6 +32,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -620,35 +621,29 @@ class Accessor {
 
   virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) = 0;
 
-  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property,
-                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
-
   virtual EdgesIterable Edges(PropertyId property, View view) = 0;
 
   virtual EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) = 0;
 
-  virtual EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
+  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                              View view) = 0;
+
+  virtual EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                                            View view, size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, PropertyValueRange const &range, View view,
+                                            size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, View view, size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, View view,
                                             size_t num_chunks) = 0;
 
-  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                            size_t num_chunks) = 0;
-
   virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, View view, size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, const PropertyValue &value, View view,
-                                            size_t num_chunks) = 0;
-
-  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                             size_t num_chunks) = 0;
 
   virtual auto DeleteVertex(VertexAccessor *vertex) -> Result<std::optional<VertexAccessor>>;

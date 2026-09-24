@@ -20,6 +20,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_store.hpp"
@@ -133,16 +134,24 @@ class DiskStorage final : public Storage {
 
     EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) override;
 
-    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property,
-                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
-
     EdgesIterable Edges(PropertyId property, View view) override;
 
     EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) override;
 
-    EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range, View view) override;
+
+    EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) override;
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
+                                      PropertyValueRange const & /*range*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, PropertyValueRange const & /*range*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
 
     EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, View /*view*/, size_t /*num_chunks*/) override {
       throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
@@ -153,25 +162,11 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
     }
 
-    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
-                                      const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
-                                      const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/, View /*view*/,
-                                      size_t /*num_chunks*/) override {
-      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
-    }
-
     EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, View /*view*/, size_t /*num_chunks*/) override {
       throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
     }
 
     EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, const PropertyValue & /*value*/, View /*view*/,
-                                      size_t /*num_chunks*/) override {
-      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
-    }
-
-    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/,
-                                      const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
-                                      const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/, View /*view*/,
                                       size_t /*num_chunks*/) override {
       throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
     }

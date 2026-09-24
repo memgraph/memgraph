@@ -282,7 +282,9 @@ void TTL::Configure(bool should_run_edge_ttl) {
           // Use edge property index with range to efficiently find edges where ttl < now
           // This is much more efficient than using property index + checking each edge for the value
           auto edges = batch_accessor->Edges(
-              ttl_property, std::nullopt, utils::MakeBoundExclusive(PropertyValue(now_us.count())), View::NEW);
+              ttl_property,
+              PropertyValueRange::Bounded(std::nullopt, utils::MakeBoundExclusive(PropertyValue(now_us.count()))),
+              View::NEW);
           std::vector<EdgeAccessor> edges_to_delete;
           edges_to_delete.reserve(batch_size);
 
