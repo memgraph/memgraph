@@ -25,6 +25,8 @@
 #include <vector>
 
 #include <jemalloc/jemalloc.h>
+#include <pthread.h>
+#include <sys/resource.h>
 #include <sys/types.h>
 
 namespace {
@@ -46,13 +48,93 @@ void WriteMallctl(const std::string &name, T value) {
   ASSERT_EQ(je_mallctl(name.c_str(), nullptr, nullptr, &value, sizeof(T)), 0) << name;
 }
 
-size_t UnpurgedPages(unsigned arena) {
+void RefreshStats() {
   uint64_t epoch = 1;
   size_t size = sizeof(epoch);
   EXPECT_EQ(je_mallctl("epoch", &epoch, &size, &epoch, size), 0);
+}
+
+size_t UnpurgedPages(unsigned arena) {
+  RefreshStats();
   const auto prefix = "stats.arenas." + std::to_string(arena);
   return ReadMallctl<size_t>(prefix + ".pdirty") + ReadMallctl<size_t>(prefix + ".pmuzzy");
 }
+
+// While in scope, this process cannot create threads: the per-user process limit is set below what
+// the user already runs. A user who may exceed the limit, such as root, is unaffected, which
+// Refusing() reports.
+class ThreadCreationRefused {
+ public:
+  ThreadCreationRefused() {
+    EXPECT_EQ(getrlimit(RLIMIT_NPROC, &saved_), 0);
+    const rlimit refused{.rlim_cur = 1, .rlim_max = saved_.rlim_max};
+    EXPECT_EQ(setrlimit(RLIMIT_NPROC, &refused), 0);
+  }
+
+  ThreadCreationRefused(const ThreadCreationRefused &) = delete;
+  ThreadCreationRefused &operator=(const ThreadCreationRefused &) = delete;
+  ThreadCreationRefused(ThreadCreationRefused &&) = delete;
+  ThreadCreationRefused &operator=(ThreadCreationRefused &&) = delete;
+
+  ~ThreadCreationRefused() { EXPECT_EQ(setrlimit(RLIMIT_NPROC, &saved_), 0); }
+
+  static bool Refusing() {
+    pthread_t thread{};
+    if (pthread_create(&thread, nullptr, [](void *) -> void * { return nullptr; }, nullptr) != 0) return true;
+    pthread_join(thread, nullptr);
+    return false;
+  }
+
+ private:
+  rlimit saved_{};
+};
+
+// Runs a purge whose restart of the background threads fails. Returns false if thread creation
+// could not be refused, in which case nothing was purged.
+bool PurgeWithThreadCreationRefused() {
+  const ThreadCreationRefused refused;
+  if (!ThreadCreationRefused::Refusing()) return false;
+  memgraph::memory::PurgeUnusedMemory();
+  return true;
+}
+
+// An arena whose dirty pages become due for purging a millisecond after they are freed, and are
+// then purged outright.
+class DecayingArena {
+ public:
+  DecayingArena() = default;
+
+  DecayingArena(const DecayingArena &) = delete;
+  DecayingArena &operator=(const DecayingArena &) = delete;
+  DecayingArena(DecayingArena &&) = delete;
+  DecayingArena &operator=(DecayingArena &&) = delete;
+
+  ~DecayingArena() {
+    if (created_) EXPECT_EQ(je_mallctl(Name("destroy").c_str(), nullptr, nullptr, nullptr, 0), 0);
+  }
+
+  // Call through ASSERT_NO_FATAL_FAILURE, so a test never changes the decay of an arena it did not create.
+  void Create() {
+    size_t size = sizeof(arena_);
+    ASSERT_EQ(je_mallctl("arenas.create", &arena_, &size, nullptr, 0), 0);
+    created_ = true;
+    WriteMallctl<ssize_t>(Name("dirty_decay_ms"), 1);
+    WriteMallctl<ssize_t>(Name("muzzy_decay_ms"), 0);
+  }
+
+  int Flags() const { return MALLOCX_ARENA(arena_) | MALLOCX_TCACHE_NONE; }
+
+  uint64_t PurgedPages() const {
+    RefreshStats();
+    return ReadMallctl<uint64_t>("stats.arenas." + std::to_string(arena_) + ".dirty_purged");
+  }
+
+ private:
+  std::string Name(const char *leaf) const { return "arena." + std::to_string(arena_) + "." + leaf; }
+
+  unsigned arena_{0};
+  bool created_{false};
+};
 
 // An arena whose extent hooks hold any thread but the owning test thread inside the first hook it
 // enters until Release(). The jemalloc background thread purges by calling these hooks, so it can
@@ -205,6 +287,45 @@ TEST_F(PurgeUnusedMemoryTest, LeavesBackgroundThreadsAsItFoundThem) {
   WriteMallctl("background_thread", false);
   memgraph::memory::PurgeUnusedMemory();
   EXPECT_FALSE(ReadMallctl<bool>("background_thread"));
+}
+
+TEST_F(PurgeUnusedMemoryTest, FailedRestartLeavesBackgroundThreadsOff) {
+  if (!PurgeWithThreadCreationRefused()) GTEST_SKIP() << "this user can create threads past the process limit";
+  EXPECT_FALSE(ReadMallctl<bool>("background_thread"));
+}
+
+TEST_F(PurgeUnusedMemoryTest, FailedRestartLeavesFreedPagesDecaying) {
+  if (!PurgeWithThreadCreationRefused()) GTEST_SKIP() << "this user can create threads past the process limit";
+
+  DecayingArena arena;
+  ASSERT_NO_FATAL_FAILURE(arena.Create());
+
+  // Decay runs on a thread that allocates or frees in the arena, once enough such calls have
+  // passed; these calls are what give the application thread its turn.
+  const auto deadline = std::chrono::steady_clock::now() + 200ms;
+  while (std::chrono::steady_clock::now() < deadline) {
+    je_dallocx(je_mallocx(kObjectBytes, arena.Flags()), arena.Flags());
+  }
+  EXPECT_GT(arena.PurgedPages(), 0U);
+}
+
+TEST_F(PurgeUnusedMemoryTest, BackgroundThreadsCanBeEnabledAfterAFailedRestart) {
+  if (!PurgeWithThreadCreationRefused()) GTEST_SKIP() << "this user can create threads past the process limit";
+  memgraph::memory::EnableBackgroundThreads();
+
+  DecayingArena arena;
+  ASSERT_NO_FATAL_FAILURE(arena.Create());
+
+  // With background threads enabled no application thread purges, and nothing touches this arena
+  // after the frees, so pages purged from it were purged by a background thread.
+  std::vector<void *> objects;
+  objects.reserve(kObjects);
+  for (int i = 0; i < kObjects; ++i) objects.push_back(je_mallocx(kObjectBytes, arena.Flags()));
+  for (void *object : objects) je_dallocx(object, arena.Flags());
+
+  const auto deadline = std::chrono::steady_clock::now() + 10s;
+  while (arena.PurgedPages() == 0 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(10ms);
+  EXPECT_GT(arena.PurgedPages(), 0U);
 }
 
 #else

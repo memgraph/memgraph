@@ -167,7 +167,11 @@ void PurgeUnusedMemory() {
   if (was_enabled) {
     if (const int err = je_mallctl("background_thread", nullptr, nullptr, &was_enabled, sizeof(was_enabled));
         err != 0) {
-      spdlog::error("Failed to restart jemalloc background threads after a purge: {} ({})", strerror(err), err);
+      spdlog::error(
+          "Failed to restart jemalloc background threads after a purge, so application threads purge instead: {} "
+          "({})",
+          strerror(err),
+          err);
     }
   }
 #else
