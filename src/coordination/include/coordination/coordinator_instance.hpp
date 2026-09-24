@@ -191,34 +191,20 @@ class CoordinatorInstance {
            status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY;
   }
 
-  // nullopt means "serve this locally", otherwise the status to report.
+  // Sends a write to whichever coordinator leads and reports the status the leader answered with, so the caller can
+  // tell a reason that has already passed from one that will never clear. nullopt means "serve this locally".
+  //
   // A Raft leader is served locally even when it isn't ready yet: it has no connector to itself, so forwarding would
   // report a misleading LEADER_NOT_FOUND instead of the caller's own NOT_LEADER. Every caller must therefore follow
   // this with a readiness check (or deliberately allow a not-ready leader through, as the leadership escape hatches
   // do).
-  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
-  auto ForwardToLeader(Args &&...args) const -> std::optional<StatusEnum> {
-    if (raft_state_->IsLeader()) {
-      return std::nullopt;
-    }
-    auto const leader_id = raft_state_->GetLeaderId();
-    // The shared owner is held for the whole (blocking) call, so a concurrent config change can't destroy it mid-RPC.
-    if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendRpc<Rpc>(std::forward<Args>(args)...).value_or(false) ? StatusEnum::SUCCESS
-                                                                               : StatusEnum::LEADER_FAILED;
-    }
-    return StatusEnum::LEADER_NOT_FOUND;
-  }
-
-  // Like ForwardToLeader, but for RPCs whose response carries the leader's exact status (as std::optional<StatusEnum>)
-  // instead of a bool success flag, so the follower can act on statuses like ROLE_ALREADY_EXISTS. An empty response
-  // (the RPC itself failed) maps to LEADER_FAILED. Same local-vs-forward rule as ForwardToLeader.
   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
   auto ForwardStatusToLeader(Args &&...args) const -> std::optional<StatusEnum> {
     if (raft_state_->IsLeader()) {
       return std::nullopt;
     }
     auto const leader_id = raft_state_->GetLeaderId();
+    // The shared owner is held for the whole (blocking) call, so a concurrent config change can't destroy it mid-RPC.
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       // Outer optional: the RPC itself succeeded. Inner: the leader actually reported a status. Both must hold, or we
       // would return nullopt here and the caller would misread it as "I am the leader".
@@ -230,9 +216,9 @@ class CoordinatorInstance {
     return StatusEnum::LEADER_NOT_FOUND;
   }
 
-  // Same as ForwardToLeader but for queries reading the cluster state, where the leader's answer is the payload rather
-  // than a status. Callers must first check AmReadyLeader() and serve the read locally if it holds. nullopt if the
-  // leader couldn't be reached, which is distinct from the leader answering with an empty payload.
+  // Same as ForwardStatusToLeader but for queries reading the cluster state, where the leader's answer is the payload
+  // rather than a status. Callers must first check AmReadyLeader() and serve the read locally if it holds. nullopt if
+  // the leader couldn't be reached, which is distinct from the leader answering with an empty payload.
   template <rpc::IsRpc Rpc, typename... Args>
   auto SendReadToLeader(Args &&...args) const -> std::optional<decltype(std::declval<typename Rpc::Response>().arg_)> {
     auto const leader_id = raft_state_->GetLeaderId();

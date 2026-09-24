@@ -208,7 +208,7 @@ auto CoordinatorInstance::YieldLeadershipAsLeader() const -> YieldLeadershipStat
 }
 
 auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
-  if (auto const res = ForwardToLeader<YieldLeadershipRpc, YieldLeadershipStatus>(); res.has_value()) {
+  if (auto const res = ForwardStatusToLeader<YieldLeadershipRpc, YieldLeadershipStatus>(); res.has_value()) {
     return *res;
   }
 
@@ -522,8 +522,12 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
   if (!status.compare_exchange_strong(
           expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendRpc<ForceResetRpc>().value_or(false) ? ReconcileClusterStateStatus::SUCCESS
-                                                              : ReconcileClusterStateStatus::LEADER_FAILED;
+      // Outer optional: the call itself got through. Inner: the leader reported why it declined.
+      auto const res = leader->SendRpc<ForceResetRpc>();
+      if (res.has_value() && res->has_value()) {
+        return **res;
+      }
+      return ReconcileClusterStateStatus::LEADER_FAILED;
     }
 
     return ReconcileClusterStateStatus::LEADER_NOT_FOUND;
@@ -582,7 +586,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (auto const res =
-          ForwardToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
+          ForwardStatusToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
       res.has_value()) {
     return *res;
   }
@@ -675,7 +679,8 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   metrics::Metrics().global.demote_instance->Increment();
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  if (auto const res = ForwardToLeader<DemoteInstanceRpc, DemoteInstanceCoordinatorStatus>(std::string{instance_name});
+  if (auto const res =
+          ForwardStatusToLeader<DemoteInstanceRpc, DemoteInstanceCoordinatorStatus>(std::string{instance_name});
       res.has_value()) {
     return *res;
   }
@@ -728,7 +733,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
   // TODO: (andi) Can I move further down this lock
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  if (auto const res = ForwardToLeader<RegisterInstanceRpc, RegisterInstanceCoordinatorStatus>(config);
+  if (auto const res = ForwardStatusToLeader<RegisterInstanceRpc, RegisterInstanceCoordinatorStatus>(config);
       res.has_value()) {
     return *res;
   }
@@ -829,7 +834,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     -> UnregisterInstanceCoordinatorStatus {
   metrics::Metrics().global.unregister_repl_instance->Increment();
   if (auto const res =
-          ForwardToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
+          ForwardStatusToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
       res.has_value()) {
     return *res;
   }
@@ -897,7 +902,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
   metrics::Metrics().global.remove_coord_instance->Increment();
-  if (auto const res = ForwardToLeader<RemoveCoordinatorRpc, RemoveCoordinatorInstanceStatus>(coordinator_id);
+  if (auto const res = ForwardStatusToLeader<RemoveCoordinatorRpc, RemoveCoordinatorInstanceStatus>(coordinator_id);
       res.has_value()) {
     return *res;
   }
@@ -950,7 +955,8 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
 
 auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const
     -> AddCoordinatorInstanceStatus {
-  if (auto const res = ForwardToLeader<AddCoordinatorRpc, AddCoordinatorInstanceStatus>(config); res.has_value()) {
+  if (auto const res = ForwardStatusToLeader<AddCoordinatorRpc, AddCoordinatorInstanceStatus>(config);
+      res.has_value()) {
     return *res;
   }
 
@@ -1878,7 +1884,7 @@ auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
 }
 
 auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> UpdateConfigStatus {
-  if (auto const res = ForwardToLeader<UpdateConfigRpc, UpdateConfigStatus>(config); res.has_value()) {
+  if (auto const res = ForwardStatusToLeader<UpdateConfigRpc, UpdateConfigStatus>(config); res.has_value()) {
     return *res;
   }
 
