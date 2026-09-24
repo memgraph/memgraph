@@ -56,10 +56,12 @@ size_t UnpurgedPages(unsigned arena) {
 
 // An arena whose extent hooks hold any thread but the owning test thread inside the first hook it
 // enters until Release(). The jemalloc background thread purges by calling these hooks, so it can
-// be held in the middle of a decay pass, with that arena marked as being purged.
+// be held in the middle of a decay pass, with that arena marked as being purged. The hooks find the
+// arena through a static pointer, so only one may exist at a time.
 class HeldPurgeArena {
  public:
   HeldPurgeArena() {
+    EXPECT_EQ(instance_, nullptr);
     size_t size = sizeof(arena_);
     EXPECT_EQ(je_mallctl("arenas.create", &arena_, &size, nullptr, 0), 0);
     const auto hooks_name = "arena." + std::to_string(arena_) + ".extent_hooks";
@@ -84,6 +86,8 @@ class HeldPurgeArena {
     Release();
     const auto hooks_name = "arena." + std::to_string(arena_) + ".extent_hooks";
     EXPECT_EQ(je_mallctl(hooks_name.c_str(), nullptr, nullptr, &base_, sizeof(base_)), 0);
+    const auto destroy_name = "arena." + std::to_string(arena_) + ".destroy";
+    EXPECT_EQ(je_mallctl(destroy_name.c_str(), nullptr, nullptr, nullptr, 0), 0);
     instance_ = nullptr;
   }
 
@@ -145,10 +149,18 @@ class HeldPurgeArena {
 constexpr size_t kObjectBytes = 64 * 1024;
 constexpr int kObjects = 256;
 
+// Background threads are process-wide, so every test starts with them running and leaves them
+// running however it ends.
+class PurgeUnusedMemoryTest : public ::testing::Test {
+ protected:
+  void SetUp() override { memgraph::memory::EnableBackgroundThreads(); }
+
+  void TearDown() override { memgraph::memory::EnableBackgroundThreads(); }
+};
+
 }  // namespace
 
-TEST(PurgeUnusedMemory, ReclaimsPagesWhileBackgroundThreadIsDecaying) {
-  memgraph::memory::EnableBackgroundThreads();
+TEST_F(PurgeUnusedMemoryTest, ReclaimsPagesWhileBackgroundThreadIsDecaying) {
   HeldPurgeArena arena;
   const auto decay_prefix = "arena." + std::to_string(arena.Index());
   // A short decay makes the background thread purge this arena promptly, and no muzzy stage
@@ -177,20 +189,16 @@ TEST(PurgeUnusedMemory, ReclaimsPagesWhileBackgroundThreadIsDecaying) {
   EXPECT_EQ(unpurged, 0U);
 }
 
-TEST(PurgeUnusedMemory, LeavesBackgroundThreadsAsItFoundThem) {
-  memgraph::memory::EnableBackgroundThreads();
+TEST_F(PurgeUnusedMemoryTest, LeavesBackgroundThreadsAsItFoundThem) {
   memgraph::memory::PurgeUnusedMemory();
   EXPECT_TRUE(ReadMallctl<bool>("background_thread"));
 
   WriteMallctl("background_thread", false);
   memgraph::memory::PurgeUnusedMemory();
   EXPECT_FALSE(ReadMallctl<bool>("background_thread"));
-
-  memgraph::memory::EnableBackgroundThreads();
 }
 
-TEST(PurgeUnusedMemory, ConcurrentCallersLeaveBackgroundThreadsRunning) {
-  memgraph::memory::EnableBackgroundThreads();
+TEST_F(PurgeUnusedMemoryTest, ConcurrentCallersLeaveBackgroundThreadsRunning) {
   constexpr int kThreads = 8;
   constexpr int kCallsPerThread = 50;
   {
@@ -207,6 +215,6 @@ TEST(PurgeUnusedMemory, ConcurrentCallersLeaveBackgroundThreadsRunning) {
 
 #else
 
-TEST(PurgeUnusedMemory, RequiresJemalloc) { GTEST_SKIP() << "built without jemalloc"; }
+TEST(PurgeUnusedMemoryTest, RequiresJemalloc) { GTEST_SKIP() << "built without jemalloc"; }
 
 #endif
