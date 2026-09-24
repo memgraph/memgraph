@@ -1828,6 +1828,31 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
       "Not yet implemented: EXISTS is not supported in this position yet!");
 }
 
+// An aggregation reads every row of a group at once, so no expression evaluated once per element of a list can
+// hold one. The list's own elements are not rows, and the identifier the lambda binds is not on the frame the
+// Aggregate writes.
+TYPED_TEST(TestSymbolGenerator, AggregationInsideExpressionOverList) {
+  auto refused = [this](Expression *expression) {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(expression, AS("r"))));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  };
+  // MATCH (n) RETURN [x IN [1] | count(n)] AS r
+  refused(LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), nullptr, COUNT(IDENT("n"), false)));
+  // MATCH (n) RETURN [x IN [1] WHERE count(n) > 0] AS r
+  refused(
+      LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0))), nullptr));
+  // MATCH (n) RETURN all(x IN [1] WHERE count(n) > 0) AS r
+  refused(ALL("x", LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0)))));
+  // MATCH (n) RETURN reduce(s = 0, x IN [1] | s + count(n)) AS r
+  refused(REDUCE("s", LITERAL(0), "x", LIST(LITERAL(1)), ADD(IDENT("s"), COUNT(IDENT("n"), false))));
+  // MATCH (n) RETURN extract(x IN [1] | count(n)) AS r
+  refused(EXTRACT("x", LIST(LITERAL(1)), COUNT(IDENT("n"), false)));
+  // An aggregation over the list itself is not inside the lambda, so it stays allowed.
+  auto *over_the_list = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), RETURN(ALL("x", COLLECT_LIST(IDENT("n"), false), WHERE(LITERAL(true))), AS("r"))));
+  MakeSymbolTable(over_the_list);
+}
+
 // A simple CASE compares one test expression against every alternative, so the generator reaches it once per arm.
 // An EXISTS names its pattern variables at parse time, so each arm past the first redeclares them unless the EXISTS
 // scopes them. The searched form above cannot reach this: an IfOperator built directly holds a distinct condition.

@@ -611,6 +611,11 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
         "Using aggregation functions inside aggregation functions is not "
         "allowed.");
   }
+  if (scope.element_lambda_depth > 0) {
+    // The body runs once per element of a list, and an aggregation answers for a whole group of rows. The identifier
+    // the lambda binds is not on the frame the Aggregate writes, so nothing here can carry an element to it.
+    throw SemanticException("Using aggregation functions inside an expression over a list is not allowed.");
+  }
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.
   auto aggr_name = Aggregation::OpToString(aggr.op_) + std::to_string(aggr.symbol_pos_);
