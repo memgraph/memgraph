@@ -69,11 +69,137 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | n         |
             | (:DELete) |
 
-    Scenario: Aggregation in CASE:
+    Scenario: Aggregation in CASE with constant arms:
         Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
         When executing query:
             """
-            MATCH (n) RETURN CASE count(n) WHEN 10 THEN 10 END
+            MATCH (n:Person) RETURN CASE WHEN true THEN count(n) ELSE 0 END AS c
+            """
+        Then the result should be:
+            | c |
+            | 3 |
+
+    Scenario: Aggregation as the test of a simple CASE:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE count(n) WHEN 3 THEN 'three' WHEN 2 THEN 'two' ELSE 'other' END AS c
+            """
+        Then the result should be:
+            | c       |
+            | 'three' |
+
+    Scenario: Aggregation in every arm of a simple CASE on an aggregation, beside a grouping key:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN n.age > 15 AS old, CASE count(n) WHEN 1 THEN min(n.name) WHEN 2 THEN max(n.name) ELSE 'many' END AS c, CASE WHEN sum(n.age) > 30 THEN 'big' ELSE 'small' END AS s
+            """
+        Then the result should be:
+            | old   | c   | s       |
+            | false | 'a' | 'small' |
+            | true  | 'c' | 'big'   |
+
+    # The query above is the one shape a scenario here cannot cover under USING PARALLEL EXECUTION, which is how it
+    # reaches the planner with its CASE test node still shared rather than cloned by the parse cache. This suite is
+    # also run with the directive prepended to every query, and setting it twice is refused, so a scenario that
+    # spells it can never pass both runs. TestPlanner.MatchReturnSimpleCaseOnAggregationSharingOneTest pins the
+    # shared node instead, without depending on a storage mode or on how the query arrives.
+
+    Scenario: Aggregation in an inner arm of a searched CASE with several arms:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN n.age < 15 THEN 'young' WHEN count(n) > 1 THEN 'many' ELSE 'one' END AS c
+            """
+        Then the result should be:
+            | c       |
+            | 'young' |
+            | 'many'  |
+
+    Scenario: Aggregation in CASE over empty input with a list arm:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN true THEN count(n) ELSE [] END AS c
+            """
+        Then the result should be:
+            | c |
+            | 0 |
+
+    Scenario: Aggregation in CASE with a condition correlated through an EXISTS body:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN EXISTS { MATCH (:Person) WHERE n.age > 15 } THEN count(n) ELSE -1 END AS c
+            """
+        Then the result should be:
+            | c  |
+            | -1 |
+            | 2  |
+
+    # Issue #4917: the expected result here is the defect, not the intent. An uncorrelated branch is a grouping key
+    # only because it is planned below the Aggregate, so an empty input leaves no row to carry it and the one row
+    # the query should return is lost. This scenario and the next one change when #4917 is fixed.
+    Scenario: Aggregation in CASE beside an uncorrelated EXISTS over empty input
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN EXISTS { MATCH (:Person) } THEN count(n) ELSE -1 END AS c
+            """
+        Then the result should be empty
+
+    Scenario: Aggregation in CASE beside an uncorrelated comprehension over empty input
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN CASE WHEN size([(:Person)-[]-() | 1]) >= 0 THEN count(n) ELSE -1 END AS c
+            """
+        Then the result should be empty
+
+    # An arm that does not aggregate becomes a grouping key, so it is evaluated for every input row and not only for
+    # the rows whose condition selects it. The ELSE here divides by the zero its WHEN excludes, and still throws.
+    Scenario: An arm of a CASE that aggregates is evaluated for every row
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', d: 0}), (:Person {name: 'b', d: 2})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN CASE WHEN n.d <> 0 THEN count(n) ELSE 10 / n.d END AS c
             """
         Then an error should be raised
 
@@ -107,7 +233,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             SHOW ENUMS;
             """
         Then the result should be:
-            | Enum Name | Enum Values     |
+            | Enum Name | Enum Values               |
             | 'Status'  | ['Good', 'Bad', 'Medium'] |
 
     Scenario: Update value in enum:
@@ -121,7 +247,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             SHOW ENUMS;
             """
         Then the result should be:
-            | Enum Name | Enum Values     |
+            | Enum Name | Enum Values                |
             | 'Status'  | ['Good', 'Bad', 'Average'] |
 
     Scenario: Compare enum values for equality:
@@ -148,7 +274,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be:
             | result1 |
-            | false  |
+            | false   |
 
     Scenario: Create an edge with an enum property:
         Given an empty graph
@@ -259,9 +385,9 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
                 EXPLAIN RETURN 1
             """
         Then the result should be:
-            | QUERY PLAN        |
-            | ' * Produce {0}'  |
-            | ' * Once'         |
+            | QUERY PLAN       |
+            | ' * Produce {0}' |
+            | ' * Once'        |
 
     Scenario: PROFILE tolerates leading whitespace
         Given an empty graph

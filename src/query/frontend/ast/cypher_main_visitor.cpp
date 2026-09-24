@@ -4319,6 +4319,8 @@ antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpress
   std::ranges::reverse(alternatives);
   Expression *else_expression = ctx->else_expression ? std::any_cast<Expression *>(ctx->else_expression->accept(this))
                                                      : storage_->Create<PrimitiveLiteral>(TypedValue());
+  // Every arm's EqualOperator shares the simple CASE's test node.
+  // TODO: A dedicated simple-CASE node would evaluate the test once; a cached query clones the shared node per arm.
   for (auto *alternative : alternatives) {
     Expression *condition =
         test_expression ? storage_->Create<EqualOperator>(
