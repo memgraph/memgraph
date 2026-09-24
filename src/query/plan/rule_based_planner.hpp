@@ -681,16 +681,21 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     // in `[(a)-[r]->(b) WHERE a.id = x | b]`). These must be in bound_symbols for filter extraction
     // to work correctly.
     auto pc_bound_symbols = bound_symbols;
+    std::unordered_set<Symbol> assumed_bound;
     for (const auto &symbol : matching.external_symbols) {
       // `x` in `[x IN xs | [(x)-->(y) | y]]` is written after this branch runs, so scan it instead of reading its slot.
       if (matching.expansion_symbols.contains(symbol) && !bound_symbols.contains(symbol)) continue;
-      pc_bound_symbols.insert(symbol);
+      if (pc_bound_symbols.insert(symbol).second) assumed_bound.insert(symbol);
     }
 
     MatchContext match_ctx{matching, symbol_table, pc_bound_symbols, view};
     new_input = PlanMatching(match_ctx, std::move(new_input));
+    // A nested comprehension re-adds the external symbols it reads, so it must not inherit these as bound: its start
+    // node `x` in `[x IN xs | [(n)-->(k) | [(x)-->(m) | m]]]` would read a slot nothing has written.
+    auto nested_bound_symbols = pc_bound_symbols;
+    for (const auto &symbol : assumed_bound) nested_bound_symbols.erase(symbol);
     new_input = ApplyNestedPatternComprehensions(
-        std::move(new_input), matching.nested_pattern_comprehensions, symbol_table, pc_bound_symbols, view);
+        std::move(new_input), matching.nested_pattern_comprehensions, symbol_table, nested_bound_symbols, view);
     new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
     return new_input;
   }

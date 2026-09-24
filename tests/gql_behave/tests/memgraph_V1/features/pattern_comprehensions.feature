@@ -1251,3 +1251,20 @@ Feature: Pattern comprehensions
             | id | out  |
             | 1  | true |
             | 2  | true |
+
+    # The same start node one comprehension deeper. The outer comprehension treats `x` as bound so that its own filters
+    # can read it, but its nested one must still scan `x`: on the first row nothing has written the slot, and reading
+    # it gave 0. The scan is uncorrelated; with one node it matches Neo4j.
+    Scenario: Nested pattern comprehension anchored on a list comprehension's variable does not read an unwritten slot
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A {id: 1})-[:R]->(a)
+            """
+        When executing query:
+            """
+            MATCH (n:A) RETURN n.id AS id, [x IN [n] | [(n)-->(k) | size([(x)-->(m) | m])]] AS out
+            """
+        Then the result should be:
+            | id | out   |
+            | 1  | [[1]] |
