@@ -151,7 +151,9 @@ void PurgeUnusedMemory() {
   // A forced purge skips an arena that another thread is already purging, and a background thread
   // purges only down to the decay limit, so purging while one is mid-pass leaves pages behind.
   // Stopping the background threads joins them, so none is mid-pass when the purge runs. Callers
-  // are serialised so that one cannot restart the threads while another is still purging.
+  // are serialised so that one cannot restart the threads while another is still purging. Each call
+  // joins and recreates the threads, which is acceptable for a purge a user's query asks for but not
+  // for one run periodically.
   static std::mutex purge_mutex;
   const std::scoped_lock lock(purge_mutex);
 

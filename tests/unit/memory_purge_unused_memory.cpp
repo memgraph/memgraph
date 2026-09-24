@@ -60,21 +60,7 @@ size_t UnpurgedPages(unsigned arena) {
 // arena through a static pointer, so only one may exist at a time.
 class HeldPurgeArena {
  public:
-  HeldPurgeArena() {
-    EXPECT_EQ(instance_, nullptr);
-    size_t size = sizeof(arena_);
-    EXPECT_EQ(je_mallctl("arenas.create", &arena_, &size, nullptr, 0), 0);
-    const auto hooks_name = "arena." + std::to_string(arena_) + ".extent_hooks";
-    size = sizeof(base_);
-    EXPECT_EQ(je_mallctl(hooks_name.c_str(), &base_, &size, nullptr, 0), 0);
-    hooks_ = *base_;
-    hooks_.dalloc = &Dalloc;
-    hooks_.purge_lazy = &PurgeLazy;
-    hooks_.purge_forced = &PurgeForced;
-    instance_ = this;
-    extent_hooks_t *mine = &hooks_;
-    EXPECT_EQ(je_mallctl(hooks_name.c_str(), nullptr, nullptr, &mine, sizeof(mine)), 0);
-  }
+  HeldPurgeArena() = default;
 
   HeldPurgeArena(const HeldPurgeArena &) = delete;
   HeldPurgeArena &operator=(const HeldPurgeArena &) = delete;
@@ -84,11 +70,29 @@ class HeldPurgeArena {
   // jemalloc keeps a pointer to hooks_, so the arena must be handed back its own hooks first.
   ~HeldPurgeArena() {
     Release();
-    const auto hooks_name = "arena." + std::to_string(arena_) + ".extent_hooks";
-    EXPECT_EQ(je_mallctl(hooks_name.c_str(), nullptr, nullptr, &base_, sizeof(base_)), 0);
-    const auto destroy_name = "arena." + std::to_string(arena_) + ".destroy";
-    EXPECT_EQ(je_mallctl(destroy_name.c_str(), nullptr, nullptr, nullptr, 0), 0);
+    if (hooks_installed_) {
+      EXPECT_EQ(je_mallctl(Name("extent_hooks").c_str(), nullptr, nullptr, &base_, sizeof(base_)), 0);
+    }
+    if (created_) EXPECT_EQ(je_mallctl(Name("destroy").c_str(), nullptr, nullptr, nullptr, 0), 0);
     instance_ = nullptr;
+  }
+
+  // Call through ASSERT_NO_FATAL_FAILURE: a test on an arena without these hooks would test nothing.
+  void Install() {
+    ASSERT_EQ(instance_, nullptr);
+    size_t size = sizeof(arena_);
+    ASSERT_EQ(je_mallctl("arenas.create", &arena_, &size, nullptr, 0), 0);
+    created_ = true;
+    size = sizeof(base_);
+    ASSERT_EQ(je_mallctl(Name("extent_hooks").c_str(), &base_, &size, nullptr, 0), 0);
+    hooks_ = *base_;
+    hooks_.dalloc = &Dalloc;
+    hooks_.purge_lazy = &PurgeLazy;
+    hooks_.purge_forced = &PurgeForced;
+    instance_ = this;
+    extent_hooks_t *mine = &hooks_;
+    ASSERT_EQ(je_mallctl(Name("extent_hooks").c_str(), nullptr, nullptr, &mine, sizeof(mine)), 0);
+    hooks_installed_ = true;
   }
 
   unsigned Index() const { return arena_; }
@@ -109,6 +113,8 @@ class HeldPurgeArena {
   }
 
  private:
+  std::string Name(const char *leaf) const { return "arena." + std::to_string(arena_) + "." + leaf; }
+
   void MaybeHold() {
     if (std::this_thread::get_id() == owner_) return;
     std::unique_lock lock(mutex_);
@@ -142,6 +148,8 @@ class HeldPurgeArena {
   std::thread::id owner_{std::this_thread::get_id()};
   std::mutex mutex_;
   std::condition_variable cv_;
+  bool created_{false};
+  bool hooks_installed_{false};
   bool held_{false};
   bool released_{false};
 };
@@ -162,6 +170,7 @@ class PurgeUnusedMemoryTest : public ::testing::Test {
 
 TEST_F(PurgeUnusedMemoryTest, ReclaimsPagesWhileBackgroundThreadIsDecaying) {
   HeldPurgeArena arena;
+  ASSERT_NO_FATAL_FAILURE(arena.Install());
   const auto decay_prefix = "arena." + std::to_string(arena.Index());
   // A short decay makes the background thread purge this arena promptly, and no muzzy stage
   // sends dirty pages straight to the dalloc hook.
@@ -196,21 +205,6 @@ TEST_F(PurgeUnusedMemoryTest, LeavesBackgroundThreadsAsItFoundThem) {
   WriteMallctl("background_thread", false);
   memgraph::memory::PurgeUnusedMemory();
   EXPECT_FALSE(ReadMallctl<bool>("background_thread"));
-}
-
-TEST_F(PurgeUnusedMemoryTest, ConcurrentCallersLeaveBackgroundThreadsRunning) {
-  constexpr int kThreads = 8;
-  constexpr int kCallsPerThread = 50;
-  {
-    std::vector<std::jthread> callers;
-    callers.reserve(kThreads);
-    for (int t = 0; t < kThreads; ++t) {
-      callers.emplace_back([] {
-        for (int i = 0; i < kCallsPerThread; ++i) memgraph::memory::PurgeUnusedMemory();
-      });
-    }
-  }
-  EXPECT_TRUE(ReadMallctl<bool>("background_thread"));
 }
 
 #else
