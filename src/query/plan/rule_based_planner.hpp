@@ -900,9 +900,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   // Check if a clause is a write clause that HandleWriteClause can process.
-  /// A subquery body is read-only and carries no periodic commit: `BuildSubqueryFold` allows only MATCH, WHERE,
-  /// WITH and RETURN - in every UNION branch - and rejects a body-level commit directive. Reaching either here means
-  /// that validation has a hole.
+  /// A subquery body is read-only and carries no periodic commit: `BuildSubqueryFold` allows only MATCH, UNWIND,
+  /// WHERE, WITH and RETURN - in every UNION branch - and rejects a body-level commit directive. Reaching either here
+  /// means that validation has a hole.
   static void CheckSubqueryBodyInvariants(const TPlanningContext &context, Expression *commit_frequency) {
     if (!context.in_subquery_body) return;
     if (context.is_write_query) {

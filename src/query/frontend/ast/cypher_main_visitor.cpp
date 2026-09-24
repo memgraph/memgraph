@@ -4029,9 +4029,11 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
       }
       for (const auto *clause : single_query->clauses_) {
         const auto &type = clause->GetTypeInfo();
-        if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
-              utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
-          throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
+        if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Unwind::kType) ||
+              utils::IsSubtype(type, Where::kType) || utils::IsSubtype(type, With::kType) ||
+              utils::IsSubtype(type, Return::kType))) {
+          throw SyntaxException("Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.",
+                                construct);
         }
       }
       // The list fold collects one column per branch row, and `RETURN *` names an unknown number. Caught here so

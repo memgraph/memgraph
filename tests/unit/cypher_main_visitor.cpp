@@ -8215,12 +8215,8 @@ TEST_P(CypherMainVisitorTest, CollectSubqueryNeedsExactlyOneReturnColumn) {
   const auto *const message = "COLLECT subquery must end with a RETURN of exactly one column.";
   TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { MATCH (n) } AS r;", ast_generator, message);
   TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { MATCH (n) RETURN * } AS r;", ast_generator, message);
-  // The body allow-list turns `UNWIND` away before the arity check reaches it, so what is pinned is the refusal,
-  // not which of the two produces it.
-  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { UNWIND [1] AS z RETURN * } AS r;",
-                                               ast_generator,
-                                               "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COLLECT "
-                                               "subqueries.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { UNWIND [1] AS z RETURN * } AS r;", ast_generator, message);
   TestInvalidQueryWithMessage<SyntaxException>(
       "RETURN COLLECT { MATCH (n) RETURN n AS a, n AS b } AS r;", ast_generator, message);
   TestInvalidQueryWithMessage<SyntaxException>(
@@ -8314,16 +8310,21 @@ TEST_P(CypherMainVisitorTest, SubqueryBodyRefusesUnsupportedClausesByConstruct) 
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) WHERE EXISTS { CREATE (x:Tmp) } RETURN n;",
       ast_generator,
-      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) RETURN COUNT { CREATE (x:Tmp) } AS c;",
       ast_generator,
-      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
+  // UNWIND is admitted, but a write after it is not.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { UNWIND [1] AS x CREATE (:Tmp) RETURN x } AS c;",
+      ast_generator,
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
   // Each UNION branch is validated separately, so a write hidden in a later branch is refused by the same message.
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) RETURN m UNION CREATE (x:T) RETURN x } AS c;",
       ast_generator,
-      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
 
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) WHERE EXISTS { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } RETURN n;",
