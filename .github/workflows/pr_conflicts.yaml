@@ -1,7 +1,7 @@
 name: "PR Conflict Check"
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened]
 
 permissions:
@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   CheckConflicts:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
