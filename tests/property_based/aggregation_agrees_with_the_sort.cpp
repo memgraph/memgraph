@@ -26,7 +26,6 @@
 #include <vector>
 
 #include "query/relations/comparability.hpp"
-#include "query/relations/extremum.hpp"
 #include "query/relations/orderability.hpp"
 #include "query/typed_value.hpp"
 #include "tests/property_based/typed_value_generators.hpp"
@@ -34,7 +33,6 @@
 using memgraph::query::TypedValue;
 
 namespace comparability = memgraph::query::relations::comparability;
-namespace extremum = memgraph::query::relations::extremum;
 namespace orderability = memgraph::query::relations::orderability;
 
 namespace {
@@ -136,7 +134,7 @@ rc::Gen<TypedValue> AnyValueAColumnCanHold() {
 /// Whether the aggregation reads a column rather than refusing it, row by row
 /// as it arrives.
 bool TheAggregationReads(std::vector<TypedValue> const &rows) {
-  return std::ranges::none_of(rows, [](auto const &row) { return extremum::ATypeNoSortOrders(row).has_value(); });
+  return std::ranges::none_of(rows, [](auto const &row) { return !orderability::ValidFor(row); });
 }
 
 }  // namespace
@@ -246,7 +244,7 @@ TEST(AggregationAgreesWithTheSort, ReachesColumnsHoldingAPairNoComparisonPlaces)
     ++usable;
 
     auto const unplaced_by_a_comparison = [](TypedValue const &a, TypedValue const &b) {
-      if (!comparability::Places(a) || !comparability::Places(b)) return true;
+      if (!comparability::ValidFor(a) || !comparability::ValidFor(b)) return true;
       auto const compared = comparability::Compare(a, b);
       return !compared.has_value() || *compared == std::partial_ordering::unordered;
     };

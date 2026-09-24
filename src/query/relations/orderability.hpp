@@ -21,6 +21,7 @@
 #include <array>
 #include <cmath>
 #include <compare>
+#include <optional>
 
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
@@ -164,6 +165,73 @@ inline constexpr auto kPositions = [] {
 
 }  // namespace detail
 
+/// Whether a sort has an order for two values of this type.
+///
+/// Orderability places any two values of unlike type, and refuses a pair whose
+/// one type carries no order of its own. `Compare` refuses exactly the types
+/// this denies; the two are separate switches and a test holds them together.
+constexpr bool ValidFor(TypedValue::Type type) {
+  switch (type) {
+    using enum TypedValue::Type;
+    case Map:
+    case Vertex:
+    case Edge:
+    case VirtualEdge:
+    case VirtualNode:
+    case Path:
+    case Graph:
+    case VirtualGraph:
+    case Function:
+      return false;
+    case Null:
+    case Bool:
+    case Int:
+    case Double:
+    case String:
+    case List:
+    case Date:
+    case LocalTime:
+    case LocalDateTime:
+    case ZonedDateTime:
+    case Duration:
+    case Enum:
+    case Point2d:
+    case Point3d:
+      return true;
+  }
+  return false;
+}
+
+/// The type within @p value that a sort has no order for, if it holds one.
+///
+/// A list is ordered by what it holds, so it is read through. That declines a
+/// column a sort could place, since a pair of lists parting at an earlier
+/// element never reaches the one carrying no order, but whether it parts there
+/// is a fact about the pair rather than about the column.
+inline std::optional<TypedValue::Type> UnorderedTypeWithin(TypedValue const &value) {
+  if (!ValidFor(value.type())) return value.type();
+  if (!value.IsList()) return std::nullopt;
+
+  for (auto const &element : value.ValueList()) {
+    if (auto const unordered = UnorderedTypeWithin(element)) return unordered;
+  }
+  return std::nullopt;
+}
+
+/// Whether a sort has an order for two columns holding this value.
+///
+/// Reading the whole value up front is what keeps the answer from depending on
+/// how many rows arrived: a refusal reached only once a second row turns up
+/// would answer a one-row column and decline a longer one holding the same
+/// value.
+inline bool ValidFor(TypedValue const &value) { return !UnorderedTypeWithin(value); }
+
+/// The same question where the type is already known at compile time.
+template <TypedValue::Type T>
+constexpr bool ValidFor() {
+  return ValidFor(T);
+}
+
 /// Where `a` falls relative to `b`.
 ///
 /// @throw QueryRuntimeException for a pair this relation does not place.
@@ -205,6 +273,9 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case List:
         return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
 
+      // The types `Admits` denies. Named so that a type added to the value has
+      // to be placed, and broken out of rather than throwing here, so the
+      // refusal is written once below.
       case Map:
       case Vertex:
       case Edge:
@@ -214,8 +285,9 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case Graph:
       case VirtualGraph:
       case Function:
-        throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
+        break;
     }
+    throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
   } else {
     // One Int against one Double is the only unlike pair with a payload to read.
     // The two share a position, so where each type sits cannot tell them apart.
