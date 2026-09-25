@@ -80,6 +80,9 @@ TEST(QuotaTest, ReturnUnusedQuota) {
     start_latch.arrive_and_wait();
     // Request a huge batch
     auto handle = coord.Acquire(100);
+    // Acquire yields nullopt once the quota is drained and no handles are outstanding, which thread B
+    // can reach first; the total is still the limit because B consumed everything.
+    if (!handle) return;
     // Consume 1
     if (handle->Consume(1) > 0) global_processed++;
     // Destructor returns 99 to the pool
