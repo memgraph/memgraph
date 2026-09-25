@@ -18,11 +18,15 @@
 namespace memgraph::query {
 
 /// Needs no accessor: the query reads or changes instance, session or system state.
-struct NoAccess {};
+struct NoAccess {
+  friend bool operator==(NoAccess const &, NoAccess const &) = default;
+};
 
 /// The query settles its own access, whether from its kind alone or from the action it carries.
 struct FixedAccess {
   storage::StorageAccessType access;
+
+  friend bool operator==(FixedAccess const &, FixedAccess const &) = default;
 };
 
 /// Takes the access the planner settled on for this statement.
@@ -30,6 +34,8 @@ struct PlannerShaped {
   /// Whether there will be anything to commit. Profiling reports an execution rather than
   /// performing one of its own, so it commits nothing.
   bool commits;
+
+  friend bool operator==(PlannerShaped const &, PlannerShaped const &) = default;
 };
 
 /// Index DDL, whose access the storage mode decides.
@@ -38,10 +44,14 @@ struct IndexDdl {
   /// Indexing edges rather than vertices. The access is the same either way; the two are told apart
   /// so that reaching either without a database names the statement that was refused.
   bool on_edges;
+
+  friend bool operator==(IndexDdl const &, IndexDdl const &) = default;
 };
 
 /// Constraint DDL, whose access the storage mode decides.
-struct ConstraintDdl {};
+struct ConstraintDdl {
+  friend bool operator==(ConstraintDdl const &, ConstraintDdl const &) = default;
+};
 
 /// What a query needs held on the graph while it is prepared.
 ///

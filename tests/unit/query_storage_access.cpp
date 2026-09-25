@@ -15,15 +15,29 @@
 
 #include <array>
 #include <optional>
+#include <set>
+#include <string>
+#include <string_view>
+
+#include <fmt/format.h>
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/tenant_profile.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/variant_helpers.hpp"
 
 using memgraph::query::AstStorage;
+using memgraph::query::ConstraintDdl;
+using memgraph::query::FixedAccess;
+using memgraph::query::IndexDdl;
+using memgraph::query::NoAccess;
+using memgraph::query::PlannerShaped;
 using memgraph::query::RequiredStorageAccess;
+using memgraph::query::StorageAccessPolicy;
 using memgraph::query::StorageAccessRequirement;
 using memgraph::storage::IsolationLevel;
 using memgraph::storage::StorageMode;
@@ -45,6 +59,64 @@ void ExpectSettledBy(StorageAccessRequirement const &expected) {
       EXPECT_EQ(RequiredStorageAccess(*query, cypher_access, mode), expected);
     }
   }
+}
+
+// Every query states what it needs, and this is the whole table of those answers. The expected
+// values are the ones the interpreter's visitor produced before the answers moved onto the queries,
+// so a row disagreeing means a query changed what it asks for.
+std::set<std::string_view> covered;
+
+// Named locally rather than through the stream operator in storage.hpp, which is a heavy header to
+// include for four words.
+std::string_view Name(memgraph::storage::StorageAccessType access) {
+  switch (access) {
+    case NO_ACCESS:
+      return "NO_ACCESS";
+    case READ:
+      return "READ";
+    case WRITE:
+      return "WRITE";
+    case UNIQUE:
+      return "UNIQUE";
+    case READ_ONLY:
+      return "READ_ONLY";
+  }
+  return "?";
+}
+
+// gtest prints a variant as its bytes, which names neither the case nor the access when a row fails.
+std::string Describe(StorageAccessPolicy const &policy) {
+  return std::visit(
+      memgraph::utils::Overloaded{
+          [](NoAccess) { return std::string{"NoAccess"}; },
+          [](FixedAccess fixed) { return fmt::format("FixedAccess({})", Name(fixed.access)); },
+          [](PlannerShaped shaped) { return fmt::format("PlannerShaped(commits={})", shaped.commits); },
+          [](IndexDdl ddl) { return fmt::format("IndexDdl(creating={}, on_edges={})", ddl.creating, ddl.on_edges); },
+          [](ConstraintDdl) { return std::string{"ConstraintDdl"}; },
+      },
+      policy);
+}
+
+template <typename TQuery>
+void Check(StorageAccessPolicy const &policy, bool operates_on_graph_data, TQuery const &query) {
+  EXPECT_EQ(query.AccessPolicy(), policy)
+      << TQuery::kType.name << " states " << Describe(query.AccessPolicy()) << ", expected " << Describe(policy);
+  EXPECT_EQ(query.OperatesOnGraphData(), operates_on_graph_data) << TQuery::kType.name;
+  covered.insert(TQuery::kType.name);
+}
+
+template <typename TQuery>
+void Declares(StorageAccessPolicy const &policy, bool operates_on_graph_data) {
+  AstStorage storage;
+  Check(policy, operates_on_graph_data, *storage.Create<TQuery>());
+}
+
+template <typename TQuery, typename TAction>
+void DeclaresWithAction(TAction action, StorageAccessPolicy const &policy, bool operates_on_graph_data) {
+  AstStorage storage;
+  auto *query = storage.Create<TQuery>();
+  query->action_ = action;
+  Check(policy, operates_on_graph_data, *query);
 }
 
 }  // namespace
@@ -230,4 +302,79 @@ TEST(QueryStorageAccess, OnlyTriggerCreationNeedsAnAccessor) {
     query->action_ = action;
     EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL), StorageAccessRequirement{});
   }
+}
+
+TEST(QueryStorageAccess, EveryQueryStatesWhatItNeeds) {
+  using namespace memgraph::query;  // NOLINT: 59 query types are named below
+
+  Declares<CypherQuery>(PlannerShaped{.commits = true}, true);
+  Declares<ExplainQuery>(FixedAccess{.access = READ}, true);
+  Declares<ProfileQuery>(PlannerShaped{.commits = false}, true);
+  DeclaresWithAction<IndexQuery>(IndexQuery::Action::CREATE, IndexDdl{.creating = true, .on_edges = false}, true);
+  DeclaresWithAction<IndexQuery>(IndexQuery::Action::DROP, IndexDdl{.creating = false, .on_edges = false}, true);
+  DeclaresWithAction<EdgeIndexQuery>(
+      EdgeIndexQuery::Action::CREATE, IndexDdl{.creating = true, .on_edges = true}, true);
+  DeclaresWithAction<EdgeIndexQuery>(EdgeIndexQuery::Action::DROP, IndexDdl{.creating = false, .on_edges = true}, true);
+  Declares<PointIndexQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<TextIndexQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<CreateTextEdgeIndexQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<VectorIndexQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<CreateVectorEdgeIndexQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<AuthQuery>(NoAccess{}, false);
+  Declares<DatabaseInfoQuery>(NoAccess{}, true);
+  Declares<SystemInfoQuery>(NoAccess{}, false);
+  Declares<ConstraintQuery>(ConstraintDdl{}, true);
+  Declares<DumpQuery>(FixedAccess{.access = READ}, true);
+  Declares<ReplicationQuery>(NoAccess{}, false);
+  Declares<ReplicationInfoQuery>(NoAccess{}, false);
+  Declares<LockPathQuery>(NoAccess{}, false);
+  Declares<FreeMemoryQuery>(NoAccess{}, false);
+  DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::CREATE_TRIGGER, FixedAccess{.access = READ}, true);
+  DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::DROP_TRIGGER, NoAccess{}, true);
+  DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::SHOW_TRIGGERS, NoAccess{}, true);
+  Declares<IsolationLevelQuery>(NoAccess{}, true);
+  Declares<CreateSnapshotQuery>(NoAccess{}, true);
+  Declares<RecoverSnapshotQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<ShowSnapshotsQuery>(NoAccess{}, true);
+  Declares<ShowNextSnapshotQuery>(NoAccess{}, true);
+  Declares<StreamQuery>(NoAccess{}, true);
+  Declares<SettingQuery>(NoAccess{}, false);
+  Declares<VersionQuery>(NoAccess{}, false);
+  Declares<ShowConfigQuery>(NoAccess{}, false);
+  Declares<ShowQueryCallableMappingsQuery>(NoAccess{}, false);
+  Declares<TransactionQueueQuery>(NoAccess{}, false);
+  Declares<SessionQuery>(NoAccess{}, false);
+  Declares<StorageModeQuery>(NoAccess{}, true);
+  Declares<AnalyzeGraphQuery>(FixedAccess{.access = READ}, true);
+  Declares<MultiDatabaseQuery>(NoAccess{}, false);
+  Declares<UseDatabaseQuery>(NoAccess{}, false);
+  Declares<ShowDatabaseQuery>(NoAccess{}, false);
+  Declares<ShowDatabasesQuery>(NoAccess{}, false);
+  Declares<EdgeImportModeQuery>(NoAccess{}, true);
+  Declares<CoordinatorQuery>(NoAccess{}, false);
+  Declares<DropAllIndexesQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<DropAllConstraintsQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<DropGraphQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<CreateEnumQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<ShowEnumsQuery>(FixedAccess{.access = READ}, true);
+  Declares<AlterEnumAddValueQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<AlterEnumUpdateValueQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<AlterEnumRemoveValueQuery>(NoAccess{}, true);
+  Declares<DropEnumQuery>(NoAccess{}, true);
+  Declares<ShowSchemaInfoQuery>(FixedAccess{.access = READ}, true);
+  Declares<TtlQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<SessionTraceQuery>(NoAccess{}, false);
+  Declares<SessionSettingQuery>(NoAccess{}, false);
+  Declares<UserProfileQuery>(NoAccess{}, false);
+  Declares<TenantProfileQuery>(NoAccess{}, false);
+  Declares<ParameterQuery>(NoAccess{}, false);
+  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::SET, FixedAccess{.access = UNIQUE}, true);
+  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::DELETE, FixedAccess{.access = UNIQUE}, true);
+  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::SHOW_ALL, FixedAccess{.access = READ}, true);
+  Declares<ReloadSSLQuery>(NoAccess{}, false);
+  Declares<ShowMemoryInfoQuery>(NoAccess{}, false);
+
+  // The count comes from the visitor's own list of query types rather than from a literal, so a new
+  // type of query reaches this test as a missing row instead of passing unnoticed.
+  EXPECT_EQ(covered.size(), memgraph::query::QueryVisitor<void>::kVisitableCount);
 }
