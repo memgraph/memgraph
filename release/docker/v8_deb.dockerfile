@@ -228,6 +228,18 @@ COPY fips-wheels /tmp/fips-wheels
 RUN pip3 install --no-cache-dir --break-system-packages --no-index --no-deps /tmp/fips-wheels/*.whl && \
     pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt
 
+# In approved mode the FIPS provider serves no MD5, so CPython's hashlib
+# silently falls back to its own _md5 — an unvalidated implementation, still
+# advertised in algorithms_available, inside an image that removed MD5 from
+# OpenSSL. The gate turns that silent substitution into a ValueError. It lands
+# in dist-packages so the .pth is picked up by site initialisation in both the
+# embedded interpreter and the auth-module subprocesses, and it is inert unless
+# OpenSSL actually reports approved mode. A .pth rather than sitecustomize.py
+# because Debian already ships /usr/lib/python3.12/sitecustomize.py, which ours
+# would have to shadow.
+COPY fips-python/memgraph_fips_hashlib.py fips-python/zz-memgraph-fips.pth \
+     /usr/local/lib/python3.12/dist-packages/
+
 ###############################################################################
 # prod-fips: FIPS 140-3 variant.
 #
