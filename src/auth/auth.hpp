@@ -19,6 +19,7 @@
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
+#include "auth/ops.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/repository.hpp"
 #include "glue/auth_global.hpp"
@@ -39,10 +40,14 @@ namespace memgraph::auth {
 class Auth;
 using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
 
-/// Replication actions an auth transaction accumulates while it runs. A system transaction is created only at
-/// COMMIT and these are moved into it, so the system mutex is held for the flush rather than the whole
-/// transaction; holding one open would fail every other system query with ConcurrentSystemQueriesException.
-using PendingActions = std::list<std::unique_ptr<system::ISystemAction>>;
+/// What an auth transaction did, in the order it did it, waiting to be replicated. A system transaction is
+/// created only at COMMIT and these go into it as one batched action, so the system mutex is held for the flush
+/// rather than the whole transaction; holding one open would fail every other system query with
+/// ConcurrentSystemQueriesException.
+///
+/// One batch, rather than one action each, is what stops a replica applying part of a transaction: the whole
+/// sequence arrives in a single request or none of it does.
+using PendingActions = std::vector<replication::AuthOp>;
 
 static const constexpr char *const kAllDatabases = "*";
 
@@ -553,8 +558,10 @@ class Auth final {
     }
   }
 
+  // Outside a transaction there is no sink to collect into, so the one operation becomes a batch of one. That
+  // keeps a single statement on the same wire format and the same replica code as a transaction's batch.
   // system::Transaction is only forward-declared here, so the push itself lives in the .cpp.
-  static void AddSystemAction(system::Transaction &system_tx, std::unique_ptr<system::ISystemAction> action);
+  static void AddSystemAction(system::Transaction &system_tx, replication::AuthOp op);
 
   // AuthLayer retargets this for the duration of a call inside an auth transaction, restoring it on scope exit, and
   // needs the base store to build an overlay over. Deliberately private: pointing auth at buffered storage is the

@@ -22,6 +22,7 @@
 #include "auth/atomic_auth_overlay.hpp"
 #include "auth/auth.hpp"
 #include "auth/repository.hpp"
+#include "auth/rpc.hpp"
 #include "system/transaction.hpp"
 #include "utils/logging.hpp"
 
@@ -156,6 +157,64 @@ class AuthLayer {
     return SharedOrOverlay{Lock(tx)};
   }
 
+#ifdef MG_ENTERPRISE
+  /// Apply a replicated batch as one write. A replica gets a whole auth transaction or none of it: the
+  /// operations run against an overlay in the order the main made them, and a single flush puts them in the
+  /// store. Anything throwing part-way discards the overlay, leaving the store as it was, and the false return
+  /// tells the caller to refuse the request so the main re-sends a full snapshot.
+  ///
+  /// A drop naming nothing is not a failure. The main may have created and dropped a record between snapshots,
+  /// and the remove calls report that by returning false.
+  [[nodiscard]] bool ApplyBatch(std::vector<replication::AuthOp> const &ops) {
+    AuthTransaction tx;
+    // The guard holds the write lock, so it has to be gone before Commit takes its own.
+    try {
+      auto locked = Lock(&tx);
+      for (auto const &op : ops) {
+        std::visit(
+            utils::Overloaded{[&](replication::AuthUpdateOp const &update) {
+                                // The main never builds an update that names nothing, so one arriving
+                                // here is a corrupt request rather than a no-op to skip.
+                                if (!update.user && !update.role && !update.profile) {
+                                  throw AuthException("Received an auth update naming no record");
+                                }
+                                if (update.user) locked->SaveUser(*update.user);
+                                if (update.role) locked->SaveRole(*update.role);
+                                if (update.profile) {
+                                  if (!locked->CreateOrUpdateProfile(
+                                          update.profile->name, update.profile->limits, update.profile->usernames)) {
+                                    throw AuthException("Couldn't create or update profile '{}'", update.profile->name);
+                                  }
+                                }
+                              },
+                              [&](replication::AuthDropOp const &drop) {
+                                switch (drop.type) {
+                                  using enum replication::AuthDataType;
+                                  case USER:
+                                    locked->RemoveUser(drop.name);
+                                    break;
+                                  case ROLE:
+                                    locked->RemoveRole(drop.name, /*force=*/true);
+                                    break;
+                                  case PROFILE:
+                                    locked->DropProfile(drop.name);
+                                    break;
+                                  case N:
+                                    throw AuthException("Received an auth drop of no known kind");
+                                }
+                              }},
+            op);
+      }
+    } catch (AuthException const &e) {
+      spdlog::warn("Applying an auth batch of {} operation(s) failed: {}", ops.size(), e.what());
+      return false;
+    }
+
+    // The batch buffered cleanly; one flush puts the whole of it in the store.
+    return Commit(tx, nullptr);
+  }
+#endif
+
   /// Flush the transaction under the write lock. Returns false on conflict, leaving durable storage untouched and
   /// `system_tx` empty for the caller to abort. On success the epoch moves once, invalidating every session's
   /// cached permissions, and the collected replication actions move into `system_tx`.
@@ -182,9 +241,14 @@ class AuthLayer {
               "have received a change this instance did not keep. Compare the users, roles and profiles here "
               "against every replica before resuming writes.");
     if (has_writes) locked->UpdateEpoch();
-    if (system_tx) {
-      for (auto &action : tx.pending_actions_) system_tx->AddAction(std::move(action));
+    // One action for the whole transaction, so a replica applies all of it or none. An empty batch is never
+    // sent: a read-only transaction has nothing to publish, and a zero-operation request would only cost a round
+    // trip.
+#ifdef MG_ENTERPRISE
+    if (system_tx && !tx.pending_actions_.empty()) {
+      system_tx->AddAction(std::make_unique<BatchedAuthAction>(std::move(tx.pending_actions_)));
     }
+#endif
     tx.pending_actions_.clear();
 #ifdef MG_ENTERPRISE
     // Skip a user the transaction recreated. Dropping a user does not remove it from its profile's username

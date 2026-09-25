@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include "replication_handler/auth_replication_handlers.hpp"
+
 #include <spdlog/spdlog.h>
 #include <utility>
 
 #include "auth/auth.hpp"
+#include "auth/auth_layer.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/rpc.hpp"
 #include "license/license.hpp"
@@ -62,29 +64,13 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
     return;
   }
 
-  try {
-    // Update
-    if (req.user) {
-      spdlog::trace("Saving user '{}'", req.user->username());
-      auth->SaveUser(*req.user);
-    }
-    if (req.role) {
-      spdlog::trace("Saving role '{}'", req.role->rolename());
-      auth->SaveRole(*req.role);
-    }
-    if (req.profile) {
-      spdlog::trace("Saving profile '{}'", req.profile->name);
-      if (!auth->CreateOrUpdateProfile(req.profile->name, req.profile->limits, req.profile->usernames)) {
-        spdlog::warn("Failed to create or update profile '{}'", req.profile->name);
-        // silent failure
-      }
-    }
-    // Success
+  // The whole batch or none of it. AuthLayer::ApplyBatch runs the operations against an overlay, in the order
+  // the transaction made them, and flushes once; anything failing part-way leaves the store untouched. A false
+  // return leaves the response unacknowledged, and the main then marks this replica behind and re-sends a full
+  // snapshot.
+  if (auth::AuthLayer{auth}.ApplyBatch(req.ops)) {
     res = UpdateAuthDataRes(true);
-    spdlog::debug("UpdateAuthDataHandler: SUCCESS");
-  } catch (const auth::AuthException &e) {
-    // Failure
-    spdlog::warn("Saving role '{}' exception: {}", req.role->rolename(), e.what());
+    spdlog::debug("UpdateAuthDataHandler: SUCCESS, {} operation(s)", req.ops.size());
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);

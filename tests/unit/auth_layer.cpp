@@ -17,6 +17,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/auth_layer.hpp"
+#include "auth/rpc.hpp"
 #include "license/license.hpp"
 #include "system/system.hpp"
 #include "system/transaction.hpp"
@@ -207,6 +208,74 @@ TEST_F(AuthLayerTest, DroppingAUserInATransactionHoldsItsResourcesUntilCommit) {
   EXPECT_EQ(held.use_count(), 1) << "resources still held after COMMIT";
 }
 
+#ifdef MG_ENTERPRISE
+// A replica applies a whole auth transaction or none of it. These drive the same entry point the replication
+// handler uses, so the batch either lands complete or leaves the store as it was.
+TEST_F(AuthLayerTest, ApplyingABatchWritesEveryOperation) {
+  std::vector<memgraph::replication::AuthOp> ops;
+  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
+  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"bob"}});
+
+  ASSERT_TRUE(layer_->ApplyBatch(ops));
+
+  auto locked = layer_->Lock();
+  EXPECT_TRUE(locked->HasUser("alice"));
+  EXPECT_TRUE(locked->HasUser("bob"));
+}
+
+// The ordering case the batch exists for: a transaction may drop a name and recreate it, and the operations
+// have to be applied in the order the transaction made them or the record is lost.
+TEST_F(AuthLayerTest, ApplyingABatchKeepsOperationOrder) {
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+  }
+
+  std::vector<memgraph::replication::AuthOp> ops;
+  ops.emplace_back(memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::USER, "alice"});
+  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
+
+  ASSERT_TRUE(layer_->ApplyBatch(ops));
+  EXPECT_TRUE(layer_->Lock()->HasUser("alice")) << "the recreate must win, as it came last";
+
+  // And the other way round: created then dropped leaves nothing.
+  std::vector<memgraph::replication::AuthOp> reversed;
+  reversed.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"carol"}});
+  reversed.emplace_back(memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::USER, "carol"});
+
+  ASSERT_TRUE(layer_->ApplyBatch(reversed));
+  EXPECT_FALSE(layer_->Lock()->HasUser("carol")) << "the drop must win, as it came last";
+}
+
+// A drop naming something the replica does not have is ordinary, not a failure: the main may have created and
+// dropped a record between snapshots. Failing the batch here would force needless snapshot recoveries.
+TEST_F(AuthLayerTest, ABatchToleratesADropThatNamesNothing) {
+  std::vector<memgraph::replication::AuthOp> ops;
+  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
+  ops.emplace_back(memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::ROLE, "no_such_role"});
+
+  EXPECT_TRUE(layer_->ApplyBatch(ops));
+  EXPECT_TRUE(layer_->Lock()->HasUser("alice")) << "the rest of the batch must still apply";
+}
+
+// The point of batching: an operation that throws part-way leaves the store exactly as it was, so a replica
+// never holds a prefix of a transaction. An empty username is rejected by User construction downstream.
+TEST_F(AuthLayerTest, AThrowingBatchLeavesTheStoreUntouched) {
+  {
+    ASSERT_TRUE(layer_->Lock()->AddUser("existing").has_value());
+  }
+
+  std::vector<memgraph::replication::AuthOp> ops;
+  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
+  ops.emplace_back(memgraph::replication::AuthUpdateOp{});  // carries no record: the applier cannot honour it
+
+  EXPECT_FALSE(layer_->ApplyBatch(ops)) << "the batch must report failure so the main marks the replica behind";
+
+  auto locked = layer_->Lock();
+  EXPECT_FALSE(locked->HasUser("alice")) << "a failed batch must not leave its earlier operations behind";
+  EXPECT_TRUE(locked->HasUser("existing")) << "a failed batch must not disturb what was already there";
+}
+#endif
+
 TEST_F(AuthLayerTest, RecreatingADroppedUserKeepsItsResources) {
   {
     ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
@@ -243,7 +312,7 @@ TEST_F(AuthLayerTest, AbandoningATransactionLeavesDroppedUsersResourcesIntact) {
 }
 #endif
 
-TEST_F(AuthLayerTest, CommitMovesCollectedActionsIntoTheSystemTransaction) {
+TEST_F(AuthLayerTest, CommitBatchesCollectedOperationsIntoOneAction) {
   memgraph::system::System system;
   auto system_tx = system.TryCreateTransaction();
   ASSERT_TRUE(system_tx);
@@ -261,7 +330,8 @@ TEST_F(AuthLayerTest, CommitMovesCollectedActionsIntoTheSystemTransaction) {
   EXPECT_TRUE(tx.pending_actions().empty()) << "actions left behind after the drain";
 
   // Commit reports AllCommitsConfirmed and aborts when it holds nothing, so a transaction that received the
-  // actions is distinguishable from one that did not.
+  // action is distinguishable from one that did not. Counting them also pins the batching: two statements
+  // must arrive as one action, or a replica could apply the first without the second.
   struct NoopHandler {
     memgraph::system::AllSyncReplicaStatus ApplyAction(memgraph::system::ISystemAction const & /*action*/,
                                                        memgraph::system::Transaction const & /*txn*/) {
@@ -278,7 +348,7 @@ TEST_F(AuthLayerTest, CommitMovesCollectedActionsIntoTheSystemTransaction) {
 
   int applied = 0;
   system_tx->Commit(NoopHandler{applied});
-  EXPECT_EQ(applied, 2);
+  EXPECT_EQ(applied, 1) << "a transaction replicates as one batched action, however many statements it ran";
 }
 
 TEST_F(AuthLayerTest, AConflictingCommitLeavesTheSystemTransactionEmpty) {

@@ -117,85 +117,6 @@ namespace memgraph::auth {
 const Auth::Epoch Auth::kStartEpoch = 1;
 
 namespace {
-#ifdef MG_ENTERPRISE
-/**
- * REPLICATION SYSTEM ACTION IMPLEMENTATIONS
- */
-struct UpdateAuthData : memgraph::system::ISystemAction {
-  explicit UpdateAuthData(User user) : user_{std::move(user)} {}
-
-  explicit UpdateAuthData(Role role) : role_{std::move(role)} {}
-
-  explicit UpdateAuthData(UserProfiles::Profile profile) : profile_{std::move(profile)} {}
-
-  void DoDurability() override { /* Done during Auth execution */ }
-
-  bool ShouldReplicateInCommunity() const override { return false; }
-
-  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     memgraph::system::Transaction const &txn) const override {
-    auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
-    if (user_) {
-      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *user_);
-    }
-    if (role_) {
-      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *role_);
-    }
-    if (profile_) {
-      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *profile_);
-    }
-    // Should never get here
-    MG_ASSERT(false, "Trying to update auth data that is not a user nor a role");
-    return {};
-  }
-
-  void PostReplication(replication::RoleMainData &mainData) const override {}
-
- private:
-  std::optional<User> user_;
-  std::optional<Role> role_;
-  std::optional<UserProfiles::Profile> profile_;
-};
-
-struct DropAuthData : memgraph::system::ISystemAction {
-  enum class AuthDataType : uint8_t { USER, ROLE, PROFILE };
-
-  explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
-
-  void DoDurability() override { /* Done during Auth execution */ }
-
-  bool ShouldReplicateInCommunity() const override { return false; }
-
-  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     memgraph::system::Transaction const &txn) const override {
-    auto check_response = [](const replication::DropAuthDataRes &response) { return response.success; };
-
-    memgraph::replication::DropAuthDataReq::DataType type{};
-    switch (type_) {
-      case AuthDataType::USER:
-        type = memgraph::replication::DropAuthDataReq::DataType::USER;
-        break;
-      case AuthDataType::ROLE:
-        type = memgraph::replication::DropAuthDataReq::DataType::ROLE;
-        break;
-      case AuthDataType::PROFILE:
-        type = memgraph::replication::DropAuthDataReq::DataType::PROFILE;
-        break;
-    }
-    return client.StreamAndFinalizeDelta<replication::DropAuthDataRpc>(
-        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_);
-  }
-
-  void PostReplication(replication::RoleMainData &mainData) const override {}
-
- private:
-  AuthDataType type_;
-  std::string name_;
-};
-#endif
 
 /**
  * CONSTANTS
@@ -692,8 +613,12 @@ void Auth::LinkUser(User &user) const { rules::LinkUser(storage_, user); }
 
 std::optional<User> Auth::GetUser(const std::string &username) const { return rules::GetUser(storage_, username); }
 
-void Auth::AddSystemAction(system::Transaction &system_tx, std::unique_ptr<system::ISystemAction> action) {
-  system_tx.AddAction(std::move(action));
+void Auth::AddSystemAction(system::Transaction &system_tx, replication::AuthOp op) {
+#ifdef MG_ENTERPRISE
+  PendingActions ops;
+  ops.emplace_back(std::move(op));
+  system_tx.AddAction(std::make_unique<BatchedAuthAction>(std::move(ops)));
+#endif
 }
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
@@ -742,7 +667,7 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
 
   // All changes to the user end up calling this function, so no need to add a delta anywhere else
 #ifdef MG_ENTERPRISE
-  AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(user); });
+  AddAuthAction(system_tx, [&] { return replication::AuthUpdateOp{user}; });
 #endif
 }
 
@@ -864,7 +789,7 @@ bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *sys
 
   // Handling drop user delta
 #ifdef MG_ENTERPRISE
-  AddAuthAction(system_tx, [&] { return std::make_unique<DropAuthData>(DropAuthData::AuthDataType::USER, username); });
+  AddAuthAction(system_tx, [&] { return replication::AuthDropOp{replication::AuthDataType::USER, username}; });
 #endif
   return true;
 }
@@ -885,7 +810,7 @@ bool Auth::CreateProfile(const std::string &profile_name, UserProfiles::limits_t
   const auto res = user_profiles_.Create(profile_name, defined_limits, usernames);
   if (res) {
     AddAuthAction(system_tx, [&] {
-      return std::make_unique<UpdateAuthData>(UserProfiles::Profile{profile_name, defined_limits, usernames});
+      return replication::AuthUpdateOp{UserProfiles::Profile{profile_name, defined_limits, usernames}};
     });
   }
   return res;
@@ -902,7 +827,7 @@ std::optional<UserProfiles::Profile> Auth::UpdateProfile(const std::string &prof
         UpdateProfileLimits(user, res, *user_resources_);
       }
     }
-    AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(res.value()); });
+    AddAuthAction(system_tx, [&] { return replication::AuthUpdateOp{res.value()}; });
   }
   return res;
 }
@@ -953,8 +878,7 @@ bool Auth::DropProfile(const std::string &profile_name, system::Transaction *sys
         UpdateProfileLimits(user, {}, *user_resources_);
       }
     }
-    AddAuthAction(system_tx,
-                  [&] { return std::make_unique<DropAuthData>(DropAuthData::AuthDataType::PROFILE, profile_name); });
+    AddAuthAction(system_tx, [&] { return replication::AuthDropOp{replication::AuthDataType::PROFILE, profile_name}; });
   }
   return res;
 }
@@ -975,7 +899,7 @@ std::optional<UserProfiles::Profile> Auth::SetProfile(const std::string &profile
     UpdateProfileLimits(name, profile, *user_resources_);
   }
 
-  AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(*profile); });
+  AddAuthAction(system_tx, [&] { return replication::AuthUpdateOp{*profile}; });
 
   return profile;
 }
@@ -998,7 +922,7 @@ void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx
   }
 
   if (auto const profile = user_profiles_.Get(*profile_name)) {
-    AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(*profile); });
+    AddAuthAction(system_tx, [&] { return replication::AuthUpdateOp{*profile}; });
   }
 }
 
@@ -1045,7 +969,7 @@ void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
 
   // All changes to the role end up calling this function, so no need to add a delta anywhere else
 #ifdef MG_ENTERPRISE
-  AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(role); });
+  AddAuthAction(system_tx, [&] { return replication::AuthUpdateOp{role}; });
 #endif
 }
 
@@ -1175,7 +1099,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig, bool force, system::Tran
 
   // Handling drop role delta
 #ifdef MG_ENTERPRISE
-  AddAuthAction(system_tx, [&] { return std::make_unique<DropAuthData>(DropAuthData::AuthDataType::ROLE, rolename); });
+  AddAuthAction(system_tx, [&] { return replication::AuthDropOp{replication::AuthDataType::ROLE, rolename}; });
 #endif
   return true;
 }
