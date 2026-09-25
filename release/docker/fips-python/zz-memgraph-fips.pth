@@ -1,0 +1,2 @@
+# Runs memgraph_fips_hashlib at interpreter start. See that module for why.
+import memgraph_fips_hashlib

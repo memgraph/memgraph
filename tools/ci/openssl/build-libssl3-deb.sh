@@ -20,6 +20,11 @@ cp -a "$OUT/"ossl-modules "$PKGROOT/usr/lib/$MULTIARCH/"
 
 strip --strip-unneeded "$PKGROOT/usr/lib/$MULTIARCH/"libssl.so.3 "$PKGROOT/usr/lib/$MULTIARCH/"libcrypto.so.3 || true
 
+# The Provides must be versioned: an unversioned one cannot satisfy a versioned
+# dependency, and Ubuntu's libxmlsec1t64-openssl needs "libssl3 (>= 3.0.0)".
+# With a bare "Provides: libssl3" apt calls that unsatisfiable and refuses to
+# install it alongside this package. Stock libssl3t64 declares "libssl3 (= ...)".
+# (DEBIAN/control takes no comment lines, hence this note living out here.)
 cat > "$PKGROOT/DEBIAN/control" <<EOF
 Package: libssl3t64
 Version: $VERSION-0ubuntu0custom1
@@ -29,7 +34,7 @@ Architecture: $ARCH
 Maintainer: Matt James <matthew.james@memgraph.io>
 Conflicts: libssl3t64
 Replaces: libssl3t64
-Provides: libssl3
+Provides: libssl3 (= $VERSION-0ubuntu0custom1)
 Description: Custom libssl/libcrypto from OpenSSL $VERSION (Conan build)
 EOF
 
