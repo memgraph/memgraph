@@ -53,8 +53,11 @@ class DiskNameIdMapper final : public NameIdMapper {
     if (auto maybe_id_from_disk = name_to_id_storage_->Get(std::string(name)); maybe_id_from_disk.has_value()) {
       auto id_disk_value = maybe_id_from_disk.value();
       res_id = utils::ParseStringToUint<uint64_t>(id_disk_value);
-      InsertNameIdEntryToCache(std::string(name), res_id);
+      auto const &cached = InsertNameIdEntryToCache(std::string(name), res_id);
       InsertIdNameEntryToCache(res_id, std::string(name));
+      // Read back from disk rather than minted, so nothing has placed it in the
+      // order yet, and a comparison holding this id is about to look for it.
+      PlaceInOrder(res_id, cached);
     } else {
       res_id = NameIdMapper::NameToId(name);
       MG_ASSERT(id_to_name_storage_->Put(std::to_string(res_id), std::string(name)),
@@ -82,7 +85,9 @@ class DiskNameIdMapper final : public NameIdMapper {
     MG_ASSERT(maybe_name_from_disk.has_value(), "Trying to get a name from disk for an invalid ID!");
 
     InsertIdNameEntryToCache(id, maybe_name_from_disk.value());
-    return InsertNameIdEntryToCache(maybe_name_from_disk.value(), id);
+    auto const &cached = InsertNameIdEntryToCache(maybe_name_from_disk.value(), id);
+    PlaceInOrder(id, cached);
+    return cached;
   }
 
  private:
@@ -109,7 +114,8 @@ class DiskNameIdMapper final : public NameIdMapper {
     for (auto itr = name_to_id_storage_->begin(); itr != name_to_id_storage_->end(); ++itr) {
       std::string name = itr->first;
       uint64_t id = utils::ParseStringToUint<uint64_t>(itr->second);
-      InsertNameIdEntryToCache(name, id);
+      auto const &cached = InsertNameIdEntryToCache(name, id);
+      PlaceInOrder(id, cached);
       counter_.fetch_add(1, std::memory_order_release);
     }
     for (auto itr = id_to_name_storage_->begin(); itr != id_to_name_storage_->end(); ++itr) {

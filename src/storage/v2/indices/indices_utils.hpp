@@ -278,30 +278,37 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
     std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
+    // A worker does the spawning thread's storage work, so it reads the order
+    // that thread was pointed at. Without this a populated index would be
+    // ordered by whatever the worker last served, or by nothing at all.
+    auto const *inherited = t_name_order;
+
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(parallel_exec_info.arena_pool, [&, func /*local copy incase there is local state*/]() {
-        auto acc = accessor_factory();
-        while (!maybe_error.Lock()->has_value() && !cancelled.load(std::memory_order_relaxed)) {
-          const auto batch_index = batch_counter++;
-          if (batch_index >= vertex_batches.size()) {
-            return;
-          }
-          const auto &batch = vertex_batches[batch_index];
-          auto it = vertices.find(batch.first);
+      threads.emplace_back(parallel_exec_info.arena_pool,
+                           [&, func /*local copy incase there is local state*/, inherited]() {
+                             if (inherited != nullptr) PointThisThreadAt(*inherited);
+                             auto acc = accessor_factory();
+                             while (!maybe_error.Lock()->has_value() && !cancelled.load(std::memory_order_relaxed)) {
+                               const auto batch_index = batch_counter++;
+                               if (batch_index >= vertex_batches.size()) {
+                                 return;
+                               }
+                               const auto &batch = vertex_batches[batch_index];
+                               auto it = vertices.find(batch.first);
 
-          try {
-            for (auto i{0U}; i < batch.second; ++i, ++it) {
-              func(*it, acc);
-            }
+                               try {
+                                 for (auto i{0U}; i < batch.second; ++i, ++it) {
+                                   func(*it, acc);
+                                 }
 
-          } catch (utils::OutOfMemoryException &failure) {
-            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-            *maybe_error.Lock() = std::move(failure);
-          } catch (PopulateCancel const &) {
-            cancelled.store(true, std::memory_order_relaxed);
-          }
-        }
-      });
+                               } catch (utils::OutOfMemoryException &failure) {
+                                 utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+                                 *maybe_error.Lock() = std::move(failure);
+                               } catch (PopulateCancel const &) {
+                                 cancelled.store(true, std::memory_order_relaxed);
+                               }
+                             }
+                           });
     }
   }
   // Out of memory wins over cancellation: it is the more specific failure and the caller unwinds it differently.

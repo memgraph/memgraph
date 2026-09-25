@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 
+#include "storage/v2/property_name_order.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
@@ -79,11 +80,22 @@ class NameIdMapper {
     // We have to try to insert the ID to name mapping even if we are not the
     // one who assigned the ID because we have to make sure that after this
     // method returns that both mappings exist.
-    if (!id_to_name_acc.contains(id)) {
+    auto stored = id_to_name_acc.find(id);
+    if (stored == id_to_name_acc.end()) {
       // We first try to find the `id` in the map to avoid making an unnecessary
       // temporary memory allocation when the object already exists.
-      id_to_name_acc.insert({id, std::string(name)});
+      stored = id_to_name_acc.insert({id, std::string(name)}).first;
     }
+
+    // Where this name sorts, placed before the id reaches a caller, so a
+    // comparison holding the id always finds it. The name is the one kept here,
+    // which outlives every reader because nothing is ever taken out.
+    //
+    // Labels and edge types are named through this too, so they take up places
+    // in the order alongside the properties. Ordering more names than a
+    // comparison asks about leaves the ones it does ask about in the same order
+    // as each other.
+    name_order_.Add(static_cast<uint32_t>(id), stored->name);
     return id;
   }
 
@@ -118,12 +130,24 @@ class NameIdMapper {
   // back to empty (e.g. bringing up a broken database after recovery failure).
   // Must not be called while other threads hold references returned by IdToName.
   virtual void Clear() {
+    // Before the names go, because it holds views of them.
+    name_order_.Clear();
     name_to_id_.clear();
     id_to_name_.clear();
     counter_.store(0, std::memory_order_release);
   }
 
+  /// Where each name sorts, as a number per id, for a comparison that has to
+  /// answer in name order without reading a name.
+  auto NameOrder() const noexcept -> PropertyNameOrder const & { return name_order_; }
+
  protected:
+  /// Gives @p name its place in the order, for a subclass that put an id and a
+  /// name into the caches itself rather than through NameToId.
+  ///
+  /// @pre @p name is the one kept in the cache, which outlives every reader.
+  void PlaceInOrder(uint64_t id, std::string_view name) { name_order_.Add(static_cast<uint32_t>(id), name); }
+
   std::optional<std::reference_wrapper<const std::string>> MaybeIdToName(uint64_t id) const {
     auto id_to_name_acc = id_to_name_.access();
     auto result = id_to_name_acc.find(id);
@@ -136,5 +160,6 @@ class NameIdMapper {
   std::atomic<uint64_t> counter_{0};
   utils::SkipListDb<MapNameToId> name_to_id_;
   utils::SkipListDb<MapIdToName> id_to_name_;
+  PropertyNameOrder name_order_;
 };
 }  // namespace memgraph::storage

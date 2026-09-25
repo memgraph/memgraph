@@ -991,6 +991,11 @@ add_unit_test(typed_value_shapes_coverage
     LINK_TARGETS mg-query mg-glue typed_value_shapes
 )
 
+add_unit_test(storage_v2_property_name_order
+    SOURCES storage_v2_property_name_order.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_property_store
     SOURCES storage_v2_property_store.cpp
     LINK_TARGETS mg::storage value_shapes

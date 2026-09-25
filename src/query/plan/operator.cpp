@@ -324,6 +324,20 @@ auto ExpressionRange::MakeValuePredicate(std::optional<std::string> const &searc
 
 namespace {
 
+/// Points the calling thread at the name_order of the storage this query runs in,
+/// which is what a comparison of two stored maps reads to place them in the order
+/// their keys' names sort in.
+///
+/// A thread that opened a storage accessor was pointed by doing so. One that took
+/// up a branch of a query another thread opened was not, and would either find
+/// nothing to read or, having served another storage before, find that one's
+/// name_order and place a pair of maps by numbers belonging to another database's
+/// names.
+void PointThisThreadAtTheNameOrder(ExecutionContext const &context) {
+  if (context.db_accessor == nullptr) return;
+  storage::PointThisThreadAt(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()->NameOrder());
+}
+
 /// The value predicate for the input row driving a scan. One pass over an index narrows by one
 /// search term, so the term belongs to the row that started the pass: read once for the whole
 /// cursor, every later row would be answered with the first row's term.
@@ -11163,6 +11177,7 @@ class ParallelBranchCursor : public Cursor {
                         utils::Priority /*unused*/) mutable {
         const OOMExceptionEnabler oom_exception;
         const utils::Timer timer;
+        PointThisThreadAtTheNameOrder(context);
         if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
           mem_tracking.StartTracking();
         }
