@@ -71,8 +71,6 @@ class CoordinatorLogStore final : public log_store {
 
   bool flush() override;
 
-  void DeleteLogs(uint64_t start, uint64_t end);
-
   auto GetAllEntriesRange(uint64_t start, uint64_t end) const
       -> std::vector<std::pair<int64_t, std::shared_ptr<log_entry>>>;
 
