@@ -174,8 +174,13 @@ class AuthLayer {
 #ifdef MG_ENTERPRISE
     nothing_to_publish = nothing_to_publish && tx.dropped_users_.empty();
 #endif
-    // Anything to publish or release comes from a write, so the epoch always moves with it.
-    MG_ASSERT(has_writes || nothing_to_publish, "Auth transaction publishes without a store write");
+    // Anything to publish or release comes from a write, so the epoch always moves with it. Publishing without
+    // one would send replicas a change this instance never made durable, and leave every session's cached
+    // permissions unrefreshed, neither of which anything downstream detects.
+    MG_ASSERT(has_writes || nothing_to_publish,
+              "An auth transaction has something to publish but never wrote to the auth store. Replicas may "
+              "have received a change this instance did not keep. Compare the users, roles and profiles here "
+              "against every replica before resuming writes.");
     if (has_writes) locked->UpdateEpoch();
     if (system_tx) {
       for (auto &action : tx.pending_actions_) system_tx->AddAction(std::move(action));
