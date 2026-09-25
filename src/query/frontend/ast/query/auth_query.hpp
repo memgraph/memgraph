@@ -147,7 +147,7 @@ class AuthQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::AuthQuery::Action action_;
   std::string user_;

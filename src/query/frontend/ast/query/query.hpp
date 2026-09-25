@@ -33,11 +33,11 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
   /// of query cannot inherit an answer that happens to compile.
   virtual StorageAccessPolicy AccessPolicy() const = 0;
 
-  /// Whether this kind of query works on the current database's own data, rather than on instance,
-  /// session or system state. A database that failed recovery serves none of these until it has
-  /// been recovered, so the default answer is the one that refuses: a kind that needs to stay
-  /// available while a tenant is broken has to say so.
-  virtual bool UsesTenantData() const { return true; }
+  /// Whether this query works on the current database's graph data, including the metadata
+  /// describing it, rather than on instance, session or system state. A database that failed
+  /// recovery serves none of these until it has been recovered, so the default answer is the one
+  /// that refuses: a query that has to stay available while a database is broken says so.
+  virtual bool OperatesOnGraphData() const { return true; }
 
  private:
   friend class AstStorage;

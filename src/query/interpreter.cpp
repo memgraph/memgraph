@@ -10697,10 +10697,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
         auto *q = parsed_query.query;
-        // The refusal reaches queries that only read tenant-graph metadata: from the empty
-        // post-recovery-failure storage they report a clean 0-row result rather than surfacing
-        // the broken health. RECOVER SNAPSHOT works on that data by replacing it.
-        if (q->UsesTenantData() && utils::Downcast<RecoverSnapshotQuery>(q) == nullptr) {
+        // The refusal reaches queries that only read the metadata describing the graph: from the
+        // empty post-recovery-failure storage they report a clean 0-row result rather than
+        // surfacing the broken health. RECOVER SNAPSHOT works on that data by replacing it.
+        if (q->OperatesOnGraphData() && utils::Downcast<RecoverSnapshotQuery>(q) == nullptr) {
           throw QueryException(kBrokenDatabaseError);
         }
       }

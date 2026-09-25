@@ -3179,7 +3179,7 @@ class SystemInfoQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::SystemInfoQuery::InfoType info_type_;
   std::optional<std::string> database_;
@@ -3278,7 +3278,7 @@ class ReplicationQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   Action action_;
   ReplicationRole role_;
@@ -3320,7 +3320,7 @@ class ReplicationInfoQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::ReplicationInfoQuery::Action action_;
 
@@ -3366,7 +3366,7 @@ class CoordinatorQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   Action action_;
   std::string instance_name_{};
@@ -3505,7 +3505,7 @@ class LockPathQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::LockPathQuery::Action action_;
 
@@ -3661,7 +3661,7 @@ class FreeMemoryQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   FreeMemoryQuery *Clone(AstStorage *storage) const override {
     FreeMemoryQuery *object = storage->Create<FreeMemoryQuery>();
@@ -3946,7 +3946,7 @@ class SettingQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::SettingQuery::Action action_;
   memgraph::query::Expression *setting_name_{nullptr};
@@ -3978,7 +3978,7 @@ class ParameterQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::ParameterQuery::Action action_;
   bool is_global_scope_{true};
@@ -4023,7 +4023,7 @@ class VersionQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   VersionQuery *Clone(AstStorage *storage) const override {
     VersionQuery *object = storage->Create<VersionQuery>();
@@ -4080,7 +4080,7 @@ class ShowConfigQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   ShowConfigQuery *Clone(AstStorage *storage) const override {
     ShowConfigQuery *object = storage->Create<ShowConfigQuery>();
@@ -4098,7 +4098,7 @@ class ShowQueryCallableMappingsQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   ShowQueryCallableMappingsQuery *Clone(AstStorage *storage) const override {
     ShowQueryCallableMappingsQuery *object = storage->Create<ShowQueryCallableMappingsQuery>();
@@ -4124,7 +4124,7 @@ class TransactionQueueQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::TransactionQueueQuery::Action action_;
   std::vector<Expression *> transaction_id_list_;
@@ -4153,7 +4153,7 @@ class SessionQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::SessionQuery::Action action_;
   std::vector<Expression *> session_id_list_;  // populated for TERMINATE; empty for SHOW
@@ -4245,7 +4245,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   enum class Action : uint8_t { CREATE, DROP, RENAME, SUSPEND, RESUME };
 
@@ -4274,7 +4274,7 @@ class UseDatabaseQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   std::string db_name_;
 
@@ -4295,7 +4295,7 @@ class ShowDatabaseQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   ShowDatabaseQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowDatabaseQuery>();
@@ -4313,7 +4313,7 @@ class ShowDatabasesQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   ShowDatabasesQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowDatabasesQuery>();
@@ -4547,7 +4547,7 @@ class ReloadSSLQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   ReloadSSLQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ReloadSSLQuery>();
@@ -4569,7 +4569,7 @@ class ShowMemoryInfoQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   ShowMemoryInfoQuery *Clone(AstStorage *storage) const override { return storage->Create<ShowMemoryInfoQuery>(); }
 
@@ -4621,7 +4621,7 @@ class SessionTraceQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   bool enabled_{false};
 
@@ -4649,7 +4649,7 @@ class SessionSettingQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   memgraph::query::SessionSettingQuery::Action action_;
   Expression *setting_name_{nullptr};

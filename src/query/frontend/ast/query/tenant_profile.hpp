@@ -33,7 +33,7 @@ class TenantProfileQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
-  bool UsesTenantData() const override { return false; }
+  bool OperatesOnGraphData() const override { return false; }
 
   enum class Action : uint8_t {
     CREATE,
