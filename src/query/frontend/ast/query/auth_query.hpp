@@ -145,6 +145,8 @@ class AuthQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
+
   memgraph::query::AuthQuery::Action action_;
   std::string user_;
   std::vector<std::string> roles_;

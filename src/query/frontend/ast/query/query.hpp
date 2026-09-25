@@ -14,6 +14,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 
 #include "query/frontend/ast/ast_storage.hpp"
+#include "query/frontend/ast/query/storage_access_policy.hpp"
 
 namespace memgraph::query {
 class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor<void>> {
@@ -27,6 +28,10 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
   Query() = default;
 
   Query *Clone(AstStorage *storage) const override = 0;
+
+  /// What this kind of query needs held on the graph while it is prepared. Pure so that a new kind
+  /// of query cannot inherit an answer that happens to compile.
+  virtual StorageAccessPolicy AccessPolicy() const = 0;
 
  private:
   friend class AstStorage;
