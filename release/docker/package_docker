@@ -168,7 +168,15 @@ if [[ "$package_flavour" == "fips" ]]; then
   fi
 fi
 
-cp -v ../../src/auth/reference_modules/requirements.txt "${working_dir}/auth-module-requirements.txt"
+# The FIPS image installs the same requirements minus the "# fips-exclude:"
+# lines - the deps only the omitted auth modules need, which is the same filter
+# MG_FIPS applies to the copy installed into the package (src/auth/CMakeLists.txt).
+if [[ "$package_flavour" == "fips" ]]; then
+  grep -v '#[[:space:]]*fips-exclude:' ../../src/auth/reference_modules/requirements.txt \
+    > "${working_dir}/auth-module-requirements.txt"
+else
+  cp -v ../../src/auth/reference_modules/requirements.txt "${working_dir}/auth-module-requirements.txt"
+fi
 
 # stage wheels dir so the python-base stage can install packages that lack
 # prebuilt linux wheels on PyPI (e.g. gssapi). It must actually hold the gssapi
