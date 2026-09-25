@@ -33,7 +33,7 @@ jobs:
         run: |
           python3 tools/ci/pr-conflicts/find_pr_conflicts.py \
             "$RUNNER_TEMP/open_prs.json" \
-            "4828" \
+            "4812" \
             "$RUNNER_TEMP/pr_conflicts.md"  # DO NOT MERGE: use "${{ github.event.pull_request.number }}"
 
       - name: Comment on PR
