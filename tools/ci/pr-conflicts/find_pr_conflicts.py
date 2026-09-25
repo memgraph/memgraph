@@ -8,10 +8,15 @@ Reads the output of:
 and, if any other PR modifies a file this PR also modifies, writes a Markdown
 message listing those PRs (most shared files first) to the output path. If
 there are no overlaps, the output file is not written.
+
+The message starts with a hidden marker so the workflow can find and update
+its earlier comment instead of posting a new one on every push.
 """
 
 import argparse
 import json
+
+MARKER = "<!-- pr-conflicts -->"
 
 
 def load_pr_files(json_path: str) -> dict[int, set[str]]:
@@ -48,6 +53,7 @@ def build_message(conflicts: list[tuple[int, int]]) -> str:
     Build the PR comment listing the conflicting PRs.
     """
     lines = [
+        MARKER,
         "This PR has potential conflicts with the following other open pull requests which modify the same files:",
         "",
     ]

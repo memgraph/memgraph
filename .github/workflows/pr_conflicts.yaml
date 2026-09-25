@@ -2,7 +2,13 @@ name: "PR Conflict Check"
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, reopened, synchronize]
+
+# One run per PR at a time, so quick successive pushes can't race to create
+# two comments.
+concurrency:
+  group: pr-conflicts-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -34,9 +40,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          # The script only writes the message when there are conflicts.
-          if [[ ! -f "$RUNNER_TEMP/pr_conflicts.md" ]]; then
-            exit 0
+          marker='<!-- pr-conflicts -->'
+          message="$RUNNER_TEMP/pr_conflicts.md"
+
+          # Find this workflow's earlier comment, if any, by its hidden marker.
+          comment_id=$(gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" \
+            | head -n 1)
+
+          # The script only writes the message when there are conflicts. With
+          # none, clear an earlier warning so it doesn't go stale, or stay quiet.
+          if [[ ! -f "$message" ]]; then
+            if [[ -z "$comment_id" ]]; then
+              exit 0
+            fi
+            printf '%s\nThis PR no longer modifies files that other open pull requests also modify.\n' "$marker" > "$message"
           fi
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file "$RUNNER_TEMP/pr_conflicts.md"
+
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/$GH_REPO/issues/comments/$comment_id" -F body=@"$message" > /dev/null
+          else
+            gh pr comment "$PR_NUMBER" --body-file "$message"
+          fi
