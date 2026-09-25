@@ -28,6 +28,7 @@
 #include "query/relations/comparability.hpp"
 #include "query/relations/orderability.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "tests/property_based/typed_value_generators.hpp"
 
 using memgraph::query::TypedValue;
@@ -37,6 +38,14 @@ namespace orderability = memgraph::query::relations::orderability;
 
 namespace {
 
+/// The one mapper the fold and the sort both read, so that a column of maps is
+/// placed the same way by each. Which identifiers it hands out does not matter
+/// to these laws, only that both sides ask the same mapper.
+memgraph::storage::NameIdMapper &TheMapper() {
+  static memgraph::storage::NameIdMapper mapper;
+  return mapper;
+}
+
 /// A column a sort can be handed end to end.
 ///
 /// Orderability places every pair of unlike types, and refuses only a pair of
@@ -45,7 +54,6 @@ namespace {
 bool ASortPlacesEveryPair(TypedValue const &value) {
   switch (value.type()) {
     using enum TypedValue::Type;
-    case Map:
     case Vertex:
     case Edge:
     case VirtualEdge:
@@ -57,6 +65,9 @@ bool ASortPlacesEveryPair(TypedValue const &value) {
       return false;
     case List:
       return std::ranges::all_of(value.ValueList(), ASortPlacesEveryPair);
+    case Map:
+      return std::ranges::all_of(value.ValueMap(),
+                                 [](auto const &entry) { return ASortPlacesEveryPair(entry.second); });
     default:
       return true;
   }
@@ -107,8 +118,7 @@ bool ShareAPosition(TypedValue const &a, TypedValue const &b) { return std::is_e
 /// costs a share that falls off with their length, and would leave these laws
 /// asking about the short ones.
 rc::Gen<TypedValue> APlaceableValue() {
-  auto types = memgraph::test::generators::GraphFreeTypes();
-  std::erase(types, TypedValue::Type::Map);
+  auto const types = memgraph::test::generators::GraphFreeTypes();
   return rc::gen::mapcat(rc::gen::elementOf(types), [](auto const type) {
     return rc::gen::suchThat(memgraph::test::generators::TypedValueOfType(type, 2), ASortPlacesEveryPair);
   });
@@ -196,13 +206,13 @@ RC_GTEST_PROP(AggregationAgreesWithTheSort, AColumnItAgreesToReadIsOneItCanFinis
   FoldedToTheMinimum(rows);
 }
 
-TEST(AggregationAgreesWithTheSort, ReachesColumnsOnBothSidesOfTheRefusal) {
-  // The law above says nothing about a column it never draws. A generator
-  // drawing only columns the aggregation reads would satisfy it while leaving
-  // the refusal untested, and one drawing only refused columns would satisfy it
-  // having asked nothing at all.
+TEST(AggregationAgreesWithTheSort, RefusesNoColumnAGraphFreeDrawCanHold) {
+  // What is left of the refusal, measured rather than assumed. Every type a
+  // sort has no order for is a graph type, and none of those can be drawn
+  // without a graph to hold them, so a column drawn here is always one the
+  // aggregation reads. A type leaving the placed set would show up here as a
+  // column that was refused.
   constexpr auto kDraws = 2'000;
-  constexpr auto kLeastShare = 0.05;
 
   auto usable = 0;
   auto read = 0;
@@ -215,11 +225,8 @@ TEST(AggregationAgreesWithTheSort, ReachesColumnsOnBothSidesOfTheRefusal) {
     if (TheAggregationReads(rows)) ++read;
   }
 
-  ASSERT_GT(usable, kDraws / 10) << "too few draws held a row to say anything about the shares below";
-
-  auto const share = static_cast<double>(read) / usable;
-  EXPECT_GT(share, kLeastShare) << "only " << share * 100 << "% of drawn columns are read, so the law asks about few";
-  EXPECT_LT(share, 1.0 - kLeastShare) << share * 100 << "% of drawn columns are read, so the refusal is barely reached";
+  ASSERT_GT(usable, kDraws / 10) << "too few draws held a row to say anything about the share below";
+  EXPECT_EQ(read, usable) << usable - read << " drawn columns were refused, so a graph-free type has no position";
 }
 
 TEST(AggregationAgreesWithTheSort, ReachesColumnsHoldingAPairNoComparisonPlaces) {

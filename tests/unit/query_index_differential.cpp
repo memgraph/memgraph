@@ -71,6 +71,7 @@ std::vector<std::string> const kMixedValues = {"1",
                                                "true",
                                                "[1]",
                                                "{a: 1}",
+                                               "{b: 2}",
                                                "date('2020-01-01')",
                                                "duration('P1D')",
                                                "point({x: 1, y: 2})",
@@ -326,6 +327,68 @@ TEST_F(IndexDifferentialTest, AnIndexWalksAMixedColumnInTheOrderASortReadsIt) {
   auto const [without_index, with_index] = OrderAgrees(kMixedValues, queries, {"CREATE INDEX ON :O(p);"});
 
   EXPECT_EQ(with_index, without_index) << "an index changed the order rows come back in";
+}
+
+TEST_F(IndexDifferentialTest, AnIndexWalksAColumnOfMapsInTheOrderASortReadsIt) {
+  // A stored map is keyed by the identifiers its keys were interned as, and a
+  // sort reads one by resolving its names back to those identifiers, so the walk
+  // and the sort follow one sequence. A pair of maps can part on size, on a key,
+  // or on the value under a key they share, and the column holds all three.
+  //
+  // The keys are interned in an order their names do not sort in, so a sort
+  // reading the names rather than the identifiers parts this column differently
+  // from the walk.
+  // One property per statement, so the three names are interned in this order
+  // rather than in whatever order a single property map is walked in. A name is
+  // never taken back, so deleting these leaves the identifiers behind.
+  Run("CREATE (:Interned {z: 1});");
+  Run("CREATE (:Interned {y: 1});");
+  Run("CREATE (:Interned {x: 1});");
+
+  auto const values = std::vector<std::string>{
+      "{}",
+      "{x: 1}",
+      "{y: 1}",
+      "{z: 1}",
+      "{x: 2}",
+      "{x: 1, y: 1}",
+      "{x: 1, y: 2}",
+      "{y: 1, z: 1}",
+  };
+  auto const queries = std::vector<std::string>{
+      "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
+      "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p DESC;",
+  };
+
+  auto const [without_index, with_index] = OrderAgrees(values, queries, {"CREATE INDEX ON :O(p);"});
+
+  EXPECT_EQ(with_index, without_index) << "an index changed the order of a column of maps";
+  EXPECT_EQ(without_index.front().size(), values.size()) << "the column came back short";
+
+  // And the order is the one the keys' names give, not the one they were
+  // interned in. The three names were interned z, y, x, so a column placed by
+  // identifier would come back with z first among the maps holding one entry.
+  auto const rendering_of = [&](std::string const &literal) { return Ordered("RETURN " + literal + " AS v;").front(); };
+  auto const by_name = std::vector<std::string>{rendering_of("{}"),
+                                                rendering_of("{x: 1}"),
+                                                rendering_of("{x: 2}"),
+                                                rendering_of("{y: 1}"),
+                                                rendering_of("{z: 1}"),
+                                                rendering_of("{x: 1, y: 1}"),
+                                                rendering_of("{x: 1, y: 2}"),
+                                                rendering_of("{y: 1, z: 1}")};
+  EXPECT_EQ(without_index.front(), by_name)
+      << "a column of maps did not come back in the order its keys' names sort in";
+
+  // The walk has to be standing in for the sort, or the two sides are one plan
+  // sorting twice and the comparison asked nothing.
+  auto plan = std::string{};
+  for (auto const &row : interpreter.Interpret("EXPLAIN " + queries.front()).GetResults()) {
+    plan += row.front().ValueString() + "\n";
+  }
+  EXPECT_EQ(plan.find("OrderBy"), std::string::npos) << "the sort was kept over a column of maps:\n" << plan;
+
+  Run("DROP INDEX ON :O(p);");
 }
 
 TEST_F(IndexDifferentialTest, AnIndexWalksTheTemporalKindsInTheOrderASortReadsThem) {

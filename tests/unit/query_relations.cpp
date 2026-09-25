@@ -109,9 +109,15 @@ std::optional<OrderedPair> PairOf(Type type) {
       return OrderedPair{TypedValue(Point3d{Cartesian_3d, 1.0, 1.0, 1.0}),
                          TypedValue(Point3d{Cartesian_3d, 1.0, 1.0, 2.0})};
 
+    case Type::Map:
+      // A pair of maps parts on size before a key is read, so this pair is in order whatever
+      // identifiers its keys were interned as.
+      return OrderedPair{
+          TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(int64_t{1})}}),
+          TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(int64_t{1})}, {"b", TypedValue(int64_t{2})}})};
+
     case Type::Null:
     case Type::List:
-    case Type::Map:
     case Type::Vertex:
     case Type::Edge:
     case Type::Path:
@@ -295,8 +301,7 @@ TEST(Orderability, AdmitsExactlyTheTypesItPlacesAPairOf) {
 TEST(Orderability, AdmitsNoTypeCarryingNoOrderOfItsOwn) {
   // The types a sort refuses, named rather than counted, so that a type added to the value has to
   // be placed on one side or the other rather than joining this set by default.
-  constexpr Type kRefused[] = {Type::Map,
-                               Type::Vertex,
+  constexpr Type kRefused[] = {Type::Vertex,
                                Type::Edge,
                                Type::VirtualEdge,
                                Type::VirtualNode,
@@ -316,14 +321,15 @@ TEST(Orderability, AdmitsNoTypeCarryingNoOrderOfItsOwn) {
 }
 
 TEST(Orderability, AnswersForAValueExactlyWhereEveryTypeWithinIsAdmitted) {
-  // The value-level question reads through a list, because a list is ordered by what it holds.
+  // The value-level question reads through a list and a map alike, because each is ordered by what
+  // it holds rather than by a payload of its own.
   EXPECT_TRUE(orderability::ValidFor(TypedValue(int64_t{1})));
   EXPECT_TRUE(orderability::ValidFor(ListOf({Int(1), Int(2)})));
-  EXPECT_FALSE(orderability::ValidFor(MapOf({{"a", Int(1)}})));
-  EXPECT_FALSE(orderability::ValidFor(ListOf({MapOf({{"a", Int(1)}})})));
+  EXPECT_TRUE(orderability::ValidFor(MapOf({{"a", Int(1)}})));
+  EXPECT_TRUE(orderability::ValidFor(ListOf({MapOf({{"a", Int(1)}})})));
 
   // And it names the type that has no order, so a refusal can say which.
-  EXPECT_EQ(orderability::UnorderedTypeWithin(ListOf({Int(1), MapOf({{"a", Int(1)}})})), Type::Map);
+  EXPECT_EQ(orderability::UnorderedTypeWithin(ListOf({Int(1), MapOf({{"a", Int(1)}})})), std::nullopt);
   EXPECT_EQ(orderability::UnorderedTypeWithin(TypedValue(int64_t{1})), std::nullopt);
 }
 
@@ -463,6 +469,42 @@ TEST(Orderability, PlacesTheTypesComparabilityRefuses) {
     EXPECT_FALSE(comparability::ValidFor(type));
     EXPECT_TRUE(std::is_lt(orderability::Compare(pair->lesser, pair->greater)));
   }
+}
+
+// A map, which is ordered by the names its keys carry
+
+TEST(Orderability, PlacesTwoMapsByTheirKeysNames) {
+  EXPECT_TRUE(std::is_lt(orderability::Compare(MapOf({{"a", Int(1)}}), MapOf({{"c", Int(1)}}))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(MapOf({{"c", Int(1)}}), MapOf({{"a", Int(1)}}))));
+}
+
+TEST(Orderability, PlacesTheSmallerMapFirstWhateverItsKeys) {
+  // The larger map's keys all sort before the smaller one's, and it still comes second.
+  EXPECT_TRUE(std::is_lt(orderability::Compare(MapOf({{"z", Int(1)}}), MapOf({{"a", Int(1)}, {"b", Int(1)}}))));
+}
+
+TEST(Orderability, ReadsAMapsValueBeforeItsNextKey) {
+  // Reading every key and only then the values would part this pair at the second key, where `b`
+  // precedes `c`, and place the left map after the right. A map is walked one entry at a time, so
+  // the pair parts at the first value instead.
+  EXPECT_TRUE(
+      std::is_lt(orderability::Compare(MapOf({{"a", Int(1)}, {"c", Int(9)}}), MapOf({{"a", Int(2)}, {"b", Int(9)}}))));
+}
+
+TEST(Orderability, PlacesTwoMapsHoldingTheSameEntriesTogether) {
+  // Written in either order, because a map holds its entries in the order its keys sort in whatever
+  // order they were put there.
+  EXPECT_TRUE(
+      std::is_eq(orderability::Compare(MapOf({{"a", Int(1)}, {"b", Int(2)}}), MapOf({{"b", Int(2)}, {"a", Int(1)}}))));
+}
+
+TEST(Orderability, ReadsAMapNestedInAList) {
+  EXPECT_TRUE(std::is_lt(orderability::Compare(ListOf({MapOf({{"a", Int(1)}})}), ListOf({MapOf({{"c", Int(1)}})}))));
+}
+
+TEST(Orderability, PlacesAMapAgainstAnotherTypeByWhereTheTypesSit) {
+  EXPECT_TRUE(std::is_lt(orderability::Compare(MapOf({{"a", Int(1)}}), Int(1))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(Int(1), MapOf({{"a", Int(1)}}))));
 }
 
 // Where an integer stops fitting in a double
@@ -611,11 +653,16 @@ TEST(Orderability, PlacesEveryPairOfUnlikeTypesItCanBuild) {
   }
 }
 
-TEST(Orderability, RefusesTwoValuesOfATypeCarryingNoOrderOfItsOwn) {
-  // Placing a pair of unlike types settles nothing about two maps. Where the types are the
-  // same, where each sits no longer answers the question, and a map has no order of its own.
-  auto const map = MapOf({{"a", Int(1)}});
-  EXPECT_THROW(orderability::Compare(map, map), memgraph::query::QueryRuntimeException);
+TEST(Orderability, PlacesTwoValuesOfEveryTypeAValueCanHold) {
+  // Where a pair is of one type, where the type sits no longer answers the question and the
+  // type has to carry an order of its own. Every type a property can hold now does, so what
+  // is left to refuse is reachable only through a graph, which this file cannot build.
+  for (auto const type : kEveryType) {
+    auto const value = AValueOfType(type);
+    if (!value) continue;
+    EXPECT_TRUE(std::is_eq(orderability::Compare(*value, *value)))
+        << "type " << static_cast<unsigned>(type) << " is not in one place with itself";
+  }
 }
 
 TEST(Orderability, SortsAColumnHoldingUnlikeTypes) {
@@ -688,13 +735,14 @@ TEST(Orderability, CompareOfListsPlacesAnElementComparabilityCannot) {
   EXPECT_TRUE(std::is_eq(orderability::CompareOfLists(nan.ValueList(), another_nan.ValueList())));
 }
 
-TEST(Orderability, CompareOfListsRefusesAnElementPairItHasNoOrderFor) {
-  // A walk answers with the relation, so it refuses exactly where the relation does: for two
-  // elements of one type carrying no order of its own. Two elements of unlike types it places,
-  // by where the two types sit, so a list is no harder to sort than what it holds.
+TEST(Orderability, CompareOfListsAnswersWithTheRelationForWhatItHolds) {
+  // A walk answers with the relation, so it places what the relation places. Two elements of
+  // unlike types it places by where the two types sit, so a list is no harder to sort than
+  // what it holds.
   auto const holds_a_map = ListOf({MapOf({{"a", Int(1)}})});
-  EXPECT_THROW(orderability::CompareOfLists(holds_a_map.ValueList(), holds_a_map.ValueList()),
-               memgraph::query::QueryRuntimeException);
+  auto const holds_a_later_map = ListOf({MapOf({{"b", Int(1)}})});
+  EXPECT_TRUE(std::is_eq(orderability::CompareOfLists(holds_a_map.ValueList(), holds_a_map.ValueList())));
+  EXPECT_TRUE(std::is_lt(orderability::CompareOfLists(holds_a_map.ValueList(), holds_a_later_map.ValueList())));
 
   auto const number = ListOf({Int(1)});
   auto const text = ListOf({TypedValue("a")});

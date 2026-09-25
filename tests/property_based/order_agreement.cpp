@@ -29,6 +29,7 @@
 #include "query/relations/orderability.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/property_name_order.hpp"
 #include "storage/v2/property_value.hpp"
 #include "tests/property_based/value_generators.hpp"
 
@@ -39,23 +40,39 @@ namespace orderability = memgraph::query::relations::orderability;
 
 namespace {
 
+/// Where the names this hands out sort, which is the order both layers place a
+/// pair of maps in: the query layer reads the names and the storage layer reads
+/// this.
+memgraph::storage::PropertyNameOrder &TheNameOrder() {
+  static memgraph::storage::PropertyNameOrder name_order;
+  return name_order;
+}
+
 /// Names whatever key a drawn map holds, so that reading one back does not
 /// depend on which identifiers the generator happened to pick.
+///
+/// A drawn identifier was never interned, so the name it gets here is the only
+/// name it has, and its place in the order is recorded as the name is invented.
+/// That is what the stored comparison reads.
 struct NamesEveryKey : memgraph::storage::NameIdMapper {
   std::string const &IdToName(uint64_t id) override {
-    auto [entry, _] = names.try_emplace(id, std::to_string(id));
+    auto [entry, is_new] = names.try_emplace(id, "key_" + std::to_string(id));
+    if (is_new) TheNameOrder().Add(static_cast<uint32_t>(id), entry->second);
     return entry->second;
   }
 
   std::map<uint64_t, std::string> names;
 };
 
-/// Reads a stored value as a query one, which is what a scan hands the operator
-/// above it.
-TypedValue AsRead(PropertyValue const &value) {
+NamesEveryKey &TheMapper() {
   static NamesEveryKey mapper;
-  return TypedValue(value, &mapper);
+  return mapper;
 }
+
+/// Reads a stored value as a query one, which is what a scan hands the operator
+/// above it. Every key it holds is named here, and so takes its place in the
+/// order before either layer is asked to compare anything.
+TypedValue AsRead(PropertyValue const &value) { return TypedValue(value, &TheMapper()); }
 
 /// The three answers an order gives, as one value the two orders can be
 /// compared on.
@@ -83,21 +100,23 @@ constexpr auto kStoredTypeCount = static_cast<int>(memgraph::storage::PropertyVa
 /// ordered structure. No column a sort reads holds one.
 bool ASortCanBeHandedThis(PropertyValue const &value) {
   if (value.IsVectorIndexId()) return false;
-  // A stored map is keyed by an identifier and a read one by a name, and
-  // nothing below the query layer can see a name, so there is no one position
-  // for the two layers to agree on.
-  if (value.IsMap()) return false;
   if (value.IsList()) return std::ranges::all_of(value.ValueList(), ASortCanBeHandedThis);
+  if (value.IsMap())
+    return std::ranges::all_of(value.ValueMap(), [](auto const &entry) { return ASortCanBeHandedThis(entry.second); });
   return true;
 }
 
 RC_GTEST_PROP(OrderAgreement, AStoredColumnIsWalkedInTheOrderASortReadsIt, ()) {
+  memgraph::storage::PointThisThreadAt(TheNameOrder());
+
   auto const first = *memgraph::test::generators::AnyValue();
   auto const second = *memgraph::test::generators::AnyValue();
   RC_PRE(ASortCanBeHandedThis(first) && ASortCanBeHandedThis(second));
 
-  auto const stored = Sign(first <=> second);
+  // Read back first: naming the keys is what puts them in the order, and the
+  // stored comparison below reads that order.
   auto const sorted = Sign(orderability::Compare(AsRead(first), AsRead(second)));
+  auto const stored = Sign(first <=> second);
 
   // Where the sort puts one row before another, the walk has to reach them the
   // same way round. Where it puts them in one place it has asked for nothing, so
@@ -119,6 +138,8 @@ TEST(OrderAgreement, HandsTheLawEnoughPairsToBeWorthAsking) {
   auto kept = 0;
   auto placed = 0;
   auto kept_by_type = std::map<memgraph::storage::PropertyValueType, int>{};
+
+  memgraph::storage::PointThisThreadAt(TheNameOrder());
 
   auto const generator = memgraph::test::generators::AnyValue();
   for (auto draw = 0; draw < kPairs; ++draw) {
@@ -146,10 +167,10 @@ TEST(OrderAgreement, HandsTheLawEnoughPairsToBeWorthAsking) {
   EXPECT_GT(placed_share, kLeastShare) << "the sort places both rows on " << placed_share * 100
                                        << "% of pairs, too few to establish that a walk agrees with it";
 
-  // Every stored type but the two the precondition drops should survive it, so
+  // Every stored type but the one the precondition drops should survive it, so
   // counting the types reached says whether the kept share is spread or is one
   // type standing in for the rest.
-  constexpr auto kTypesASortCanBeHanded = kStoredTypeCount - 2;
+  constexpr auto kTypesASortCanBeHanded = kStoredTypeCount - 1;
   EXPECT_GE(std::ssize(kept_by_type), kTypesASortCanBeHanded)
       << "the law was reached by only " << kept_by_type.size() << " of the types a sort can be handed";
 }

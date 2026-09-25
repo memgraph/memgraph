@@ -72,6 +72,13 @@ std::partial_ordering PlacePoints(Point const &a, Point const &b) {
 /// handed a pair of unlike things.
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
+/// Orders two maps by their keys' names, which is the order a map already
+/// keeps its entries in.
+///
+/// Out of line for the reason the list walk is, and takes the maps rather than
+/// the values holding them for the same reason.
+std::partial_ordering CompareOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b);
+
 namespace detail {
 
 /// Where each type sits in the order a sort reads, lowest first, as a table.
@@ -174,7 +181,6 @@ inline constexpr auto kPositions = [] {
 constexpr bool ValidFor(TypedValue::Type type) {
   switch (type) {
     using enum TypedValue::Type;
-    case Map:
     case Vertex:
     case Edge:
     case VirtualEdge:
@@ -190,6 +196,7 @@ constexpr bool ValidFor(TypedValue::Type type) {
     case Double:
     case String:
     case List:
+    case Map:
     case Date:
     case LocalTime:
     case LocalDateTime:
@@ -211,10 +218,20 @@ constexpr bool ValidFor(TypedValue::Type type) {
 /// is a fact about the pair rather than about the column.
 inline std::optional<TypedValue::Type> UnorderedTypeWithin(TypedValue const &value) {
   if (!ValidFor(value.type())) return value.type();
-  if (!value.IsList()) return std::nullopt;
 
-  for (auto const &element : value.ValueList()) {
-    if (auto const unordered = UnorderedTypeWithin(element)) return unordered;
+  if (value.IsList()) {
+    for (auto const &element : value.ValueList()) {
+      if (auto const unordered = UnorderedTypeWithin(element)) return unordered;
+    }
+    return std::nullopt;
+  }
+
+  // A map is read through for the reason a list is: its keys are ordered
+  // whatever they name, so what it holds is what can leave it unplaceable.
+  if (value.IsMap()) {
+    for (auto const &[_, held] : value.ValueMap()) {
+      if (auto const unordered = UnorderedTypeWithin(held)) return unordered;
+    }
   }
   return std::nullopt;
 }
@@ -274,10 +291,14 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case List:
         return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
 
+      // Ordered by what it holds, like a list, with each key read before the
+      // value under it.
+      case Map:
+        return CompareOfMaps(a.UnsafeValueMap(), b.UnsafeValueMap());
+
       // The types `ValidFor` denies. Named so that a type added to the value has
       // to be placed, and broken out of rather than throwing here, so the
       // refusal is written once below.
-      case Map:
       case Vertex:
       case Edge:
       case VirtualEdge:

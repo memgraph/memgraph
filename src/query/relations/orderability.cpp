@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <optional>
+#include <utility>
+#include <vector>
 
 import memgraph.storage.property_value;
 
@@ -111,6 +113,26 @@ static_assert(ASortRefinesTheStoredOrder(),
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b) {
   return std::lexicographical_compare_three_way(
       a.begin(), a.end(), b.begin(), b.end(), [](TypedValue const &x, TypedValue const &y) { return Compare(x, y); });
+}
+
+std::partial_ordering CompareOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b) {
+  // The map holding fewer entries comes first whatever its keys are, which is
+  // where a stored pair of unequal size parts.
+  if (auto const size = a.size() <=> b.size(); std::is_neq(size)) return size;
+
+  // A map keeps its entries in the order its keys' names sort in, so one walk
+  // reads them in that order. A store keeps the same map by the identifiers
+  // those names were interned as and is walked back into this order to compare,
+  // so the two layers place a pair of maps alike.
+  //
+  // One entry at a time, each key and then the value under it. Reading every
+  // key before any value would part a pair at a later entry and place the two
+  // the other way round.
+  for (auto one = a.begin(), other = b.begin(); one != a.end(); ++one, ++other) {
+    if (auto const key = one->first <=> other->first; std::is_neq(key)) return key;
+    if (auto const value = Compare(one->second, other->second); std::is_neq(value)) return value;
+  }
+  return std::partial_ordering::equivalent;
 }
 
 }  // namespace memgraph::query::relations::orderability
