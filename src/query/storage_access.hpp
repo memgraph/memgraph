@@ -13,6 +13,7 @@
 
 #include <optional>
 
+#include "query/frontend/ast/query/query_traits.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -24,7 +25,7 @@ class Query;
 /// What an interpreter takes on the graph in order to prepare one query.
 struct StorageAccessRequirement {
   /// Absent means the query is prepared with no storage accessor at all.
-  std::optional<storage::StorageAccessType> access{};
+  std::optional<HeldAccess> access{};
   bool could_commit{false};
   /// Whether the storage mode fed `access` or `isolation_override`. Only then is the answer
   /// invalidated by a mode change between reading the mode and the accessor taking its hold, so
@@ -35,12 +36,16 @@ struct StorageAccessRequirement {
   friend bool operator==(StorageAccessRequirement const &, StorageAccessRequirement const &) = default;
 };
 
-/// Resolves the query kind's own `StorageAccessPolicy` against the two runtime inputs a policy can
-/// need: the access the planner settled on for a Cypher statement, and the storage mode in force.
+/// The hold to take for an access a query asked for. Total, because every `HeldAccess` names a hold.
+storage::StorageAccessType ToStorageAccessType(HeldAccess access);
+
+/// Resolves what the query states it needs against the two runtime inputs a statement can need: the
+/// access the planner settled on for a Cypher statement, absent where it settled on none, and the
+/// storage mode in force.
 ///
-/// Throws `DatabaseContextRequiredException` for a policy the storage mode settles when no mode is
+/// Throws `DatabaseContextRequiredException` where the storage mode settles the access and no mode is
 /// given, which is the caller having reached DDL with no current database.
-StorageAccessRequirement RequiredStorageAccess(Query const &query, storage::StorageAccessType cypher_access,
+StorageAccessRequirement RequiredStorageAccess(Query const &query, std::optional<HeldAccess> cypher_access,
                                                std::optional<storage::StorageMode> storage_mode);
 
 }  // namespace memgraph::query

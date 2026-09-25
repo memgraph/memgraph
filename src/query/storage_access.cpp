@@ -11,6 +11,7 @@
 
 #include "query/storage_access.hpp"
 
+#include <utility>
 #include <variant>
 
 #include "query/exceptions.hpp"
@@ -29,36 +30,48 @@ storage::StorageMode ModeOrThrow(std::optional<storage::StorageMode> storage_mod
 }
 
 StorageAccessRequirement IndexDdlAccess(bool creating, storage::StorageMode storage_mode) {
-  using enum storage::StorageAccessType;
+  using enum HeldAccess;
   if (storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     // Concurrent population of an index requires snapshot isolation.
-    return {.access = creating ? READ_ONLY : READ,
+    return {.access = creating ? kReadOnly : kRead,
             .mode_dependent = true,
             .isolation_override = storage::IsolationLevel::SNAPSHOT_ISOLATION};
   }
   if (storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
     // Read-only either way, so reads run alongside: creation needs writers out for the whole
     // population (see DowngradeToReadIfValid), and a drop is held to the same access.
-    return {.access = READ_ONLY, .mode_dependent = true};
+    return {.access = kReadOnly, .mode_dependent = true};
   }
   // ON_DISK_TRANSACTIONAL requires unique access.
-  return {.access = UNIQUE, .mode_dependent = true};
+  return {.access = kUnique, .mode_dependent = true};
 }
 
 }  // namespace
 
-StorageAccessRequirement RequiredStorageAccess(Query const &query, storage::StorageAccessType cypher_access,
+storage::StorageAccessType ToStorageAccessType(HeldAccess access) {
+  switch (access) {
+    case HeldAccess::kRead:
+      return storage::StorageAccessType::READ;
+    case HeldAccess::kWrite:
+      return storage::StorageAccessType::WRITE;
+    case HeldAccess::kUnique:
+      return storage::StorageAccessType::UNIQUE;
+    case HeldAccess::kReadOnly:
+      return storage::StorageAccessType::READ_ONLY;
+  }
+  std::unreachable();
+}
+
+StorageAccessRequirement RequiredStorageAccess(Query const &query, std::optional<HeldAccess> cypher_access,
                                                std::optional<storage::StorageMode> storage_mode) {
-  using enum storage::StorageAccessType;
+  using enum HeldAccess;
   return std::visit(utils::Overloaded{
                         [](NoAccess) -> StorageAccessRequirement { return {}; },
                         [](FixedAccess settled) -> StorageAccessRequirement { return {.access = settled.access}; },
                         [cypher_access](PlannerShaped shaped) -> StorageAccessRequirement {
-                          // NO_ACCESS names the absence of a hold rather than a hold to take, so it answers as no
-                          // accessor at all, with nothing to commit. Every access an interpreter can act on names a
-                          // lock mode, and asking for one under this name aborts.
-                          if (cypher_access == NO_ACCESS) return {};
-                          return {.access = cypher_access, .could_commit = shaped.commits};
+                          // The planner settled on no hold, so there is none to take and nothing to commit.
+                          if (!cypher_access) return {};
+                          return {.access = *cypher_access, .could_commit = shaped.commits};
                         },
                         [storage_mode](IndexDdl ddl) -> StorageAccessRequirement {
                           auto const *subject = ddl.on_edges ? "Database required for edge index query."
@@ -67,7 +80,7 @@ StorageAccessRequirement RequiredStorageAccess(Query const &query, storage::Stor
                         },
                         [storage_mode](ConstraintDdl) -> StorageAccessRequirement {
                           auto const mode = ModeOrThrow(storage_mode, "Database required for constraint query.");
-                          return {.access = mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ? UNIQUE : READ_ONLY,
+                          return {.access = mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ? kUnique : kReadOnly,
                                   .mode_dependent = true};
                         },
                     },

@@ -26,6 +26,7 @@
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/variant_helpers.hpp"
@@ -33,15 +34,17 @@
 using memgraph::query::AstStorage;
 using memgraph::query::ConstraintDdl;
 using memgraph::query::FixedAccess;
+using memgraph::query::HeldAccess;
 using memgraph::query::IndexDdl;
 using memgraph::query::NoAccess;
 using memgraph::query::PlannerShaped;
 using memgraph::query::RequiredStorageAccess;
 using memgraph::query::StorageAccessPolicy;
 using memgraph::query::StorageAccessRequirement;
+using memgraph::query::ToStorageAccessType;
 using memgraph::storage::IsolationLevel;
 using memgraph::storage::StorageMode;
-using enum memgraph::storage::StorageAccessType;
+using enum memgraph::query::HeldAccess;
 
 namespace {
 
@@ -53,7 +56,7 @@ template <typename TQuery>
 void ExpectSettledBy(StorageAccessRequirement const &expected) {
   AstStorage storage;
   auto *query = storage.Create<TQuery>();
-  for (auto const cypher_access : {NO_ACCESS, READ, WRITE, UNIQUE}) {
+  for (auto const cypher_access : std::array<std::optional<HeldAccess>, 4>{std::nullopt, kRead, kWrite, kUnique}) {
     EXPECT_EQ(RequiredStorageAccess(*query, cypher_access, std::nullopt), expected);
     for (auto const mode : kModes) {
       EXPECT_EQ(RequiredStorageAccess(*query, cypher_access, mode), expected);
@@ -68,18 +71,16 @@ std::set<std::string_view> covered;
 
 // Named locally rather than through the stream operator in storage.hpp, which is a heavy header to
 // include for four words.
-std::string_view Name(memgraph::storage::StorageAccessType access) {
+std::string_view Name(HeldAccess access) {
   switch (access) {
-    case NO_ACCESS:
-      return "NO_ACCESS";
-    case READ:
-      return "READ";
-    case WRITE:
-      return "WRITE";
-    case UNIQUE:
-      return "UNIQUE";
-    case READ_ONLY:
-      return "READ_ONLY";
+    case kRead:
+      return "Read";
+    case kWrite:
+      return "Write";
+    case kUnique:
+      return "Unique";
+    case kReadOnly:
+      return "ReadOnly";
   }
   return "?";
 }
@@ -127,48 +128,48 @@ TEST(QueryStorageAccess, NoPolicyNeedsNoAccessor) {
 }
 
 TEST(QueryStorageAccess, ReadPolicyReads) {
-  ExpectSettledBy<memgraph::query::DumpQuery>({.access = READ});
-  ExpectSettledBy<memgraph::query::ExplainQuery>({.access = READ});
+  ExpectSettledBy<memgraph::query::DumpQuery>({.access = kRead});
+  ExpectSettledBy<memgraph::query::ExplainQuery>({.access = kRead});
 }
 
 TEST(QueryStorageAccess, UniquePolicyTakesTheGraph) {
-  ExpectSettledBy<memgraph::query::DropGraphQuery>({.access = UNIQUE});
-  ExpectSettledBy<memgraph::query::PointIndexQuery>({.access = UNIQUE});
+  ExpectSettledBy<memgraph::query::DropGraphQuery>({.access = kUnique});
+  ExpectSettledBy<memgraph::query::PointIndexQuery>({.access = kUnique});
 }
 
 TEST(QueryStorageAccess, CypherTakesTheShapeItWasPlannedFor) {
   AstStorage storage;
   auto *query = storage.Create<memgraph::query::CypherQuery>();
-  EXPECT_EQ(RequiredStorageAccess(*query, READ, std::nullopt),
-            (StorageAccessRequirement{.access = READ, .could_commit = true}));
-  EXPECT_EQ(RequiredStorageAccess(*query, WRITE, std::nullopt),
-            (StorageAccessRequirement{.access = WRITE, .could_commit = true}));
-  EXPECT_EQ(RequiredStorageAccess(*query, UNIQUE, std::nullopt),
-            (StorageAccessRequirement{.access = UNIQUE, .could_commit = true}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kRead, std::nullopt),
+            (StorageAccessRequirement{.access = kRead, .could_commit = true}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kWrite, std::nullopt),
+            (StorageAccessRequirement{.access = kWrite, .could_commit = true}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kUnique, std::nullopt),
+            (StorageAccessRequirement{.access = kUnique, .could_commit = true}));
 }
 
 TEST(QueryStorageAccess, GraphFreeCypherOpensNoTransaction) {
   AstStorage storage;
   auto *query = storage.Create<memgraph::query::CypherQuery>();
-  EXPECT_EQ(RequiredStorageAccess(*query, NO_ACCESS, std::nullopt), StorageAccessRequirement{});
-  EXPECT_EQ(RequiredStorageAccess(*query, NO_ACCESS, StorageMode::IN_MEMORY_TRANSACTIONAL), StorageAccessRequirement{});
+  EXPECT_EQ(RequiredStorageAccess(*query, std::nullopt, std::nullopt), StorageAccessRequirement{});
+  EXPECT_EQ(RequiredStorageAccess(*query, std::nullopt, StorageMode::IN_MEMORY_TRANSACTIONAL),
+            StorageAccessRequirement{});
 }
 
 TEST(QueryStorageAccess, ProfileTakesTheSameShapeButCommitsNothing) {
   AstStorage storage;
   auto *query = storage.Create<memgraph::query::ProfileQuery>();
-  EXPECT_EQ(RequiredStorageAccess(*query, READ, std::nullopt), (StorageAccessRequirement{.access = READ}));
-  EXPECT_EQ(RequiredStorageAccess(*query, WRITE, std::nullopt), (StorageAccessRequirement{.access = WRITE}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kRead, std::nullopt), (StorageAccessRequirement{.access = kRead}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kWrite, std::nullopt), (StorageAccessRequirement{.access = kWrite}));
 }
 
-TEST(QueryStorageAccess, NoAccessIsNeverAskedForAsAnAccessor) {
+TEST(QueryStorageAccess, SettlingOnNoHoldAsksForNoAccessor) {
   AstStorage storage;
-  // NO_ACCESS names the absence of a hold, and taking an accessor under that name aborts, so it has
-  // to answer as no accessor rather than as one of that type. Both planner-shaped kinds are asked
-  // because only one of them can be handed it today, and that is not a property of the rule.
-  EXPECT_EQ(RequiredStorageAccess(*storage.Create<memgraph::query::CypherQuery>(), NO_ACCESS, std::nullopt),
+  // Both planner-shaped queries are asked, because only one of them can be handed an absent access
+  // today and that is a fact about the caller rather than about the rule.
+  EXPECT_EQ(RequiredStorageAccess(*storage.Create<memgraph::query::CypherQuery>(), std::nullopt, std::nullopt),
             StorageAccessRequirement{});
-  EXPECT_EQ(RequiredStorageAccess(*storage.Create<memgraph::query::ProfileQuery>(), NO_ACCESS, std::nullopt),
+  EXPECT_EQ(RequiredStorageAccess(*storage.Create<memgraph::query::ProfileQuery>(), std::nullopt, std::nullopt),
             StorageAccessRequirement{});
 }
 
@@ -177,18 +178,18 @@ TEST(QueryStorageAccess, IndexCreationNeedsWritersOutUnderTransactionalMode) {
   auto *query = storage.Create<memgraph::query::IndexQuery>();
   query->action_ = memgraph::query::IndexQuery::Action::CREATE;
   EXPECT_EQ(
-      RequiredStorageAccess(*query, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL),
+      RequiredStorageAccess(*query, kWrite, StorageMode::IN_MEMORY_TRANSACTIONAL),
       (StorageAccessRequirement{
-          .access = READ_ONLY, .mode_dependent = true, .isolation_override = IsolationLevel::SNAPSHOT_ISOLATION}));
+          .access = kReadOnly, .mode_dependent = true, .isolation_override = IsolationLevel::SNAPSHOT_ISOLATION}));
 }
 
 TEST(QueryStorageAccess, IndexDropOnlyReadsUnderTransactionalMode) {
   AstStorage storage;
   auto *query = storage.Create<memgraph::query::IndexQuery>();
   query->action_ = memgraph::query::IndexQuery::Action::DROP;
-  EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL),
+  EXPECT_EQ(RequiredStorageAccess(*query, kWrite, StorageMode::IN_MEMORY_TRANSACTIONAL),
             (StorageAccessRequirement{
-                .access = READ, .mode_dependent = true, .isolation_override = IsolationLevel::SNAPSHOT_ISOLATION}));
+                .access = kRead, .mode_dependent = true, .isolation_override = IsolationLevel::SNAPSHOT_ISOLATION}));
 }
 
 TEST(QueryStorageAccess, AnalyticalIndexDdlHoldsReadOnlyEitherWay) {
@@ -196,8 +197,8 @@ TEST(QueryStorageAccess, AnalyticalIndexDdlHoldsReadOnlyEitherWay) {
   for (auto const action : {memgraph::query::IndexQuery::Action::CREATE, memgraph::query::IndexQuery::Action::DROP}) {
     auto *query = storage.Create<memgraph::query::IndexQuery>();
     query->action_ = action;
-    EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::IN_MEMORY_ANALYTICAL),
-              (StorageAccessRequirement{.access = READ_ONLY, .mode_dependent = true}));
+    EXPECT_EQ(RequiredStorageAccess(*query, kWrite, StorageMode::IN_MEMORY_ANALYTICAL),
+              (StorageAccessRequirement{.access = kReadOnly, .mode_dependent = true}));
   }
 }
 
@@ -205,8 +206,8 @@ TEST(QueryStorageAccess, OnDiskIndexDdlTakesTheGraph) {
   AstStorage storage;
   auto *query = storage.Create<memgraph::query::IndexQuery>();
   query->action_ = memgraph::query::IndexQuery::Action::CREATE;
-  EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::ON_DISK_TRANSACTIONAL),
-            (StorageAccessRequirement{.access = UNIQUE, .mode_dependent = true}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kWrite, StorageMode::ON_DISK_TRANSACTIONAL),
+            (StorageAccessRequirement{.access = kUnique, .mode_dependent = true}));
 }
 
 TEST(QueryStorageAccess, EdgeIndexDdlFollowsTheSameRuleAsIndexDdl) {
@@ -214,39 +215,39 @@ TEST(QueryStorageAccess, EdgeIndexDdlFollowsTheSameRuleAsIndexDdl) {
   auto *create = storage.Create<memgraph::query::EdgeIndexQuery>();
   create->action_ = memgraph::query::EdgeIndexQuery::Action::CREATE;
   EXPECT_EQ(
-      RequiredStorageAccess(*create, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL),
+      RequiredStorageAccess(*create, kWrite, StorageMode::IN_MEMORY_TRANSACTIONAL),
       (StorageAccessRequirement{
-          .access = READ_ONLY, .mode_dependent = true, .isolation_override = IsolationLevel::SNAPSHOT_ISOLATION}));
+          .access = kReadOnly, .mode_dependent = true, .isolation_override = IsolationLevel::SNAPSHOT_ISOLATION}));
   auto *drop = storage.Create<memgraph::query::EdgeIndexQuery>();
   drop->action_ = memgraph::query::EdgeIndexQuery::Action::DROP;
-  EXPECT_EQ(RequiredStorageAccess(*drop, WRITE, StorageMode::ON_DISK_TRANSACTIONAL),
-            (StorageAccessRequirement{.access = UNIQUE, .mode_dependent = true}));
+  EXPECT_EQ(RequiredStorageAccess(*drop, kWrite, StorageMode::ON_DISK_TRANSACTIONAL),
+            (StorageAccessRequirement{.access = kUnique, .mode_dependent = true}));
 }
 
 TEST(QueryStorageAccess, ConstraintDdlIsReadOnlyExceptOnDisk) {
   AstStorage storage;
   auto *query = storage.Create<memgraph::query::ConstraintQuery>();
-  EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL),
-            (StorageAccessRequirement{.access = READ_ONLY, .mode_dependent = true}));
-  EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::IN_MEMORY_ANALYTICAL),
-            (StorageAccessRequirement{.access = READ_ONLY, .mode_dependent = true}));
-  EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::ON_DISK_TRANSACTIONAL),
-            (StorageAccessRequirement{.access = UNIQUE, .mode_dependent = true}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kWrite, StorageMode::IN_MEMORY_TRANSACTIONAL),
+            (StorageAccessRequirement{.access = kReadOnly, .mode_dependent = true}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kWrite, StorageMode::IN_MEMORY_ANALYTICAL),
+            (StorageAccessRequirement{.access = kReadOnly, .mode_dependent = true}));
+  EXPECT_EQ(RequiredStorageAccess(*query, kWrite, StorageMode::ON_DISK_TRANSACTIONAL),
+            (StorageAccessRequirement{.access = kUnique, .mode_dependent = true}));
 }
 
 TEST(QueryStorageAccess, DdlWithoutADatabaseIsRefused) {
   AstStorage storage;
   auto *index = storage.Create<memgraph::query::IndexQuery>();
   index->action_ = memgraph::query::IndexQuery::Action::CREATE;
-  EXPECT_THROW(RequiredStorageAccess(*index, WRITE, std::nullopt), memgraph::query::DatabaseContextRequiredException);
+  EXPECT_THROW(RequiredStorageAccess(*index, kWrite, std::nullopt), memgraph::query::DatabaseContextRequiredException);
 
   auto *edge_index = storage.Create<memgraph::query::EdgeIndexQuery>();
   edge_index->action_ = memgraph::query::EdgeIndexQuery::Action::CREATE;
-  EXPECT_THROW(RequiredStorageAccess(*edge_index, WRITE, std::nullopt),
+  EXPECT_THROW(RequiredStorageAccess(*edge_index, kWrite, std::nullopt),
                memgraph::query::DatabaseContextRequiredException);
 
   auto *constraint = storage.Create<memgraph::query::ConstraintQuery>();
-  EXPECT_THROW(RequiredStorageAccess(*constraint, WRITE, std::nullopt),
+  EXPECT_THROW(RequiredStorageAccess(*constraint, kWrite, std::nullopt),
                memgraph::query::DatabaseContextRequiredException);
 }
 
@@ -256,13 +257,13 @@ TEST(QueryStorageAccess, DescribingTakesTheGraphOnlyToChangeADescription) {
   for (auto const action : {Action::SET, Action::DELETE}) {
     auto *query = storage.Create<memgraph::query::DescriptionQuery>();
     query->action_ = action;
-    EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL),
-              (StorageAccessRequirement{.access = UNIQUE}));
+    EXPECT_EQ(RequiredStorageAccess(*query, kWrite, StorageMode::IN_MEMORY_TRANSACTIONAL),
+              (StorageAccessRequirement{.access = kUnique}));
   }
   auto *show = storage.Create<memgraph::query::DescriptionQuery>();
   show->action_ = Action::SHOW_ALL;
-  EXPECT_EQ(RequiredStorageAccess(*show, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL),
-            (StorageAccessRequirement{.access = READ}));
+  EXPECT_EQ(RequiredStorageAccess(*show, kWrite, StorageMode::IN_MEMORY_TRANSACTIONAL),
+            (StorageAccessRequirement{.access = kRead}));
 }
 
 TEST(QueryStorageAccess, WorkingOnTheGraphIsTheDefaultAnswer) {
@@ -294,13 +295,13 @@ TEST(QueryStorageAccess, OnlyTriggerCreationNeedsAnAccessor) {
   using Action = memgraph::query::TriggerQuery::Action;
   auto *create = storage.Create<memgraph::query::TriggerQuery>();
   create->action_ = Action::CREATE_TRIGGER;
-  EXPECT_EQ(RequiredStorageAccess(*create, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL),
-            (StorageAccessRequirement{.access = READ}));
+  EXPECT_EQ(RequiredStorageAccess(*create, kWrite, StorageMode::IN_MEMORY_TRANSACTIONAL),
+            (StorageAccessRequirement{.access = kRead}));
 
   for (auto const action : {Action::DROP_TRIGGER, Action::SHOW_TRIGGERS}) {
     auto *query = storage.Create<memgraph::query::TriggerQuery>();
     query->action_ = action;
-    EXPECT_EQ(RequiredStorageAccess(*query, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL), StorageAccessRequirement{});
+    EXPECT_EQ(RequiredStorageAccess(*query, kWrite, StorageMode::IN_MEMORY_TRANSACTIONAL), StorageAccessRequirement{});
   }
 }
 
@@ -308,33 +309,33 @@ TEST(QueryStorageAccess, EveryQueryStatesWhatItNeeds) {
   using namespace memgraph::query;  // NOLINT: 59 query types are named below
 
   Declares<CypherQuery>(PlannerShaped{.commits = true}, true);
-  Declares<ExplainQuery>(FixedAccess{.access = READ}, true);
+  Declares<ExplainQuery>(FixedAccess{.access = kRead}, true);
   Declares<ProfileQuery>(PlannerShaped{.commits = false}, true);
   DeclaresWithAction<IndexQuery>(IndexQuery::Action::CREATE, IndexDdl{.creating = true, .on_edges = false}, true);
   DeclaresWithAction<IndexQuery>(IndexQuery::Action::DROP, IndexDdl{.creating = false, .on_edges = false}, true);
   DeclaresWithAction<EdgeIndexQuery>(
       EdgeIndexQuery::Action::CREATE, IndexDdl{.creating = true, .on_edges = true}, true);
   DeclaresWithAction<EdgeIndexQuery>(EdgeIndexQuery::Action::DROP, IndexDdl{.creating = false, .on_edges = true}, true);
-  Declares<PointIndexQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<TextIndexQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<CreateTextEdgeIndexQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<VectorIndexQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<CreateVectorEdgeIndexQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<PointIndexQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<TextIndexQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<CreateTextEdgeIndexQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<VectorIndexQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<CreateVectorEdgeIndexQuery>(FixedAccess{.access = kUnique}, true);
   Declares<AuthQuery>(NoAccess{}, false);
   Declares<DatabaseInfoQuery>(NoAccess{}, true);
   Declares<SystemInfoQuery>(NoAccess{}, false);
   Declares<ConstraintQuery>(ConstraintDdl{}, true);
-  Declares<DumpQuery>(FixedAccess{.access = READ}, true);
+  Declares<DumpQuery>(FixedAccess{.access = kRead}, true);
   Declares<ReplicationQuery>(NoAccess{}, false);
   Declares<ReplicationInfoQuery>(NoAccess{}, false);
   Declares<LockPathQuery>(NoAccess{}, false);
   Declares<FreeMemoryQuery>(NoAccess{}, false);
-  DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::CREATE_TRIGGER, FixedAccess{.access = READ}, true);
+  DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::CREATE_TRIGGER, FixedAccess{.access = kRead}, true);
   DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::DROP_TRIGGER, NoAccess{}, true);
   DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::SHOW_TRIGGERS, NoAccess{}, true);
   Declares<IsolationLevelQuery>(NoAccess{}, true);
   Declares<CreateSnapshotQuery>(NoAccess{}, true);
-  Declares<RecoverSnapshotQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<RecoverSnapshotQuery>(FixedAccess{.access = kUnique}, true);
   Declares<ShowSnapshotsQuery>(NoAccess{}, true);
   Declares<ShowNextSnapshotQuery>(NoAccess{}, true);
   Declares<StreamQuery>(NoAccess{}, true);
@@ -345,36 +346,45 @@ TEST(QueryStorageAccess, EveryQueryStatesWhatItNeeds) {
   Declares<TransactionQueueQuery>(NoAccess{}, false);
   Declares<SessionQuery>(NoAccess{}, false);
   Declares<StorageModeQuery>(NoAccess{}, true);
-  Declares<AnalyzeGraphQuery>(FixedAccess{.access = READ}, true);
+  Declares<AnalyzeGraphQuery>(FixedAccess{.access = kRead}, true);
   Declares<MultiDatabaseQuery>(NoAccess{}, false);
   Declares<UseDatabaseQuery>(NoAccess{}, false);
   Declares<ShowDatabaseQuery>(NoAccess{}, false);
   Declares<ShowDatabasesQuery>(NoAccess{}, false);
   Declares<EdgeImportModeQuery>(NoAccess{}, true);
   Declares<CoordinatorQuery>(NoAccess{}, false);
-  Declares<DropAllIndexesQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<DropAllConstraintsQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<DropGraphQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<CreateEnumQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<ShowEnumsQuery>(FixedAccess{.access = READ}, true);
-  Declares<AlterEnumAddValueQuery>(FixedAccess{.access = UNIQUE}, true);
-  Declares<AlterEnumUpdateValueQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<DropAllIndexesQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<DropAllConstraintsQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<DropGraphQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<CreateEnumQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<ShowEnumsQuery>(FixedAccess{.access = kRead}, true);
+  Declares<AlterEnumAddValueQuery>(FixedAccess{.access = kUnique}, true);
+  Declares<AlterEnumUpdateValueQuery>(FixedAccess{.access = kUnique}, true);
   Declares<AlterEnumRemoveValueQuery>(NoAccess{}, true);
   Declares<DropEnumQuery>(NoAccess{}, true);
-  Declares<ShowSchemaInfoQuery>(FixedAccess{.access = READ}, true);
-  Declares<TtlQuery>(FixedAccess{.access = UNIQUE}, true);
+  Declares<ShowSchemaInfoQuery>(FixedAccess{.access = kRead}, true);
+  Declares<TtlQuery>(FixedAccess{.access = kUnique}, true);
   Declares<SessionTraceQuery>(NoAccess{}, false);
   Declares<SessionSettingQuery>(NoAccess{}, false);
   Declares<UserProfileQuery>(NoAccess{}, false);
   Declares<TenantProfileQuery>(NoAccess{}, false);
   Declares<ParameterQuery>(NoAccess{}, false);
-  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::SET, FixedAccess{.access = UNIQUE}, true);
-  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::DELETE, FixedAccess{.access = UNIQUE}, true);
-  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::SHOW_ALL, FixedAccess{.access = READ}, true);
+  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::SET, FixedAccess{.access = kUnique}, true);
+  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::DELETE, FixedAccess{.access = kUnique}, true);
+  DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::SHOW_ALL, FixedAccess{.access = kRead}, true);
   Declares<ReloadSSLQuery>(NoAccess{}, false);
   Declares<ShowMemoryInfoQuery>(NoAccess{}, false);
 
   // The count comes from the visitor's own list of query types rather than from a literal, so a new
   // type of query reaches this test as a missing row instead of passing unnoticed.
   EXPECT_EQ(covered.size(), memgraph::query::QueryVisitor<void>::kVisitableCount);
+}
+
+TEST(QueryStorageAccess, EveryHeldAccessNamesTheHoldItTakes) {
+  // The one place a query's answer becomes a storage hold, so a wrong pairing here misroutes every
+  // query that asks for it while every other test still passes.
+  EXPECT_EQ(ToStorageAccessType(kRead), memgraph::storage::StorageAccessType::READ);
+  EXPECT_EQ(ToStorageAccessType(kWrite), memgraph::storage::StorageAccessType::WRITE);
+  EXPECT_EQ(ToStorageAccessType(kUnique), memgraph::storage::StorageAccessType::UNIQUE);
+  EXPECT_EQ(ToStorageAccessType(kReadOnly), memgraph::storage::StorageAccessType::READ_ONLY);
 }

@@ -10683,13 +10683,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // What the query does to the graph, and then whether it needs the graph to itself. The second is an
       // escalation of the first rather than another answer to it: a schema assertion has a read or write
       // nature of its own, which taking the whole graph subsumes.
-      auto const to_the_graph = [&] {
-        using enum storage::StorageAccessType;
-        if (graph_free_candidate) return NO_ACCESS;
-        return parsed_query.is_cypher_read ? READ : WRITE;
+      auto const to_the_graph = [&]() -> std::optional<HeldAccess> {
+        if (graph_free_candidate) return std::nullopt;
+        return parsed_query.is_cypher_read ? HeldAccess::kRead : HeldAccess::kWrite;
       }();
       auto const cypher_access =
-          parse_info.parsed_query.using_schema_assert ? storage::StorageAccessType::UNIQUE : to_the_graph;
+          parse_info.parsed_query.using_schema_assert ? std::optional{HeldAccess::kUnique} : to_the_graph;
       auto const transaction_requirements = RequiredStorageAccess(*parsed_query.query, cypher_access, storage_mode);
 
       // Fail-closed gate for broken databases (those that failed durability recovery and
@@ -10709,7 +10708,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         if (transaction_requirements.isolation_override) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_override);
         }
-        SetupDatabaseTransaction(transaction_requirements.could_commit, *transaction_requirements.access);
+        SetupDatabaseTransaction(transaction_requirements.could_commit,
+                                 ToStorageAccessType(*transaction_requirements.access));
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index

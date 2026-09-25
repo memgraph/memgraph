@@ -11,11 +11,25 @@
 
 #pragma once
 
+#include <cstdint>
 #include <variant>
 
-#include "storage/v2/access_type.hpp"
-
 namespace memgraph::query {
+
+/// An access that names a hold on the graph.
+///
+/// Every value here is a hold that can actually be taken, so the absence of one is not among them:
+/// a query that needs no accessor says so with `NoAccess`, and there is no second way to say it.
+enum class HeldAccess : uint8_t {
+  /// Reads graph data, or metadata that tolerates concurrent writers.
+  kRead,
+  /// Writes graph data.
+  kWrite,
+  /// Excludes every other accessor for as long as it is held.
+  kUnique,
+  /// Ensures writers have gone.
+  kReadOnly,
+};
 
 /// Needs no accessor: the query reads or changes instance, session or system state.
 struct NoAccess {
@@ -24,7 +38,7 @@ struct NoAccess {
 
 /// The query settles its own access, whether from its kind alone or from the action it carries.
 struct FixedAccess {
-  storage::StorageAccessType access;
+  HeldAccess access;
 
   friend bool operator==(FixedAccess const &, FixedAccess const &) = default;
 };
