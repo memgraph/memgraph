@@ -206,6 +206,10 @@ class Session {
 
   std::string GetLoginTimestamp() const { return login_timestamp_; }
 
+  // Resets login_timestamp_ to now; called at the start of every auth attempt so
+  // LOGON / re-auth on an existing connection stamps the real login time, not TCP-connect time.
+  void RefreshLoginTimestamp() { login_timestamp_ = utils::Timestamp::Now().ToString(kTimestampFormat); }
+
  protected:
   void ClientFailureInvalidData() {
     // Set the state to Close.
@@ -225,7 +229,7 @@ class Session {
  private:
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
-  const std::string login_timestamp_;
+  std::string login_timestamp_;
 };
 
 }  // namespace memgraph::communication::bolt
