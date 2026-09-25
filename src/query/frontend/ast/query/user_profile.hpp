@@ -29,6 +29,8 @@ class UserProfileQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
+
   struct LimitValueResult {
     enum class Type : uint8_t { UNLIMITED, MEMORY_LIMIT, QUANTITY };
 

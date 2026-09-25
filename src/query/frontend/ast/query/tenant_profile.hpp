@@ -31,6 +31,8 @@ class TenantProfileQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
+
   enum class Action : uint8_t {
     CREATE,
     ALTER,

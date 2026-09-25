@@ -99,6 +99,7 @@
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
 #include "query/replication_query_handler.hpp"
+#include "query/storage_access.hpp"
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
@@ -10503,225 +10504,6 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   }
 }
 
-struct QueryTransactionRequirements : QueryVisitor<void> {
-  using QueryVisitor<void>::Visit;
-
-  QueryTransactionRequirements(storage::StorageAccessType cypher_access,
-                               std::optional<storage::StorageMode> storage_mode)
-      : cypher_access_(cypher_access), storage_mode_(storage_mode) {}
-
-  // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
-  // case for use database which overwrites the current database)
-
-  // No database access required (and current database is not needed)
-  void Visit(AuthQuery & /*unused*/) override {}
-
-  void Visit(UserProfileQuery & /*unused*/) override {}
-
-  void Visit(TenantProfileQuery & /*unused*/) override {}
-
-  void Visit(MultiDatabaseQuery & /*unused*/) override {}
-
-  void Visit(ReplicationQuery & /*unused*/) override {}
-
-  void Visit(ShowConfigQuery & /*unused*/) override {}
-
-  void Visit(ShowQueryCallableMappingsQuery & /*unused*/) override {}
-
-  void Visit(SettingQuery & /*unused*/) override {}
-
-  void Visit(VersionQuery & /*unused*/) override {}
-
-  void Visit(TransactionQueueQuery & /*unused*/) override {}
-
-  void Visit(SessionQuery & /*unused*/) override {}
-
-  void Visit(UseDatabaseQuery & /*unused*/) override {}
-
-  void Visit(ShowDatabaseQuery & /*unused*/) override {}
-
-  void Visit(ShowDatabasesQuery & /*unused*/) override {}
-
-  void Visit(ShowMemoryInfoQuery & /*unused*/) override {}
-
-  void Visit(ReplicationInfoQuery & /*unused*/) override {}
-
-  void Visit(CoordinatorQuery & /*unused*/) override {}
-
-  void Visit(ParameterQuery & /*unused*/) override {}
-
-  void Visit(DatabaseInfoQuery & /*unused*/) override {}
-
-  void Visit(DescriptionQuery &desc_query) override {
-    if (desc_query.action_ == DescriptionQuery::Action::SET || desc_query.action_ == DescriptionQuery::Action::DELETE) {
-      accessor_type_ = storage::StorageAccessType::UNIQUE;
-    } else {
-      accessor_type_ = storage::StorageAccessType::READ;
-    }
-  }
-
-  // No database access required (but need current database)
-  void Visit(SystemInfoQuery & /*unused*/) override {}
-
-  void Visit(LockPathQuery & /*unused*/) override {}
-
-  void Visit(FreeMemoryQuery & /*unused*/) override {}
-
-  void Visit(StreamQuery & /*unused*/) override {}
-
-  void Visit(IsolationLevelQuery & /*unused*/) override {}
-
-  void Visit(
-      StorageModeQuery & /*unused*/) override { /*StorageModeQuery will be handled at the Database level and due to it's
-                                                   specific handling, it will take care of the access itself.*/
-  }
-
-  void Visit(CreateSnapshotQuery & /*unused*/)
-      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/ }
-
-  void Visit(ShowSnapshotsQuery & /*unused*/) override {}
-
-  void Visit(ShowNextSnapshotQuery & /* unused */) override {}
-
-  void Visit(EdgeImportModeQuery & /*unused*/) override {}
-
-  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */ }
-
-  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */ }
-
-  void Visit(SessionTraceQuery & /*unused*/) override {}
-
-  void Visit(SessionSettingQuery & /*unused*/) override {}
-
-  void Visit(ReloadSSLQuery & /*unused*/) override { /*No need for storage*/ }
-
-  // Some queries require an active transaction in order to be prepared.
-  // Unique access required
-  void Visit(PointIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(TextIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(VectorIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(DropAllIndexesQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(DropAllConstraintsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(DropGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(CreateEnumQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(AlterEnumAddValueQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(AlterEnumUpdateValueQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  void Visit(TtlQuery & /*unused*/) override {
-    // TTLQuery is UNIQUE but indices it creates are created as READ_ONLY asynchronously
-    // if using IN_MEMORY_TRANSACTIONAL otherwise UNIQUE
-    accessor_type_ = storage::StorageAccessType::UNIQUE;
-  }
-
-  void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-
-  // Read access required
-  void Visit(ExplainQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
-
-  void Visit(DumpQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
-
-  void Visit(AnalyzeGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
-
-  void Visit(ShowEnumsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
-
-  void Visit(ShowSchemaInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
-
-  // Write access required
-  void Visit(CypherQuery & /*unused*/) override {
-    // NO_ACCESS opens no storage transaction, and so leaves nothing to commit.
-    if (cypher_access_ == storage::StorageAccessType::NO_ACCESS) return;
-    could_commit_ = true;
-    accessor_type_ = cypher_access_;
-  }
-
-  // Never NO_ACCESS: graph-freedom is decided for a CypherQuery, and this is not one, so a profiled query
-  // takes the access its own shape asks for. Which is right either way, since PROFILE reports what an
-  // execution did and so needs there to have been one.
-  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_; }
-
-  void Visit(TriggerQuery &trigger_query) override {
-    // Only CREATE TRIGGER needs storage access, and only READ: it plans the trigger statement
-    // (metadata lookups) and serializes user params via the accessor — it never writes the graph.
-    // SHOW/DROP TRIGGER operate purely on the trigger store, so they require no storage accessor.
-    if (trigger_query.action_ == TriggerQuery::Action::CREATE_TRIGGER) {
-      accessor_type_ = storage::StorageAccessType::READ;
-    }
-  }
-
-  // Complex access logic
-  void Visit(IndexQuery &index_query) override {
-    if (!storage_mode_) [[unlikely]] {
-      throw DatabaseContextRequiredException("Database required for index query.");
-    }
-
-    using enum storage::StorageAccessType;
-    mode_dependent_ = true;
-    if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-      // Concurrent population of index requires snapshot isolation
-      isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      accessor_type_ = (index_query.action_ == IndexQuery::Action::CREATE) ? READ_ONLY : READ;
-    } else if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      // Read-only either way, so reads run alongside: creation needs writers out for the whole
-      // population (see DowngradeToReadIfValid), and a drop is held to the same access.
-      accessor_type_ = READ_ONLY;
-    } else {
-      // ON_DISK_TRANSACTIONAL requires unique access
-      accessor_type_ = UNIQUE;
-    }
-  }
-
-  void Visit(EdgeIndexQuery &edge_index_query) override {
-    if (!storage_mode_) [[unlikely]] {
-      throw DatabaseContextRequiredException("Database required for edge index query.");
-    }
-
-    using enum storage::StorageAccessType;
-    mode_dependent_ = true;
-    if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-      // Concurrent population of index requires snapshot isolation
-      isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      accessor_type_ = (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) ? READ_ONLY : READ;
-    } else if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      accessor_type_ = READ_ONLY;
-    } else {
-      // ON_DISK_TRANSACTIONAL requires unique access
-      accessor_type_ = UNIQUE;
-    }
-  }
-
-  void Visit(ConstraintQuery & /*constraint_query*/) override {
-    if (!storage_mode_) [[unlikely]] {
-      throw DatabaseContextRequiredException("Database required for constraint query.");
-    }
-
-    using enum storage::StorageAccessType;
-    mode_dependent_ = true;
-    accessor_type_ = storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL ? UNIQUE : READ_ONLY;
-  }
-
-  storage::StorageAccessType const cypher_access_;
-  std::optional<storage::StorageMode> storage_mode_;
-
-  bool could_commit_ = false;
-  // Whether storage_mode_ fed accessor_type_ or isolation_level_override_. Only then does the
-  // caller re-check it; elsewhere a mode change is irrelevant and must not cost a retry.
-  bool mode_dependent_ = false;
-  std::optional<storage::IsolationLevel> isolation_level_override_;
-  std::optional<storage::StorageAccessType> accessor_type_;
-};
-
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
   std::optional<memory::DbArenaScope> db_arena_scope;
@@ -10901,76 +10683,40 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // What the query does to the graph, and then whether it needs the graph to itself. The second is an
       // escalation of the first rather than another answer to it: a schema assertion has a read or write
       // nature of its own, which taking the whole graph subsumes.
-      auto const to_the_graph = [&] {
-        using enum storage::StorageAccessType;
-        if (graph_free_candidate) return NO_ACCESS;
-        return parsed_query.is_cypher_read ? READ : WRITE;
+      auto const to_the_graph = [&]() -> std::optional<HeldAccess> {
+        if (graph_free_candidate) return std::nullopt;
+        return parsed_query.is_cypher_read ? HeldAccess::kRead : HeldAccess::kWrite;
       }();
       auto const cypher_access =
-          parse_info.parsed_query.using_schema_assert ? storage::StorageAccessType::UNIQUE : to_the_graph;
-      auto transaction_requirements = QueryTransactionRequirements{cypher_access, storage_mode};
-      parsed_query.query->Accept(transaction_requirements);
+          parse_info.parsed_query.using_schema_assert ? std::optional{HeldAccess::kUnique} : to_the_graph;
+      auto const transaction_requirements = RequiredStorageAccess(*parsed_query.query, cypher_access, storage_mode);
 
       // Fail-closed gate for broken databases (those that failed durability recovery and
       // came up empty under --storage-allow-recovery-failure). Any query that operates on
       // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT.
-      // Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
-      // replication, ...) do not touch the tenant graph and are allowed through.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
         auto *q = parsed_query.query;
-        // Allowlist: in the broken state only the cure query (RECOVER SNAPSHOT)
-        // and meta/admin queries that never touch the tenant graph are permitted. Everything else
-        // (Cypher, DDL, CREATE SNAPSHOT, SHOW INDEX/CONSTRAINT/NODE LABELS/EDGE TYPES/METRICS INFO, ...)
-        // is rejected until the database is recovered: those SHOW ... INFO variants read tenant-graph
-        // metadata from the empty post-recovery-failure storage and would otherwise return a misleading
-        // clean 0-row result instead of surfacing the broken health. Auth, replication, profile and
-        // other instance-level queries operate on system state rather than the tenant graph, so they
-        // remain available for remediation while a tenant is broken.
-        auto const is_allowed =
-            [q]<typename... Ts>() {
-              return (... || (utils::Downcast<Ts>(q) != nullptr));
-            }.template operator()<RecoverSnapshotQuery,
-                                  SystemInfoQuery,
-                                  ReplicationInfoQuery,
-                                  ShowConfigQuery,
-                                  ShowQueryCallableMappingsQuery,
-                                  SettingQuery,
-                                  VersionQuery,
-                                  UseDatabaseQuery,
-                                  MultiDatabaseQuery,
-                                  ShowDatabaseQuery,
-                                  ShowDatabasesQuery,
-                                  ShowMemoryInfoQuery,
-                                  SessionTraceQuery,
-                                  SessionSettingQuery,
-                                  AuthQuery,
-                                  ReplicationQuery,
-                                  UserProfileQuery,
-                                  TenantProfileQuery,
-                                  ParameterQuery,
-                                  TransactionQueueQuery,
-                                  SessionQuery,
-                                  LockPathQuery,
-                                  FreeMemoryQuery,
-                                  CoordinatorQuery,
-                                  ReloadSSLQuery>();
-        if (!is_allowed) {
+        // The refusal reaches queries that only read the metadata describing the graph: from the
+        // empty post-recovery-failure storage they report a clean 0-row result rather than
+        // surfacing the broken health. RECOVER SNAPSHOT works on that data by replacing it.
+        if (q->Traits().operates_on_graph_data && utils::Downcast<RecoverSnapshotQuery>(q) == nullptr) {
           throw QueryException(kBrokenDatabaseError);
         }
       }
 
-      if (transaction_requirements.accessor_type_) {
-        if (transaction_requirements.isolation_level_override_) {
-          SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
+      if (transaction_requirements.access) {
+        if (transaction_requirements.isolation_override) {
+          SetNextTransactionIsolationLevel(*transaction_requirements.isolation_override);
         }
-        SetupDatabaseTransaction(transaction_requirements.could_commit_, *transaction_requirements.accessor_type_);
+        SetupDatabaseTransaction(transaction_requirements.could_commit,
+                                 ToStorageAccessType(*transaction_requirements.access));
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index
         // drop planned as transactional holds READ where analytical wants READ_ONLY. Retrying
         // replans against the pinned mode. The throw unwinds into the catch below, releasing the
         // hold.
-        if (transaction_requirements.mode_dependent_ &&
+        if (transaction_requirements.mode_dependent &&
             current_db_.db_transactional_accessor_->GetPinnedStorageMode() != storage_mode) {
           throw StorageModeChangedDuringSetupException();
         }

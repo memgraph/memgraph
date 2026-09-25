@@ -98,6 +98,11 @@ add_unit_test(cypher_main_visitor
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_storage_access
+    SOURCES query_storage_access.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(event_map
         SOURCES event_map.cpp
         LINK_TARGETS mg-events mg-utils
