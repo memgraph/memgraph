@@ -286,6 +286,38 @@ def test_unprivileged_user_refused(request):
     wait_until_terminated(target_cursor)
 
 
+def test_idle_session_on_force_dropped_database_is_closed(request):
+    """DROP DATABASE ... FORCE leaves the database draining while a session still has it as its current database.
+    An idle pooled connection may never send another query, so the deferred-drop worker closes such connections.
+
+    The victim must stay silent until the database has drained: any query on it would release the database by
+    itself and prove nothing.
+    """
+    admin = connect().cursor()
+    execute_and_fetch_all(admin, "CREATE DATABASE idle_drop_db")
+
+    def on_exit():
+        with suppress(mgclient.Error):
+            execute_and_fetch_all(admin, "DROP DATABASE idle_drop_db FORCE")
+
+    request.addfinalizer(on_exit)
+
+    victim = connect().cursor()
+    execute_and_fetch_all(victim, "USE DATABASE idle_drop_db")
+    bystander = connect().cursor()  # idle on the default database, must be left alone
+
+    execute_and_fetch_all(admin, "DROP DATABASE idle_drop_db FORCE")
+
+    def drained() -> bool:
+        return not any(row[0].startswith("idle_drop_db") for row in execute_and_fetch_all(admin, "SHOW DATABASES"))
+
+    # The deferred-drop worker ticks every 10 s; allow two ticks plus slack.
+    wait_until(drained, timeout=30.0, interval=0.5, message="the idle session kept the dropped database pinned")
+    with pytest.raises(mgclient.Error):
+        execute_and_fetch_all(victim, "RETURN 1")
+    assert_connection_alive(bystander)
+
+
 def _drop_force_abort_supported() -> bool:
     """DROP DATABASE ... FORCE ABORT only parses where the tenant-lifecycle stack
     (draining-state + FORCE ABORT, #4574/#4575) is present; on master the grammar is

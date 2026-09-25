@@ -28,6 +28,7 @@
 #include "communication/cluster_tls.hpp"
 #include "communication/init.hpp"
 #include "communication/v2/server.hpp"
+#include "communication/v2/session_registry.hpp"
 #include "communication/websocket/server.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "dbms/constants.hpp"
@@ -988,6 +989,11 @@ int main(int argc, char **argv) {
       worker_pool_ ? &*worker_pool_ : nullptr);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
+#ifdef MG_ENTERPRISE
+  // Declared after interpreter_context_lifetime_control so it is destroyed first: joins the defer worker before
+  // the InterpreterContext its drain hook reads goes away.
+  std::optional<memgraph::utils::OnScopeExit<std::function<void()>>> stop_defer_worker_guard{std::nullopt};
+#endif
   if (!is_coordinator_instance) {
     MG_ASSERT(db_acc.has_value(), "Failed to access the main database");
 
@@ -1050,6 +1056,34 @@ int main(int argc, char **argv) {
         const auto locked_repl_state = repl_state->ReadLock();
         return locked_repl_state->IsMainWriteable();
       });
+    });
+  }
+#endif
+
+#ifdef MG_ENTERPRISE
+  // A connection whose current database was FORCE-dropped pins it until the client sends another query, which
+  // an idle pooled connection may never do. Each deferred-drop tick closes such connections; a busy one is
+  // closed only once its current message completes, so no query is cut mid-execution.
+  if (!is_coordinator_instance && dbms_handler.has_value()) {
+    dbms_handler->SetDrainHook([ic = &interpreter_context_] {
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
+      std::vector<std::string> to_close;
+      ic->interpreters.WithLock([&](auto const &interpreters) {
+        for (auto *interpreter : interpreters) {
+          if (!interpreter->current_db_.foreign_db_view().marked_for_deletion) continue;
+          auto const session = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+          if (session && !session->uuid.empty()) to_close.push_back(session->uuid);
+        }
+      });
+      // Closing re-enters interpreters from the session's teardown, so it happens only after the lock is released.
+      for (auto const &uuid : to_close) {
+        if (auto session = memgraph::communication::v2::SessionRegistry::Instance().Find(uuid)) {
+          session->RequestTermination();
+        }
+      }
+    });
+    stop_defer_worker_guard.emplace([&dbms_handler] {
+      if (dbms_handler.has_value()) dbms_handler->StopDeferredWorker();
     });
   }
 #endif
