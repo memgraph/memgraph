@@ -111,6 +111,18 @@ def test_a_profile_query_is_rejected_as_the_first_statement(cursor):
         execute(cursor, "CREATE PROFILE early")
 
 
+def test_a_read_only_auth_transaction_commits(cursor):
+    # Nothing to publish means no system transaction is taken, so COMMIT leaves through a different exit from a
+    # transaction that wrote. The session has to come back usable either way.
+    execute(cursor, "CREATE USER alice")
+    execute(cursor, "BEGIN")
+    assert usernames(cursor) == {"alice"}
+    execute(cursor, "COMMIT")
+
+    execute(cursor, "CREATE USER bob")
+    assert usernames(cursor) == {"alice", "bob"}
+
+
 def test_profile_reads_are_allowed_in_a_data_transaction(cursor):
     # Only writes cannot be isolated. A profile query is not an auth query, so this is an ordinary data
     # transaction, and rejecting the SHOW family here would take away what works outside one.
