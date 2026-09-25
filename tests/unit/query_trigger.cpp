@@ -642,10 +642,8 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
   }
 }
 
-// Whether a property changed is whether the two values are the same value,
-// which is the question equivalence answers. A pair holding a Null and a pair
-// of NaNs are each the same value, and a relation that leaves either undecided
-// reports a change that did not happen.
+// A property rewritten with the value it already holds has not changed,
+// including when that value is a NaN or holds a Null anywhere within it.
 TYPED_TEST(TriggerContextTest, PropertyChangeIsDecidedByEquivalence) {
   memgraph::query::DbAccessor dba{this->StartTransaction()};
   const std::unordered_set<memgraph::query::TriggerEventType> event_types{
@@ -694,9 +692,8 @@ TYPED_TEST(TriggerContextTest, PropertyChangeIsDecidedByEquivalence) {
   EXPECT_EQ(updates_reported(map_holding_a_null(1), map_holding_a_null(2)), 1)
       << "a map differing where it holds no Null";
 
-  // A reported change carries the two values it was between. A NaN among them
-  // is read directly rather than through EXPECT_PROP_EQ, since that asks
-  // equality, which holds a NaN equal to nothing and so fails against one
+  // A NaN is read directly rather than through EXPECT_PROP_EQ, which asks
+  // equality: equality holds a NaN equal to nothing, so it fails against a NaN
   // however right the reported value is.
   {
     auto const updates = updates_for(memgraph::query::TypedValue{1.0}, nan());

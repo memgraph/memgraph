@@ -179,9 +179,8 @@ template <detail::ObjectAccessor TAccessor>
     // entry this loop erases next, rather than copied.
     auto &[key, property_change_info] = *it;
     // Whether the property changed is whether the two are the same value, which
-    // equivalence answers and equality does not: equality leaves a pair holding
-    // a Null undecided and reads a NaN as different from itself, either of which
-    // reports a change that did not happen.
+    // equivalence answers and equality does not. Reading equality here reports
+    // changes that did not happen.
     if (relations::equivalence::Equivalent(property_change_info.old_value, property_change_info.new_value)) {
       continue;
     }
