@@ -345,6 +345,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       }
 
       context.is_write_query = false;
+      // Whether this command has written. A CALL ends a single query part without advancing the command, so a write
+      // before it stays invisible to View::OLD after it; only a WITH over a write advances.
+      bool command_wrote = false;
       for (const auto &single_query_part : query_part.single_query_parts) {
         // Installed before HandleMatching, which plans MATCH-clause comprehensions through the same member.
         auto const restore_symbols = utils::OnScopeExit{
@@ -440,14 +443,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         for (const auto &clause : single_query_part.remaining_clauses) {
           collect_clause_symbols(clause);
         }
-        // Track whether a write operation has occurred - comprehensions planned after writes
-        // need to use View::NEW to see the newly created/modified data.
+        // Whether a clause in this part has written; `command_wrote` is the one a branch's view follows.
         bool write_occurred = false;
 
-        // What a subquery branch planned here has to see: a write earlier in this part, or - when this part *is* an
-        // EXISTS branch - the write it was spliced after. Kept apart from `write_occurred`, which the MERGE, CALL and
+        // What a subquery branch planned here has to see: a write earlier in this command, or - when this part *is*
+        // an EXISTS branch - the write it was spliced after. Kept apart from `write_occurred`, which the MERGE and
         // FOREACH arms below read to ask about this part alone.
-        auto const branch_sees_write = [&] { return write_occurred || subquery_branch_after_write_; };
+        auto const branch_sees_write = [&] { return command_wrote || subquery_branch_after_write_; };
 
         // Plan and apply the satisfiable comprehensions this clause originates, before the clause itself.
         auto plan_and_apply_comprehensions = [&](const std::unordered_set<Symbol> &eligible) {
@@ -488,6 +490,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // reaches here; a user-declared atom fails earlier in filter generation (pre-existing, MATCH too).
             context.is_write_query = true;
             write_occurred = true;
+            command_wrote = true;
             plan_and_apply_comprehensions(eligible);
             input_op = GenMerge(*merge,
                                 std::move(input_op),
@@ -507,10 +510,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                      context.in_subquery_body,
                                      context.scoped_call_imports);
             // WITH clause advances the command, so reset the flag.
+            if (context.is_write_query) command_wrote = false;
             context.is_write_query = false;
           } else if (IsWriteClause(clause)) {
             context.is_write_query = true;
             write_occurred = true;
+            command_wrote = true;
             plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols);
             MG_ASSERT(op, "Expected write clause to be handled");
@@ -550,20 +555,35 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                              call_proc->void_procedure_);
             // Above the operator, below the Filter: the slot is rewritten per procedure output row, which is what
             // the WHERE reads.
-            input_op = SpliceSatisfiedComprehensions(std::move(input_op),
-                                                     pending_comprehensions,
-                                                     context.bound_symbols,
-                                                     write_occurred || call_proc->graph_access_ == GraphAccess::Write,
-                                                     eligible);
+            input_op =
+                SpliceSatisfiedComprehensions(std::move(input_op),
+                                              pending_comprehensions,
+                                              context.bound_symbols,
+                                              branch_sees_write() || call_proc->graph_access_ == GraphAccess::Write,
+                                              eligible);
             if (call_proc->where_) {
               auto *filter_expr = call_proc->where_->expression_;
               Filters where_filters;
               where_filters.CollectFilterExpression(filter_expr, *context.symbol_table);
-              input_op = std::make_unique<Filter>(std::move(input_op),
-                                                  std::vector<std::shared_ptr<LogicalOperator>>{},
-                                                  filter_expr,
-                                                  std::move(where_filters));
+              // Only `AddMatching` collects a filter's subqueries, and no `Matching` owns this WHERE. Without this
+              // the fold has no side branch, nothing writes its frame slot and the evaluator reads an unwritten one.
+              CollectSubqueryMatchings(where_filters, *context.symbol_table, *context.ast_storage);
+              // This WHERE's comprehensions drained onto the chain just above, so only the subqueries want a branch.
+              // A write earlier in this command shares it, so the branch has to read View::NEW to see it.
+              auto const restore_after_write = utils::OnScopeExit{
+                  [this, old = subquery_branch_after_write_] { subquery_branch_after_write_ = old; }};
+              subquery_branch_after_write_ = branch_sees_write() || call_proc->graph_access_ == GraphAccess::Write;
+              auto pattern_filters = ExtractPatternFilters(
+                  where_filters, *context.symbol_table, *context.ast_storage, context.bound_symbols);
+              // Order the conjuncts as `GenFilters` does, so a cheaper one decides the row before a fold runs.
+              auto *ordered_expr = impl::ExtractFilters(context.bound_symbols, where_filters, *context.ast_storage);
+              if (!where_filters.empty()) impl::ThrowPlannerBug("Expected to generate all filters.");
+              Filters operator_filters;
+              operator_filters.CollectFilterExpression(ordered_expr, *context.symbol_table);
+              input_op = std::make_unique<Filter>(
+                  std::move(input_op), std::move(pattern_filters), ordered_expr, std::move(operator_filters));
             }
+            if (call_proc->graph_access_ == GraphAccess::Write) command_wrote = true;
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);
@@ -589,6 +609,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
             context.is_write_query = true;
             write_occurred = true;
+            command_wrote = true;
             // One set gates both chains, whichever binds the symbols first. Forced: `ForeachCursor::Pull` evaluates
             // the list expression before writing the loop variable, so a list comprehension must drain here, and
             // `origin_clause` is the whole FOREACH. An uncorrelated body one is therefore hoisted out of the loop.
@@ -1758,12 +1779,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       auto branch_bound_symbols = bound_symbols;
       // in_subquery_body selects the rules a body plans under: it is seeded with these symbols, it keeps
       // emitting rows for the fold to read, it carries outer-scope symbols across a WITH, and it may not write.
+      // `Plan` clears is_write_query for the body, and the caller still reads it for its own WITH and RETURN.
       auto const restore = utils::OnScopeExit{[this,
                                                old_subquery_body = context_->in_subquery_body,
                                                old_after_write = subquery_branch_after_write_,
+                                               old_is_write = context_->is_write_query,
                                                outer_bound = std::move(context_->bound_symbols)]() mutable {
         context_->in_subquery_body = old_subquery_body;
         subquery_branch_after_write_ = old_after_write;
+        context_->is_write_query = old_is_write;
         context_->bound_symbols = std::move(outer_bound);
       }};
       context_->in_subquery_body = true;
