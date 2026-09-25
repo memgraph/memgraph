@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <unordered_set>
+
 #include "query/frontend/ast/query/expression.hpp"
 
 #include "query/frontend/ast/query/identifier.hpp"
@@ -49,6 +51,8 @@ class PatternComprehension : public memgraph::query::Expression {
 
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
+  /// Symbols the comprehension reads but does not declare. Set by @c SymbolGenerator.
+  std::unordered_set<Symbol> external_symbols_;
 
   PatternComprehension *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<PatternComprehension>();
@@ -58,6 +62,7 @@ class PatternComprehension : public memgraph::query::Expression {
     object->resultExpr_ = resultExpr_ ? resultExpr_->Clone(storage) : nullptr;
 
     object->symbol_pos_ = symbol_pos_;
+    object->external_symbols_ = external_symbols_;
     return object;
   }
 

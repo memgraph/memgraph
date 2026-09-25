@@ -65,10 +65,22 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
-void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
-  for (auto &subquery : open_subqueries_) {
-    subquery.referenced.insert(symbol);
+void SymbolGenerator::RecordCorrelationReference(const Symbol &symbol) {
+  for (auto &open : open_correlations_) {
+    open.referenced.insert(symbol);
   }
+}
+
+std::unordered_set<Symbol> SymbolGenerator::PopExternalSymbols(bool with_predefined) {
+  auto const open = std::move(open_correlations_.back());
+  open_correlations_.pop_back();
+  std::unordered_set<Symbol> external;
+  for (const auto &symbol : open.referenced) {
+    if (symbol.position() < open.first_own_position || (with_predefined && predefined_symbols_.contains(symbol))) {
+      external.insert(symbol);
+    }
+  }
+  return external;
 }
 
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
@@ -588,7 +600,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
-  RecordSubqueryReference(symbol);
+  RecordCorrelationReference(symbol);
   ident.MapTo(symbol);
   return true;
 }
@@ -748,21 +760,16 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
-  open_subqueries_.emplace_back(OpenSubquery{.first_own_position = symbol_table_->max_position()});
+  open_correlations_.emplace_back(OpenCorrelation{.first_own_position = symbol_table_->max_position()});
 
   return true;
 }
 
 bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
-  const auto &body = open_subqueries_.back();
   // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
-  subquery.external_symbols_.clear();
-  for (const auto &symbol : body.referenced) {
-    if (symbol.position() < body.first_own_position) {
-      subquery.external_symbols_.insert(symbol);
-    }
-  }
-  open_subqueries_.pop_back();
+  // No predefined symbols (trigger variables): this set joins the enclosing filter's `used_symbols`, and the plan never
+  // binds them, so that filter could not be placed.
+  subquery.external_symbols_ = PopExternalSymbols(/*with_predefined=*/false);
   scopes_.pop_back();
   return true;
 }
@@ -1065,6 +1072,9 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
 
+  // Opened before the path variable below, so that variable counts as the comprehension's own declaration.
+  open_correlations_.emplace_back(OpenCorrelation{.first_own_position = symbol_table_->max_position()});
+
   // If there's a named path variable (e.g., [path = (a)-[]->(b) | ...]),
   // create a PATH symbol for it before the children are visited.
   // This is necessary because variable_ is visited before pattern_,
@@ -1080,7 +1090,11 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
+bool SymbolGenerator::PostVisit(PatternComprehension &pc) {
+  // With predefined symbols: the branch reads this set as already bound, and the trigger writes them before the plan
+  // runs. Without them, a filter in the comprehension that reads one could not be placed.
+  // Overwrite instead of merging, as `PostVisit(SubqueryExpression &)` does.
+  pc.external_symbols_ = PopExternalSymbols(/*with_predefined=*/true);
   scopes_.pop_back();
   return true;
 }
@@ -1136,7 +1150,9 @@ bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
   // a symbol for it
   auto &identifier = it->second;
   MG_ASSERT(!identifier->user_declared_, "Predefined symbols cannot be user declared!");
-  identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
+  auto const symbol = CreateSymbol(identifier->name_, identifier->user_declared_);
+  identifier->MapTo(symbol);
+  predefined_symbols_.insert(symbol);
   predefined_identifiers_.erase(it);
   return true;
 }

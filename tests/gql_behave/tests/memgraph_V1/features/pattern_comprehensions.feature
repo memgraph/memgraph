@@ -1149,3 +1149,122 @@ Feature: Pattern comprehensions
         Then the result should be:
             | name            |
             | 'mg.procedures' |
+
+    # The next four scenarios cover a variable-length edge's property map, bound and lambdas.
+
+    # The edge's own inner symbols were taken for outer names, which aborted the server. `unfiltered` is 3 whether or
+    # not the property map is honoured.
+    Scenario: Pattern comprehension over a variable-length edge with a property map
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A)-[:R {w: 1}]->(b:B)-[:R {w: 1}]->(c:C), (a)-[:R {w: 2}]->(d:D)
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            RETURN size([(a)-[:R*1..2 {w: 1}]->(x) | x]) AS filtered,
+                   size([(a)-[:R*1..2]->(x) | x]) AS unfiltered
+            """
+        Then the result should be:
+            | filtered | unfiltered |
+            | 2        | 3          |
+
+    # Two iterations, so a bound frozen at one value fails.
+    Scenario: Pattern comprehension whose variable-length bound reads a FOREACH variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A)-[:R]->(:B)-[:R]->(:C)
+            """
+        And having executed:
+            """
+            MATCH (a:A) FOREACH (k IN [1, 2] | CREATE (:T {k: k, s: size([(a)-[:R*1..k]->(x) | x])}))
+            """
+        When executing query:
+            """
+            MATCH (t:T) RETURN t.k AS k, t.s AS s ORDER BY k
+            """
+        Then the result should be:
+            | k | s |
+            | 1 | 1 |
+            | 2 | 2 |
+
+    # On master the lambda read a null `k` and kept nothing, so both rows were 0.
+    Scenario: Pattern comprehension whose BFS filter lambda reads a FOREACH variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A)-[:R]->(:B {d: 1})-[:R]->(:C {d: 2})
+            """
+        And having executed:
+            """
+            MATCH (a:A) FOREACH (k IN [1, 2] | CREATE (:T {k: k, s: size([(a)-[:R *BFS (e, n | n.d <= k)]->(x) | x])}))
+            """
+        When executing query:
+            """
+            MATCH (t:T) RETURN t.k AS k, t.s AS s ORDER BY k
+            """
+        Then the result should be:
+            | k | s |
+            | 1 | 1 |
+            | 2 | 2 |
+
+    # Sum the total weights, not the paths: both k values reach two nodes, but k = 10 makes the direct edge cheaper.
+    Scenario: Pattern comprehension whose wShortest weight lambda reads a FOREACH variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A)-[:R {c: 5}]->(b:B), (a)-[:R {c: 1}]->(m:M)-[:R {c: 1}]->(b)
+            """
+        And having executed:
+            """
+            MATCH (a:A)
+            FOREACH (k IN [0, 10] |
+                     CREATE (:T {k: k,
+                                 s: reduce(t = 0,
+                                           w IN [(a)-[:R *WSHORTEST (e, n | e.c + k) total_w]->(x) | total_w] |
+                                           t + w)}))
+            """
+        When executing query:
+            """
+            MATCH (t:T) RETURN t.k AS k, t.s AS s ORDER BY k
+            """
+        Then the result should be:
+            | k  | s  |
+            | 0  | 3  |
+            | 10 | 26 |
+
+    # `x` is written after the comprehension runs. Reading its slot gives row 1 an unwritten value, so it is false,
+    # and row 2 the previous row's node. The scan is still uncorrelated, but every node has an outgoing edge.
+    Scenario: Pattern comprehension anchored on a quantifier's variable does not read another row's value
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A {id: 1})-[:R]->(b:A {id: 2})-[:R]->(a)
+            """
+        When executing query:
+            """
+            MATCH (n:A) RETURN n.id AS id, any(x IN [n] WHERE size([(x)-->(m) | m]) > 0) AS out
+            """
+        Then the result should be:
+            | id | out  |
+            | 1  | true |
+            | 2  | true |
+
+    # The same start node one comprehension deeper. The outer comprehension treats `x` as bound so that its own filters
+    # can read it, but its nested one must still scan `x`: on the first row nothing has written the slot, and reading
+    # it gave 0. The scan is uncorrelated; with one node it matches Neo4j.
+    Scenario: Nested pattern comprehension anchored on a list comprehension's variable does not read an unwritten slot
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A {id: 1})-[:R]->(a)
+            """
+        When executing query:
+            """
+            MATCH (n:A) RETURN n.id AS id, [x IN [n] | [(n)-->(k) | size([(x)-->(m) | m])]] AS out
+            """
+        Then the result should be:
+            | id | out   |
+            | 1  | [[1]] |

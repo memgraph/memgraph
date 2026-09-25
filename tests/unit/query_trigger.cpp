@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <array>
 #include <filesystem>
 
 #include <fmt/format.h>
@@ -1233,6 +1234,34 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
   ASSERT_EQ(store.BeforeCommitTriggers().size(), 1);
   ASSERT_EQ(store.AfterCommitTriggers().size(), 0);
+}
+
+// A trigger variable first used inside a comprehension or a subquery body is still bound outside it.
+TYPED_TEST(TriggerStoreTest, TriggerVariableFirstUsedInsideComprehensionOrSubquery) {
+  memgraph::query::TriggerStore store{this->testing_directory};
+
+  const std::array statements{
+      "MATCH (a) RETURN size([(a)-->(m) WHERE m IN createdVertices | m])",
+      "MATCH (a) RETURN size([(a)-->(m {k: size(createdVertices)}) | m])",
+      "MATCH (a) WHERE EXISTS { MATCH (a)-->(m) WITH m WHERE m IN createdVertices RETURN m } RETURN a",
+      "MATCH (a) WHERE EXISTS { MATCH (a)-->(m) WHERE size([(m)<--(z) WHERE z IN createdVertices | z]) >= 0 } RETURN a",
+  };
+  for (size_t i = 0; i < statements.size(); ++i) {
+    SCOPED_TRACE(statements[i]);
+    EXPECT_NO_THROW(store.AddTrigger(fmt::format("trigger{}", i),
+                                     statements[i],
+                                     {},
+                                     memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                     memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                     &this->ast_cache,
+                                     &*this->dba,
+                                     memgraph::query::InterpreterConfig::Query{},
+                                     this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                     memgraph::dbms::kDefaultDB,
+                                     memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                     nullptr));
+  }
+  EXPECT_EQ(store.BeforeCommitTriggers().size(), statements.size());
 }
 
 TYPED_TEST(TriggerStoreTest, DropTrigger) {
