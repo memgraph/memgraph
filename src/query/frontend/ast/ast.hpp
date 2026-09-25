@@ -3674,7 +3674,12 @@ class TriggerQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kReadWhenCreating; }
+  StorageAccessPolicy AccessPolicy() const override {
+    // Creating a trigger plans the trigger statement and serializes user params through the
+    // accessor, but never writes the graph. Showing and dropping work on the trigger store alone.
+    if (action_ != Action::CREATE_TRIGGER) return StorageAccessPolicy::kNone;
+    return StorageAccessPolicy::kRead;
+  }
 
   TriggerQuery::Action action_;
   TriggerQuery::EventType event_type_;
@@ -4642,7 +4647,10 @@ class DescriptionQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kUniqueWhenMutating; }
+  StorageAccessPolicy AccessPolicy() const override {
+    auto const mutating = action_ == Action::SET || action_ == Action::DELETE;
+    return mutating ? StorageAccessPolicy::kUnique : StorageAccessPolicy::kRead;
+  }
 
   Action action_;
   storage::DescriptionTargetKind target_kind_;

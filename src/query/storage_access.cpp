@@ -83,22 +83,6 @@ StorageAccessRequirement RequiredStorageAccess(Query const &query, storage::Stor
                             ? UNIQUE
                             : READ_ONLY,
               .mode_dependent = true};
-    case StorageAccessPolicy::kUniqueWhenMutating: {
-      auto const *description = utils::Downcast<DescriptionQuery const>(&query);
-      MG_ASSERT(description, "A query kind claims the describing policy without being a description query");
-      using Action = DescriptionQuery::Action;
-      auto const mutating = description->action_ == Action::SET || description->action_ == Action::DELETE;
-      return {.access = mutating ? UNIQUE : READ};
-    }
-    case StorageAccessPolicy::kReadWhenCreating: {
-      auto const *trigger = utils::Downcast<TriggerQuery const>(&query);
-      MG_ASSERT(trigger, "A query kind claims the trigger policy without being a trigger query");
-      // Creating a trigger plans the trigger statement (metadata lookups) and serializes user
-      // params through the accessor, but never writes the graph. Showing and dropping operate
-      // purely on the trigger store.
-      if (trigger->action_ != TriggerQuery::Action::CREATE_TRIGGER) return {};
-      return {.access = READ};
-    }
   }
   std::unreachable();
 }

@@ -38,10 +38,6 @@ enum class StorageAccessPolicy : uint8_t {
   kIndexDdl,
   /// Constraint DDL: the storage mode decides.
   kConstraintDdl,
-  /// The kind's mutating actions take the graph to themselves; its reading actions read.
-  kUniqueWhenMutating,
-  /// Only the kind's creating action needs an accessor, and only to read with it.
-  kReadWhenCreating,
 };
 
 }  // namespace memgraph::query
