@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <future>
 #include <latch>
 #include <mutex>
@@ -310,7 +311,10 @@ TEST_F(SafeStringTest, ThreadSafetyStrViewMixedOperations) {
   std::vector<std::string> captured_values;
   std::mutex captured_mutex;
 
-  auto mixed_worker = [&str, &stop_flag, &captured_values, &captured_mutex](int thread_id) {
+  std::condition_variable captured_cv;
+  constexpr size_t kWantedCaptures = 8;
+
+  auto mixed_worker = [&str, &stop_flag, &captured_values, &captured_mutex, &captured_cv](int thread_id) {
     while (!stop_flag.load(std::memory_order_relaxed)) {
       if (thread_id % 3 == 0) {
         // Write operation
@@ -327,8 +331,11 @@ TEST_F(SafeStringTest, ThreadSafetyStrViewMixedOperations) {
 
         // Capture some values for verification
         if (rand() % 100 == 0) {  // 1% chance to capture
-          std::lock_guard<std::mutex> lock(captured_mutex);
-          captured_values.push_back(view);
+          {
+            std::scoped_lock const lock(captured_mutex);
+            captured_values.push_back(view);
+          }
+          captured_cv.notify_all();
         }
       }
 
@@ -342,8 +349,12 @@ TEST_F(SafeStringTest, ThreadSafetyStrViewMixedOperations) {
     threads.emplace_back(mixed_worker, i);
   }
 
-  // Let the threads run for a bit
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Run until enough values have been captured. Capture is a 1% branch of a loop iteration, so a
+  // fixed window asserts on how much CPU the workers were given rather than on SafeString.
+  {
+    std::unique_lock lock(captured_mutex);
+    captured_cv.wait_for(lock, std::chrono::seconds(60), [&] { return captured_values.size() >= kWantedCaptures; });
+  }
 
   // Signal threads to stop
   stop_flag.store(true, std::memory_order_relaxed);
