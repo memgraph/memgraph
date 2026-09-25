@@ -23,7 +23,7 @@ namespace memgraph::query {
 enum class HeldAccess : uint8_t {
   /// Reads graph data, or metadata that tolerates concurrent writers.
   kRead,
-  /// Writes graph data.
+  /// Writes graph data, alongside the readers and writers that other accessors hold.
   kWrite,
   /// Excludes every other accessor for as long as it is held.
   kUnique,
@@ -74,8 +74,7 @@ using StorageAccessPolicy = std::variant<NoAccess, FixedAccess, PlannerShaped, I
 /// Everything a query states about itself that its callers need before running it.
 ///
 /// One accessor rather than one per fact, so that stating a further fact adds a field here instead
-/// of a virtual to every query. A field that most queries answer the same way carries that answer
-/// as its default, and the default is whichever answer is safe to inherit.
+/// of a virtual to every query.
 struct QueryTraits {
   /// Carries no default answer, since what a query needs held is never safe to guess. Value
   /// initialisation still reaches `NoAccess`, so what catches a query that states nothing is the
