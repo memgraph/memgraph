@@ -1018,3 +1018,123 @@ Feature: Match
             | n.name |
             | 'A1'   |
             | 'B1'   |
+
+    Scenario: Two label disjunctions over one node are both tested
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) MATCH (n:B|C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: Two label disjunctions over indexed labels are both tested
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) MATCH (n:B|C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction subsumed by an earlier one still holds
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B|C) MATCH (n:A|B) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction that subsumes an earlier one does not widen it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) MATCH (n:A|B|C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction in WHERE is tested beside the one in the pattern
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) WHERE n:B OR n:C RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: Two label disjunctions in WHERE are both tested
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n:A OR n:B) AND (n:B OR n:C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction in WHERE equal to the pattern's
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:B|A) WHERE n:A OR n:B RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |

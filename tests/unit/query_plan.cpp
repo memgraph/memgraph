@@ -18,11 +18,14 @@
 #include <optional>
 #include <set>
 #include <sstream>
+#include <string>
 #include <tuple>
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -5448,6 +5451,94 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
 
   DeleteListContent(&left_subquery_part);
   DeleteListContent(&right_subquery_part);
+}
+
+// Two disjunctions over one node are separate conjuncts: a label they share still has to be tested by
+// both, and one contained in the other still narrows it, so neither may be folded into the other.
+TYPED_TEST(TestPlanner, OverlappingDisjunctionsStaySeparateFilters) {
+  FakeDbAccessor dba;
+  auto node_identifier = IDENT("n");
+  auto match = [&](std::vector<std::string> labels) { return MATCH(PATTERN(NODE_WITH_LABELS("n", labels))); };
+  auto where = [&](const char *lhs, const char *rhs) {
+    return WHERE(OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx(lhs)}),
+                    LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx(rhs)})));
+  };
+
+  using Groups = std::vector<std::set<std::string>>;
+  std::vector<std::pair<memgraph::query::CypherQuery *, Groups>> cases{
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), match({"Label2", "Label3"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // MATCH (n:Label1|Label2|Label3) MATCH (n:Label1|Label2)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2", "Label3"}), match({"Label1", "Label2"}), RETURN("n"))),
+       Groups{{"Label1", "Label2", "Label3"}, {"Label1", "Label2"}}},
+      // MATCH (n:Label1|Label2) MATCH (n:Label1|Label2|Label3)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), match({"Label1", "Label2", "Label3"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label1", "Label2", "Label3"}}},
+      // MATCH (n:Label1|Label2) WHERE n:Label2 OR n:Label3
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), where("Label2", "Label3"), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // A repeat of the first or of the last of two groups is dropped, so every earlier group is compared.
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3) MATCH (n:Label2|Label1)
+      {QUERY(SINGLE_QUERY(
+           match({"Label1", "Label2"}), match({"Label2", "Label3"}), match({"Label2", "Label1"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3) MATCH (n:Label3|Label2)
+      {QUERY(SINGLE_QUERY(
+           match({"Label1", "Label2"}), match({"Label2", "Label3"}), match({"Label3", "Label2"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3) WHERE n:Label2 OR n:Label1
+      {QUERY(SINGLE_QUERY(
+           match({"Label1", "Label2"}), match({"Label2", "Label3"}), where("Label2", "Label1"), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+  };
+
+  for (auto &[query, groups] : cases) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    // With no index there is nothing to scan by, so all groups land in one Filter as separate conjuncts.
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterOrLabels(groups), ExpectProduce());
+  }
+}
+
+// A disjunction stated twice is one conjunct. Kept twice, index selection erases one copy and leaves the
+// other behind as a filter; a Debug build aborts there when both copies list the labels in the same order.
+TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+  dba.SetIndexCount(dba.Label("Label2"), 1);
+  auto node_identifier = IDENT("n");
+  auto match = [&](std::vector<std::string> labels) { return MATCH(PATTERN(NODE_WITH_LABELS("n", labels))); };
+  auto disjunction = [&] {
+    return OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+              LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label2")}));
+  };
+
+  std::vector<memgraph::query::CypherQuery *> cases{
+      // MATCH (n:Label2|Label1) MATCH (n:Label1|Label2). Master passes this one too; it guards that groups
+      // compare regardless of label order.
+      QUERY(SINGLE_QUERY(match({"Label2", "Label1"}), match({"Label1", "Label2"}), RETURN("n"))),
+      // MATCH (n:Label2|Label1) WHERE n:Label1 OR n:Label2
+      QUERY(SINGLE_QUERY(match({"Label2", "Label1"}), WHERE(disjunction()), RETURN("n"))),
+      // MATCH (n) WHERE (n:Label1 OR n:Label2) AND (n:Label1 OR n:Label2)
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(AND(disjunction(), disjunction())), RETURN("n"))),
+  };
+
+  for (auto *query : cases) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectUnion(left_subquery_part, right_subquery_part),
+              ExpectDistinct(),
+              ExpectProduce());
+
+    DeleteListContent(&left_subquery_part);
+    DeleteListContent(&right_subquery_part);
+  }
 }
 
 TYPED_TEST(TestPlanner, BasicExistsSubquery) {
