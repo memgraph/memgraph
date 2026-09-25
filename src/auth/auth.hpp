@@ -484,6 +484,12 @@ class Auth final {
   }
 
 // user profiles
+//
+// These write through to the in-memory profile cache at once, while the durable write buffers in a
+// transaction's overlay. Nothing here rolls that back, so none of them may run inside an explicit
+// transaction. They do not check: the refusal lives at PrepareUserProfileQuery, which rejects every
+// profile write while `in_explicit_transaction_` holds. Every multicommand-transaction refusal lives there;
+// no auth, dbms or storage method re-checks. Move that guard and these become unsafe.
 #ifdef MG_ENTERPRISE
   bool CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
                      const std::unordered_set<std::string> &usernames = {}, system::Transaction *system_tx = nullptr);
