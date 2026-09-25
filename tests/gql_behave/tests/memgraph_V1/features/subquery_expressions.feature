@@ -3706,3 +3706,56 @@ Feature: Subquery expressions
           """
       Then the result should be, in order:
           | person |
+
+  # A CALL may follow a write without a WITH, so the fold shares the write's command and has to read what it wrote.
+  Scenario: Test EXISTS in a CALL YIELD WHERE after a CREATE in the same query part
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (:New)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (x:New) }
+          RETURN count(*) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test EXISTS in a CALL YIELD WHERE correlated with a node created in the same query part
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (c:New)-[:R]->(:New)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (c)-[:R]->() }
+          RETURN count(*) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test COUNT in a CALL YIELD WHERE after a CREATE in the same query part
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (:New), (:New)
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND COUNT { MATCH (x:New) } = 2
+          RETURN count(*) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test EXISTS in a CALL YIELD WHERE after a MERGE in the same query part
+      Given an empty graph
+      When executing query:
+          """
+          MERGE (:New {v: 1})
+          CALL mg.procedures() YIELD name
+          WHERE name = 'mg.procedures' AND EXISTS { MATCH (x:New {v: 1}) }
+          RETURN count(*) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |

@@ -563,6 +563,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               // the fold has no side branch, nothing writes its frame slot and the evaluator reads an unwritten one.
               CollectSubqueryMatchings(where_filters, *context.symbol_table, *context.ast_storage);
               // This WHERE's comprehensions drained onto the chain just above, so only the subqueries want a branch.
+              // A write earlier in this part shares the command, so the branch has to read View::NEW to see it.
+              auto const restore_after_write = utils::OnScopeExit{
+                  [this, old = subquery_branch_after_write_] { subquery_branch_after_write_ = old; }};
+              subquery_branch_after_write_ = branch_sees_write() || call_proc->graph_access_ == GraphAccess::Write;
               auto pattern_filters = ExtractPatternFilters(
                   where_filters, *context.symbol_table, *context.ast_storage, context.bound_symbols);
               input_op = std::make_unique<Filter>(
