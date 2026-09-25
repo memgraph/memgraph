@@ -569,8 +569,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               subquery_branch_after_write_ = branch_sees_write() || call_proc->graph_access_ == GraphAccess::Write;
               auto pattern_filters = ExtractPatternFilters(
                   where_filters, *context.symbol_table, *context.ast_storage, context.bound_symbols);
+              // Order the conjuncts as `GenFilters` does, so a cheaper one decides the row before a fold runs.
+              auto *ordered_expr = impl::ExtractFilters(context.bound_symbols, where_filters, *context.ast_storage);
+              if (!where_filters.empty()) impl::ThrowPlannerBug("Expected to generate all filters.");
+              Filters operator_filters;
+              operator_filters.CollectFilterExpression(ordered_expr, *context.symbol_table);
               input_op = std::make_unique<Filter>(
-                  std::move(input_op), std::move(pattern_filters), filter_expr, std::move(where_filters));
+                  std::move(input_op), std::move(pattern_filters), ordered_expr, std::move(operator_filters));
             }
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);

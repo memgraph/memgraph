@@ -3759,3 +3759,20 @@ Feature: Subquery expressions
       Then the result should be:
           | c |
           | 1 |
+
+  # Written first, the fold is still ordered behind the plain conjunct. `1/0` raises only if the branch drains.
+  Scenario: Test a CALL YIELD WHERE fold skipped when a cheaper conjunct written after it already failed
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'A'})-[:KNOWS]->(:Person {name: 'B'}),
+                 (a)-[:KNOWS]->(:Person {name: 'C'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          CALL mg.procedures() YIELD name
+          WHERE COUNT { MATCH (p)-[:KNOWS]->(f) WHERE 1/0 > 0 } > 1 AND name = 'nobody'
+          RETURN p.name AS person;
+          """
+      Then the result should be empty
