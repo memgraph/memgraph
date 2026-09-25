@@ -80,7 +80,9 @@ using StorageAccessPolicy = std::variant<NoAccess, FixedAccess, PlannerShaped, I
 /// of a virtual to every query. A field that most queries answer the same way carries that answer
 /// as its default, and the default is whichever answer is safe to inherit.
 struct QueryTraits {
-  /// No default: what a query needs held is never safe to guess.
+  /// Carries no default answer, since what a query needs held is never safe to guess. Value
+  /// initialisation still reaches `NoAccess`, so what catches a query that states nothing is the
+  /// test holding every query's answer rather than the compiler.
   StorageAccessPolicy access;
 
   /// Whether the query works on the current database's graph data, including the metadata
