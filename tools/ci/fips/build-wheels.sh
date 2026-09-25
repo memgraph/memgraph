@@ -13,6 +13,13 @@
 #                 lxml's libxml2 major.minor matches its own, and the PyPI lxml
 #                 bundles 2.14 against Ubuntu 24.04's 2.9.
 #
+# gssapi is NOT in the default set and is not in the FIPS image: Ubuntu's krb5
+# is built with its own builtin crypto (libk5crypto3 imports no OpenSSL symbols
+# at all), so Kerberos would run outside the validated module however the wheel
+# is linked. MG_FIPS drops kerberos.py and its gssapi pin instead. Passing
+# gssapi==<ver> explicitly still works and is audited - that is how to check a
+# krb5 rebuilt with --with-crypto-impl=openssl, which is the way back in.
+#
 # No auditwheel: its job is to vendor external libraries into the wheel, which
 # is the thing being removed here.
 
@@ -44,12 +51,13 @@ done
 # Only require what the requested packages actually need.
 has() { printf '%s\n' "${PACKAGES[@]}" | grep -q "^$1"; }
 
-APT_HINT="apt install libssl-dev libxml2-dev libxslt1-dev libxmlsec1-dev libxmlsec1t64-openssl pkg-config"
+APT_HINT="apt install libssl-dev libxml2-dev libxslt1-dev libxmlsec1-dev libxmlsec1t64-openssl libkrb5-dev pkg-config"
 command -v pkg-config >/dev/null || { echo "pkg-config not found" >&2; echo "$APT_HINT" >&2; exit 1; }
 NEED=""
 has cryptography && NEED+=" openssl"
 has xmlsec       && NEED+=" openssl xmlsec1 libxml-2.0"
 has lxml         && NEED+=" libxml-2.0"
+has gssapi       && NEED+=" krb5-gssapi"
 MISSING=()
 for mod in $(echo "$NEED" | tr ' ' '\n' | sort -u); do
     pkg-config --exists "$mod" 2>/dev/null || MISSING+=("$mod")
@@ -79,7 +87,14 @@ unset PYXMLSEC_STATIC_DEPS
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "Building with $($PYTHON --version) | openssl $(pkg-config --modversion openssl) | libxml2 $(pkg-config --modversion libxml-2.0) | xmlsec1 $(pkg-config --modversion xmlsec1)"
+# Only report the libraries this run actually needs - ensure-wheels.sh asks for
+# just the subset that is missing, so naming all of them unconditionally prints
+# pkg-config errors for ones that are legitimately absent.
+BANNER="Building with $($PYTHON --version)"
+for mod in $(echo "$NEED" | tr ' ' '\n' | sort -u); do
+    BANNER+=" | $mod $(pkg-config --modversion "$mod")"
+done
+echo "$BANNER"
 "$PYTHON" -m venv "$WORK/env"
 "$WORK/env/bin/pip" install --quiet --upgrade pip wheel setuptools
 
@@ -123,7 +138,7 @@ for wheel in "$OUTPUT_DIR"/*.whl; do
         # through libxmlsec1-openssl rather than directly, and "no OpenSSL"
         # would be a misleading thing to print about it.
         needed="$(readelf -d "$so" | grep -oE 'lib(ssl|crypto)\.so[^]]*' | sort -u | tr '\n' ' ' || true)"
-        links="$(readelf -d "$so" | grep -oE 'lib(ssl|crypto|xml2|xslt|exslt|xmlsec1[a-z-]*)\.so[^]]*' | sort -u | tr '\n' ' ' || true)"
+        links="$(readelf -d "$so" | grep -oE 'lib(ssl|crypto|xml2|xslt|exslt|xmlsec1[a-z-]*|gssapi_krb5|krb5[a-z]*|k5crypto|com_err)\.so[^]]*' | sort -u | tr '\n' ' ' || true)"
         # DT_NEEDED first: a dynamically linked extension still carries the
         # version string it was compiled against, so the banner only means a
         # static link when there is no DT_NEEDED to explain it. cryptography
@@ -142,9 +157,10 @@ for wheel in "$OUTPUT_DIR"/*.whl; do
 done
 
 # End to end. --no-deps is what guarantees the modules under test are ours and
-# not PyPI's; cffi has no OpenSSL of its own so it can come from the index.
+# not PyPI's; cffi and decorator have no OpenSSL of their own so they can come
+# from the index.
 "$WORK/env/bin/pip" install --quiet --no-index --no-deps "$OUTPUT_DIR"/*.whl
-"$WORK/env/bin/pip" install --quiet cffi >/dev/null 2>&1 || true
+"$WORK/env/bin/pip" install --quiet cffi decorator >/dev/null 2>&1 || true
 if reported="$("$WORK/env/bin/python" -c 'from cryptography.hazmat.backends.openssl.backend import backend; print(backend.openssl_version_text())' 2>/dev/null)"; then
     [[ "$(echo "$reported" | awk '{print $2}')" = "$SYS_SSL" ]] \
         && echo "ok   cryptography uses the system OpenSSL $SYS_SSL" \
@@ -156,6 +172,24 @@ if ls "$OUTPUT_DIR"/xmlsec-*.whl >/dev/null 2>&1; then
     "$WORK/env/bin/python" -c 'import xmlsec' 2>/dev/null \
         && echo "ok   import xmlsec (agrees with lxml on libxml2)" \
         || { echo "FAIL import xmlsec: $("$WORK/env/bin/python" -c 'import xmlsec' 2>&1 | tail -1)"; rc=1; }
+fi
+# gssapi reaches its crypto through libgssapi_krb5, so no extension names an
+# OpenSSL in DT_NEEDED either way and the per-file verdicts are "ok" whichever
+# wheel this is. The checks above still catch the published wheels by the copy
+# they vendor, but they say nothing about a build that links an OpenSSL from
+# outside the wheel. Importing gssapi and reading the process map covers both:
+# it is the only check here that reports what actually gets loaded.
+if ls "$OUTPUT_DIR"/gssapi-*.whl >/dev/null 2>&1; then
+    if mapped="$("$WORK/env/bin/python" -c '
+import gssapi, gssapi.raw
+print(" ".join(sorted({l.rsplit(" ",1)[-1].strip() for l in open("/proc/self/maps")
+                       if "libcrypto" in l or "libssl" in l})))' 2>&1)"; then
+        [ -z "$mapped" ] \
+            && echo "ok   import gssapi (maps no OpenSSL)" \
+            || { echo "FAIL gssapi pulls in OpenSSL: $mapped"; rc=1; }
+    else
+        echo "FAIL import gssapi: $(echo "$mapped" | tail -1)"; rc=1
+    fi
 fi
 
 [[ $rc -eq 0 ]] || { echo "Audit failed - not publishing these wheels" >&2; exit 1; }
