@@ -64,6 +64,7 @@ target_sources(mg-storage-v2
         inmemory/storage.cpp
         inmemory/unique_constraints.cpp
         point_functions.cpp
+        property_name_order.cpp
         property_store.cpp
         property_value_utils.cpp
         replication/replication_client.cpp
@@ -138,6 +139,7 @@ target_sources(mg-storage-v2
         property_constants.hpp
         property_store.hpp
         indexed_property_decoder.hpp
+        property_name_order.hpp
         property_value.hpp
         property_value_utils.hpp
         replication/replication_transaction.hpp

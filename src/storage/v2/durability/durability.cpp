@@ -261,6 +261,10 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                             utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             ProgressCallback const &on_progress) {
+  // Recovery rebuilds every index outside any accessor, so nothing has pointed
+  // this thread at the order a comparison of two stored maps reads.
+  PointThisThreadAt(name_id_mapper->NameOrder());
+
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   auto updater = indices->MakeUpdater();
   // Recover label indices.

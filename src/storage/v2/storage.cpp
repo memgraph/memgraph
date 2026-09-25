@@ -138,6 +138,12 @@ Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> over
       original_access_type_(ToAccessType(guard_.type())) {
   DMG_ASSERT(guard_.owns_lock() && guard_.mutex() == std::addressof(storage_->main_lock_),
              "an accessor's guard must be a held guard on its own storage's main_lock_");
+
+  // Point this thread at the name_order of the storage it is about to work in, so that a
+  // comparison of two stored maps can read where their keys' names sort. Assigned rather than
+  // scoped: an accessor is moved and outlives any one scope, and a thread that goes on to serve
+  // another storage points itself at that one here before it compares anything of its.
+  PointThisThreadAt(storage_->name_id_mapper_->NameOrder());
 }
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
