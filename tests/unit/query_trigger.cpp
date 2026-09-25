@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <cmath>
 #include <filesystem>
 #include <limits>
 
@@ -653,7 +654,7 @@ TYPED_TEST(TriggerContextTest, PropertyChangeIsDecidedByEquivalence) {
   auto v = dba.InsertVertex();
   dba.AdvanceCommand();
 
-  auto updates_reported = [&](memgraph::query::TypedValue old_value, memgraph::query::TypedValue new_value) {
+  auto updates_for = [&](memgraph::query::TypedValue old_value, memgraph::query::TypedValue new_value) {
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(
         v, dba.NameToProperty("PROPERTY"), std::move(old_value), std::move(new_value));
@@ -661,7 +662,11 @@ TYPED_TEST(TriggerContextTest, PropertyChangeIsDecidedByEquivalence) {
     auto updated_vertices =
         trigger_context.GetTypedValue(memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     EXPECT_TRUE(updated_vertices.IsList());
-    return updated_vertices.ValueList().size();
+    return updated_vertices;
+  };
+
+  auto updates_reported = [&](memgraph::query::TypedValue old_value, memgraph::query::TypedValue new_value) {
+    return updates_for(std::move(old_value), std::move(new_value)).ValueList().size();
   };
 
   auto nan = [] { return memgraph::query::TypedValue{std::numeric_limits<double>::quiet_NaN()}; };
@@ -688,6 +693,51 @@ TYPED_TEST(TriggerContextTest, PropertyChangeIsDecidedByEquivalence) {
       << "a list differing where it holds no Null";
   EXPECT_EQ(updates_reported(map_holding_a_null(1), map_holding_a_null(2)), 1)
       << "a map differing where it holds no Null";
+
+  // A reported change carries the two values it was between. A NaN among them
+  // is read directly rather than through EXPECT_PROP_EQ, since that asks
+  // equality, which holds a NaN equal to nothing and so fails against one
+  // however right the reported value is.
+  {
+    auto const updates = updates_for(memgraph::query::TypedValue{1.0}, nan());
+    ASSERT_EQ(updates.ValueList().size(), 1);
+    auto const &update = updates.ValueList()[0];
+    ASSERT_TRUE(update.IsMap());
+    EXPECT_PROP_EQ(update.ValueMap().at("event_type"), memgraph::query::TypedValue{"set_vertex_property"});
+    EXPECT_PROP_EQ(update.ValueMap().at("vertex"), memgraph::query::TypedValue{v});
+    EXPECT_PROP_EQ(update.ValueMap().at("key"), memgraph::query::TypedValue{"PROPERTY"});
+    EXPECT_PROP_EQ(update.ValueMap().at("old"), memgraph::query::TypedValue{1.0});
+    auto const &new_value = update.ValueMap().at("new");
+    ASSERT_TRUE(new_value.IsDouble());
+    EXPECT_TRUE(std::isnan(new_value.ValueDouble()));
+  }
+
+  {
+    auto const updates = updates_for(nan(), memgraph::query::TypedValue{1.0});
+    ASSERT_EQ(updates.ValueList().size(), 1);
+    auto const &update = updates.ValueList()[0];
+    ASSERT_TRUE(update.IsMap());
+    auto const &old_value = update.ValueMap().at("old");
+    ASSERT_TRUE(old_value.IsDouble());
+    EXPECT_TRUE(std::isnan(old_value.ValueDouble()));
+    EXPECT_PROP_EQ(update.ValueMap().at("new"), memgraph::query::TypedValue{1.0});
+  }
+
+  // A property emptied is reported as a removal carrying what it held, and a
+  // list holding a Null reaches the trigger whole.
+  {
+    auto const updates = updates_for(list_holding_a_null(1), memgraph::query::TypedValue{});
+    ASSERT_EQ(updates.ValueList().size(), 1);
+    auto const &update = updates.ValueList()[0];
+    ASSERT_TRUE(update.IsMap());
+    EXPECT_PROP_EQ(update.ValueMap().at("event_type"), memgraph::query::TypedValue{"removed_vertex_property"});
+    EXPECT_PROP_EQ(update.ValueMap().at("key"), memgraph::query::TypedValue{"PROPERTY"});
+    auto const &removed = update.ValueMap().at("old");
+    ASSERT_TRUE(removed.IsList());
+    ASSERT_EQ(removed.ValueList().size(), 2);
+    EXPECT_PROP_EQ(removed.ValueList()[0], memgraph::query::TypedValue{int64_t{1}});
+    EXPECT_TRUE(removed.ValueList()[1].IsNull());
+  }
 }
 
 // Same as above, but for label changes
