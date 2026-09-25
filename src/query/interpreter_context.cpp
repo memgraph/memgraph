@@ -18,7 +18,9 @@
 
 #include "query/interpreter_context.hpp"
 
+#include "communication/v2/session_registry.hpp"
 #include "dbms/constants.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter.hpp"
 #include "query/query_user.hpp"
@@ -68,6 +70,28 @@ InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, mem
 }
 
 namespace {
+
+#ifdef MG_ENTERPRISE
+// A FORCE-dropped database keeps draining while any session still has it as its current database, and an idle
+// pooled connection may never send the query that would release it, so such sessions are closed. A busy one is
+// closed only after its current message, so no query is cut mid-execution; it is closed even if that message
+// switched it to another database.
+void CloseSessionsOnDroppingDatabases(
+    utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> &interpreters) {
+  std::vector<std::string> to_close;
+  interpreters.WithLock([&](auto const &all) {
+    for (auto *interpreter : all) {
+      if (!interpreter->current_db_.foreign_db_view().marked_for_deletion) continue;
+      auto const session = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+      if (session && !session->uuid.empty()) to_close.push_back(session->uuid);
+    }
+  });
+  // Closing re-enters interpreters from the session's teardown, so it happens only after the lock is released.
+  for (auto const &uuid : to_close) {
+    if (auto session = communication::v2::SessionRegistry::Instance().Find(uuid)) session->RequestTermination();
+  }
+}
+#endif
 
 /// Pins `interpreter`'s transaction so it can neither commit nor abort, hands its id to
 /// `should_kill`, and marks it TERMINATED if the predicate accepts. Only an ACTIVE
@@ -299,4 +323,17 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
   }
   return results;
 }
+
+void InterpreterContext::RegisterDropDrainHook() {
+#ifdef MG_ENTERPRISE
+  if (dbms_handler) dbms_handler->SetDrainHook([this] { CloseSessionsOnDroppingDatabases(interpreters); });
+#endif
+}
+
+void InterpreterContext::UnregisterDropDrainHook() const {
+#ifdef MG_ENTERPRISE
+  if (dbms_handler) dbms_handler->ClearDrainHook();
+#endif
+}
+
 }  // namespace memgraph::query
