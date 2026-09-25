@@ -52,12 +52,9 @@ struct PlannerShaped {
   friend bool operator==(PlannerShaped const &, PlannerShaped const &) = default;
 };
 
-/// Index DDL, whose access the storage mode decides.
+/// Index DDL, whose access the storage mode decides. The same either way for vertices and edges.
 struct IndexDdl {
   bool creating;
-  /// Indexing edges rather than vertices. The access is the same either way; the two are told apart
-  /// so that reaching either without a database names the statement that was refused.
-  bool on_edges;
 
   friend bool operator==(IndexDdl const &, IndexDdl const &) = default;
 };

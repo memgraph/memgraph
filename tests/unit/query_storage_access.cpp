@@ -87,15 +87,14 @@ std::string_view Name(HeldAccess access) {
 
 // gtest prints a variant as its bytes, which names neither the case nor the access when a row fails.
 std::string Describe(StorageAccessPolicy const &policy) {
-  return std::visit(
-      memgraph::utils::Overloaded{
-          [](NoAccess) { return std::string{"NoAccess"}; },
-          [](FixedAccess fixed) { return fmt::format("FixedAccess({})", Name(fixed.access)); },
-          [](PlannerShaped shaped) { return fmt::format("PlannerShaped(commits={})", shaped.commits); },
-          [](IndexDdl ddl) { return fmt::format("IndexDdl(creating={}, on_edges={})", ddl.creating, ddl.on_edges); },
-          [](ConstraintDdl) { return std::string{"ConstraintDdl"}; },
-      },
-      policy);
+  return std::visit(memgraph::utils::Overloaded{
+                        [](NoAccess) { return std::string{"NoAccess"}; },
+                        [](FixedAccess fixed) { return fmt::format("FixedAccess({})", Name(fixed.access)); },
+                        [](PlannerShaped shaped) { return fmt::format("PlannerShaped(commits={})", shaped.commits); },
+                        [](IndexDdl ddl) { return fmt::format("IndexDdl(creating={})", ddl.creating); },
+                        [](ConstraintDdl) { return std::string{"ConstraintDdl"}; },
+                    },
+                    policy);
 }
 
 template <typename TQuery>
@@ -311,11 +310,10 @@ TEST(QueryStorageAccess, EveryQueryStatesWhatItNeeds) {
   Declares<CypherQuery>(PlannerShaped{.commits = true}, true);
   Declares<ExplainQuery>(FixedAccess{.access = kRead}, true);
   Declares<ProfileQuery>(PlannerShaped{.commits = false}, true);
-  DeclaresWithAction<IndexQuery>(IndexQuery::Action::CREATE, IndexDdl{.creating = true, .on_edges = false}, true);
-  DeclaresWithAction<IndexQuery>(IndexQuery::Action::DROP, IndexDdl{.creating = false, .on_edges = false}, true);
-  DeclaresWithAction<EdgeIndexQuery>(
-      EdgeIndexQuery::Action::CREATE, IndexDdl{.creating = true, .on_edges = true}, true);
-  DeclaresWithAction<EdgeIndexQuery>(EdgeIndexQuery::Action::DROP, IndexDdl{.creating = false, .on_edges = true}, true);
+  DeclaresWithAction<IndexQuery>(IndexQuery::Action::CREATE, IndexDdl{.creating = true}, true);
+  DeclaresWithAction<IndexQuery>(IndexQuery::Action::DROP, IndexDdl{.creating = false}, true);
+  DeclaresWithAction<EdgeIndexQuery>(EdgeIndexQuery::Action::CREATE, IndexDdl{.creating = true}, true);
+  DeclaresWithAction<EdgeIndexQuery>(EdgeIndexQuery::Action::DROP, IndexDdl{.creating = false}, true);
   Declares<PointIndexQuery>(FixedAccess{.access = kUnique}, true);
   Declares<TextIndexQuery>(FixedAccess{.access = kUnique}, true);
   Declares<CreateTextEdgeIndexQuery>(FixedAccess{.access = kUnique}, true);

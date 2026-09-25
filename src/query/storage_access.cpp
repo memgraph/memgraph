@@ -74,9 +74,8 @@ StorageAccessRequirement RequiredStorageAccess(Query const &query, std::optional
                           return {.access = *cypher_access, .could_commit = shaped.commits};
                         },
                         [storage_mode](IndexDdl ddl) -> StorageAccessRequirement {
-                          auto const *subject = ddl.on_edges ? "Database required for edge index query."
-                                                             : "Database required for index query.";
-                          return IndexDdlAccess(ddl.creating, ModeOrThrow(storage_mode, subject));
+                          return IndexDdlAccess(ddl.creating,
+                                                ModeOrThrow(storage_mode, "Database required for index query."));
                         },
                         [storage_mode](ConstraintDdl) -> StorageAccessRequirement {
                           auto const mode = ModeOrThrow(storage_mode, "Database required for constraint query.");

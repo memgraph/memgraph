@@ -2231,9 +2231,7 @@ class IndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  QueryTraits Traits() const override {
-    return {.access = IndexDdl{.creating = action_ == Action::CREATE, .on_edges = false}};
-  }
+  QueryTraits Traits() const override { return {.access = IndexDdl{.creating = action_ == Action::CREATE}}; }
 
   memgraph::query::IndexQuery::Action action_;
   memgraph::query::LabelIx label_;
@@ -2283,9 +2281,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  QueryTraits Traits() const override {
-    return {.access = IndexDdl{.creating = action_ == Action::CREATE, .on_edges = true}};
-  }
+  QueryTraits Traits() const override { return {.access = IndexDdl{.creating = action_ == Action::CREATE}}; }
 
   memgraph::query::EdgeIndexQuery::Action action_;
   memgraph::query::EdgeTypeIx edge_type_;
