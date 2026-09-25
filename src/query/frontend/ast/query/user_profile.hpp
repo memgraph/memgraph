@@ -31,6 +31,8 @@ class UserProfileQuery : public memgraph::query::Query {
 
   StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
 
+  bool UsesTenantData() const override { return false; }
+
   struct LimitValueResult {
     enum class Type : uint8_t { UNLIMITED, MEMORY_LIMIT, QUANTITY };
 

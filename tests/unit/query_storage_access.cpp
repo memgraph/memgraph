@@ -15,6 +15,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -177,6 +178,30 @@ TEST(QueryStorageAccess, DescribingTakesTheGraphOnlyToChangeADescription) {
   show->action_ = Action::SHOW_ALL;
   EXPECT_EQ(RequiredStorageAccess(*show, WRITE, StorageMode::IN_MEMORY_TRANSACTIONAL),
             (StorageAccessRequirement{.access = READ}));
+}
+
+TEST(QueryStorageAccess, WorkingOnTheTenantsOwnDataIsTheDefaultAnswer) {
+  AstStorage storage;
+  // Anything that reads or writes the current database's data, including the metadata a broken
+  // database would report as a clean empty result.
+  EXPECT_TRUE(storage.Create<memgraph::query::CypherQuery>()->UsesTenantData());
+  EXPECT_TRUE(storage.Create<memgraph::query::IndexQuery>()->UsesTenantData());
+  EXPECT_TRUE(storage.Create<memgraph::query::DumpQuery>()->UsesTenantData());
+  EXPECT_TRUE(storage.Create<memgraph::query::DatabaseInfoQuery>()->UsesTenantData());
+  EXPECT_TRUE(storage.Create<memgraph::query::CreateSnapshotQuery>()->UsesTenantData());
+  // The cure works on that data too, by replacing it, so its availability while a database is
+  // broken is the gate's own exception rather than a claim made here.
+  EXPECT_TRUE(storage.Create<memgraph::query::RecoverSnapshotQuery>()->UsesTenantData());
+}
+
+TEST(QueryStorageAccess, InstanceAndSessionQueriesStayAvailable) {
+  AstStorage storage;
+  EXPECT_FALSE(storage.Create<memgraph::query::AuthQuery>()->UsesTenantData());
+  EXPECT_FALSE(storage.Create<memgraph::query::ReplicationQuery>()->UsesTenantData());
+  EXPECT_FALSE(storage.Create<memgraph::query::ShowDatabasesQuery>()->UsesTenantData());
+  EXPECT_FALSE(storage.Create<memgraph::query::FreeMemoryQuery>()->UsesTenantData());
+  EXPECT_FALSE(storage.Create<memgraph::query::SessionQuery>()->UsesTenantData());
+  EXPECT_FALSE(storage.Create<memgraph::query::SystemInfoQuery>()->UsesTenantData());
 }
 
 TEST(QueryStorageAccess, OnlyTriggerCreationNeedsAnAccessor) {
