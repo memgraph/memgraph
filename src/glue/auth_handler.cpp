@@ -1616,7 +1616,7 @@ void AuthQueryHandler::DropProfile(const std::string &profile_name, memgraph::au
 
 query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view profile_name,
                                                                memgraph::auth::AuthTransaction *auth_tx) {
-  auto locked_auth = Lock(auth_tx);
+  auto locked_auth = ReadLock(auth_tx);
   auto profile = locked_auth->GetProfile(profile_name);
   if (!profile) {
     throw query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
@@ -1634,7 +1634,7 @@ query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view 
 std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQueryHandler::AllProfiles(
     memgraph::auth::AuthTransaction *auth_tx) {
   std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> res;
-  auto locked_auth = Lock(auth_tx);
+  auto locked_auth = ReadLock(auth_tx);
   for (const auto &profile : locked_auth->AllProfiles()) {
     // Fill missing/unlimited limits
     for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
@@ -1672,14 +1672,14 @@ void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, memgraph::
 
 std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role,
                                                                memgraph::auth::AuthTransaction *auth_tx) {
-  auto locked_auth = Lock(auth_tx);
+  auto locked_auth = ReadLock(auth_tx);
   return locked_auth->GetProfileForUsername(user_or_role);
 }
 
 std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name,
                                                                   memgraph::auth::AuthTransaction *auth_tx) {
   try {
-    auto locked_auth = Lock(auth_tx);
+    auto locked_auth = ReadLock(auth_tx);
     auto usernames_set = locked_auth->GetUsernamesForProfile(profile_name);
     return {usernames_set.begin(), usernames_set.end()};
   } catch (const memgraph::auth::AuthException &e) {
