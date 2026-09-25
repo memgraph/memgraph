@@ -1086,13 +1086,21 @@ jobs:
           echo "DOCKER_COMPOSE_CMD=$DOCKER_COMPOSE_CMD" >> $GITHUB_ENV
 
           cd tests/e2e/streams/kafka
-          docker pull bitnami/kafka:3.9.0
-          docker pull bitnami/zookeeper:3.9.3
+          docker pull apache/kafka:3.9.0
           $DOCKER_COMPOSE_CMD up -d
           cd ../pulsar
           docker pull apachepulsar/pulsar:2.8.1
           # The mgbuild container reaches Pulsar over the shared package_default network
           PULSAR_ADVERTISED_ADDRESS=pulsar $DOCKER_COMPOSE_CMD up -d
+
+          # `up -d` returns before the brokers accept requests; wait for both
+          wait_for() {
+            for _ in $(seq 1 60); do "$@" >/dev/null 2>&1 && return 0; sleep 2; done
+            echo "Timed out waiting for: $*"; return 1
+          }
+          wait_for $DOCKER_COMPOSE_CMD -f ../kafka/docker-compose.yml exec -T kafka \
+            /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+          wait_for curl -sf http://localhost:6652/admin/v2/brokers/health
 
       - name: Run e2e tests
         run: |

@@ -10,7 +10,6 @@
 # licenses/APL.txt.
 
 import os
-import re
 import time
 from multiprocessing import Manager, Process, Value
 
@@ -191,8 +190,7 @@ def kafka_check_vertex_exists_with_topic_and_payload(cursor, topic, payload_byte
 # package_default network, locally the defaults use the ports published by the compose files.
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092")
 PULSAR_SERVICE_URL = os.getenv("PULSAR_SERVICE_URL", "pulsar://localhost:6650")
-_PULSAR_HOST = re.match(r"pulsar://([^:/]+)", PULSAR_SERVICE_URL).group(1)
-PULSAR_ADMIN_URL = f"http://{_PULSAR_HOST}:{6652 if _PULSAR_HOST == 'localhost' else 8080}"
+PULSAR_ADMIN_URL = os.getenv("PULSAR_ADMIN_URL", "http://localhost:6652")
 
 
 def pulsar_default_namespace_topic(topic):

@@ -17,7 +17,7 @@ import pytest
 from common import KAFKA_BOOTSTRAP_SERVERS, NAME, PULSAR_ADMIN_URL, PULSAR_SERVICE_URL, connect, execute_and_fetch_all
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
-from kafka.errors import TopicAlreadyExistsError
+from kafka.errors import KafkaError, TopicAlreadyExistsError
 
 import requests
 
@@ -51,20 +51,25 @@ def kafka_topics(request):
     raw = request.node.name  # e.g. "test_separate_consumers[kafka_transform.with_parameters]"
     safe = re.sub(r"[^\w]", "_", raw)  # now underscores only
 
-    # build 3 new topics
+    # build 3 new topics, one request each so one leftover topic doesn't fail the whole batch
     topics = [f"{safe}_topic_{i}" for i in range(3)]
-    new_topics = [NewTopic(name=t, num_partitions=1, replication_factor=1) for t in topics]
-
-    # create with retry in case of lingering deletions
     deadline = time.time() + 30
-    while True:
-        try:
-            admin.create_topics(new_topics=new_topics, timeout_ms=5000)
-            break
-        except TopicAlreadyExistsError:
-            if time.time() > deadline:
-                pytest.fail(f"Could not create topics (still marked for deletion): {topics}")
-            time.sleep(1)
+    for topic in topics:
+        while True:
+            try:
+                admin.create_topics(
+                    new_topics=[NewTopic(name=topic, num_partitions=1, replication_factor=1)], timeout_ms=5000
+                )
+                break
+            except TopicAlreadyExistsError:
+                # Left behind by an aborted run, or still pending deletion: (re)issue the delete and wait for it
+                if time.time() > deadline:
+                    pytest.fail(f"Could not create topic (still marked for deletion): {topic}")
+                try:
+                    admin.delete_topics([topic], timeout_ms=5000)
+                except KafkaError:
+                    pass
+                time.sleep(1)
 
     yield topics
 

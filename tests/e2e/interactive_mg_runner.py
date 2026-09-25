@@ -214,7 +214,7 @@ _ENV_REF = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
 
 def expand_env_args(args):
     """Expand ${VAR} and ${VAR:-default} in workload args, e.g. broker addresses that differ between CI and local runs."""
-    return [_ENV_REF.sub(lambda m: os.environ.get(m.group(1), m.group(2) or ""), str(arg)) for arg in args]
+    return [_ENV_REF.sub(lambda m: os.environ.get(m.group(1)) or m.group(2) or "", str(arg)) for arg in args]
 
 
 def _start(
