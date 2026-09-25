@@ -141,7 +141,7 @@ jobs:
           cd tests/jepsen
           ./run.sh test \
           --binary ../../build/memgraph \
-          --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 60 --concurrency 5" \
+          --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 120 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 5 \
