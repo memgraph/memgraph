@@ -71,7 +71,7 @@ StorageAccessRequirement RequiredStorageAccess(Query const &query, storage::Stor
                                   .mode_dependent = true};
                         },
                     },
-                    query.AccessPolicy());
+                    query.Traits().access);
 }
 
 }  // namespace memgraph::query

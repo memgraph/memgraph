@@ -14,7 +14,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 
 #include "query/frontend/ast/ast_storage.hpp"
-#include "query/frontend/ast/query/storage_access_policy.hpp"
+#include "query/frontend/ast/query/query_traits.hpp"
 
 namespace memgraph::query {
 class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor<void>> {
@@ -29,15 +29,9 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
 
   Query *Clone(AstStorage *storage) const override = 0;
 
-  /// What this kind of query needs held on the graph while it is prepared. Pure so that a new kind
-  /// of query cannot inherit an answer that happens to compile.
-  virtual StorageAccessPolicy AccessPolicy() const = 0;
-
-  /// Whether this query works on the current database's graph data, including the metadata
-  /// describing it, rather than on instance, session or system state. A database that failed
-  /// recovery serves none of these until it has been recovered, so the default answer is the one
-  /// that refuses: a query that has to stay available while a database is broken says so.
-  virtual bool OperatesOnGraphData() const { return true; }
+  /// What this query states about itself. Pure, so a new query has to answer rather than inherit a
+  /// set of answers that happens to compile.
+  virtual QueryTraits Traits() const = 0;
 
  private:
   friend class AstStorage;

@@ -55,9 +55,24 @@ struct ConstraintDdl {
 
 /// What a query needs held on the graph while it is prepared.
 ///
-/// Each query answers with one of these, and `RequiredStorageAccess` turns an answer plus the
-/// runtime inputs into the access an interpreter takes. A case carries whatever settling it needs
-/// beyond the kind, so no case has to be recovered by asking what the query was.
+/// `RequiredStorageAccess` turns one of these plus the runtime inputs into the access an interpreter
+/// takes. A case carries whatever settling it needs beyond the kind, so no case has to be recovered
+/// by asking what the query was.
 using StorageAccessPolicy = std::variant<NoAccess, FixedAccess, PlannerShaped, IndexDdl, ConstraintDdl>;
+
+/// Everything a query states about itself that its callers need before running it.
+///
+/// One accessor rather than one per fact, so that stating a further fact adds a field here instead
+/// of a virtual to every query. A field that most queries answer the same way carries that answer
+/// as its default, and the default is whichever answer is safe to inherit.
+struct QueryTraits {
+  /// No default: what a query needs held is never safe to guess.
+  StorageAccessPolicy access;
+
+  /// Whether the query works on the current database's graph data, including the metadata
+  /// describing it, rather than on instance, session or system state. A database that failed
+  /// recovery serves none of these until it has been recovered, so the default refuses.
+  bool operates_on_graph_data = true;
+};
 
 }  // namespace memgraph::query

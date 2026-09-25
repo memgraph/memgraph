@@ -2129,7 +2129,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return PlannerShaped{.commits = true}; }
+  QueryTraits Traits() const override { return {.access = PlannerShaped{.commits = true}}; }
 
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -2179,7 +2179,7 @@ class ExplainQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return FixedAccess{.access = storage::StorageAccessType::READ}; }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::READ}}; }
 
   /// The CypherQuery to explain.
   memgraph::query::CypherQuery *cypher_query_{nullptr};
@@ -2204,7 +2204,7 @@ class ProfileQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return PlannerShaped{.commits = false}; }
+  QueryTraits Traits() const override { return {.access = PlannerShaped{.commits = false}}; }
 
   /// The CypherQuery to profile.
   memgraph::query::CypherQuery *cypher_query_{nullptr};
@@ -2231,8 +2231,8 @@ class IndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return IndexDdl{.creating = action_ == Action::CREATE, .on_edges = false};
+  QueryTraits Traits() const override {
+    return {.access = IndexDdl{.creating = action_ == Action::CREATE, .on_edges = false}};
   }
 
   memgraph::query::IndexQuery::Action action_;
@@ -2283,8 +2283,8 @@ class EdgeIndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return IndexDdl{.creating = action_ == Action::CREATE, .on_edges = true};
+  QueryTraits Traits() const override {
+    return {.access = IndexDdl{.creating = action_ == Action::CREATE, .on_edges = true}};
   }
 
   memgraph::query::EdgeIndexQuery::Action action_;
@@ -2326,9 +2326,7 @@ class PointIndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   memgraph::query::PointIndexQuery::Action action_;
   memgraph::query::LabelIx label_;
@@ -2362,9 +2360,7 @@ class TextIndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   memgraph::query::TextIndexQuery::Action action_;
   memgraph::query::LabelIx label_;
@@ -2398,9 +2394,7 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   memgraph::query::EdgeTypeIx edge_type_;
   std::vector<memgraph::query::PropertyIx> properties_;
@@ -2436,9 +2430,7 @@ class VectorIndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   memgraph::query::VectorIndexQuery::Action action_;
   std::string index_name_;
@@ -2495,9 +2487,7 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   std::string index_name_;
   storage::VectorMatchMode edge_type_mode_{storage::VectorMatchMode::SINGLE};
@@ -3156,7 +3146,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   memgraph::query::DatabaseInfoQuery::InfoType info_type_;
 
@@ -3177,9 +3167,7 @@ class SystemInfoQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::SystemInfoQuery::InfoType info_type_;
   std::optional<std::string> database_;
@@ -3229,7 +3217,7 @@ class ConstraintQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return ConstraintDdl{}; }
+  QueryTraits Traits() const override { return {.access = ConstraintDdl{}}; }
 
   memgraph::query::ConstraintQuery::ActionType action_type_;
   memgraph::query::Constraint constraint_;
@@ -3252,7 +3240,7 @@ class DumpQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return FixedAccess{.access = storage::StorageAccessType::READ}; }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::READ}}; }
 
   DumpQuery *Clone(AstStorage *storage) const override {
     DumpQuery *object = storage->Create<DumpQuery>();
@@ -3276,9 +3264,7 @@ class ReplicationQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   Action action_;
   ReplicationRole role_;
@@ -3318,9 +3304,7 @@ class ReplicationInfoQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::ReplicationInfoQuery::Action action_;
 
@@ -3364,9 +3348,7 @@ class CoordinatorQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   Action action_;
   std::string instance_name_{};
@@ -3406,9 +3388,7 @@ class DropAllIndexesQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   DropAllIndexesQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<DropAllIndexesQuery>();
@@ -3429,9 +3409,7 @@ class DropAllConstraintsQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   DropAllConstraintsQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<DropAllConstraintsQuery>();
@@ -3452,9 +3430,7 @@ class DropGraphQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   DropGraphQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<DropGraphQuery>();
@@ -3477,7 +3453,7 @@ class EdgeImportModeQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   memgraph::query::EdgeImportModeQuery::Status status_;
 
@@ -3503,9 +3479,7 @@ class LockPathQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::LockPathQuery::Action action_;
 
@@ -3659,9 +3633,7 @@ class FreeMemoryQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   FreeMemoryQuery *Clone(AstStorage *storage) const override {
     FreeMemoryQuery *object = storage->Create<FreeMemoryQuery>();
@@ -3694,11 +3666,11 @@ class TriggerQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
+  QueryTraits Traits() const override {
     // Creating a trigger plans the trigger statement and serializes user params through the
     // accessor, but never writes the graph. Showing and dropping work on the trigger store alone.
-    if (action_ != Action::CREATE_TRIGGER) return NoAccess{};
-    return FixedAccess{.access = storage::StorageAccessType::READ};
+    if (action_ != Action::CREATE_TRIGGER) return {.access = NoAccess{}};
+    return {.access = FixedAccess{.access = storage::StorageAccessType::READ}};
   }
 
   TriggerQuery::Action action_;
@@ -3737,7 +3709,7 @@ class IsolationLevelQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   memgraph::query::IsolationLevelQuery::IsolationLevel isolation_level_;
   memgraph::query::IsolationLevelQuery::IsolationLevelScope isolation_level_scope_;
@@ -3767,7 +3739,7 @@ class StorageModeQuery : public memgraph::query::Query {
 
   // Not "touches nothing": the database level handles this query and takes the access it needs for
   // itself.
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   memgraph::query::StorageModeQuery::StorageMode storage_mode_;
 
@@ -3790,7 +3762,7 @@ class CreateSnapshotQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   // Also reached on the periodic path, so it arranges its own access internally.
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   CreateSnapshotQuery *Clone(AstStorage *storage) const override {
     CreateSnapshotQuery *object = storage->Create<CreateSnapshotQuery>();
@@ -3806,9 +3778,7 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   RecoverSnapshotQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<RecoverSnapshotQuery>();
@@ -3833,7 +3803,7 @@ class ShowSnapshotsQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   ShowSnapshotsQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowSnapshotsQuery>();
@@ -3849,7 +3819,7 @@ class ShowNextSnapshotQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   ShowNextSnapshotQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowNextSnapshotQuery>();
@@ -3880,7 +3850,7 @@ class StreamQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   memgraph::query::StreamQuery::Action action_;
   memgraph::query::StreamQuery::Type type_;
@@ -3944,9 +3914,7 @@ class SettingQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::SettingQuery::Action action_;
   memgraph::query::Expression *setting_name_{nullptr};
@@ -3976,9 +3944,7 @@ class ParameterQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::ParameterQuery::Action action_;
   bool is_global_scope_{true};
@@ -4021,9 +3987,7 @@ class VersionQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   VersionQuery *Clone(AstStorage *storage) const override {
     VersionQuery *object = storage->Create<VersionQuery>();
@@ -4078,9 +4042,7 @@ class ShowConfigQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   ShowConfigQuery *Clone(AstStorage *storage) const override {
     ShowConfigQuery *object = storage->Create<ShowConfigQuery>();
@@ -4096,9 +4058,7 @@ class ShowQueryCallableMappingsQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   ShowQueryCallableMappingsQuery *Clone(AstStorage *storage) const override {
     ShowQueryCallableMappingsQuery *object = storage->Create<ShowQueryCallableMappingsQuery>();
@@ -4122,9 +4082,7 @@ class TransactionQueueQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::TransactionQueueQuery::Action action_;
   std::vector<Expression *> transaction_id_list_;
@@ -4151,9 +4109,7 @@ class SessionQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::SessionQuery::Action action_;
   std::vector<Expression *> session_id_list_;  // populated for TERMINATE; empty for SHOW
@@ -4174,7 +4130,7 @@ class AnalyzeGraphQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return FixedAccess{.access = storage::StorageAccessType::READ}; }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::READ}}; }
 
   enum class Action { ANALYZE, DELETE };
 
@@ -4243,9 +4199,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   enum class Action : uint8_t { CREATE, DROP, RENAME, SUSPEND, RESUME };
 
@@ -4272,9 +4226,7 @@ class UseDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   std::string db_name_;
 
@@ -4293,9 +4245,7 @@ class ShowDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   ShowDatabaseQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowDatabaseQuery>();
@@ -4311,9 +4261,7 @@ class ShowDatabasesQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   ShowDatabasesQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowDatabasesQuery>();
@@ -4331,9 +4279,7 @@ class CreateEnumQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   std::string enum_name_;
   std::vector<std::string> enum_values_;
@@ -4359,7 +4305,7 @@ class ShowEnumsQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return FixedAccess{.access = storage::StorageAccessType::READ}; }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::READ}}; }
 
   ShowEnumsQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowEnumsQuery>();
@@ -4412,9 +4358,7 @@ class AlterEnumAddValueQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   std::string enum_name_;
   std::string enum_value_;
@@ -4440,9 +4384,7 @@ class AlterEnumUpdateValueQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   std::string enum_name_;
   std::string old_enum_value_;
@@ -4471,7 +4413,7 @@ class AlterEnumRemoveValueQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   // Not implemented: preparing it throws before the access matters, so this is no answer yet.
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   std::string enum_name_;
   std::string removed_value_;
@@ -4498,7 +4440,7 @@ class DropEnumQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   // Not implemented: preparing it throws before the access matters, so this is no answer yet.
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
   std::string enum_name_;
 
@@ -4522,7 +4464,7 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return FixedAccess{.access = storage::StorageAccessType::READ}; }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::READ}}; }
 
   ShowSchemaInfoQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowSchemaInfoQuery>();
@@ -4545,9 +4487,7 @@ class ReloadSSLQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   ReloadSSLQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ReloadSSLQuery>();
@@ -4567,9 +4507,7 @@ class ShowMemoryInfoQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   ShowMemoryInfoQuery *Clone(AstStorage *storage) const override { return storage->Create<ShowMemoryInfoQuery>(); }
 
@@ -4593,9 +4531,7 @@ class TtlQuery : public memgraph::query::Query {
 
   // The unique hold is for the TTL metadata. The indices this configures are populated
   // asynchronously under whatever access their own population requires.
-  StorageAccessPolicy AccessPolicy() const override {
-    return FixedAccess{.access = storage::StorageAccessType::UNIQUE};
-  }
+  QueryTraits Traits() const override { return {.access = FixedAccess{.access = storage::StorageAccessType::UNIQUE}}; }
 
   TtlQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<TtlQuery>();
@@ -4619,9 +4555,7 @@ class SessionTraceQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   bool enabled_{false};
 
@@ -4647,9 +4581,7 @@ class SessionSettingQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
-
-  bool OperatesOnGraphData() const override { return false; }
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::SessionSettingQuery::Action action_;
   Expression *setting_name_{nullptr};
@@ -4677,10 +4609,10 @@ class DescriptionQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override {
+  QueryTraits Traits() const override {
     using enum storage::StorageAccessType;
     auto const mutating = action_ == Action::SET || action_ == Action::DELETE;
-    return FixedAccess{.access = mutating ? UNIQUE : READ};
+    return {.access = FixedAccess{.access = mutating ? UNIQUE : READ}};
   }
 
   Action action_;

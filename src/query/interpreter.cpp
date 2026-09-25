@@ -10700,7 +10700,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         // The refusal reaches queries that only read the metadata describing the graph: from the
         // empty post-recovery-failure storage they report a clean 0-row result rather than
         // surfacing the broken health. RECOVER SNAPSHOT works on that data by replacing it.
-        if (q->OperatesOnGraphData() && utils::Downcast<RecoverSnapshotQuery>(q) == nullptr) {
+        if (q->Traits().operates_on_graph_data && utils::Downcast<RecoverSnapshotQuery>(q) == nullptr) {
           throw QueryException(kBrokenDatabaseError);
         }
       }

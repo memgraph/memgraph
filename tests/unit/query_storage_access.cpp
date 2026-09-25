@@ -99,9 +99,9 @@ std::string Describe(StorageAccessPolicy const &policy) {
 
 template <typename TQuery>
 void Check(StorageAccessPolicy const &policy, bool operates_on_graph_data, TQuery const &query) {
-  EXPECT_EQ(query.AccessPolicy(), policy)
-      << TQuery::kType.name << " states " << Describe(query.AccessPolicy()) << ", expected " << Describe(policy);
-  EXPECT_EQ(query.OperatesOnGraphData(), operates_on_graph_data) << TQuery::kType.name;
+  EXPECT_EQ(query.Traits().access, policy)
+      << TQuery::kType.name << " states " << Describe(query.Traits().access) << ", expected " << Describe(policy);
+  EXPECT_EQ(query.Traits().operates_on_graph_data, operates_on_graph_data) << TQuery::kType.name;
   covered.insert(TQuery::kType.name);
 }
 
@@ -269,24 +269,24 @@ TEST(QueryStorageAccess, WorkingOnTheGraphIsTheDefaultAnswer) {
   AstStorage storage;
   // Anything that reads or writes the current database's data, including the metadata a broken
   // database would report as a clean empty result.
-  EXPECT_TRUE(storage.Create<memgraph::query::CypherQuery>()->OperatesOnGraphData());
-  EXPECT_TRUE(storage.Create<memgraph::query::IndexQuery>()->OperatesOnGraphData());
-  EXPECT_TRUE(storage.Create<memgraph::query::DumpQuery>()->OperatesOnGraphData());
-  EXPECT_TRUE(storage.Create<memgraph::query::DatabaseInfoQuery>()->OperatesOnGraphData());
-  EXPECT_TRUE(storage.Create<memgraph::query::CreateSnapshotQuery>()->OperatesOnGraphData());
+  EXPECT_TRUE(storage.Create<memgraph::query::CypherQuery>()->Traits().operates_on_graph_data);
+  EXPECT_TRUE(storage.Create<memgraph::query::IndexQuery>()->Traits().operates_on_graph_data);
+  EXPECT_TRUE(storage.Create<memgraph::query::DumpQuery>()->Traits().operates_on_graph_data);
+  EXPECT_TRUE(storage.Create<memgraph::query::DatabaseInfoQuery>()->Traits().operates_on_graph_data);
+  EXPECT_TRUE(storage.Create<memgraph::query::CreateSnapshotQuery>()->Traits().operates_on_graph_data);
   // The cure works on that data too, by replacing it, so its availability while a database is
   // broken is the gate's own exception rather than a claim made here.
-  EXPECT_TRUE(storage.Create<memgraph::query::RecoverSnapshotQuery>()->OperatesOnGraphData());
+  EXPECT_TRUE(storage.Create<memgraph::query::RecoverSnapshotQuery>()->Traits().operates_on_graph_data);
 }
 
 TEST(QueryStorageAccess, InstanceAndSessionQueriesStayAvailable) {
   AstStorage storage;
-  EXPECT_FALSE(storage.Create<memgraph::query::AuthQuery>()->OperatesOnGraphData());
-  EXPECT_FALSE(storage.Create<memgraph::query::ReplicationQuery>()->OperatesOnGraphData());
-  EXPECT_FALSE(storage.Create<memgraph::query::ShowDatabasesQuery>()->OperatesOnGraphData());
-  EXPECT_FALSE(storage.Create<memgraph::query::FreeMemoryQuery>()->OperatesOnGraphData());
-  EXPECT_FALSE(storage.Create<memgraph::query::SessionQuery>()->OperatesOnGraphData());
-  EXPECT_FALSE(storage.Create<memgraph::query::SystemInfoQuery>()->OperatesOnGraphData());
+  EXPECT_FALSE(storage.Create<memgraph::query::AuthQuery>()->Traits().operates_on_graph_data);
+  EXPECT_FALSE(storage.Create<memgraph::query::ReplicationQuery>()->Traits().operates_on_graph_data);
+  EXPECT_FALSE(storage.Create<memgraph::query::ShowDatabasesQuery>()->Traits().operates_on_graph_data);
+  EXPECT_FALSE(storage.Create<memgraph::query::FreeMemoryQuery>()->Traits().operates_on_graph_data);
+  EXPECT_FALSE(storage.Create<memgraph::query::SessionQuery>()->Traits().operates_on_graph_data);
+  EXPECT_FALSE(storage.Create<memgraph::query::SystemInfoQuery>()->Traits().operates_on_graph_data);
 }
 
 TEST(QueryStorageAccess, OnlyTriggerCreationNeedsAnAccessor) {
