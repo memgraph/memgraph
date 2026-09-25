@@ -34,9 +34,9 @@ enum class StorageAccessPolicy : uint8_t {
   /// Takes the same access as `kCypherShaped` with nothing to commit, since profiling reports an
   /// execution rather than performing one of its own.
   kProfiledShaped,
-  /// Index DDL, where the storage mode decides the access and creating differs from dropping.
+  /// Index DDL: the storage mode decides, and creating differs from dropping.
   kIndexDdl,
-  /// Constraint DDL, where the storage mode decides the access.
+  /// Constraint DDL: the storage mode decides.
   kConstraintDdl,
   /// The kind's mutating actions take the graph to themselves; its reading actions read.
   kUniqueWhenMutating,

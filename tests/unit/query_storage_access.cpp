@@ -78,7 +78,6 @@ TEST(QueryStorageAccess, CypherTakesTheShapeItWasPlannedFor) {
 TEST(QueryStorageAccess, GraphFreeCypherOpensNoTransaction) {
   AstStorage storage;
   auto *query = storage.Create<memgraph::query::CypherQuery>();
-  // NO_ACCESS opens no storage transaction, so there is nothing to commit either.
   EXPECT_EQ(RequiredStorageAccess(*query, NO_ACCESS, std::nullopt), StorageAccessRequirement{});
   EXPECT_EQ(RequiredStorageAccess(*query, NO_ACCESS, StorageMode::IN_MEMORY_TRANSACTIONAL), StorageAccessRequirement{});
 }

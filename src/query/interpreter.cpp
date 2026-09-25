@@ -10695,14 +10695,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // Fail-closed gate for broken databases (those that failed durability recovery and
       // came up empty under --storage-allow-recovery-failure). Any query that operates on
       // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT.
-      // Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
-      // replication, ...) do not touch the tenant graph and are allowed through.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
         auto *q = parsed_query.query;
-        // Queries that read tenant-graph metadata would report a clean 0-row result from the empty
-        // post-recovery-failure storage instead of surfacing the broken health, so a broken
-        // database serves nothing that works on its data. RECOVER SNAPSHOT is the cure, and works
-        // on that data by replacing it, so it is the one exception.
+        // The refusal reaches queries that only read tenant-graph metadata: from the empty
+        // post-recovery-failure storage they report a clean 0-row result rather than surfacing
+        // the broken health. RECOVER SNAPSHOT works on that data by replacing it.
         if (q->UsesTenantData() && utils::Downcast<RecoverSnapshotQuery>(q) == nullptr) {
           throw QueryException(kBrokenDatabaseError);
         }

@@ -4437,8 +4437,7 @@ class AlterEnumRemoveValueQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  // Not implemented: preparing it throws. Implementing it means choosing the access an enum
-  // mutation needs, which is unique, rather than keeping this.
+  // Not implemented: preparing it throws before the access matters, so this is no answer yet.
   StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
 
   std::string enum_name_;
@@ -4465,8 +4464,7 @@ class DropEnumQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  // Not implemented: preparing it throws. Implementing it means choosing the access an enum
-  // mutation needs, which is unique, rather than keeping this.
+  // Not implemented: preparing it throws before the access matters, so this is no answer yet.
   StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
 
   std::string enum_name_;

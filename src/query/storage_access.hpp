@@ -25,7 +25,6 @@ class Query;
 struct StorageAccessRequirement {
   /// Absent means the query is prepared with no storage accessor at all.
   std::optional<storage::StorageAccessType> access{};
-  /// Whether the prepared query will have anything to commit.
   bool could_commit{false};
   /// Whether the storage mode fed `access` or `isolation_override`. Only then is the answer
   /// invalidated by a mode change between reading the mode and the accessor taking its hold, so
