@@ -4920,10 +4920,92 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
   return object;
 }
 
+namespace {
+
+/// `(n :A:B)`, `(n :A|B)`, `(n :A:(B|C))` -- how a labels test reads in a plan.
+std::string LabelsTestName(LabelsTest const *filter_expression) {
+  std::set<std::string, std::less<>> AND_label_names;
+  for (const auto &label : filter_expression->labels_) {
+    AND_label_names.insert(label.name);
+  }
+  // `%` reads as one more thing the node must satisfy, alongside the labels it names.
+  if (filter_expression->any_label_) {
+    AND_label_names.insert("%");
+  }
+
+  // Generate OR label string only if there are OR labels
+  std::string OR_label_string;
+  if (!filter_expression->or_labels_.empty()) {
+    if (AND_label_names.empty()) {
+      // If there is no AND_labels or if there is only one OR_labels vector we
+      // don't need parentheses
+      OR_label_string =
+          filter_expression->or_labels_.size() == 1
+              ? utils::IterableToString(
+                    filter_expression->or_labels_[0], "|", [](const auto &label) { return label.name; })
+              : utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+                  return fmt::format(
+                      "({})", utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
+                });
+      OR_label_string = fmt::format(":{}", OR_label_string);
+    } else {
+      OR_label_string = fmt::format(
+          ":{}", utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+            return fmt::format("({})",
+                               utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
+          }));
+    }
+  }
+  std::string AND_label_string;
+  if (!AND_label_names.empty()) {
+    AND_label_string =
+        fmt::format(":{}", utils::IterableToString(AND_label_names, ":", [](const auto &label) { return label; }));
+  }
+
+  if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
+    return fmt::format("({}{})", AND_label_string, OR_label_string);
+  }
+  auto *identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
+  return fmt::format("({} {}{})", identifier_expression->name_, AND_label_string, OR_label_string);
+}
+
+/// A lowered label expression reads as the labels it tests rather than as the symbols it touches:
+/// `NOT (n :C)`, `((n :A) OR NOT (n :B))`. Anything else has no such name.
+std::optional<std::string> LoweredLabelExpressionName(Expression *expression) {
+  if (auto *labels_test = utils::Downcast<LabelsTest>(expression)) {
+    if (!utils::Downcast<Identifier>(labels_test->expression_)) return std::nullopt;
+    return LabelsTestName(labels_test);
+  }
+  if (auto *negation = utils::Downcast<NotOperator>(expression)) {
+    auto inner = LoweredLabelExpressionName(negation->expression_);
+    if (!inner) return std::nullopt;
+    return fmt::format("NOT {}", *inner);
+  }
+  if (auto *disjunction = utils::Downcast<OrOperator>(expression)) {
+    auto lhs = LoweredLabelExpressionName(disjunction->expression1_);
+    auto rhs = LoweredLabelExpressionName(disjunction->expression2_);
+    if (!lhs || !rhs) return std::nullopt;
+    return fmt::format("({} OR {})", *lhs, *rhs);
+  }
+  // Only a conjunction nested under `OR` or `NOT` gets here; a top-level one is already split apart.
+  if (auto *conjunction = utils::Downcast<AndOperator>(expression)) {
+    auto lhs = LoweredLabelExpressionName(conjunction->expression1_);
+    auto rhs = LoweredLabelExpressionName(conjunction->expression2_);
+    if (!lhs || !rhs) return std::nullopt;
+    return fmt::format("({} AND {})", *lhs, *rhs);
+  }
+  return std::nullopt;
+}
+
+}  // namespace
+
 std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
   using Type = query::plan::FilterInfo::Type;
   switch (single_filter.type) {
     case Type::Generic: {
+      if (auto name = LoweredLabelExpressionName(single_filter.expression)) {
+        return *name;
+      }
       std::set<std::string, std::less<>> symbol_names;
       for (const auto &symbol : single_filter.used_symbols) {
         symbol_names.insert(symbol.name());
@@ -4935,47 +5017,7 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
-      auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
-      std::set<std::string, std::less<>> AND_label_names;
-      for (const auto &label : filter_expression->labels_) {
-        AND_label_names.insert(label.name);
-      }
-
-      // Generate OR label string only if there are OR labels
-      std::string OR_label_string;
-      if (!filter_expression->or_labels_.empty()) {
-        if (AND_label_names.empty()) {
-          // If there is no AND_labels or if there is only one OR_labels vector we
-          // don't need parentheses
-          OR_label_string =
-              filter_expression->or_labels_.size() == 1
-                  ? utils::IterableToString(
-                        filter_expression->or_labels_[0], "|", [](const auto &label) { return label.name; })
-                  : utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
-                      return fmt::format("({})", utils::IterableToString(label_vec, "|", [](const auto &label) {
-                                           return label.name;
-                                         }));
-                    });
-          OR_label_string = fmt::format(":{}", OR_label_string);
-        } else {
-          OR_label_string = fmt::format(
-              ":{}", utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
-                return fmt::format(
-                    "({})", utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
-              }));
-        }
-      }
-      std::string AND_label_string;
-      if (!AND_label_names.empty()) {
-        AND_label_string =
-            fmt::format(":{}", utils::IterableToString(AND_label_names, ":", [](const auto &label) { return label; }));
-      }
-
-      if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-        return fmt::format("({}{})", AND_label_string, OR_label_string);
-      }
-      auto *identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
-      return fmt::format("({} {}{})", identifier_expression->name_, AND_label_string, OR_label_string);
+      return LabelsTestName(static_cast<LabelsTest *>(single_filter.expression));
     }
     case Type::Property: {
       auto const &path = single_filter.property_filter->property_ids_.path;

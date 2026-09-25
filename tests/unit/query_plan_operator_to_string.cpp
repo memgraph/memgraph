@@ -483,6 +483,94 @@ TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels3) {
   EXPECT_EQ(op_string, expected_string);
 }
 
+TYPED_TEST(OperatorToStringTest, FilterWildcardLabel) {
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+
+  auto *labels_test = LABELS_TEST(node_ident, std::vector<LabelIx>{});
+  labels_test->any_label_ = true;
+  auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
+
+  Filters filters;
+  filters.SetFilters({label_filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, labels_test, filters);
+
+  EXPECT_EQ(last_op->ToString(&this->dba), "Filter (person :%)");
+}
+
+TYPED_TEST(OperatorToStringTest, FilterWildcardAlongsideLabels) {
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+
+  auto *labels_test = LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label1")});
+  labels_test->any_label_ = true;
+  auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
+
+  Filters filters;
+  filters.SetFilters({label_filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, labels_test, filters);
+
+  EXPECT_EQ(last_op->ToString(&this->dba), "Filter (person :%:Label1)");
+}
+
+TYPED_TEST(OperatorToStringTest, FilterNegatedLabel) {
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+
+  auto *negated = this->storage.template Create<NotOperator>(
+      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label1")}));
+  auto filter_info = FilterInfo{FilterInfo::Type::Generic, negated, {node}};
+
+  Filters filters;
+  filters.SetFilters({filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, negated, filters);
+
+  EXPECT_EQ(last_op->ToString(&this->dba), "Filter NOT (person :Label1)");
+}
+
+TYPED_TEST(OperatorToStringTest, FilterDisjunctionOfLabelTests) {
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+
+  auto *disjunction = this->storage.template Create<OrOperator>(
+      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label1")}),
+      this->storage.template Create<NotOperator>(
+          LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label2")})));
+  auto filter_info = FilterInfo{FilterInfo::Type::Generic, disjunction, {node}};
+
+  Filters filters;
+  filters.SetFilters({filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, disjunction, filters);
+
+  EXPECT_EQ(last_op->ToString(&this->dba), "Filter ((person :Label1) OR NOT (person :Label2))");
+}
+
+TYPED_TEST(OperatorToStringTest, FilterNegatedConjunctionOfLabelTests) {
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+
+  auto *negated = this->storage.template Create<NotOperator>(this->storage.template Create<AndOperator>(
+      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label1")}),
+      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label2")})));
+  auto filter_info = FilterInfo{FilterInfo::Type::Generic, negated, {node}};
+
+  Filters filters;
+  filters.SetFilters({filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, negated, filters);
+
+  EXPECT_EQ(last_op->ToString(&this->dba), "Filter NOT ((person :Label1) AND (person :Label2))");
+}
+
 TYPED_TEST(OperatorToStringTest, Produce) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Produce>(
       nullptr, std::vector<NamedExpression *>{NEXPR("pet", LITERAL(5)), NEXPR("string", LITERAL("string"))});

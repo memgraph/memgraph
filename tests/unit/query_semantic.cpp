@@ -2582,4 +2582,32 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverItsOwnNodesInsideCreateI
   EXPECT_NO_THROW(MakeSymbolTable(query));
 }
 
+// CREATE and MERGE build a node, so they take a conjunction of labels and nothing else: there is no
+// node to build from '|', '!' or '%'.
+TYPED_TEST(TestSymbolGenerator, CreateOrMergeWithLabelTermIsRejected) {
+  // CREATE (n:A|B)
+  auto *disjunction = NODE_WITH_TERM("n", LABEL_TERM_OR(LABEL_TERM_LEAF("A"), LABEL_TERM_LEAF("B")));
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(disjunction))))), SemanticException);
+
+  // CREATE (n:!A)
+  auto *negation = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(negation))))), SemanticException);
+
+  // CREATE (n:%)
+  auto *wildcard = NODE_WITH_TERM("n", LABEL_TERM_WILDCARD());
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(wildcard))))), SemanticException);
+
+  // MERGE (n:!A)
+  auto *merged = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MERGE(PATTERN(merged))))), SemanticException);
+
+  // CREATE (n:A:B) -- a conjunction is what a write takes, and it still does.
+  auto *conjunction = NODE_WITH_LABELS("n", std::vector<std::string>{"A", "B"}, false);
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(conjunction))))));
+
+  // MATCH (n:!A) -- reading with one is fine.
+  auto *matched = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(matched)), RETURN("n")))));
+}
+
 #undef COMPREHENSION_OVER
