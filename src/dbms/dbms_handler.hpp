@@ -381,6 +381,10 @@ class DbmsHandler {
    */
   void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
 
+  void SetDrainHook(std::function<void()> hook) { db_handler_.SetDrainHook(std::move(hook)); }
+
+  void StopDeferredWorker() { db_handler_.StopDeferredWorker(); }
+
   /**
    * @brief Set the arm that discards a database's server-side parameters, which live in a store this
    *        handler does not own, keyed by database uuid. Every path that retires a live uuid announces

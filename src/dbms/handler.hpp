@@ -269,6 +269,17 @@ class Handler {
     }
   }
 
+  // Run by the defer worker once per tick while any drop is pending, before the husks' try_delete and outside
+  // every Handler lock, so it may block; it must not re-enter this Handler. Used to let go of external pins
+  // (e.g. idle sessions still on a dropped database) so the husks can drain.
+  void SetDrainHook(std::function<void()> hook) {
+    auto lock = std::unique_lock{pending_mutex_};
+    drain_hook_ = std::move(hook);
+  }
+
+  // Joins the defer worker; idempotent (~Handler stops it too). Call before destroying whatever the drain hook uses.
+  void StopDeferredWorker() { defer_worker_.Stop(); }
+
   std::vector<std::pair<std::string, std::string>> PendingItems() const {
     auto lock = std::unique_lock{pending_mutex_};
     std::vector<std::pair<std::string, std::string>> out;
@@ -381,9 +392,19 @@ class Handler {
       // Snapshot iterators under the lock; heavy per-node work runs lock-free.
       // Only structural mutations (erase) re-acquire pending_mutex_ below.
       std::vector<typename std::list<PendingDeletion>::iterator> its;
+      std::function<void()> hook;
       {
         auto lock = std::unique_lock{pending_mutex_};
         for (auto it = pending_.begin(); it != pending_.end(); ++it) its.push_back(it);
+        hook = drain_hook_;
+      }
+
+      if (hook && !its.empty()) {
+        try {
+          hook();
+        } catch (const std::exception &e) {
+          spdlog::warn("Deferred-drop drain hook failed: {}", e.what());
+        }
       }
 
       for (auto it : its) {
@@ -467,6 +488,7 @@ class Handler {
   mutable std::mutex pending_mutex_;
   bool shutting_down_ = false;  //!< set by ~Handler before Stop(); guards the DeferDelete/drain race
   std::list<PendingDeletion> pending_;
+  std::function<void()> drain_hook_;  //!< guarded by pending_mutex_
   utils::Scheduler defer_worker_;  //!< deferred-teardown worker; the Handler ctor calls SetInterval (default 10 s) — a
                                    //!< Scheduler has no interval until then; override the constructor argument in tests
 };
