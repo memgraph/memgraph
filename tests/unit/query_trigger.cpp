@@ -12,6 +12,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <limits>
 
 #include <fmt/format.h>
 #include "disk_test_utils.hpp"
@@ -638,6 +639,55 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
                        {"old", memgraph::query::TypedValue{"Value0"}},
                        {"new", memgraph::query::TypedValue{"Value3"}}}});
   }
+}
+
+// Whether a property changed is whether the two values are the same value,
+// which is the question equivalence answers. A pair holding a Null and a pair
+// of NaNs are each the same value, and a relation that leaves either undecided
+// reports a change that did not happen.
+TYPED_TEST(TriggerContextTest, PropertyChangeIsDecidedByEquivalence) {
+  memgraph::query::DbAccessor dba{this->StartTransaction()};
+  const std::unordered_set<memgraph::query::TriggerEventType> event_types{
+      memgraph::query::TriggerEventType::VERTEX_UPDATE};
+
+  auto v = dba.InsertVertex();
+  dba.AdvanceCommand();
+
+  auto updates_reported = [&](memgraph::query::TypedValue old_value, memgraph::query::TypedValue new_value) {
+    memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
+    trigger_context_collector.RegisterSetObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), std::move(old_value), std::move(new_value));
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
+    auto updated_vertices =
+        trigger_context.GetTypedValue(memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
+    EXPECT_TRUE(updated_vertices.IsList());
+    return updated_vertices.ValueList().size();
+  };
+
+  auto nan = [] { return memgraph::query::TypedValue{std::numeric_limits<double>::quiet_NaN()}; };
+  auto list_holding_a_null = [](int64_t first) {
+    return memgraph::query::TypedValue{
+        std::vector<memgraph::query::TypedValue>{memgraph::query::TypedValue{first}, memgraph::query::TypedValue{}}};
+  };
+  auto map_holding_a_null = [](int64_t under_a) {
+    return memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
+        {"a", memgraph::query::TypedValue{under_a}}, {"b", memgraph::query::TypedValue{}}}};
+  };
+
+  EXPECT_EQ(updates_reported(nan(), nan()), 0) << "a NaN written over itself";
+  EXPECT_EQ(updates_reported(list_holding_a_null(1), list_holding_a_null(1)), 0)
+      << "a list holding a Null written over itself";
+  EXPECT_EQ(updates_reported(map_holding_a_null(1), map_holding_a_null(1)), 0)
+      << "a map holding a Null written over itself";
+  EXPECT_EQ(updates_reported(memgraph::query::TypedValue{}, memgraph::query::TypedValue{}), 0)
+      << "a property absent before and after";
+
+  EXPECT_EQ(updates_reported(memgraph::query::TypedValue{1.0}, nan()), 1) << "a number replaced by a NaN";
+  EXPECT_EQ(updates_reported(nan(), memgraph::query::TypedValue{1.0}), 1) << "a NaN replaced by a number";
+  EXPECT_EQ(updates_reported(list_holding_a_null(1), list_holding_a_null(2)), 1)
+      << "a list differing where it holds no Null";
+  EXPECT_EQ(updates_reported(map_holding_a_null(1), map_holding_a_null(2)), 1)
+      << "a map differing where it holds no Null";
 }
 
 // Same as above, but for label changes

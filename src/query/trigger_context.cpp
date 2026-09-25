@@ -18,6 +18,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/relations/equivalence.hpp"
 #include "query/serialization/property_value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -175,13 +176,11 @@ template <detail::ObjectAccessor TAccessor>
 
   for (auto it = map.begin(); it != map.end(); it = map.erase(it)) {
     const auto &[key, property_change_info] = *it;
-    if (property_change_info.old_value.IsNull() && property_change_info.new_value.IsNull()) {
-      // no change happened on the transaction level
-      continue;
-    }
-
-    if (const auto is_equal = property_change_info.old_value == property_change_info.new_value;
-        is_equal.IsBool() && is_equal.ValueBool()) {
+    // Whether the property changed is whether the two are the same value, which
+    // equivalence answers and equality does not: equality leaves a pair holding
+    // a Null undecided and reads a NaN as different from itself, either of which
+    // reports a change that did not happen.
+    if (relations::equivalence::Equivalent(property_change_info.old_value, property_change_info.new_value)) {
       // no change happened on the transaction level
       continue;
     }
