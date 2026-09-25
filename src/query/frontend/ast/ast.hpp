@@ -3765,8 +3765,8 @@ class StorageModeQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  // Zero here is not "touches nothing": the database level handles this query and takes the
-  // access it needs for itself.
+  // Not "touches nothing": the database level handles this query and takes the access it needs for
+  // itself.
   StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
   memgraph::query::StorageModeQuery::StorageMode storage_mode_;

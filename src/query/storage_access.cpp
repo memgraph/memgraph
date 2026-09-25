@@ -14,7 +14,7 @@
 #include <variant>
 
 #include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/query.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
@@ -54,11 +54,10 @@ StorageAccessRequirement RequiredStorageAccess(Query const &query, storage::Stor
                         [](NoAccess) -> StorageAccessRequirement { return {}; },
                         [](FixedAccess settled) -> StorageAccessRequirement { return {.access = settled.access}; },
                         [cypher_access](PlannerShaped shaped) -> StorageAccessRequirement {
-                          // A statement decided graph-free opens no storage transaction, so it leaves nothing to
-                          // commit. Only a statement that could commit is ever decided graph-free: profiling
-                          // takes the access its own shape asks for, reporting what an execution did and so
-                          // needing there to have been one.
-                          if (shaped.commits && cypher_access == NO_ACCESS) return {};
+                          // NO_ACCESS names the absence of a hold rather than a hold to take, so it answers as no
+                          // accessor at all, with nothing to commit. Every access an interpreter can act on names a
+                          // lock mode, and asking for one under this name aborts.
+                          if (cypher_access == NO_ACCESS) return {};
                           return {.access = cypher_access, .could_commit = shaped.commits};
                         },
                         [storage_mode](IndexDdl ddl) -> StorageAccessRequirement {

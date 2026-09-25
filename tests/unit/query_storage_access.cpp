@@ -89,12 +89,15 @@ TEST(QueryStorageAccess, ProfileTakesTheSameShapeButCommitsNothing) {
   EXPECT_EQ(RequiredStorageAccess(*query, WRITE, std::nullopt), (StorageAccessRequirement{.access = WRITE}));
 }
 
-TEST(QueryStorageAccess, ProfileTakesTheShapeItIsGivenEvenWhenThatIsNoAccess) {
+TEST(QueryStorageAccess, NoAccessIsNeverAskedForAsAnAccessor) {
   AstStorage storage;
-  auto *query = storage.Create<memgraph::query::ProfileQuery>();
-  // Graph-freedom is settled for the statement a profile reports on, never for the profile, so the
-  // shape arrives as given rather than standing for an absent accessor.
-  EXPECT_EQ(RequiredStorageAccess(*query, NO_ACCESS, std::nullopt), (StorageAccessRequirement{.access = NO_ACCESS}));
+  // NO_ACCESS names the absence of a hold, and taking an accessor under that name aborts, so it has
+  // to answer as no accessor rather than as one of that type. Both planner-shaped kinds are asked
+  // because only one of them can be handed it today, and that is not a property of the rule.
+  EXPECT_EQ(RequiredStorageAccess(*storage.Create<memgraph::query::CypherQuery>(), NO_ACCESS, std::nullopt),
+            StorageAccessRequirement{});
+  EXPECT_EQ(RequiredStorageAccess(*storage.Create<memgraph::query::ProfileQuery>(), NO_ACCESS, std::nullopt),
+            StorageAccessRequirement{});
 }
 
 TEST(QueryStorageAccess, IndexCreationNeedsWritersOutUnderTransactionalMode) {
