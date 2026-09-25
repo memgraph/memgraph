@@ -10,25 +10,19 @@
 # licenses/APL.txt.
 
 import re
-
-# import os
 import time
 
 import pulsar
 import pytest
-from common import NAME, PULSAR_SERVICE_URL, connect, execute_and_fetch_all
+from common import KAFKA_BOOTSTRAP_SERVERS, NAME, PULSAR_ADMIN_URL, PULSAR_SERVICE_URL, connect, execute_and_fetch_all
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 from kafka.errors import TopicAlreadyExistsError
 
 import requests
 
-# To run these test locally a running Kafka sever is necessery. The test tries
-# to connect on localhost:9092.
-
-# KAFKA_HOSTNAME=os.getenv("KAFKA_HOSTNAME", "localhost")
-# PULSAR_HOSTNAME=os.getenv("PULSAR_HOSTNAME", "localhost")
-# PULSAR_PORT="6652" if PULSAR_HOSTNAME == "localhost" else "8080"
+# Running these tests needs the Kafka and Pulsar compose stacks under this
+# directory; see common.py for how the broker hosts are resolved.
 
 
 @pytest.fixture()
@@ -51,7 +45,7 @@ def get_topics(num):
 
 @pytest.fixture(scope="function")
 def kafka_topics(request):
-    admin = KafkaAdminClient(bootstrap_servers="localhost:29092", client_id="test")
+    admin = KafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS, client_id="test")
 
     # generate a safe, unique prefix from the test name
     raw = request.node.name  # e.g. "test_separate_consumers[kafka_transform.with_parameters]"
@@ -80,7 +74,7 @@ def kafka_topics(request):
 
 @pytest.fixture(scope="function")
 def kafka_producer():
-    yield KafkaProducer(bootstrap_servers=["localhost:29092"], api_version_auto_timeout_ms=10000)
+    yield KafkaProducer(bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS], api_version_auto_timeout_ms=10000)
 
 
 @pytest.fixture(scope="function")
@@ -92,5 +86,5 @@ def pulsar_client():
 def pulsar_topics():
     topics = get_topics(3)
     for topic in topics:
-        requests.delete(f"http://localhost:6652/admin/v2/persistent/public/default/{topic}?force=true")
+        requests.delete(f"{PULSAR_ADMIN_URL}/admin/v2/persistent/public/default/{topic}?force=true")
     yield topics

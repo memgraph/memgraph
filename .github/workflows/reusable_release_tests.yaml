@@ -1091,7 +1091,8 @@ jobs:
           $DOCKER_COMPOSE_CMD up -d
           cd ../pulsar
           docker pull apachepulsar/pulsar:2.8.1
-          $DOCKER_COMPOSE_CMD up -d
+          # The mgbuild container reaches Pulsar over the shared package_default network
+          PULSAR_ADVERTISED_ADDRESS=pulsar $DOCKER_COMPOSE_CMD up -d
 
       - name: Run e2e tests
         run: |

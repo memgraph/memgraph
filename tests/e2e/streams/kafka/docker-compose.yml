@@ -1,3 +1,6 @@
+# On CI the mgbuild container and this stack share the `package_default` network
+# (created by release/package/mgbuild.sh), so the tests reach the broker at kafka:9092.
+# Locally, `docker network create package_default` once, then connect via the published port localhost:29092.
 version: '3'
 services:
   zookeeper:
@@ -15,8 +18,13 @@ services:
       - KAFKA_BROKER_ID=1
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,PLAINTEXT_HOST://:29092
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,PLAINTEXT_HOST://localhost:29092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
       - ALLOW_PLAINTEXT_LISTENER=yes
     depends_on:
       - zookeeper
+
+networks:
+  default:
+    name: package_default
+    external: true

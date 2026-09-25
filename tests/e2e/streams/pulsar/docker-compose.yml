@@ -1,3 +1,7 @@
+# On CI the mgbuild container and this stack share the `package_default` network
+# (created by release/package/mgbuild.sh), so set PULSAR_ADVERTISED_ADDRESS=pulsar
+# and the tests reach the broker at pulsar:6650. Locally, the default advertised
+# address works through the published ports (`docker network create package_default` once if missing).
 version: "3"
 
 services:
@@ -6,4 +10,9 @@ services:
     ports:
       - '6652:8080'
       - '6650:6650'
-    entrypoint: [ 'bin/pulsar', 'standalone' ]
+    entrypoint: [ 'bin/pulsar', 'standalone', '--advertised-address', '${PULSAR_ADVERTISED_ADDRESS:-localhost}' ]
+
+networks:
+  default:
+    name: package_default
+    external: true

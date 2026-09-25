@@ -22,7 +22,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_centos-9"
-    network_mode: host
 
   mgbuild_v8_centos-10:
     image: "memgraph/mgbuild:v8_centos-10"
@@ -34,7 +33,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_centos-10"
-    network_mode: host
 
   mgbuild_v8_debian-12:
     image: "memgraph/mgbuild:v8_debian-12"
@@ -46,7 +44,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_debian-12"
-    network_mode: host
 
   mgbuild_v8_debian-13:
     image: "memgraph/mgbuild:v8_debian-13"
@@ -58,7 +55,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_debian-13"
-    network_mode: host
 
   mgbuild_v8_fedora-43:
     image: "memgraph/mgbuild:v8_fedora-43"
@@ -70,7 +66,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_fedora-43"
-    network_mode: host
 
   mgbuild_v8_fedora-44:
     image: "memgraph/mgbuild:v8_fedora-44"
@@ -82,7 +77,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_fedora-44"
-    network_mode: host
 
   mgbuild_v8_fedora-45:
     image: "memgraph/mgbuild:v8_fedora-45"
@@ -94,7 +88,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_fedora-45"
-    network_mode: host
 
   mgbuild_v8_rocky-10:
     image: "memgraph/mgbuild:v8_rocky-10"
@@ -106,7 +99,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_rocky-10"
-    network_mode: host
 
   mgbuild_v8_ubuntu-22.04:
     image: "memgraph/mgbuild:v8_ubuntu-22.04"
@@ -118,7 +110,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_ubuntu-22.04"
-    network_mode: host
 
   mgbuild_v8_ubuntu-24.04:
     image: "memgraph/mgbuild:v8_ubuntu-24.04"
@@ -132,7 +123,6 @@ services:
       - NET_ADMIN
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_ubuntu-24.04"
-    network_mode: host
 
   mgbuild_v8_ubuntu-24.04-cugraph:
     image: "memgraph/mgbuild:v8_ubuntu-24.04-cugraph"
@@ -144,7 +134,6 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_ubuntu-24.04-cugraph"
-    network_mode: host
 
   mgbuild_v8_ubuntu-26.04:
     image: "memgraph/mgbuild:v8_ubuntu-26.04"
@@ -156,4 +145,3 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_ubuntu-26.04"
-    network_mode: host

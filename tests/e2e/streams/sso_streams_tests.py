@@ -15,6 +15,7 @@ import base64
 import os
 import sys
 
+import common
 import interactive_mg_runner
 import pytest
 from neo4j import Auth, GraphDatabase
@@ -150,7 +151,7 @@ def test_sso_kafka_stream_creation(kafka_topics, sso_connection):
         session.run(
             f"""CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]}
             TRANSFORM kafka_transform.simple
-            BOOTSTRAP_SERVERS 'localhost:29092'"""
+            BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
         ).consume()
 
         # Verify the stream was created and check its info
@@ -172,7 +173,7 @@ def test_sso_pulsar_stream_creation(pulsar_topics, sso_connection):
         session.run(
             f"""CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]}
             TRANSFORM pulsar_transform.simple
-            SERVICE_URL 'pulsar://127.0.0.1:6650'"""
+            SERVICE_URL '{common.PULSAR_SERVICE_URL}'"""
         ).consume()
 
         # Verify the stream was created and check its info
@@ -193,13 +194,13 @@ def test_sso_multiple_streams(kafka_topics, pulsar_topics, sso_connection):
         session.run(
             f"""CREATE KAFKA STREAM sso_kafka_stream1 TOPICS {kafka_topics[0]}
             TRANSFORM kafka_transform.simple
-            BOOTSTRAP_SERVERS 'localhost:29092'"""
+            BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
         ).consume()
 
         session.run(
             f"""CREATE PULSAR STREAM sso_pulsar_stream1 TOPICS {pulsar_topics[0]}
             TRANSFORM pulsar_transform.simple
-            SERVICE_URL 'pulsar://127.0.0.1:6650'"""
+            SERVICE_URL '{common.PULSAR_SERVICE_URL}'"""
         ).consume()
 
         # Verify both streams were created
@@ -225,7 +226,7 @@ def test_sso_stream_ownership_verification(kafka_topics, sso_connection):
         session.run(
             f"""CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]}
             TRANSFORM kafka_transform.simple
-            BOOTSTRAP_SERVERS 'localhost:29092'"""
+            BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
         ).consume()
 
         # Verify ownership
@@ -257,7 +258,7 @@ def test_multi_role_admin_stream_creation(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM admin_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Verify stream was created
@@ -285,7 +286,7 @@ def test_multi_role_architect_stream_creation(kafka_topics, multi_role_connectio
             session.run(
                 f"""CREATE KAFKA STREAM architect_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Verify stream was created
@@ -313,7 +314,7 @@ def test_multi_role_user_stream_creation(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM user_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Verify stream was created
@@ -476,7 +477,7 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM admin_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Create stream in architect_db
@@ -484,7 +485,7 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM architect_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Create stream in user_db
@@ -492,7 +493,7 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM user_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Verify streams were created in each database
@@ -528,7 +529,7 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
                 session.run(
                     f"""CREATE KAFKA STREAM admin_stream TOPICS {kafka_topics[0]}
                     TRANSFORM kafka_transform.simple
-                    BOOTSTRAP_SERVERS 'localhost:29092'"""
+                    BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
                 ).consume()
                 assert False, "Architect should not be able to create stream in admin_db"
             except Exception:
@@ -539,7 +540,7 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
             session.run(
                 f"""CREATE KAFKA STREAM architect_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Should be able to create stream in user_db
@@ -547,7 +548,7 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
             session.run(
                 f"""CREATE KAFKA STREAM user_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
 

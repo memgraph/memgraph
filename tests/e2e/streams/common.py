@@ -9,6 +9,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import os
+import re
 import time
 from multiprocessing import Manager, Process, Value
 
@@ -185,7 +187,12 @@ def kafka_check_vertex_exists_with_topic_and_payload(cursor, topic, payload_byte
     check_vertex_exists_with_properties(cursor, {"topic": f'"{topic}"', "payload": f'"{decoded_payload}"'})
 
 
-PULSAR_SERVICE_URL = "pulsar://127.0.0.1:6650"
+# Broker addresses; CI (release/package/mgbuild.sh) points these at the compose service names on the shared
+# package_default network, locally the defaults use the ports published by the compose files.
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092")
+PULSAR_SERVICE_URL = os.getenv("PULSAR_SERVICE_URL", "pulsar://localhost:6650")
+_PULSAR_HOST = re.match(r"pulsar://([^:/]+)", PULSAR_SERVICE_URL).group(1)
+PULSAR_ADMIN_URL = f"http://{_PULSAR_HOST}:{6652 if _PULSAR_HOST == 'localhost' else 8080}"
 
 
 def pulsar_default_namespace_topic(topic):

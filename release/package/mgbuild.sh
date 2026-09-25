@@ -2389,10 +2389,11 @@ test_memgraph() {
     ;;
     e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      # The Kafka/Pulsar compose stacks (tests/e2e/streams) join this container's package_default network.
       local pycmd="python${python_runtime_version:-3}"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run.sh"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE KAFKA_BOOTSTRAP_SERVERS=kafka:9092 PULSAR_SERVICE_URL=pulsar://pulsar:6650 && ./run.sh"
     ;;
     e2e-parallel)
       shift 1
@@ -2422,7 +2423,7 @@ test_memgraph() {
       local pycmd="python${python_runtime_version:-3}"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run_parallel.sh $nprocesses"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE KAFKA_BOOTSTRAP_SERVERS=kafka:9092 PULSAR_SERVICE_URL=pulsar://pulsar:6650 && ./run_parallel.sh $nprocesses"
     ;;
     query_modules_e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
