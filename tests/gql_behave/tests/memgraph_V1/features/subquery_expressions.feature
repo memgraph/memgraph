@@ -3776,3 +3776,162 @@ Feature: Subquery expressions
           RETURN p.name AS person;
           """
       Then the result should be empty
+
+  # A CALL ends a query part but not the command, so a fold after it has to see a write before it.
+  Scenario: Test EXISTS in a RETURN after a CREATE and a CALL
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (:New)
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          RETURN EXISTS { MATCH (x:New) } AS e;
+          """
+      Then the result should be:
+          | e |
+          | true |
+
+  Scenario: Test COUNT in a RETURN after a MERGE and a CALL
+      Given an empty graph
+      When executing query:
+          """
+          MERGE (:New {v: 1})
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          RETURN COUNT { MATCH (x:New) } AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test COLLECT in a RETURN after a FOREACH and a CALL
+      Given an empty graph
+      When executing query:
+          """
+          FOREACH (i IN [1] | CREATE (:New {v: i}))
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          RETURN COLLECT { MATCH (x:New) RETURN x.v } AS l;
+          """
+      Then the result should be:
+          | l |
+          | [1] |
+
+  Scenario: Test a pattern comprehension in a RETURN after a CREATE and a CALL
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (:New)-[:R]->(:New)
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          RETURN size([(x:New)-[:R]->() | x]) AS s;
+          """
+      Then the result should be:
+          | s |
+          | 1 |
+
+  Scenario: Test EXISTS in a RETURN correlated with a node created before a CALL
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (c:New)-[:R]->(:New)
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          RETURN EXISTS { MATCH (c)-[:R]->() } AS e;
+          """
+      Then the result should be:
+          | e |
+          | true |
+
+  Scenario: Test EXISTS in a RETURN after a DELETE and a CALL
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Old)-[:R]->(:Old)
+          """
+      When executing query:
+          """
+          MATCH (:Old)-[r:R]->() DELETE r
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          RETURN NOT EXISTS { MATCH (:Old)-[:R]->() } AS e;
+          """
+      Then the result should be:
+          | e |
+          | true |
+
+  Scenario: Test COUNT in a RETURN after a CREATE per row and a CALL
+      Given an empty graph
+      When executing query:
+          """
+          UNWIND [1, 2, 3] AS i CREATE (:New {v: i})
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          RETURN i, COUNT { MATCH (x:New) } AS c ORDER BY i;
+          """
+      Then the result should be:
+          | i | c |
+          | 1 | 3 |
+          | 2 | 3 |
+          | 3 | 3 |
+
+  # The write sits two query parts back here, behind a CALL that has no fold.
+  Scenario: Test EXISTS in the WHERE of a second CALL after a CREATE
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (:New)
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          CALL mg.procedures() YIELD name AS n2 WHERE n2 = 'mg.procedures' AND EXISTS { MATCH (x:New) }
+          RETURN count(*) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test a pattern comprehension in the WHERE of a second CALL after a CREATE
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (:New)-[:R]->(:New)
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          CALL mg.procedures() YIELD name AS n2 WHERE n2 = 'mg.procedures' AND size([(x:New)-[:R]->() | x]) = 1
+          RETURN count(*) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test COUNT in a RETURN after a CREATE and two CALLs
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (:New)
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'
+          CALL mg.procedures() YIELD name AS n2 WHERE n2 = 'mg.procedures'
+          RETURN COUNT { MATCH (x:New) } AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  # Planning the fold's body must not make the query forget its write: the WITH still has to advance the command.
+  Scenario: Test a MATCH after a WITH that follows a CALL YIELD WHERE fold and a CREATE
+      Given an empty graph
+      When executing query:
+          """
+          CREATE (:New)
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures' AND EXISTS { MATCH (:New) }
+          WITH *
+          MATCH (k:New)
+          RETURN count(k) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test a RETURN after a CALL YIELD WHERE fold still reads the final value of a repeated write
+      Given an empty graph
+      When executing query:
+          """
+          UNWIND [1, 1] AS i MERGE (n:New) SET n.v = coalesce(n.v, 0) + 1
+          CALL mg.procedures() YIELD name WHERE name = 'mg.procedures' AND EXISTS { MATCH (:New) }
+          RETURN n.v AS v;
+          """
+      Then the result should be:
+          | v |
+          | 2 |
+          | 2 |
