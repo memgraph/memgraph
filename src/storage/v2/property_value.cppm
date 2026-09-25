@@ -11,7 +11,9 @@
 
 module;
 
+#include <algorithm>
 #include <compare>
+#include <concepts>
 #include <cstdint>
 #include <iosfwd>
 #include <limits>
@@ -1206,16 +1208,49 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
     case PropertyValueType::Map: {
       auto const &m1 = first.ValueMapUnchecked();
       auto const &m2 = second.ValueMapUnchecked();
+      // The map holding fewer entries comes first whatever its keys are.
       if (m1.size() != m2.size()) return m1.size() <=> m2.size();
-      auto it1 = m1.begin();
-      auto it2 = m2.begin();
-      for (; it1 != m1.end(); ++it1, ++it2) {
-        auto key_cmp_res = it1->first <=> it2->first;
-        if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
-        auto val_cmp_res = it1->second <=> it2->second;
-        if (val_cmp_res != std::weak_ordering::equivalent) return val_cmp_res;
+
+      if constexpr (std::same_as<KeyType, std::string>) {
+        // Keyed by name, and so already kept in the order the names sort in.
+        for (auto it1 = m1.begin(), it2 = m2.begin(); it1 != m1.end(); ++it1, ++it2) {
+          if (auto const key = it1->first <=> it2->first; key != 0) return key;
+          if (auto const value = it1->second <=> it2->second; value != 0) return value;
+        }
+        return std::weak_ordering::equivalent;
+      } else {
+        // Keyed by identifier, which records when each name was first seen
+        // rather than where it sorts, and differs between two databases holding
+        // the same data. The name_order gives each identifier a number ordered
+        // the way its name is, so a pair of maps is placed the same way here as
+        // it is by a query reading the names.
+        auto const *name_order = t_name_order;
+        MG_ASSERT(name_order != nullptr,
+                  "A pair of stored maps was compared on a thread with no name_order installed, so the order their "
+                  "keys' names sort in cannot be read");
+        auto const layout = name_order->Read();
+
+        // Both sides read from one layout: laying the numbers out afresh keeps
+        // the order and changes every number, so two taken from different
+        // layouts can place a pair backwards.
+        auto in_name_order = [&layout](auto const &map) {
+          utils::small_vector<std::pair<PropertyNameOrder::Order, decltype(&map.begin()->second)>> entries;
+          entries.reserve(map.size());
+          for (auto const &entry : map) {
+            entries.emplace_back(layout->At(static_cast<std::uint32_t>(entry.first.AsUint())), &entry.second);
+          }
+          std::ranges::sort(entries, {}, [](auto const &entry) { return entry.first; });
+          return entries;
+        };
+
+        auto const lhs = in_name_order(m1);
+        auto const rhs = in_name_order(m2);
+        for (auto entry = 0U; entry != lhs.size(); ++entry) {
+          if (auto const key = lhs[entry].first <=> rhs[entry].first; key != 0) return key;
+          if (auto const value = *lhs[entry].second <=> *rhs[entry].second; value != 0) return value;
+        }
+        return std::weak_ordering::equivalent;
       }
-      return std::weak_ordering::equivalent;
     }
     case PropertyValueType::TemporalData:
       return first.ValueTemporalDataUnchecked() <=> second.ValueTemporalDataUnchecked();

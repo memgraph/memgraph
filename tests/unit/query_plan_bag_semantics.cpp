@@ -283,49 +283,44 @@ TYPED_TEST(QueryPlanTest, OrderByMultiple) {
   }
 }
 
-TYPED_TEST(QueryPlanTest, OrderByExceptions) {
+TYPED_TEST(QueryPlanTest, OrderBySortsAColumnOfMaps) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
 
-  // A sort places a pair of unlike types by where the two types sit, so what is left to
-  // refuse is a pair of one type carrying no order of its own. A map is the one such type a
-  // property can hold, at the top level and inside a list.
+  // A pair of maps sharing a key parts on the value under it, which is the entry a stored map
+  // is compared on once the keys match. Held inside a list too, because a list is ordered by
+  // what it holds and so reaches the same comparison.
   auto const key = dba.NameToProperty("key");
   auto const one = memgraph::storage::PropertyValue(
       memgraph::storage::PropertyValue::map_t{{key, memgraph::storage::PropertyValue(1)}});
   auto const two = memgraph::storage::PropertyValue(
       memgraph::storage::PropertyValue::map_t{{key, memgraph::storage::PropertyValue(2)}});
 
-  std::vector<std::pair<memgraph::storage::PropertyValue, memgraph::storage::PropertyValue>> exception_pairs{
+  std::vector<std::pair<memgraph::storage::PropertyValue, memgraph::storage::PropertyValue>> ordered_pairs{
       {one, two},
       {memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{one}),
        memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{two})}};
 
-  for (const auto &pair : exception_pairs) {
+  for (const auto &pair : ordered_pairs) {
     // empty database
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
       ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).has_value());
     dba.AdvanceCommand();
     ASSERT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
-    // make two vertices, and set values
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.first).has_value());
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.second).has_value());
     dba.AdvanceCommand();
     ASSERT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-    for (const auto &va : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_NE(va.GetProperty(memgraph::storage::View::OLD, prop).value().type(),
-                memgraph::storage::PropertyValue::Type::Null);
 
-    // order by and expect an exception
     auto n = MakeScanAll(this->storage, symbol_table, "n");
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
     auto order_by =
         std::make_shared<plan::OrderBy>(n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}}, std::vector<Symbol>{});
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*order_by, &context), QueryRuntimeException);
+    EXPECT_EQ(2, PullAll(*order_by, &context));
   }
 }
 

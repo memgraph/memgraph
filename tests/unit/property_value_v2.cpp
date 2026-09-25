@@ -21,7 +21,14 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/temporal.hpp"
+#include "tests/name_order_over_identifiers.hpp"
 #include "utils/small_vector.hpp"
+
+namespace {
+// These tests build stored maps with no database behind them, so nothing has
+// named their keys. Placing a pair of maps reads where those names sort.
+auto const *kNameOrder = ::testing::AddGlobalTestEnvironment(new memgraph::test::NameOrderOverIdentifiers);
+}  // namespace
 
 using namespace memgraph::storage;
 using enum CoordinateReferenceSystem;

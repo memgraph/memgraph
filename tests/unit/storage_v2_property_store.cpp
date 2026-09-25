@@ -22,6 +22,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "tests/name_order_over_identifiers.hpp"
 #include "tests/unit/value_shapes.hpp"
 
 using testing::IsNull;
@@ -2225,6 +2226,9 @@ TEST(PropertyStore, DecodeExpectedPropertyType) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  // Stored maps are built here with no database behind them, so nothing has
+  // named their keys. Placing a pair of maps reads where those names sort.
+  memgraph::test::UseANameOrderOverIdentifiers();
   int result = RUN_ALL_TESTS();
 
   // now run with compression on
