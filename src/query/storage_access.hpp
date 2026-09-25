@@ -43,6 +43,10 @@ storage::StorageAccessType ToStorageAccessType(HeldAccess access);
 /// access the planner settled on for a Cypher statement, absent where it settled on none, and the
 /// storage mode in force.
 ///
+/// Only a Cypher statement is ever settled as needing no hold, so only a `CypherQuery` reaches this
+/// with an absent access. Any query answering that the planner decides is given the same answer for
+/// it, since which queries the caller can decide that about is not a property of this rule.
+///
 /// Throws `DatabaseContextRequiredException` where the storage mode settles the access and no mode is
 /// given, which is the caller having reached DDL with no current database.
 StorageAccessRequirement RequiredStorageAccess(Query const &query, std::optional<HeldAccess> cypher_access,

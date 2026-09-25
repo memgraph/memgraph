@@ -176,7 +176,8 @@ keeps today's fatal behavior.
   `ShowDatabasesQuery`, `ShowMemoryInfoQuery`, `SessionTraceQuery`,
   `SessionSettingQuery`, `AuthQuery`, `ReplicationQuery`, `UserProfileQuery`,
   `TenantProfileQuery`, `ParameterQuery`, `TransactionQueueQuery`,
-  `LockPathQuery`, `FreeMemoryQuery`, `CoordinatorQuery`, `ReloadSSLQuery`.
+  `SessionQuery`, `LockPathQuery`, `FreeMemoryQuery`, `CoordinatorQuery`,
+  `ReloadSSLQuery`.
   Everything else — Cypher, DDL, `CREATE SNAPSHOT` — is rejected. The gate is
   fail-closed: a query type not on the allowlist is rejected by default.
 - **`DatabaseInfoQuery` is deliberately *not* allowed** (`SHOW INDEX / CONSTRAINT
