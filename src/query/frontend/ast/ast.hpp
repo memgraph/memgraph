@@ -2233,7 +2233,7 @@ class IndexQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = IndexDdl{.creating = action_ == Action::CREATE}}; }
 
-  memgraph::query::IndexQuery::Action action_;
+  memgraph::query::IndexQuery::Action action_{Action::CREATE};
   memgraph::query::LabelIx label_;
   std::vector<query::PropertyIxPath> properties_;
   std::optional<std::string> name_;
@@ -2283,7 +2283,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = IndexDdl{.creating = action_ == Action::CREATE}}; }
 
-  memgraph::query::EdgeIndexQuery::Action action_;
+  memgraph::query::EdgeIndexQuery::Action action_{Action::CREATE};
   memgraph::query::EdgeTypeIx edge_type_;
   std::vector<memgraph::query::PropertyIx> properties_;
   bool global_{false};
@@ -3669,7 +3669,7 @@ class TriggerQuery : public memgraph::query::Query {
     return {.access = FixedAccess{.access = HeldAccess::kRead}};
   }
 
-  TriggerQuery::Action action_;
+  TriggerQuery::Action action_{Action::CREATE_TRIGGER};
   TriggerQuery::EventType event_type_;
   std::string trigger_name_;
   bool before_commit_;
@@ -4610,7 +4610,7 @@ class DescriptionQuery : public memgraph::query::Query {
     return {.access = FixedAccess{.access = mutating ? HeldAccess::kUnique : HeldAccess::kRead}};
   }
 
-  Action action_;
+  Action action_{Action::SET};
   storage::DescriptionTargetKind target_kind_;
   std::vector<LabelIx> labels_;
   EdgeTypeIx edge_type_;

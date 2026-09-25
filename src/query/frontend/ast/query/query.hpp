@@ -31,6 +31,9 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
 
   /// What this query states about itself. Pure, so a new query has to answer rather than inherit a
   /// set of answers that happens to compile.
+  ///
+  /// An answer may read the query's own members, so a member one reads holds an initial value
+  /// rather than waiting for a parse to supply it.
   virtual QueryTraits Traits() const = 0;
 
  private:

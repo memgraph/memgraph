@@ -71,7 +71,7 @@ StorageAccessRequirement RequiredStorageAccess(Query const &query, std::optional
                         [cypher_access](PlannerShaped shaped) -> StorageAccessRequirement {
                           // The planner settled on no hold, so there is none to take and nothing to commit.
                           if (!cypher_access) return {};
-                          return {.access = *cypher_access, .could_commit = shaped.commits};
+                          return {.access = cypher_access, .could_commit = shaped.commits};
                         },
                         [storage_mode](IndexDdl ddl) -> StorageAccessRequirement {
                           return IndexDdlAccess(ddl.creating,
