@@ -11500,6 +11500,7 @@ void Interpreter::Abort() {
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
+  tx_mode_.reset();
   current_timeout_deadline_.reset();
 
   // Route Abort-path deallocations/cleanup to this DB's arena.
