@@ -575,6 +575,13 @@ class Interpreter final {
    */
   void Abort();
 
+  /**
+   * Clear in-band Cypher session state (SET SESSION/NEXT isolation, SET SESSION TRACE/SETTING)
+   * on LOGOFF. Deliberately NOT part of Abort(): Abort() runs on RESET, ROLLBACK, auth failure,
+   * and autocommit abort, where this state must survive within the same logical session.
+   */
+  void ResetForConnectionReuse();
+
   struct TxVerifier {
     TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
         : original_status_(original_status), transaction_status_(transaction_status) {}

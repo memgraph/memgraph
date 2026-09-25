@@ -11523,6 +11523,18 @@ void Interpreter::Abort() {
   frame_change_collector_.reset();
 }
 
+void Interpreter::ResetForConnectionReuse() {
+  // One-shot `SET NEXT TRANSACTION ISOLATION LEVEL`: its target transaction never starts after
+  // LogOff, so drop it or it leaks into the next pooled session's first transaction.
+  next_transaction_isolation_level.reset();
+
+  // `SET SESSION ISOLATION LEVEL` falls back to the storage/config default.
+  interpreter_isolation_level.reset();
+
+  // `SET SESSION TRACE`/`SETTING` mutate the log-context overlay in-band (invisible to Configure()).
+  session_log_ctx_.ResetForConnectionReuse();
+}
+
 std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() {
   constexpr std::array valid_statuses = {
       TransactionStatus::ACTIVE, TransactionStatus::STARTED_COMMITTING, TransactionStatus::STARTED_ROLLBACK};

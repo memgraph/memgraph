@@ -76,6 +76,13 @@ class SessionLogContext {
     return std::string_view{it->second};
   }
 
+  // Clears trace + session overlay on LOGOFF so they don't leak to the next pooled session.
+  // Keeps session_uuid_ (connection identity), user_ (auth-managed), and tx_id_ (transaction-scoped).
+  void ResetForConnectionReuse() noexcept {
+    trace_enabled_ = false;
+    session_settings_overlay_.clear();
+  }
+
  private:
   // Transparent hashing so reads/resets look up by string_view without allocating
   // a temporary std::string on every query.
