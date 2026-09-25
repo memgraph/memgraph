@@ -997,10 +997,8 @@ void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx
     UpdateProfileLimits(name, std::nullopt, *user_resources_);
   }
 
-  if (system_tx) {
-    if (auto const profile = user_profiles_.Get(*profile_name)) {
-      AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(*profile); });
-    }
+  if (auto const profile = user_profiles_.Get(*profile_name)) {
+    AddAuthAction(system_tx, [&] { return std::make_unique<UpdateAuthData>(*profile); });
   }
 }
 
