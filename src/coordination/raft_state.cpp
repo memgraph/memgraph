@@ -611,14 +611,7 @@ auto RaftState::GetCoordinatorInstancesAux() const -> std::vector<CoordinatorIns
 }
 
 auto RaftState::GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux {
-  auto const coord_instances_aux = GetCoordinatorInstancesAux();
-  auto const self_aux = std::ranges::find_if(
-      coord_instances_aux,
-      [coordinator_id = this->coordinator_id_](auto const &coordinator) { return coordinator_id == coordinator.id; });
-  MG_ASSERT(self_aux != coord_instances_aux.end(),
-            "Cannot find raft_server::aux for coordinator with id {}.",
-            coordinator_id_);
-  return *self_aux;
+  return state_manager_->GetMyCoordinatorInstanceAux();
 }
 
 auto RaftState::GetCurrentMainUUID() const -> utils::UUID { return state_machine_->GetCurrentMainUUID(); }
