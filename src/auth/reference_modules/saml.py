@@ -10,6 +10,18 @@ from onelogin.saml2.settings import OneLogin_Saml2_Settings
 ENTRA_IDP_ROLE_ATTRIBUTE = "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"  # NOSONAR
 # ^ standardized by Microsoft: https://learn.microsoft.com/en-us/entra/identity-platform/reference-saml-tokens
 
+
+def fips_approved_mode() -> bool:
+    """Whether the OpenSSL this interpreter links is in FIPS approved mode."""
+    try:
+        import _hashlib
+
+        return bool(_hashlib.get_fips_mode())
+    except Exception:
+        # Not built against OpenSSL, or too old to report: assume not approved.
+        return False
+
+
 # Default settings: "sp" refers to the service provider (Memgraph), and "idp" to the identity provider (Entra ID)
 SETTINGS_TEMPLATE = {
     "strict": True,
@@ -36,6 +48,13 @@ SETTINGS_TEMPLATE = {
     "security": {
         "wantAssertionsEncrypted": False,
         "wantNameIdEncrypted": False,
+        # python3-saml defaults this to False, which accepts SHA-1 signatures
+        # and digests (DSA_SHA1, RSA_SHA1, SHA1). SHA-1 is not an approved
+        # signature algorithm, so an image running OpenSSL in FIPS approved
+        # mode must turn it on - but turning it on unconditionally would stop
+        # existing deployments whose IdP still signs with SHA-1 from
+        # authenticating, so it follows the mode rather than the build.
+        "rejectDeprecatedAlgorithm": fips_approved_mode(),
     },
 }
 
