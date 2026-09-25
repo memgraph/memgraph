@@ -16,7 +16,7 @@
 #include <unordered_set>
 #include <variant>
 
-#include "kvstore/kvstore.hpp"
+#include "auth/repository.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::auth {
@@ -29,7 +29,6 @@ class UserProfiles {
 
   static auto AllLimits() { return fmt::format("{}, {}", kLimits[0], kLimits[1]); }
 
-  static constexpr std::string_view kUserProfilesPrefix = "user_profile:";
   static constexpr std::string_view kUserProfilesVersionKey = "user_profile_version";
   static constexpr std::string_view kUserProfilesV1 = "V1";
   static constexpr std::string_view kUserProfilesVersion = kUserProfilesV1;
@@ -49,7 +48,7 @@ class UserProfiles {
         : name(std::move(name)), limits(std::move(limits)), usernames(std::move(usernames)) {}
   };
 
-  explicit UserProfiles(kvstore::KVStore &durability);
+  explicit UserProfiles(Repository &durability);
 
   bool Create(std::string_view name, limits_t defined_limits, const std::unordered_set<std::string> &usernames = {});
   std::optional<Profile> Update(std::string_view name, const limits_t &updated_limits);
@@ -93,7 +92,7 @@ class UserProfiles {
   };
 
   mutable utils::RWSpinLock mtx_;
-  kvstore::KVStore *durability_;                                       // Reuse auth's durability
+  Repository *durability_;                                             // Reuse auth's durability
   std::unordered_set<Profile, profile_hash, profile_equal> profiles_;  // Local storage
 };
 
