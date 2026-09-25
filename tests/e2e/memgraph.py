@@ -61,6 +61,8 @@ PORT_FLAGS = {
     "--metrics_port",
 }
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "::"}
+# Ports of services the tests do not start (Kafka, Pulsar broker and admin from tests/e2e/streams); never remapped.
+EXTERNAL_SERVICE_PORTS = {29092, 6650, 6652}
 # Only host:port endpoints and `WITH PORT n` are touched, so numbers in map literals or timestamps are left alone.
 ENDPOINT_RE = re.compile(r"(?<![\w.])(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(\d{4,5})\b")
 PORT_KEYWORD_RE = re.compile(r"(?i)(\bPORT\s+)(\d{4,5})\b")
@@ -86,7 +88,7 @@ class PortRemap:
             self.reverse[int(mapped)] = int(original)
 
     def is_candidate(self, port):
-        return 1024 <= port < self.window_start
+        return 1024 <= port < self.window_start and port not in EXTERNAL_SERVICE_PORTS
 
     def map_port(self, port):
         """Allocates a window port for `port` on first sight; later calls return the same one."""
