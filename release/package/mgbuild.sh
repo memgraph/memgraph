@@ -163,6 +163,7 @@ print_help () {
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
   echo -e "  --no-python                   Build memgraph without the embedded Python interpreter (maps to -DMG_PYTHON_SUPPORT=OFF; the package then has no libpython/python3/pip dependencies)."
+  echo -e "  --fips                        Build for a FIPS 140-3 approved-mode image (maps to -DMG_FIPS=ON; omits components whose crypto cannot come from the validated OpenSSL, e.g. the Kerberos auth module)."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
@@ -190,7 +191,7 @@ print_help () {
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
-  echo -e "  --package-flavour string        Docker package flavour: 'prod', 'debug' or 'fips' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling. 'fips' builds the FIPS 140-3 image and requires a package built with --no-python plus the FIPS OpenSSL packages staged in build/ (fetch-openssl-packages.sh --fips)."
+  echo -e "  --package-flavour string        Docker package flavour: 'prod', 'debug' or 'fips' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling. 'fips' builds the FIPS 140-3 image and requires a package built with --no-python --fips plus the FIPS OpenSSL packages staged in build/ (fetch-openssl-packages.sh --fips)."
 
   echo -e "\npackage-mage-deb / package-mage-rpm options:"
   echo -e "  --malloc                      Variant flag — affects the output filename only"
@@ -708,6 +709,7 @@ build_memgraph () {
   local python_build_version_flag=""
   local python_runtime_version=""
   local python_support_flag=""
+  local fips_flag=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -789,6 +791,10 @@ build_memgraph () {
       ;;
       --no-python)
         python_support_flag="-DMG_PYTHON_SUPPORT=OFF"
+        shift 1
+      ;;
+      --fips)
+        fips_flag="-DMG_FIPS=ON"
         shift 1
       ;;
       --python-runtime-version)
@@ -990,7 +996,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag" "$fips_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then

@@ -182,6 +182,11 @@ USER memgraph
 # own. lxml is rebuilt with them because xmlsec refuses to import unless its
 # libxml2 major.minor matches lxml's. Everything else comes from PyPI unchanged.
 #
+# No /tmp/wheels here, unlike python-base. The only package that needed it was
+# gssapi, which has no PyPI linux wheels — and MG_FIPS drops gssapi along with
+# kerberos.py, because Ubuntu's krb5 does its own crypto rather than OpenSSL's.
+# package_docker stages the requirements with that pin already filtered out.
+#
 # Installed as root into /usr/local/lib/python3.12/dist-packages rather than a
 # user's ~/.local, so the tree is root-owned and readable by every user in the
 # image.
@@ -212,17 +217,16 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     /mirrors/pin_mirrors.sh restore; \
   fi
 
-COPY wheels /tmp/wheels
 COPY fips-wheels /tmp/fips-wheels
 
 # The order of these two installs matters and the failure mode is silent.
 # The rebuilt wheels carry a plain linux_<arch> platform tag, which pip ranks
 # *below* PyPI's manylinux tag — so resolving them through an index-enabled
-# install prefers PyPI's bundled-OpenSSL wheel even with --find-links pointing
-# at ours. Installing them first by path with --no-index removes the choice;
-# the second install then reports those pins already satisfied and leaves them.
+# install prefers PyPI's bundled-OpenSSL wheel. Installing them first by path
+# with --no-index removes the choice; the second install then reports those
+# pins already satisfied and leaves them.
 RUN pip3 install --no-cache-dir --break-system-packages --no-index --no-deps /tmp/fips-wheels/*.whl && \
-    pip3 install --no-cache-dir --break-system-packages --find-links=/tmp/wheels --only-binary=gssapi -r /tmp/auth-module-requirements.txt
+    pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt
 
 ###############################################################################
 # prod-fips: FIPS 140-3 variant.

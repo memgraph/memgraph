@@ -24,6 +24,8 @@ OPTIONS:
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
     --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo/Debug)
+    --fips                  Build for a FIPS 140-3 approved-mode image (maps to -DMG_FIPS=ON; omits
+                            components whose crypto cannot come from the validated OpenSSL)
     --mage MODE             MAGE query modules (C++, Python, Rust). MODE is one of:
                               off  = no MAGE (default)
                               on   = build MAGE together with Memgraph
@@ -111,6 +113,7 @@ COMPILE_JOBS=""
 LINK_JOBS=""
 JOB_MEMORY_CAP=on
 SPLIT_DEBUG=off
+FIPS=off
 PROFILING=""
 MAGE=off
 CUGRAPH=off
@@ -185,6 +188,10 @@ while [[ $# -gt 0 ]]; do
             SPLIT_DEBUG=on
             shift
             ;;
+        --fips)
+            FIPS=on
+            shift
+            ;;
         --mage)
             MAGE="$2"
             shift 2
@@ -247,6 +254,10 @@ fi
 
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+fi
+
+if [[ "$FIPS" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_FIPS=ON"
 fi
 
 if [[ ! "$CMAKE_ARGS" =~ MG_PYTHON_SUPPORT ]]; then
