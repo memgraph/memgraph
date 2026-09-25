@@ -3740,6 +3740,8 @@ class StorageModeQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  // Zero here is not "touches nothing": the database level handles this query and takes the
+  // access it needs for itself.
   StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
 
   memgraph::query::StorageModeQuery::StorageMode storage_mode_;
@@ -3762,6 +3764,7 @@ class CreateSnapshotQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  // Also reached on the periodic path, so it arranges its own access internally.
   StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
 
   CreateSnapshotQuery *Clone(AstStorage *storage) const override {
@@ -4434,6 +4437,8 @@ class AlterEnumRemoveValueQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  // Not implemented: preparing it throws. Implementing it means choosing the access an enum
+  // mutation needs, which is unique, rather than keeping this.
   StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
 
   std::string enum_name_;
@@ -4460,6 +4465,8 @@ class DropEnumQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  // Not implemented: preparing it throws. Implementing it means choosing the access an enum
+  // mutation needs, which is unique, rather than keeping this.
   StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
 
   std::string enum_name_;
@@ -4553,6 +4560,8 @@ class TtlQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  // The unique hold is for the TTL metadata. The indices this configures are populated
+  // asynchronously under whatever access their own population requires.
   StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kUnique; }
 
   TtlQuery *Clone(AstStorage *storage) const override {

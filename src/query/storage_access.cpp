@@ -11,6 +11,8 @@
 
 #include "query/storage_access.hpp"
 
+#include <utility>
+
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "utils/logging.hpp"
@@ -98,6 +100,7 @@ StorageAccessRequirement RequiredStorageAccess(Query const &query, storage::Stor
       return {.access = READ};
     }
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::query

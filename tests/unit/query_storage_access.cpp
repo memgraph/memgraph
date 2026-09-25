@@ -13,6 +13,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <optional>
+
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
