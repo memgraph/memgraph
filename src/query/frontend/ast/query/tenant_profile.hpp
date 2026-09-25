@@ -31,7 +31,7 @@ class TenantProfileQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  StorageAccessPolicy AccessPolicy() const override { return StorageAccessPolicy::kNone; }
+  StorageAccessPolicy AccessPolicy() const override { return NoAccess{}; }
 
   bool UsesTenantData() const override { return false; }
 

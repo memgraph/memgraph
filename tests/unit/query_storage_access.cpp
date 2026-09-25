@@ -89,6 +89,14 @@ TEST(QueryStorageAccess, ProfileTakesTheSameShapeButCommitsNothing) {
   EXPECT_EQ(RequiredStorageAccess(*query, WRITE, std::nullopt), (StorageAccessRequirement{.access = WRITE}));
 }
 
+TEST(QueryStorageAccess, ProfileTakesTheShapeItIsGivenEvenWhenThatIsNoAccess) {
+  AstStorage storage;
+  auto *query = storage.Create<memgraph::query::ProfileQuery>();
+  // Graph-freedom is settled for the statement a profile reports on, never for the profile, so the
+  // shape arrives as given rather than standing for an absent accessor.
+  EXPECT_EQ(RequiredStorageAccess(*query, NO_ACCESS, std::nullopt), (StorageAccessRequirement{.access = NO_ACCESS}));
+}
+
 TEST(QueryStorageAccess, IndexCreationNeedsWritersOutUnderTransactionalMode) {
   AstStorage storage;
   auto *query = storage.Create<memgraph::query::IndexQuery>();

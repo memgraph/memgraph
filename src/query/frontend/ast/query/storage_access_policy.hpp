@@ -11,33 +11,43 @@
 
 #pragma once
 
-#include <cstdint>
+#include <variant>
+
+#include "storage/v2/access_type.hpp"
 
 namespace memgraph::query {
 
-/// What a kind of query needs held on the graph while it is prepared.
-///
-/// Each kind of query states its own policy, and `RequiredStorageAccess` turns a policy plus the
-/// runtime inputs into the access an interpreter takes. The policies from `kCypherShaped` onwards
-/// cannot be settled from the kind alone, so they name the rule rather than the answer. Keeping the
-/// vocabulary free of storage types is what lets a query kind declare its policy without the AST
-/// depending on the storage layer.
-enum class StorageAccessPolicy : uint8_t {
-  /// Needs no accessor: the query reads or changes instance, session or system state.
-  kNone,
-  /// Reads graph data, or metadata that tolerates concurrent writers.
-  kRead,
-  /// Excludes every other accessor for as long as it is held.
-  kUnique,
-  /// Takes the access the planner settled on for this statement, and has something to commit.
-  kCypherShaped,
-  /// Takes the same access as `kCypherShaped` with nothing to commit, since profiling reports an
-  /// execution rather than performing one of its own.
-  kProfiledShaped,
-  /// Index DDL: the storage mode decides, and creating differs from dropping.
-  kIndexDdl,
-  /// Constraint DDL: the storage mode decides.
-  kConstraintDdl,
+/// Needs no accessor: the query reads or changes instance, session or system state.
+struct NoAccess {};
+
+/// The query settles its own access, whether from its kind alone or from the action it carries.
+struct FixedAccess {
+  storage::StorageAccessType access;
 };
+
+/// Takes the access the planner settled on for this statement.
+struct PlannerShaped {
+  /// Whether there will be anything to commit. Profiling reports an execution rather than
+  /// performing one of its own, so it commits nothing.
+  bool commits;
+};
+
+/// Index DDL, whose access the storage mode decides.
+struct IndexDdl {
+  bool creating;
+  /// Indexing edges rather than vertices. The access is the same either way; the two are told apart
+  /// so that reaching either without a database names the statement that was refused.
+  bool on_edges;
+};
+
+/// Constraint DDL, whose access the storage mode decides.
+struct ConstraintDdl {};
+
+/// What a query needs held on the graph while it is prepared.
+///
+/// Each query answers with one of these, and `RequiredStorageAccess` turns an answer plus the
+/// runtime inputs into the access an interpreter takes. A case carries whatever settling it needs
+/// beyond the kind, so no case has to be recovered by asking what the query was.
+using StorageAccessPolicy = std::variant<NoAccess, FixedAccess, PlannerShaped, IndexDdl, ConstraintDdl>;
 
 }  // namespace memgraph::query

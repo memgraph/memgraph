@@ -11,12 +11,11 @@
 
 #include "query/storage_access.hpp"
 
-#include <utility>
+#include <variant>
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "utils/logging.hpp"
-#include "utils/typeinfo.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
 
@@ -51,40 +50,29 @@ StorageAccessRequirement IndexDdlAccess(bool creating, storage::StorageMode stor
 StorageAccessRequirement RequiredStorageAccess(Query const &query, storage::StorageAccessType cypher_access,
                                                std::optional<storage::StorageMode> storage_mode) {
   using enum storage::StorageAccessType;
-  switch (query.AccessPolicy()) {
-    case StorageAccessPolicy::kNone:
-      return {};
-    case StorageAccessPolicy::kRead:
-      return {.access = READ};
-    case StorageAccessPolicy::kUnique:
-      return {.access = UNIQUE};
-    case StorageAccessPolicy::kCypherShaped:
-      // NO_ACCESS opens no storage transaction, and so leaves nothing to commit.
-      if (cypher_access == NO_ACCESS) return {};
-      return {.access = cypher_access, .could_commit = true};
-    case StorageAccessPolicy::kProfiledShaped:
-      // Never NO_ACCESS: graph-freedom is decided for a CypherQuery, and a profiled query is not
-      // one, so it takes the access its own shape asks for. Which is right either way, since
-      // PROFILE reports what an execution did and so needs there to have been one.
-      return {.access = cypher_access};
-    case StorageAccessPolicy::kIndexDdl: {
-      if (auto const *index = utils::Downcast<IndexQuery const>(&query)) {
-        return IndexDdlAccess(index->action_ == IndexQuery::Action::CREATE,
-                              ModeOrThrow(storage_mode, "Database required for index query."));
-      }
-      auto const *edge_index = utils::Downcast<EdgeIndexQuery const>(&query);
-      MG_ASSERT(edge_index, "A query kind claims index DDL without being one of the index queries");
-      return IndexDdlAccess(edge_index->action_ == EdgeIndexQuery::Action::CREATE,
-                            ModeOrThrow(storage_mode, "Database required for edge index query."));
-    }
-    case StorageAccessPolicy::kConstraintDdl:
-      return {.access = ModeOrThrow(storage_mode, "Database required for constraint query.") ==
-                                storage::StorageMode::ON_DISK_TRANSACTIONAL
-                            ? UNIQUE
-                            : READ_ONLY,
-              .mode_dependent = true};
-  }
-  std::unreachable();
+  return std::visit(utils::Overloaded{
+                        [](NoAccess) -> StorageAccessRequirement { return {}; },
+                        [](FixedAccess settled) -> StorageAccessRequirement { return {.access = settled.access}; },
+                        [cypher_access](PlannerShaped shaped) -> StorageAccessRequirement {
+                          // A statement decided graph-free opens no storage transaction, so it leaves nothing to
+                          // commit. Only a statement that could commit is ever decided graph-free: profiling
+                          // takes the access its own shape asks for, reporting what an execution did and so
+                          // needing there to have been one.
+                          if (shaped.commits && cypher_access == NO_ACCESS) return {};
+                          return {.access = cypher_access, .could_commit = shaped.commits};
+                        },
+                        [storage_mode](IndexDdl ddl) -> StorageAccessRequirement {
+                          auto const *subject = ddl.on_edges ? "Database required for edge index query."
+                                                             : "Database required for index query.";
+                          return IndexDdlAccess(ddl.creating, ModeOrThrow(storage_mode, subject));
+                        },
+                        [storage_mode](ConstraintDdl) -> StorageAccessRequirement {
+                          auto const mode = ModeOrThrow(storage_mode, "Database required for constraint query.");
+                          return {.access = mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ? UNIQUE : READ_ONLY,
+                                  .mode_dependent = true};
+                        },
+                    },
+                    query.AccessPolicy());
 }
 
 }  // namespace memgraph::query
