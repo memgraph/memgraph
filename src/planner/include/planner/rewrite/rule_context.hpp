@@ -93,6 +93,9 @@ class RuleContext {
 
   Graph &graph_;
   std::vector<EClassId> &new_eclasses_;
+  // Counts merges only; a rule that mints e-nodes (emplace/Make<S>) without a
+  // paired merge does not bump this, and the saturation loop's fixpoint check
+  // keys off it - so every rule's apply() must pair new content with a merge.
   std::size_t rewrites_ = 0;
 };
 

@@ -27,6 +27,7 @@
 #include <format>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <set>
 #include <string>
@@ -78,12 +79,17 @@ struct FuzzAnalysis {
   void merge(FuzzAnalysis const & /*other*/) {}
 };
 
-/// Trait per fuzz symbol. The harness builds e-nodes directly through the core
-/// e-graph, so no symbol mints nodes via `Make<S>`; the trait exists only to
-/// give `FuzzTypedEGraph` the per-symbol storage the wrapper is defined over.
+/// Trait per fuzz symbol. The harness seeds the graph directly through the core
+/// e-graph, but a rule may still mint a node via `Make<S>` (e.g. the
+/// incremental-arming fuzzer's commutativity rule), so the trait supplies a
+/// binary `make`; fuzz symbols carry no storage.
 template <FuzzSymbol S>
 struct fuzz_traits {
   struct storage_type {};
+
+  static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> MakeResult<FuzzAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
+  }
 };
 
 using FuzzSeq =
