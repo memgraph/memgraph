@@ -76,7 +76,7 @@ constexpr bool ValidFor(TypedValue::Type type) {
 /**
  * Whether comparability places a value against the values of its own type.
  *
- * A type being valid is not enough to say this, because one admitted type holds a
+ * A type being valid is not enough to say this, because one valid type holds a
  * value with no order: a NaN is unordered against every number and against
  * itself, so all four comparisons answer false for a pair holding one and a
  * filter keeps no row. Ask this of a value a scan is about to be fenced by,
@@ -96,7 +96,7 @@ constexpr bool ValidFor() {
 
 /**
  * Orders two values of one type by what they hold, for the types
- * comparability admits.
+ * comparability is valid for.
  *
  * Nothing is returned for a type it is not valid for, which is every type
  * carrying no order of its own plus enums and the two point types, which
@@ -167,7 +167,7 @@ constexpr bool ValidFor() {
  * filter it stands in for could not reach at all.
  */
 inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const TypedValue &b) {
-  // Two values of one admitted type are the common case and the whole answer.
+  // Two values of one valid type are the common case and the whole answer.
   if (a.type() == b.type()) {
     if (auto const order = ComparePayload(a, b)) return order;
 
