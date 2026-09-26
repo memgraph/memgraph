@@ -241,7 +241,8 @@ class Client {
 // Server and the given number of concurrent clients, over loopback.
 class Fixture {
  public:
-  Fixture(int io_threads, int clients, ArmMode mode) : pool_{io_threads}, worker_{clients} {
+  // The priority pool is a fixed size in the server, so it does not grow with the client count.
+  Fixture(int io_threads, int clients, ArmMode mode) : pool_{io_threads}, worker_{io_threads} {
     auto acceptor = tcp::acceptor{pool_.Context(), tcp::endpoint{boost::asio::ip::make_address("127.0.0.1"), 0}};
     const auto port = acceptor.local_endpoint().port();
 
@@ -292,18 +293,21 @@ double Percentile(std::vector<double> &sorted, double fraction) {
   return sorted[std::min(index, sorted.size() - 1)];
 }
 
-// mgbench runs six concurrent client workers and takes percentiles over all of them, so that is the
-// shape reproduced here.
-constexpr int kClients = 6;
+// mgbench runs six concurrent client workers and takes percentiles over all of them; the sweep
+// either side of six says whether what is measured there is particular to that concurrency.
 constexpr int kIoThreads = 22;
-constexpr int kRoundTripsPerClient = 3000;
+constexpr int kRoundTripsPerClient = 2000;
 
 void ConcurrentRoundTrip(benchmark::State &state, ArmMode mode) {
-  auto fixture = Fixture{kIoThreads, kClients, mode};
-  fixture.Run(300);
+  const auto clients = static_cast<int>(state.range(0));
+  auto fixture = Fixture{kIoThreads, clients, mode};
+  fixture.Run(200);
 
   for (auto _ : state) {
+    const auto started = Clock::now();
     auto durations = fixture.Run(kRoundTripsPerClient);
+    const auto elapsed = std::chrono::duration<double>(Clock::now() - started).count();
+
     state.PauseTiming();
     std::sort(durations.begin(), durations.end());
     state.counters["p50_us"] = Percentile(durations, 0.50);
@@ -314,6 +318,7 @@ void ConcurrentRoundTrip(benchmark::State &state, ArmMode mode) {
       total += duration;
     }
     state.counters["mean_us"] = total / static_cast<double>(durations.size());
+    state.counters["kqps"] = static_cast<double>(durations.size()) / elapsed / 1000.0;
     state.ResumeTiming();
   }
 }
@@ -356,9 +361,11 @@ void ArmDelay(benchmark::State &state, ArmMode mode) {
 
 }  // namespace
 
-BENCHMARK_CAPTURE(ConcurrentRoundTrip, inline_arm, ArmMode::kInline)->UseRealTime();
-BENCHMARK_CAPTURE(ConcurrentRoundTrip, strand_arm, ArmMode::kStrand)->UseRealTime();
-BENCHMARK_CAPTURE(ConcurrentRoundTrip, inline_guarded_arm, ArmMode::kInlineGuarded)->UseRealTime();
+#define CLIENT_SWEEP RangeMultiplier(2)->Range(1, 64)->UseRealTime()
+
+BENCHMARK_CAPTURE(ConcurrentRoundTrip, inline_arm, ArmMode::kInline)->CLIENT_SWEEP;
+BENCHMARK_CAPTURE(ConcurrentRoundTrip, strand_arm, ArmMode::kStrand)->CLIENT_SWEEP;
+BENCHMARK_CAPTURE(ConcurrentRoundTrip, inline_guarded_arm, ArmMode::kInlineGuarded)->CLIENT_SWEEP;
 
 BENCHMARK_CAPTURE(ArmDelay, inline_arm, ArmMode::kInline)->Arg(22)->UseManualTime();
 BENCHMARK_CAPTURE(ArmDelay, strand_arm, ArmMode::kStrand)->Arg(22)->UseManualTime();
