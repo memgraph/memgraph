@@ -184,6 +184,11 @@ ad hoc queries, and optimize their performance.
 using Kafka, RedPanda or Pulsar streams, CSV, JSON, Parquet, and JSONL files
 (from local disk, S3, or HTTP), or Cypher commands.
 
+## :school: Learning Resources
+- [Memgraph documentation](https://memgraph.com/docs)
+- [Best practices repository](https://github.com/memgraph/best-practices)
+- [Memgraph internals notes](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2)
+
 ## :bulb: Best Practices
 The [memgraph/best-practices](https://github.com/memgraph/best-practices)
 repository contains ready-to-use examples covering graph modeling, data import,
