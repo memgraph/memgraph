@@ -1413,6 +1413,16 @@ if (MG_ENTERPRISE)
 
 endif ()
 
+# Test the reason a leader declined a forwarded write
+if (MG_ENTERPRISE)
+    add_unit_test(coordinator_forwarded_status
+        SOURCES coordinator_forwarded_status.cpp
+        LINK_TARGETS gflags mg-coordination
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+    )
+
+endif ()
+
 # Test data instance context
 if (MG_ENTERPRISE)
     add_unit_test(data_instance_context
@@ -1437,6 +1447,7 @@ if (MG_ENTERPRISE)
         memgraph__unit__coordinator_env_flag_handler
         memgraph__unit__coordinator_instance_context
         memgraph__unit__coordinator_instance_aux
+        memgraph__unit__coordinator_forwarded_status
     )
 
     add_custom_target(run_ha_tests
