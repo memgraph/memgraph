@@ -1813,10 +1813,8 @@ TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
                                 AS("result"),
                                 group_by,
                                 AS(group_by_ident))));
-  // We expect to group by `group_by` and the empty list, because it is a
-  // sub-expression of a binary operator which contains an aggregation. This is
-  // similar to grouping by '1' in `RETURN 1 + SUM(2)`.
-  auto aggr = ExpectAggregate({sum}, {empty_list, group_by});
+  // The empty list names nothing, so like the `1` in `RETURN 1 + SUM(2)` it is not a grouping key.
+  auto aggr = ExpectAggregate({sum}, {group_by});
   CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
@@ -1829,9 +1827,8 @@ TYPED_TEST(TestPlanner, ListSliceAggregationReturn) {
   auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
   auto *query = QUERY(
       SINGLE_QUERY(with_group_by, RETURN(SLICE(list, LITERAL(0), sum), AS("result"), group_by, AS(group_by_ident))));
-  // Similarly to EmptyListIndexAggregation test, we expect grouping by list and
-  // `group_by`, because slicing is an operator.
-  auto aggr = ExpectAggregate({sum}, {list, group_by});
+  // As in EmptyListIndexAggregation, the constant list and bound are not grouping keys.
+  auto aggr = ExpectAggregate({sum}, {group_by});
   CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
