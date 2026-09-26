@@ -29,7 +29,6 @@
 
 #include <nlohmann/json.hpp>
 #include <stdexcept>
-#include <thread>
 #include "tests/test_commit_args_helper.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)

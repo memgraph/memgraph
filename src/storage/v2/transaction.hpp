@@ -234,8 +234,35 @@ struct Transaction {
 
   bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
 
+  // MVCC visibility: SI+ON iff ts <= snapshot_ts (highest fully-published at BEGIN); otherwise ts < start_timestamp.
+  // Used for both read visibility and write-conflict detection.
+  [[nodiscard]] bool CommittedBeforeSnapshot(uint64_t ts) const noexcept {
+    return commit_lock_narrowing ? ts <= snapshot_ts : ts < start_timestamp;
+  }
+
+  // Exclusive upper bound for schema-info delta reconstruction: delta at ts is in-snapshot iff ts < bound.
+  // ON: snapshot_ts + 1 (encodes inclusive ts <= snapshot_ts as exclusive ts < bound); OFF: start_timestamp
+  // (byte-identical legacy).
+  [[nodiscard]] uint64_t SchemaReconstructionBound() const noexcept {
+    return commit_lock_narrowing ? snapshot_ts + 1 : start_timestamp;
+  }
+
+  // INCLUSIVE upper bound for schema-object visibility in the snapshot writer (ts <= bound).
+  // ON: snapshot_ts — NOT snapshot_ts+1 (over-includes by one, causing WAL recovery to refuse the duplicate); OFF:
+  // start_timestamp.
+  [[nodiscard]] uint64_t SnapshotVisibilityBound() const noexcept {
+    return commit_lock_narrowing ? snapshot_ts : start_timestamp;
+  }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
+  // EXPERIMENTAL: frozen last-published MVCC ts at BEGIN (equals start_timestamp when OFF — never read in that case).
+  // Distinct from start_timestamp (GC/commit-log slot); snapshot_ts (<= start_timestamp) is the SI visibility boundary
+  // when ON.
+  uint64_t snapshot_ts{};
+  // EXPERIMENTAL: true only for SI txns when commit-lock-narrowing is ON.
+  // Default false ⇒ all predicates fall back to the legacy ts < start_timestamp (OFF path byte-identical to before).
+  bool commit_lock_narrowing{false};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_info`

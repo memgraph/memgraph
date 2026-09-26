@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <atomic>
 #include <concepts>
 #include <cstdint>
+#include <limits>
 #include <list>
 #include <memory>
 #include <optional>
@@ -38,6 +40,7 @@
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/snapshot_progress.hpp"
+#include "storage/v2/snapshot_slot_ring.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -465,11 +468,27 @@ class InMemoryStorage final : public Storage {
     // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
 
-    // Represents the 2nd phase of the 2PC protocol
-    // NOTE: Needs to be called while holding the engine lock
-    // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
-    // independently of PrepareForCommitPhase.
-    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
+    // Writes the WAL commit-status flag (2PC pending→committed). Must run before FinalizeWalFile
+    // seals the file. Does not require engine_lock_; only touches wal_txn_positions_/wal_file_.
+    void FinalizeWalCommitStatus();
+
+    // Publishes MVCC visibility: stores commit_info->timestamp (release), advances
+    // ldt/commit_ts_info_, installs indices, runs callbacks, marks commit_log finished, stores the
+    // flag-path watermark, and sets is_transaction_active_=false. Re-acquires engine_lock_ via a
+    // scoped pub_guard when acquire_engine_lock is true (commit-lock-narrowing path); the caller
+    // must already hold it when false.
+    // CONTRACT (engine_lock_): pub_guard spans the entire body — CheckForFastDiscardOfDeltas reads
+    // transaction_id_ which must be serialised against concurrent CreateTransaction/BEGIN.
+    // CONTRACT (commit_mutex_): caller must hold commit_mutex_ across this call; that preserves
+    // mint-order == publish-order and the strict-increase watermark invariant.
+    void PublishCommit(uint64_t durability_commit_timestamp, bool acquire_engine_lock);
+
+    // Convenience wrapper: FinalizeWalCommitStatus() followed by PublishCommit(). Used on all
+    // paths that publish immediately (no-WAL, SYNC/ASYNC replica, non-STRICT_SYNC main). On the
+    // STRICT_SYNC main path call the two methods individually so PublishCommit is deferred past
+    // FinalizeTransaction.
+    // NOTE: PrepareForCommitPhase owns the call; do not invoke independently.
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp, bool acquire_engine_lock = false);
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -888,10 +907,24 @@ class InMemoryStorage final : public Storage {
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
 
+  // Observability/testing: the lock-free read-snapshot watermark (highest fully-published commit ts;
+  // the value a SNAPSHOT_ISOLATION reader freezes as its snapshot_ts at BEGIN under the experiment).
+  [[nodiscard]] uint64_t LastCommittedMvccTimestamp() const {
+    return last_committed_mvcc_ts_.load(std::memory_order_acquire);
+  }
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
+
+  // EXPERIMENTAL (commit-lock-narrowing): compute the GC visibility horizon = min(active snapshot_ts).
+  // Takes the RAW OldestActive() (pre-schema-fold), which keys the visibility ring; the caller clamps the
+  // result to the (possibly lower) folded physical horizon. OFF (flag disabled): returns raw_oldest_active,
+  // byte-identical to today.
+  uint64_t GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns);
+  // Seed last_committed_mvcc_ts_ from the local MVCC counter on recovery (no-op with the flag off).
+  void SeedReadSnapshotWatermarkFromLocalCounter();
 
   // Objects leave storage only through these, and only from a collection pass. An index entry
   // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same
@@ -1120,6 +1153,9 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
+  // EXPERIMENTAL (commit-lock-narrowing) GC visibility ring — populated iff the flag is ON.
+  std::optional<SnapshotSlotRing> snapshot_ring_;
+
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
@@ -1148,17 +1184,21 @@ class InMemoryStorage final : public Storage {
   struct SchemaUpdateData {
     LocalSchemaTracking schema_diff;
     SchemaInfoPostProcess post_process;
-    uint64_t start_ts;
+    // Exclusive upper-bound timestamp for deferred delta reconstruction (Transaction::
+    // SchemaReconstructionBound): start_timestamp with the lock-free experiment OFF, snapshot_ts + 1
+    // when ON. Captured at commit so the deferred ProcessTransaction reconstructs the same pre-state
+    // the committing transaction actually saw.
+    uint64_t snapshot_bound;
     // The local mint, which is what identifies this transaction's own deltas. Not the durable
     // timestamp, for the reason GetState gives.
     uint64_t local_commit_ts;
     bool property_on_edges;
 
-    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t local_commit,
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t bound, uint64_t local_commit,
                      bool prop_on_edges)
         : schema_diff(std::move(diff)),
           post_process(std::move(post_proc)),
-          start_ts(start),
+          snapshot_bound(bound),
           local_commit_ts(local_commit),
           property_on_edges(prop_on_edges) {}
   };

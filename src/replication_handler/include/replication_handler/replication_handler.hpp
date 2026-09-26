@@ -266,9 +266,6 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     using query::RegisterReplicaError;
     using ClientRegisterReplicaStatus = RegisterReplicaStatus;
 
-    // Reject before any replication state is mutated: persisting the instance-level client while no
-    // per-database client can be created leaves the replica permanently unattached, since every retry
-    // then fails with NAME_EXISTS.
     if (auto const analytical_db = AnalyticalDatabase(); analytical_db.has_value()) {
       spdlog::error(
           "Cannot register replica {} while database \"{}\" is in analytical mode.", config.name, *analytical_db);
