@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +19,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -281,36 +283,40 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                     }));
   }
 
-  // Must run on strand_: the sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here),
-  // so honouring terminate_requested_ instead of arming the read keeps the socket single-owner.
+  // The sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here). Callable from a
+  // priority worker thread as well as from strand_; arm_mutex_ is what makes choosing between
+  // arming the read and honouring terminate_requested_ indivisible against TerminateIfIdle_, so a
+  // terminate requested at any point during that choice is still acted on by exactly one of them.
   template <typename OnReadFn>
   void ArmRead_(OnReadFn on_read) {
     if (!IsConnected()) {
       return;
     }
-    if (terminate_requested_.load(std::memory_order_acquire)) {
-      DoShutdown();
-      return;
+
+    {
+      auto guard = std::lock_guard{arm_mutex_};
+      if (terminate_requested_.load(std::memory_order_acquire)) {
+        // Tearing the socket down stays on strand_ even when a worker thread got here, which is the
+        // one place this function is not the socket's only user.
+        boost::asio::post(strand_, [self = shared_from_this()] { self->DoShutdown(); });
+        return;
+      }
+      read_armed_.store(true, std::memory_order_release);
+      ExecuteForSocket([&](auto &socket) {
+        auto buffer = input_buffer_.write_end()->GetBuffer();
+        socket.async_read_some(boost::asio::buffer(buffer.data, buffer.len),
+                               boost::asio::bind_executor(strand_, std::move(on_read)));
+      });
     }
-    read_armed_ = true;
-    ExecuteForSocket([&](auto &socket) {
-      auto buffer = input_buffer_.write_end()->GetBuffer();
-      socket.async_read_some(boost::asio::buffer(buffer.data, buffer.len),
-                             boost::asio::bind_executor(strand_, std::move(on_read)));
-    });
   }
 
   void DoRead() {
-    // dispatch, not post: DoRead runs on a priority worker thread (after Execute()/Write()), so this
-    // moves async_read_some's arming onto the strand; the other two call sites are already on it.
-    boost::asio::dispatch(strand_,
-                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnRead, self)); });
+    // Arming here rather than on strand_ keeps a request from paying for an io thread to be woken,
+    // which is the whole of what this call does once Execute() and Write() are finished with.
+    ArmRead_(std::bind_front(&Session::OnRead, shared_from_this()));
   }
 
-  void DoReadAsio() {
-    boost::asio::dispatch(strand_,
-                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnReadAsio, self)); });
-  }
+  void DoReadAsio() { ArmRead_(std::bind_front(&Session::OnReadAsio, shared_from_this())); }
 
   void DoFirstRead() {
     boost::asio::dispatch(
@@ -459,12 +465,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   // Runs on strand_.
   void TerminateIfIdle_() {
-    // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
-    // terminate_requested_ set and let ArmRead_ close it on the next read-arm instead of racing here.
-    if (!read_armed_) {
-      return;
+    {
+      auto guard = std::lock_guard{arm_mutex_};
+      // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
+      // terminate_requested_ set and let ArmRead_ close it on the next read-arm instead of racing
+      // here. Holding arm_mutex_ is what rules out reading it while a worker is mid-arm, which would
+      // otherwise let both sides decide to leave the closing to the other.
+      if (!read_armed_.load(std::memory_order_acquire)) {
+        return;
+      }
+      read_armed_.store(false, std::memory_order_release);
     }
-    read_armed_ = false;
     DoShutdown();
   }
 
@@ -579,11 +590,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
-  // Set by any thread via RequestTermination; only ever set, never cleared. Checked on the strand
-  // at every read-arm (ArmRead_), so a request made while a worker owns the socket can't be lost.
+  // Set by any thread via RequestTermination; only ever set, never cleared. Checked at every
+  // read-arm (ArmRead_), so a request made while a worker owns the socket can't be lost.
   std::atomic_bool terminate_requested_{false};
-  // STRAND-CONFINED. true: an async op (handshake/upgrade/read) is pending and the strand solely
-  // owns the socket; false: a worker may be inside Execute()/Write(), so don't touch it elsewhere.
-  bool read_armed_{false};
+  // true: an async op (handshake/upgrade/read) is pending and the strand solely owns the socket;
+  // false: a worker may be inside Execute()/Write(), so don't touch it elsewhere. Read and written
+  // from both strand_ and priority worker threads, so the two places that decide something from it,
+  // ArmRead_ and TerminateIfIdle_, hold arm_mutex_ across the decision.
+  std::atomic_bool read_armed_{false};
+  std::mutex arm_mutex_;
 };
 }  // namespace memgraph::communication::v2
