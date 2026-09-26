@@ -200,14 +200,14 @@ void Scheduler::Stop() {
 }
 
 // Sets atomic is_paused_ to true.
-void Scheduler::Pause() {
+void Scheduler::Pause() noexcept {
   // Lock needs to be held when modifying cv even if atomic
   auto lk = std::unique_lock{mutex_};
   is_paused_ = true;
 }
 
 // Sets atomic is_paused_ to false and notifies thread
-void Scheduler::Resume() {
+void Scheduler::Resume() noexcept {
   {
     // Lock needs to be held when modifying cv even if atomic
     auto lk = std::unique_lock{mutex_};
