@@ -75,6 +75,37 @@ def list_directory_contents(directory):
     return os.listdir(directory)
 
 
+# The one refusal a coordinator names as worth another try.
+RAFT_LOG_REFUSAL = "Writing to Raft log failed. Please retry the operation."
+
+
+def retrying_raft_write(write, deadline_s=30.0, now=time.monotonic, sleep=time.sleep):
+    """Run a coordinator write, asking again for as long as it is refused for a reason that passes.
+
+    A coordinator checks that it leads and then appends, and nothing holds leadership still between the two. So a
+    write can be refused for a reason that has already gone by the time the refusal arrives, and whether the append
+    will be accepted is not answerable before it is attempted: no state the caller can read beforehand settles it.
+    The refusal is how the caller learns, which is why the server names this one as worth another try. Asking once
+    holds the coordinator to more than it offers.
+
+    The budget is what separates a cluster that is settling from one that never will: the second reaches the
+    caller's assertion rather than the timeout the harness would otherwise apply.
+    """
+    ends_at = now() + deadline_s
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return write()
+        except Exception as refusal:
+            if RAFT_LOG_REFUSAL not in str(refusal):
+                raise
+            sleep(min(0.05 * attempt, 0.5))
+            # Checked after the wait so that no attempt starts once the budget is spent.
+            if now() >= ends_at:
+                raise
+
+
 def wait_until_main_writeable(cursor, query):
     """
     After becoming main, the instance can be in non-writeable state at the beginning. Therefore, we try

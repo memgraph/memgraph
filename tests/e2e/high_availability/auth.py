@@ -17,7 +17,9 @@ import time
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
+from common import RAFT_LOG_REFUSAL, connect
+from common import execute_and_fetch_all as run_once
+from common import get_data_path, get_logs_path, retrying_raft_write, show_instances
 from mg_utils import mg_sleep_and_assert
 from neo4j import Auth, GraphDatabase
 
@@ -28,6 +30,16 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 file = "auth"
+
+
+def execute_and_fetch_all(cursor, query, params={}):
+    """Run a query against a coordinator, asking again while it is refused for a reason that passes.
+
+    A coordinator refuses a write whose append lands after the leadership it checked for has moved. Only a
+    coordinator write is ever refused that way, so a read, or a query addressed to a data instance, is run
+    exactly once.
+    """
+    return retrying_raft_write(lambda: run_once(cursor, query, params))
 
 
 @pytest.fixture
@@ -669,6 +681,53 @@ def show_privileges(cursor, role):
     return sorted(privilege for (privilege,) in execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR ROLE {role}"))
 
 
+class RefusesThenCommits:
+    """A coordinator that refuses a write a given number of times before committing it."""
+
+    def __init__(self, refusals, message=RAFT_LOG_REFUSAL):
+        self.refusals = refusals
+        self.message = message
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        if self.calls <= self.refusals:
+            raise Exception(self.message)
+        return [("committed",)]
+
+
+def test_a_write_refused_while_leadership_settles_is_tried_again():
+    """A coordinator checks that it leads and then appends, and nothing holds leadership still between the two.
+
+    A write can therefore be refused for a reason that has already passed by the time the refusal arrives, which is
+    why the server names this one as worth another try. Asking once makes the test stricter than the server it is
+    asking.
+    """
+    coordinator = RefusesThenCommits(refusals=3)
+
+    assert retrying_raft_write(coordinator, sleep=lambda _: None) == [("committed",)]
+    assert coordinator.calls == 4
+
+
+def test_a_refusal_the_server_does_not_call_retryable_is_raised_at_once():
+    """Trying every refusal again would spend the budget on one that will never clear, and hide what it was."""
+    coordinator = RefusesThenCommits(refusals=1, message="Authentication failure")
+
+    with pytest.raises(Exception, match="Authentication failure"):
+        retrying_raft_write(coordinator)
+    assert coordinator.calls == 1, "a refusal that will not clear was tried again"
+
+
+def test_a_leader_that_never_settles_is_given_up_on():
+    """The budget is what keeps a cluster that never settles reaching the assertion rather than the harness timeout."""
+    coordinator = RefusesThenCommits(refusals=10_000)
+    clock = iter([0.0, 0.0, 5.0, 11.0])
+
+    with pytest.raises(Exception, match="Raft log"):
+        retrying_raft_write(coordinator, deadline_s=10.0, now=lambda: next(clock), sleep=lambda _: None)
+    assert coordinator.calls < 10_000, "it kept asking past its budget"
+
+
 def test_basic_auth_passthrough(test_name):
     # Coordinators with no users accept any connection; credentials are ignored (basic-auth passthrough).
     inner_instances_description = get_coords_only_description(test_name=test_name)
@@ -1243,10 +1302,18 @@ def sso_driver(port, scheme, token):
 
 
 def sso_run(port, scheme, token, query):
-    """Authenticate via SSO and run a single query, returning the rows. Raises if auth or the query is rejected."""
-    with sso_driver(port, scheme, token) as driver:
-        with driver.session() as session:
-            return list(session.run(query))
+    """Authenticate via SSO and run a single query, returning the rows. Raises if auth or the query is rejected.
+
+    A write is asked again while the coordinator refuses it for a reason that passes; every other refusal, an
+    authentication failure among them, is raised the first time it arrives.
+    """
+
+    def once():
+        with sso_driver(port, scheme, token) as driver:
+            with driver.session() as session:
+                return list(session.run(query))
+
+    return retrying_raft_write(once)
 
 
 def sso_connects(port, scheme, token):
@@ -1402,7 +1469,7 @@ def test_sso_privilege_revocation_applies_to_connected_session(test_name):
     with sso_driver(leader_port, "oidc", "ops") as driver:
         with driver.session() as session:
             # The session mutates freely while its role carries COORDINATOR_WRITE.
-            list(session.run("CREATE ROLE from_ops"))
+            retrying_raft_write(lambda: list(session.run("CREATE ROLE from_ops")))
 
             # Downgrade the role from a separate admin session: grant READ first so the session keeps read access,
             # then revoke WRITE.
@@ -1411,7 +1478,7 @@ def test_sso_privilege_revocation_applies_to_connected_session(test_name):
 
             # The open session is downgraded in place: mutating queries are now denied...
             try:
-                list(session.run("CREATE ROLE from_ops_after_revoke"))
+                retrying_raft_write(lambda: list(session.run("CREATE ROLE from_ops_after_revoke")))
                 assert False, "A session whose role lost COORDINATOR_WRITE must not run a mutating query"
             except Exception as e:
                 assert "required privilege" in str(e), f"Unexpected error: {e}"
