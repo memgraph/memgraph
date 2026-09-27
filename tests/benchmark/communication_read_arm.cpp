@@ -52,12 +52,14 @@ using Clock = std::chrono::steady_clock;
 
 // How the thread that finished a request arms the next read.
 enum class ArmMode : std::uint8_t {
-  // What the session did before the read was funnelled onto the strand: arm it here and now.
+  // Arm it on the thread that finished the request, reading no shared state. Not a shape the
+  // session can use, since nothing then decides between arming and honouring a termination; it is
+  // here to price the lock the usable version needs.
   kInline,
-  // What it does now: hand the arming to the strand, which is an io thread.
+  // Hand the arming to the strand, so an io thread does it.
   kStrand,
-  // Arm it here, but take a lock so the choice between arming and shutting down cannot interleave
-  // with a foreign terminate request, which is what funnelling it onto the strand achieved.
+  // Arm it on the thread that finished the request, holding a lock across the choice between
+  // arming and shutting down so a termination cannot land inside it.
   kInlineGuarded,
 };
 
