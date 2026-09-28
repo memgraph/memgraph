@@ -719,4 +719,28 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V2BatchKeepsOperationOrder) {
   EXPECT_EQ(second->user->username(), "alice");
 }
 
+// An operation kind this build does not know must be refused by the discriminator, not decoded as the nearest
+// alternative. A drop is a kind byte and a name, so a longer payload from a future kind would read as a
+// plausible one and have a replica delete a record nobody asked it to.
+TEST(RpcVersioning, UpdateAuthDataRpc_UnknownOperationKindIsRefused) {
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+
+  memgraph::slk::Save(memgraph::utils::UUID{}, &builder);
+  memgraph::slk::Save(uint64_t{0}, &builder);
+  memgraph::slk::Save(uint64_t{1}, &builder);
+  memgraph::slk::Save(uint64_t{1}, &builder);     // one operation
+  memgraph::slk::Save(std::size_t{7}, &builder);  // of a kind that does not exist
+  // Enough trailing bytes to decode as a drop, so the test fails on the discriminator rather than on the
+  // reader running out part-way.
+  memgraph::slk::Save(uint8_t{0}, &builder);
+  memgraph::slk::Save(std::string{"victim"}, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::replication::UpdateAuthDataReq loaded;
+  EXPECT_THROW(memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader), memgraph::slk::SlkDecodeException);
+}
+
 #endif  // MG_ENTERPRISE

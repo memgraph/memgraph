@@ -181,8 +181,9 @@ void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::B
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(static_cast<uint64_t>(self.ops.size()), builder);
   for (auto const &op : self.ops) {
-    // The variant's index picks the reader back out; the order of the ops is the transaction's own.
-    memgraph::slk::Save(static_cast<uint8_t>(op.index()), builder);
+    // Saved by hand rather than through slk's generic variant overload: that one resolves `slk::Save` for the
+    // alternatives at its own definition, so it only reaches types declared inside slk itself.
+    memgraph::slk::Save(op.index(), builder);
     std::visit([builder](auto const &held) { memgraph::slk::Save(held, builder); }, op);
   }
 }
@@ -196,16 +197,26 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
   self->ops.clear();
   self->ops.reserve(size);
   for (uint64_t i = 0; i < size; ++i) {
-    uint8_t index{};
+    std::size_t index{};
     memgraph::slk::Load(&index, reader);
-    if (index == 0) {
-      memgraph::replication::AuthUpdateOp op;
-      memgraph::slk::Load(&op, reader);
-      self->ops.emplace_back(std::move(op));
-    } else {
-      memgraph::replication::AuthDropOp op;
-      memgraph::slk::Load(&op, reader);
-      self->ops.emplace_back(std::move(op));
+    switch (index) {
+      case 0: {
+        memgraph::replication::AuthUpdateOp op;
+        memgraph::slk::Load(&op, reader);
+        self->ops.emplace_back(std::move(op));
+        break;
+      }
+      case 1: {
+        memgraph::replication::AuthDropOp op;
+        memgraph::slk::Load(&op, reader);
+        self->ops.emplace_back(std::move(op));
+        break;
+      }
+      default:
+        // Refuse rather than guess. Taking an unknown kind for a drop would have this delete records a sender
+        // never asked it to, and the bytes for that kind are still in the stream, so nothing after it can be
+        // read either.
+        throw memgraph::slk::SlkDecodeException("Auth operation of unknown kind {} in a replicated batch", index);
     }
   }
 }
