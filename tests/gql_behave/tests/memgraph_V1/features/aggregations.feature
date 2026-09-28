@@ -1091,3 +1091,205 @@ Feature: Aggregations
         Then the result should be:
             | g | s  | a    |
             | 1 | 3  | 1.5  |
+
+    Scenario: Order by an aggregation that is a returned item
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type, COUNT(n.value) ORDER BY COUNT(n.value) DESC
+            """
+        Then the result should be, in order:
+            | n.type | COUNT(n.value) |
+            | 'c'    | 3              |
+            | 'a'    | 1              |
+            | 'b'    | 0              |
+
+    Scenario: Order by an aggregation spelled differently from the returned item
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type, count( n.value ) ORDER BY COUNT(n.value) DESC
+            """
+        Then the result should be, in order:
+            | n.type | count( n.value ) |
+            | 'c'    | 3                |
+            | 'a'    | 1                |
+            | 'b'    | 0                |
+
+    Scenario: Order by an aggregation that is an aliased returned item
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type AS t, COUNT(n.value) AS c ORDER BY COUNT(n.value) DESC
+            """
+        Then the result should be, in order:
+            | t   | c |
+            | 'c' | 3 |
+            | 'a' | 1 |
+            | 'b' | 0 |
+
+    Scenario: Order by a grouping key when returning an aggregation
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type, COUNT(n.value) AS c ORDER BY n.type DESC
+            """
+        Then the result should be, in order:
+            | n.type | c |
+            | 'c'    | 3 |
+            | 'b'    | 0 |
+            | 'a'    | 1 |
+
+    Scenario: Order by an aliased grouping key when returning an aggregation
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type AS t, COUNT(n.value) AS c ORDER BY n.type DESC
+            """
+        Then the result should be, in order:
+            | t   | c |
+            | 'c' | 3 |
+            | 'b' | 0 |
+            | 'a' | 1 |
+
+    Scenario: Order by an expression containing a returned aggregation
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type AS t, COUNT(n.value) AS c ORDER BY COUNT(n.value) + 1 DESC
+            """
+        Then the result should be, in order:
+            | t   | c |
+            | 'c' | 3 |
+            | 'a' | 1 |
+            | 'b' | 0 |
+
+    Scenario: Order a WITH by an aggregation that is a projected item
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) WITH n.type AS t, COUNT(n.value) AS c ORDER BY COUNT(n.value) DESC RETURN t, c
+            """
+        Then the result should be, in order:
+            | t   | c |
+            | 'c' | 3 |
+            | 'a' | 1 |
+            | 'b' | 0 |
+
+    Scenario: Order a DISTINCT return by an aggregation that is a returned item
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN DISTINCT n.type AS t, COUNT(n.value) AS c ORDER BY COUNT(n.value) DESC
+            """
+        Then the result should be, in order:
+            | t   | c |
+            | 'c' | 3 |
+            | 'a' | 1 |
+            | 'b' | 0 |
+
+    Scenario: Filter a WITH by an aggregation that is a projected item
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) WITH n.type AS t, COUNT(n.value) AS c WHERE COUNT(n.value) > 1 RETURN t, c
+            """
+        Then the result should be, in order:
+            | t   | c |
+            | 'c' | 3 |
+
+    Scenario: Order by an aggregation when the return has none
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type ORDER BY COUNT(n.value) DESC
+            """
+        Then an error should be raised
+
+    Scenario: Order by an aggregation that is not a returned item
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type, COUNT(n.value) AS c ORDER BY SUM(n.value) DESC
+            """
+        Then an error should be raised
+
+    Scenario: Order by an aggregation that is only part of a returned item
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type, COUNT(n.value) + 1 AS c ORDER BY COUNT(n.value) DESC
+            """
+        Then an error should be raised
+
+    Scenario: Order by a variable that is not a returned item when aggregating
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.type, COUNT(n.value) AS c ORDER BY n.value
+            """
+        Then an error should be raised
+
+    Scenario: Order by a returned item that contains a literal
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.value + 1 AS v, COUNT(*) AS c ORDER BY n.value + 1
+            """
+        Then an error should be raised
