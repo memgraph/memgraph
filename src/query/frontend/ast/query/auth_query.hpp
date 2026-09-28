@@ -145,6 +145,8 @@ class AuthQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
+
   memgraph::query::AuthQuery::Action action_;
   std::string user_;
   std::vector<std::string> roles_;

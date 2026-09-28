@@ -51,6 +51,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 namespace memgraph::utils {
 
 // Don't use anonymous namespace, because each translation unit will then get a
@@ -173,6 +175,10 @@ class Visitor : public detail::VisitorBase<TReturn, TVisitable...> {
   virtual ~Visitor() = default;
   using typename detail::VisitorBase<TReturn, TVisitable...>::ReturnType;
   using detail::VisitorBase<TReturn, TVisitable...>::Visit;
+
+  /// How many types this visitor covers. A test that walks every visitable type counts its own rows
+  /// against this, so adding a type to the list without adding a row fails rather than passing.
+  static constexpr std::size_t kVisitableCount = sizeof...(TVisitable);
 };
 
 /// @brief Inherit from this class if you want to visit *leaf* TVisitable types.

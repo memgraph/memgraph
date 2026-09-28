@@ -101,6 +101,7 @@ target_sources(mg-query
     relations/equivalence.cpp
     relations/orderability.cpp
     serialization/property_value.cpp
+    storage_access.cpp
     stream/common.cpp
     stream/sources.cpp
     stream/streams.cpp
