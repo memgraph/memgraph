@@ -228,6 +228,18 @@ void AddOrLabelGroup(std::vector<std::vector<LabelIx>> &or_labels, const std::ve
   or_labels.push_back(std::move(group));
 }
 
+/// Adds `labels` to a node's AND labels. A group that names one of them is then implied and removed, as
+/// AddOrLabelGroup refuses a group that arrives after such a label.
+void AddAndLabels(std::vector<LabelIx> &and_labels, std::vector<std::vector<LabelIx>> &or_labels,
+                  const std::vector<LabelIx> &labels) {
+  for (const auto &label : labels) {
+    if (!std::ranges::contains(and_labels, label)) and_labels.push_back(label);
+  }
+  std::erase_if(or_labels, [&](const auto &group) {
+    return std::ranges::any_of(group, [&](const auto &label) { return std::ranges::contains(and_labels, label); });
+  });
+}
+
 }  // namespace
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
@@ -472,14 +484,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           it->or_labels = existing_labels_test->or_labels_;
         } else {
           // If it's an AND expression, we are adding to the AND labels of the existing LabelsTest
-          auto &existing_labels = existing_labels_test->labels_;
-          auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
-          auto before_count = as_set.size();
-          as_set.insert(labels.begin(), labels.end());
-          if (as_set.size() != before_count) {
-            existing_labels = std::vector(as_set.begin(), as_set.end());
-            it->labels = existing_labels;
-          }
+          AddAndLabels(existing_labels_test->labels_, existing_labels_test->or_labels_, labels);
+          it->labels = existing_labels_test->labels_;
+          it->or_labels = existing_labels_test->or_labels_;
         }
       }
     }
@@ -901,14 +908,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         }
 
         // Then cover AND expressions in LabelsTest
-        auto &existing_labels = existing_labels_test->labels_;
-        as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
-        before_count = as_set.size();
-        as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
-        if (as_set.size() != before_count) {
-          existing_labels = std::vector(as_set.begin(), as_set.end());
-          it->labels = existing_labels;
-        }
+        AddAndLabels(existing_labels_test->labels_, existing_labels_test->or_labels_, labels_test->labels_);
+        it->labels = existing_labels_test->labels_;
+        it->or_labels = existing_labels_test->or_labels_;
       }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));

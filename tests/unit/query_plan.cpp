@@ -5515,6 +5515,31 @@ TYPED_TEST(TestPlanner, LabelDisjunctionGroupsOverOneNode) {
   }
 }
 
+// An AND label implies every group that names it, in whichever order the two reach the node's filter. A group
+// that arrives first is removed when the label arrives, so no residual filter tests it per row.
+TYPED_TEST(TestPlanner, AndLabelRemovesTheGroupsItImplies) {
+  FakeDbAccessor dba;
+  auto match = [&](std::vector<std::string> labels) { return MATCH(PATTERN(NODE_WITH_LABELS("n", labels))); };
+  using Groups = std::vector<std::set<std::string>>;
+  std::vector<std::pair<memgraph::query::CypherQuery *, Groups>> cases{
+      // MATCH (n:Label1|Label2) MATCH (n:Label1)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), MATCH(PATTERN(NODE("n", "Label1"))), RETURN("n"))), Groups{}},
+      // MATCH (n:Label1|Label2) WHERE n:Label1
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}),
+                          WHERE(LABELS_TEST(IDENT("n"), std::vector{this->storage.GetLabelIx("Label1")})),
+                          RETURN("n"))),
+       Groups{}},
+      // MATCH (n:Label1|Label2) MATCH (n:Label3): a label the group does not name leaves it.
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), MATCH(PATTERN(NODE("n", "Label3"))), RETURN("n"))),
+       Groups{{"Label1", "Label2"}}},
+  };
+  for (auto &[query, groups] : cases) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterOrLabels(groups), ExpectProduce());
+  }
+}
+
 // A disjunction stated twice is one conjunct, so an index scan over its labels leaves no filter behind.
 TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
   FakeDbAccessor dba;
