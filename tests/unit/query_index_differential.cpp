@@ -313,6 +313,39 @@ TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoes) {
   EXPECT_EQ(without_index.front(), static_cast<int64_t>(kMixedValues.size()));
 }
 
+TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoesForATrailingSearchTerm) {
+  // A search term is read by the scan rather than fenced by the band, because no band separates the
+  // strings holding it from the strings that do not. A composite index fences its trailing property
+  // by a band as well, so the term on that property has to be read there too, and the equality on
+  // the leading property is what makes it the trailing one.
+  Run("MATCH (n) DETACH DELETE n;");
+  for (auto const *trailing : {"'alpha'", "'beta'", "'gamma'", "'alphabet'"}) {
+    Run("CREATE (:S {a: 1, b: " + std::string{trailing} + "});");
+  }
+
+  auto const queries = std::vector<std::string>{
+      "MATCH (n:S) WHERE n.a = 1 AND n.b CONTAINS 'lph' RETURN count(n) AS c;",
+      "MATCH (n:S) WHERE n.a = 1 AND n.b ENDS WITH 'a' RETURN count(n) AS c;",
+      "MATCH (n:S) WHERE n.a = 1 AND n.b STARTS WITH 'alpha' RETURN count(n) AS c;",
+  };
+  auto const counts = [&] {
+    auto answers = std::vector<int64_t>{};
+    for (auto const &query : queries) answers.push_back(CountOf(query));
+    return answers;
+  };
+
+  auto const without_index = counts();
+  Run("CREATE INDEX ON :S(a, b);");
+  auto const reads_an_index = PlanReadsAnIndex(queries.front());
+  auto const with_index = counts();
+  Run("DROP INDEX ON :S(a, b);");
+
+  EXPECT_TRUE(reads_an_index) << "the plan filtered on both sides, so the comparison asked the same plan twice";
+  EXPECT_EQ(with_index, without_index) << "an index changed the answer for a trailing search term";
+  EXPECT_TRUE(std::ranges::any_of(without_index, [](auto count) { return count > 0; }))
+      << "no query over the trailing term kept a row";
+}
+
 TEST_F(IndexDifferentialTest, AnIndexWalksAMixedColumnInTheOrderASortReadsIt) {
   // A plan drops a sort when the scan beneath it already walked the column. That
   // answers the sort only where an index walks a column of many types in the

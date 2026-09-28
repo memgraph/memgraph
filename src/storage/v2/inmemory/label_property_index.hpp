@@ -329,9 +329,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
-    /// Only the leading property's predicate is held: it is the one a group of equal values can be
-    /// skipped by, because the index orders on it first. The rest are answered by the post-filter.
-    PropertyValueRange::ValuePredicate leading_predicate_;
+    /// One per indexed property, in the order the index holds them. A null entry is a property
+    /// whose bounds the band already settles; a set one is a bound the band cannot separate, which
+    /// every candidate is read against. A rejection passes the whole run of entries sharing the
+    /// values the predicate read, since the index orders on those ahead of everything beyond them.
+    std::vector<PropertyValueRange::ValuePredicate> predicates_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -403,10 +405,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     PropertiesPermutationHelper const *permutation_helper_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
-    /// Read for the same reason the serial iterable reads it, and it has to be read here too: a
-    /// scan that answers a string predicate hands every value in the band to the filter otherwise,
-    /// and the plans that ask for chunks are the ones with the most to hand over.
-    PropertyValueRange::ValuePredicate leading_predicate_;
+    /// Held as the serial iterable holds it, and read here for the same reason: a scan that leaves
+    /// a predicate to the filter hands it every value in the band, and the plans that ask for
+    /// chunks are the ones with the most to hand over. This iterator can only step over a rejected
+    /// entry, whichever property raised it, since a seek would pass a node another thread has
+    /// marked and knows nothing of the chunk end.
+    std::vector<PropertyValueRange::ValuePredicate> predicates_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;

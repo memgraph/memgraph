@@ -2152,6 +2152,60 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
        });
 }
 
+TYPED_TEST(IndexTest, LabelPropertyCompositeIndexPassesEveryEntrySharingARejectedValue) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support label/property composite indices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Several vertices per trailing value, so that the entries the predicate rejects form runs rather
+  // than sitting alone. A run is what the scan can pass in one seek.
+  constexpr auto kPerValue = 5;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (auto const trailing : {10, 20, 30}) {
+      for (auto at = 0; at != kPerValue; ++at) {
+        auto vertex = this->CreateVertex(acc.get());
+        ASSERT_TRUE(vertex.AddLabel(this->label1).has_value());
+        ASSERT_TRUE(vertex.SetProperty(this->prop_a, PropertyValue(1)).has_value());
+        ASSERT_TRUE(vertex.SetProperty(this->prop_b, PropertyValue(trailing)).has_value());
+      }
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto reads = 0;
+  auto trailing = PropertyValueRange::IsNotNull();
+  trailing.SetValuePredicate(std::make_shared<memgraph::storage::PropertyValueRange::ValuePredicateFn const>(
+      [&reads](PropertyValue const &value) {
+        ++reads;
+        return value.ValueInt() == 20;
+      }));
+
+  auto const props = std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}};
+  auto const ranges = std::array{PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(1)),
+                                                             memgraph::utils::MakeBoundInclusive(PropertyValue(1))),
+                                 trailing};
+
+  auto found = 0;
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto iterable = acc->Vertices(this->label1, props, ranges, View::OLD);
+    for (auto it = iterable.begin(); it != iterable.end(); ++it) ++found;
+  }
+
+  EXPECT_EQ(found, kPerValue);
+  // One read per rejected value rather than one per rejected entry: the entries carrying 10 share
+  // every value the predicate reads, as do those carrying 30, so the first rejection settles the
+  // whole run and the scan seeks past it.
+  EXPECT_EQ(reads, 2 + kPerValue);
+}
+
 // Regression test: composite DESC index with range bounds on non-leading property.
 // Before the fix, AdvanceUntilValid_ returned NoMoreValidEntries when a secondary
 // property fell below its lower bound during DESC iteration, prematurely terminating

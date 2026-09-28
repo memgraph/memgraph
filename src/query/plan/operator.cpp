@@ -1411,7 +1411,7 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    if (auto term = value_predicate.Get(expression_range_, evaluator)) range.SetValuePredicate(std::move(term));
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range));
   };
 
@@ -1493,7 +1493,7 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    if (auto term = value_predicate.Get(expression_range_, evaluator)) range.SetValuePredicate(std::move(term));
     return std::make_optional(db->Edges(view_, property_, range));
   };
 
@@ -1607,7 +1607,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
 
     for (auto &&[range, expression_range, value_predicate] :
          rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
-      range.SetValuePredicate(value_predicate.Get(expression_range, evaluator));
+      if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
@@ -10743,7 +10743,7 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
     // band is handed to the filter above, which is most of the column for a search term.
     for (auto &&[range, expression_range, value_predicate] :
          rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
-      range.SetValuePredicate(value_predicate.Get(expression_range, evaluator));
+      if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
     }
 
     return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_, index_order_);
@@ -10820,7 +10820,7 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
       return db->ChunkedEdges(view_, edge_type_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
-    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    if (auto term = value_predicate.Get(expression_range_, evaluator)) range.SetValuePredicate(std::move(term));
     return db->ChunkedEdges(view_, edge_type_, property_, range, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
@@ -10878,7 +10878,7 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
       return db->ChunkedEdges(view_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
-    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    if (auto term = value_predicate.Get(expression_range_, evaluator)) range.SetValuePredicate(std::move(term));
     return db->ChunkedEdges(view_, property_, range, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
