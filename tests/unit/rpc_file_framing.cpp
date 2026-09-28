@@ -29,6 +29,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -337,25 +338,29 @@ class ReplicationEncoderPageCache : public ::testing::Test {
 
   void TearDown() override { fs::remove_all(root_); }
 
-  // Sends `file` through an Encoder that discards the wire, and reports how much of the file is
-  // left in the page cache. Large enough that residency is measured over many pages.
-  std::optional<double> ResidencyAfterSending(const fs::path &file, memgraph::utils::PageCachePolicy page_cache) {
-    const std::vector<uint8_t> content(8U << 20, 'x');
-    {
-      memgraph::utils::OutputFile out;
-      out.Open(file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
-      out.Write(content.data(), content.size());
-      // Clean pages are the only ones DONTNEED can evict, and a snapshot on disk is long since
-      // synced by the time a replica asks for it.
-      out.Sync();
-      out.Close();
-    }
+  // Enough pages for a fraction to mean something, and small enough that a machine which passed
+  // the eviction probe can be expected to hold it.
+  static constexpr size_t kFileBytes = 1U << 20;
 
+  fs::path WriteSyncedFile(std::string_view name) const {
+    auto const path = root_ / "wal" / name;
+    const std::vector<uint8_t> content(kFileBytes, 'x');
+    memgraph::utils::OutputFile out;
+    out.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    out.Write(content.data(), content.size());
+    // Clean pages are the only ones DONTNEED can evict, and a snapshot on disk is long since
+    // synced by the time a replica asks for it.
+    out.Sync();
+    out.Close();
+    return path;
+  }
+
+  // Sends `file` through an Encoder that discards the wire.
+  void Send(const fs::path &file, memgraph::utils::PageCachePolicy page_cache) const {
     Builder builder([](const uint8_t *, size_t, bool) {});
     Encoder encoder{&builder};
     EXPECT_TRUE(encoder.WriteFile(file, file.filename(), page_cache));
     builder.Finalize();
-    return memgraph::test::ResidentFraction(file);
   }
 
   fs::path root_;
@@ -366,11 +371,28 @@ TEST_F(ReplicationEncoderPageCache, DroppingLeavesTheSentFileEvicted) {
     GTEST_SKIP() << "page cache eviction is not observable under " << root_;
   }
 
-  const auto kept = ResidencyAfterSending(root_ / "wal" / "kept.bin", memgraph::utils::PageCachePolicy::kKeep);
-  ASSERT_TRUE(kept.has_value());
-  EXPECT_GT(*kept, 0.9) << "sending reads the whole file, so keeping should leave it resident";
+  auto const kept_path = WriteSyncedFile("kept.bin");
+  auto const dropped_path = WriteSyncedFile("dropped.bin");
 
-  const auto dropped = ResidencyAfterSending(root_ / "wal" / "dropped.bin", memgraph::utils::PageCachePolicy::kDrop);
+  // Both files are sent before either is measured, and the kept one is sent first and measured
+  // last, so it is exposed to reclaim for at least as long as the dropped one. Residency on its
+  // own cannot tell a drop from the kernel reclaiming clean pages under memory pressure; what
+  // distinguishes them is a file that went through the same window and survived it.
+  Send(kept_path, memgraph::utils::PageCachePolicy::kKeep);
+  Send(dropped_path, memgraph::utils::PageCachePolicy::kDrop);
+
+  auto const dropped = memgraph::test::ResidentFraction(dropped_path);
+  auto const kept = memgraph::test::ResidentFraction(kept_path);
   ASSERT_TRUE(dropped.has_value());
-  EXPECT_LT(*dropped, 0.05) << "kDrop left " << (*dropped * 100) << "% of the sent file resident";
+  ASSERT_TRUE(kept.has_value());
+
+  // Sending reads the whole file, so an untouched page cache holds all of it. Where the machine
+  // took the pages back anyway there is no evidence either way, and a comparison against a file
+  // the kernel also emptied would pass for the wrong reason.
+  if (*kept <= 0.9) {
+    GTEST_SKIP() << "the machine reclaimed " << ((1 - *kept) * 100) << "% of a file that was kept, so nothing here "
+                 << "distinguishes dropping from reclaiming";
+  }
+  EXPECT_LT(*dropped, 0.05) << "kDrop left " << (*dropped * 100) << "% of the sent file resident, against "
+                            << (*kept * 100) << "% for kKeep";
 }
