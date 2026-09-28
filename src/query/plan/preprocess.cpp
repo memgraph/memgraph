@@ -14,6 +14,7 @@
 #include <stack>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -209,6 +210,12 @@ auto MatchesIdentifier(Identifier *identifier) {
     return identifier->symbol_pos_ == exisiting_identifier->symbol_pos_;
   };
 };
+
+/// Two OR groups are the same conjunct when they name the same labels, in any order. A group names each
+/// label once, so a permutation check is a set comparison here.
+bool SameLabelGroup(const std::vector<LabelIx> &lhs, const std::vector<LabelIx> &rhs) {
+  return std::ranges::is_permutation(lhs, rhs);
+}
 
 }  // namespace
 
@@ -447,25 +454,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         // Add to existing LabelsTest
         // First cover OR expressions in LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
-        // If it's an OR expression, we are adding to the OR labels of the existing LabelsTest
+        // If it's an OR expression, it is one more OR group of the existing LabelsTest. Each group is a
+        // conjunct of its own, so it is kept whole; only an identical group is redundant.
         if (node->label_expression_) {
           auto &existing_or_labels = existing_labels_test->or_labels_;
-          std::unordered_set<LabelIx> as_set;
-          for (const auto &label_vec : existing_or_labels) {
-            for (const auto &label : label_vec) {
-              as_set.insert(label);
-            }
-          }
-
-          std::vector<LabelIx> labels_vec_to_add;
-          for (const auto &label : labels) {
-            if (as_set.insert(label).second) {
-              // If the label was not already in the current labels set, add it to the vector
-              labels_vec_to_add.push_back(label);
-            }
-          }
-          if (!labels_vec_to_add.empty()) {
-            existing_or_labels.push_back(std::move(labels_vec_to_add));
+          if (std::ranges::none_of(existing_or_labels,
+                                   [&](const auto &existing) { return SameLabelGroup(existing, labels); })) {
+            existing_or_labels.push_back(labels);
           }
           it->or_labels = existing_or_labels;
         } else {
@@ -1061,14 +1056,6 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
           // First cover OR expressions in LabelsTest
           auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
           auto &existing_or_labels = existing_labels_test->or_labels_;
-          std::unordered_set<LabelIx> as_set;
-          for (const auto &label_vec : existing_or_labels) {
-            for (const auto &label : label_vec) {
-              as_set.insert(label);
-            }
-          }
-
-          auto before_count = as_set.size();
           // If symbol isn't already seen in this OR expression emplace back new vector of or labels
           std::vector<LabelIx> *or_labels_vec = nullptr;
           auto existing_or_labels_vec_it = already_seen_symbols.find(identifier->symbol_pos_);
@@ -1079,22 +1066,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
           } else {
             or_labels_vec = existing_or_labels_vec_it->second;
           }
+          // Dedupe within this group only: a label an earlier group already names is a separate
+          // conjunct there, and dropping it here would weaken this one.
+          auto as_set = std::unordered_set(or_labels_vec->begin(), or_labels_vec->end());
           for (auto &label : labels_test->labels_) {
             if (as_set.insert(label).second) {
               or_labels_vec->push_back(label);
             }
           }
-          if (as_set.size() != before_count) {
-            it->or_labels = existing_or_labels;
-          }
-        }
-      }
-      // cleanup all already_seen_symbols vectors that are empty
-      for (auto it = already_seen_symbols.begin(); it != already_seen_symbols.end();) {
-        if (it->second->empty()) {
-          it = already_seen_symbols.erase(it);
-        } else {
-          ++it;
+          it->or_labels = existing_or_labels;
         }
       }
     } else {
