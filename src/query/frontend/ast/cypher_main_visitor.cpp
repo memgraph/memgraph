@@ -3122,7 +3122,7 @@ bool SameOwnFields(Expression &lhs, Expression &rhs) {
     return lhs_cnf && rhs_cnf && *lhs_cnf == *rhs_cnf;
   }
   if (auto *l = utils::Downcast<Function>(&lhs)) {
-    return l->function_name_ == static_cast<Function &>(rhs).function_name_;
+    return l->function_name_ == static_cast<Function &>(rhs).function_name_ && IsFunctionPure(l->function_name_);
   }
   return true;
 }
