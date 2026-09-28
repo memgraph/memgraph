@@ -200,6 +200,25 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
   return value;
 }
 
+/// Drops from @p gathered every vertex whose @p property the predicate turns down.
+///
+/// A band is all a disk scan fences by, so a predicate the range carries has to be read somewhere
+/// else. The in-memory scan reads it entry by entry as it walks; this reads it once the band has
+/// gathered what it found, which costs a second pass and answers the same. A scan that kept the
+/// band's rows alone would hand back rows the filter it stands in for drops, and that filter is no
+/// longer in the plan to catch them.
+void DropWhatAPredicateTurnsDown(utils::SkipListDb<Vertex> &gathered, PropertyId property,
+                                 PropertyValueRange::ValuePredicateFn const &keeps, Transaction *transaction,
+                                 View view) {
+  auto accessor = gathered.access();
+
+  auto turned_down = std::vector<Gid>{};
+  for (auto const &vertex : accessor) {
+    if (!keeps(GetVertexProperty(vertex, property, transaction, view))) turned_down.push_back(vertex.gid);
+  }
+  for (auto const gid : turned_down) accessor.remove(gid);
+}
+
 bool HasVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
   return !GetVertexProperty(vertex, property, transaction, view).IsNull();
 }
@@ -633,11 +652,25 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<st
   if (properties[0].size() != 1) throw utils::NotYetImplemented("nested index");
 
   auto const &range{property_ranges.front()};
-  if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    return Vertices(label, properties[0][0], view);
-  } else {
-    return Vertices(label, properties[0][0], range.lower_, range.upper_, view);
-  }
+  auto const &property = properties[0][0];
+
+  // What the band gathers is set aside here, so that a predicate can be read over it below.
+  auto const gathered_before = transaction_.index_storage_.size();
+  auto found = range.type_ == PropertyRangeType::IS_NOT_NULL
+                   ? Vertices(label, property, view)
+                   : Vertices(label, property, range.lower_, range.upper_, view);
+
+  auto const &keeps = range.GetValuePredicate();
+  if (!keeps) return found;
+
+  // Edge import gathers into a cache of its own rather than into the index storage below, and
+  // nothing has taught this to read a predicate over that. Loud rather than silently answering with
+  // the band alone.
+  MG_ASSERT(transaction_.index_storage_.size() > gathered_before,
+            "A range carrying a predicate reached a scan that gathers nowhere this can read it");
+
+  DropWhatAPredicateTurnsDown(*transaction_.index_storage_.back(), property, *keeps, &transaction_, view);
+  return found;
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,

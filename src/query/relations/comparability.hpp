@@ -19,10 +19,11 @@
 /// answer Null. No pair raises: incomparability is an answer the relation gives
 /// rather than a question it refuses.
 ///
-/// A list is among the values it does not place. Placing one means ordering it
-/// by its elements, and an index scan standing in for a filter over a list
-/// column orders by what the store holds, which is not that order. Until the
-/// two agree, the same query would answer differently once an index existed.
+/// A list is placed by its elements, in the dictionary order the specification
+/// gives: pairwise from the start, and a shorter list first where the two agree
+/// up to its end. An element pair this relation leaves undecided leaves the two
+/// lists undecided, which is what makes `[1, 2] >= [1, null]` Null while
+/// `[1] < [1, null]` is true: the second compares no element to the null.
 #pragma once
 
 #include <cmath>
@@ -55,11 +56,13 @@ constexpr bool ValidFor(TypedValue::Type type) {
     case Duration:
       return true;
 
+    case List:
+      return true;
+
     case Null:
     case Enum:
     case Point2d:
     case Point3d:
-    case List:
     case Map:
     case Vertex:
     case Edge:
@@ -73,19 +76,48 @@ constexpr bool ValidFor(TypedValue::Type type) {
   }
 }
 
+/// Places two lists, in the dictionary order the specification gives.
+///
+/// Out of line so that Compare does not call itself. A compiler will not inline
+/// a function that recurses, and every filter reaches Compare through the
+/// caller.
+///
+/// Takes what it walks rather than the values holding it, so that it cannot be
+/// handed a pair of unlike things.
+std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
+
 /**
  * Whether comparability places a value against the values of its own type.
  *
  * A type being valid is not enough to say this, because one admitted type holds a
  * value with no order: a NaN is unordered against every number and against
  * itself, so all four comparisons answer false for a pair holding one and a
- * filter keeps no row. Ask this of a value a scan is about to be fenced by,
- * since a band drawn around a value the relation cannot place holds whatever
- * the stored order happens to put there.
+ * filter keeps no row.
  */
 inline bool ValidFor(const TypedValue &value) {
   if (!ValidFor(value.type())) return false;
   return value.type() != TypedValue::Type::Double || !std::isnan(value.UnsafeValueDouble());
+}
+
+/**
+ * Whether a band drawn around this bound hands back the rows a filter reading it
+ * would keep, and only those.
+ *
+ * Being placed is not enough. The stored order decides every pair, including the
+ * ones this relation leaves undecided, and a filter drops a row it cannot decide.
+ * Where the two part, a band holds rows no filter keeps.
+ *
+ * A list is where they part. A null element is ordered after every number in the
+ * store, so `[1, null]` sits above `[1, 2]` there, while a filter reading
+ * `> [1, 2]` cannot decide it and drops it. Both the rows a band keeps and the
+ * rows it drops lie on one side of the bound, so no fence separates them, and a
+ * list bound is left to the filter until a scan can read the pairs a band cannot.
+ *
+ * A value the relation cannot place at all is refused for the older reason: a
+ * band drawn around it holds whatever the stored order happens to put there.
+ */
+inline bool AnIndexCanFence(const TypedValue &bound) {
+  return ValidFor(bound) && bound.type() != TypedValue::Type::List;
 }
 
 /// The same question where the type is already known at compile time.
@@ -169,6 +201,10 @@ constexpr bool ValidFor() {
 inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const TypedValue &b) {
   // Two values of one admitted type are the common case and the whole answer.
   if (a.type() == b.type()) {
+    // The one type it places that carries no payload: a list is placed by what
+    // it holds rather than by anything read off the value itself.
+    if (a.type() == TypedValue::Type::List) return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
+
     if (auto const order = ComparePayload(a, b)) return order;
 
     // A Null orders against nothing, itself included, and a type carrying no

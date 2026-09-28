@@ -137,6 +137,54 @@ ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &stora
                  : std::nullopt},
       membership_list_{other.membership_list_ ? other.membership_list_->Clone(&storage) : nullptr} {}
 
+namespace {
+
+/// Reads a stored value against a bound the way the four ordered comparisons do, for a bound no
+/// band can fence.
+///
+/// The scan hands every row carrying the property to this, so it answers exactly what the filter
+/// the scan stands in for would: a pair comparability leaves undecided keeps no row, which is why
+/// nothing returned means the row is dropped rather than kept.
+///
+/// The candidate is read as a query value because comparability is stated over one, and stating it
+/// a second time over a stored value is the drift between the two layers this whole area exists to
+/// remove. The allocations that costs are the ones the filter would have made.
+storage::PropertyValueRange::ValuePredicate MakeComparisonPredicate(std::optional<TypedValue> const &lower,
+                                                                    std::optional<utils::BoundType> lower_type,
+                                                                    std::optional<TypedValue> const &upper,
+                                                                    std::optional<utils::BoundType> upper_type,
+                                                                    storage::NameIdMapper *mapper) {
+  if (!lower && !upper) return nullptr;
+
+  // Held in a resource of its own rather than the query's: a chunked scan calls this from several
+  // threads at once, and the query's resource is not shared between them.
+  auto const own = [](std::optional<TypedValue> const &value) -> std::optional<TypedValue> {
+    if (!value) return std::nullopt;
+    return TypedValue{*value, utils::NewDeleteResource()};
+  };
+
+  return std::make_shared<storage::PropertyValueRange::ValuePredicateFn>(
+      [lower = own(lower), lower_type, upper = own(upper), upper_type, mapper](
+          storage::PropertyValue const &candidate) {
+        auto const value = TypedValue{candidate, mapper, utils::NewDeleteResource()};
+
+        auto const satisfies = [&](TypedValue const &bound, utils::BoundType type, bool from_below) {
+          auto const order = relations::comparability::Compare(value, bound);
+          if (!order) return false;
+          if (from_below) {
+            return type == utils::BoundType::INCLUSIVE ? std::is_gteq(*order) : std::is_gt(*order);
+          }
+          return type == utils::BoundType::INCLUSIVE ? std::is_lteq(*order) : std::is_lt(*order);
+        };
+
+        if (lower && !satisfies(*lower, *lower_type, true)) return false;
+        if (upper && !satisfies(*upper, *upper_type, false)) return false;
+        return true;
+      });
+}
+
+}  // namespace
+
 auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
   // Only store lower bound, Evaluate will only use the lower bound
   return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
@@ -241,11 +289,27 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       // for every row, so the filter this scan stands in for keeps none of them. The stored order
       // places such a value all the same, by where its type sits or by where a NaN is put, and a
       // band drawn around it would hand back rows no filter would pass.
-      auto const placed_by_comparability = [](auto const &value) {
-        return !value || relations::comparability::ValidFor(*value);
-      };
-      if (!placed_by_comparability(lower_value) || !placed_by_comparability(upper_value)) {
+      auto const placed = [](auto const &value) { return !value || relations::comparability::ValidFor(*value); };
+      if (!placed(lower_value) || !placed(upper_value)) {
         return storage::PropertyValueRange::Empty();
+      }
+
+      // A bound it places but a band cannot fence is a different case: the filter keeps rows, and
+      // the scan has to reach all of them. The stored order decides pairs the filter leaves
+      // undecided, so a band would hold rows the filter drops and there is no fence between the
+      // two. The scan walks every row carrying the property and reads each one against the bound,
+      // which is the same work the filter it stands in for would have done.
+      auto const fenceable = [](auto const &value) {
+        return !value || relations::comparability::AnIndexCanFence(*value);
+      };
+      if (!fenceable(lower_value) || !fenceable(upper_value)) {
+        auto unfenced = storage::PropertyValueRange::IsNotNull();
+        unfenced.SetValuePredicate(MakeComparisonPredicate(lower_value,
+                                                           lower_ ? std::optional{lower_->type()} : std::nullopt,
+                                                           upper_value,
+                                                           upper_ ? std::optional{upper_->type()} : std::nullopt,
+                                                           evaluator.GetNameIdMapper()));
+        return unfenced;
       }
 
       auto const to_bound = [&](std::optional<TypedValue> const &value,

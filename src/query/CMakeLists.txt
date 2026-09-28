@@ -97,6 +97,7 @@ target_sources(mg-query
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
     query_user.cpp
+    relations/comparability.cpp
     relations/equality.cpp
     relations/equivalence.cpp
     relations/orderability.cpp

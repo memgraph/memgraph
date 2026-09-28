@@ -277,13 +277,14 @@ TEST(TypedValue, ComparabilityAnswersNullForAPairItCannotPlace) {
   EXPECT_PROP_ISNULL(TypedValue(1) < TypedValue("a"));
   EXPECT_PROP_ISNULL(TypedValue("a") < TypedValue(1));
 
-  // A list and a map are placed by orderability alone, so a sort arranges two
-  // of them while all four comparisons answer Null. Placing a list here means
-  // ordering it by its elements, which is not the order the store keeps one in,
-  // and a scan reading that order stands in for this comparison.
-  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < List({TypedValue(2)}));
-  EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
+  // A map is placed by orderability alone, so a sort arranges two of them while
+  // all four comparisons answer Null.
   EXPECT_PROP_ISNULL(Map({{"k", TypedValue(1)}}) < Map({{"k", TypedValue(2)}}));
+
+  // A list is placed by its elements, so a pair of them answers where the
+  // elements do and answers Null where they do not.
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(2)}));
+  EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
 }
 
 TEST(TypedValue, EqualityOfAContainerHoldingNullIsUndecided) {

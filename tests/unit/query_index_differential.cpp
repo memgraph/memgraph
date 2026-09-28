@@ -313,6 +313,39 @@ TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoes) {
   EXPECT_EQ(without_index.front(), static_cast<int64_t>(kMixedValues.size()));
 }
 
+TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoesForATrailingListBound) {
+  // A composite index fences its trailing property by a band as well, so a bound no band can
+  // separate has to be re-read there too. The equality on the leading property is what makes the
+  // trailing one the range, which is the only place this can go wrong.
+  Run("MATCH (n) DETACH DELETE n;");
+  for (auto const *trailing : {"[1]", "[1, 2]", "[1, 3]", "[1, null]", "[null, 1]"}) {
+    Run("CREATE (:T {a: 1, b: " + std::string{trailing} + "});");
+  }
+
+  auto const queries = std::vector<std::string>{
+      "MATCH (n:T) WHERE n.a = 1 AND n.b > [1, 2] RETURN count(n) AS c;",
+      "MATCH (n:T) WHERE n.a = 1 AND n.b < [1, 2] RETURN count(n) AS c;",
+      "MATCH (n:T) WHERE n.a = 1 AND n.b >= [1] RETURN count(n) AS c;",
+      "MATCH (n:T) WHERE n.a = 1 AND n.b <= [1, 3] RETURN count(n) AS c;",
+  };
+  auto const counts = [&] {
+    auto answers = std::vector<int64_t>{};
+    for (auto const &query : queries) answers.push_back(CountOf(query));
+    return answers;
+  };
+
+  auto const without_index = counts();
+  Run("CREATE INDEX ON :T(a, b);");
+  auto const reads_an_index = PlanReadsAnIndex(queries.front());
+  auto const with_index = counts();
+  Run("DROP INDEX ON :T(a, b);");
+
+  EXPECT_TRUE(reads_an_index) << "the plan filtered on both sides, so the comparison asked the same plan twice";
+  EXPECT_EQ(with_index, without_index) << "an index changed the answer for a trailing list bound";
+  EXPECT_TRUE(std::ranges::any_of(without_index, [](auto count) { return count > 0; }))
+      << "no query over the trailing bound kept a row";
+}
+
 TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoesForATrailingSearchTerm) {
   // A search term is read by the scan rather than fenced by the band, because no band separates the
   // strings holding it from the strings that do not. A composite index fences its trailing property
@@ -359,6 +392,22 @@ TEST_F(IndexDifferentialTest, AnIndexWalksAMixedColumnInTheOrderASortReadsIt) {
   auto const [without_index, with_index] = OrderAgrees(kMixedValues, queries, {"CREATE INDEX ON :O(p);"});
 
   EXPECT_EQ(with_index, without_index) << "an index changed the order rows come back in";
+}
+
+TEST_F(IndexDifferentialTest, AnIndexOverAColumnOfListsAnswersAsTheFilterDoes) {
+  // A pair of lists reaching a null is undecided, so a filter drops the row. The stored order
+  // decides it anyway, putting a null element after every number, so `[1, null]` sits above
+  // `[1, 2]` there. A band drawn above `[1, 2]` therefore holds a row no filter keeps, and both
+  // the rows it should hand back and the row it should not lie on the same side of the bound.
+  auto const values = std::vector<std::string>{
+      "[1]",
+      "[1, 2]",
+      "[1, 3]",
+      "[1, null]",
+      "[null, 1]",
+      "[2]",
+  };
+  AnswersAgree(values, "a column of lists");
 }
 
 TEST_F(IndexDifferentialTest, AnIndexWalksTheTemporalKindsInTheOrderASortReadsThem) {
