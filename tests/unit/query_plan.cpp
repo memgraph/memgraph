@@ -5522,6 +5522,11 @@ TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
       QUERY(SINGLE_QUERY(match({"Label2", "Label1"}), WHERE(disjunction()), RETURN("n"))),
       // MATCH (n) WHERE (n:Label1 OR n:Label2) AND (n:Label1 OR n:Label2)
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(AND(disjunction(), disjunction())), RETURN("n"))),
+      // MATCH (n:Label2|Label1) WHERE n:Label1 OR n:Label2 OR n:Label1: a label stated twice is named once.
+      QUERY(SINGLE_QUERY(
+          match({"Label2", "Label1"}),
+          WHERE(OR(disjunction(), LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label1")}))),
+          RETURN("n"))),
   };
 
   for (auto *query : cases) {

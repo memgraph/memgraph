@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <functional>
 #include <optional>
-#include <span>
 #include <stack>
 #include <string_view>
 #include <unordered_map>
@@ -1046,60 +1045,33 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       return identifier->symbol_pos_ == *symbol_pos;
     });
     if (is_each_labels_test) {
-      std::unordered_map<uint32_t, std::vector<LabelIx> *> already_seen_symbols;
-      // Filters that this disjunction added a group to, by position: the group is complete only after the loop.
-      std::vector<size_t> grown_filters;
-      for (auto &filter : filters) {
-        auto *labels_test = utils::Downcast<LabelsTest>(filter);
-        auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
-        auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
-        if (it == all_filters_.end()) {
-          // No existing LabelTest for this identifier
-          auto filter_info = FilterInfo{FilterInfo::Type::Label, labels_test, collector.symbols_};
-          filter_info.or_labels.push_back(labels_test->labels_);
-
-          // Transfer labels to or_labels since we are in OR expression
-          labels_test->or_labels_.push_back(std::move(labels_test->labels_));
-          labels_test->labels_.clear();
-          already_seen_symbols[identifier->symbol_pos_] = &labels_test->or_labels_.back();
-          all_filters_.emplace_back(filter_info);
-        } else {
-          // Add to existing LabelsTest
-          // First cover OR expressions in LabelsTest
-          auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
-          auto &existing_or_labels = existing_labels_test->or_labels_;
-          // If symbol isn't already seen in this OR expression emplace back new vector of or labels
-          std::vector<LabelIx> *or_labels_vec = nullptr;
-          auto existing_or_labels_vec_it = already_seen_symbols.find(identifier->symbol_pos_);
-          if (existing_or_labels_vec_it == already_seen_symbols.end()) {
-            existing_or_labels.emplace_back();
-            already_seen_symbols[identifier->symbol_pos_] = &existing_or_labels.back();
-            or_labels_vec = &existing_or_labels.back();
-            grown_filters.push_back(std::distance(all_filters_.begin(), it));
-          } else {
-            or_labels_vec = existing_or_labels_vec_it->second;
-          }
-          // Dedupe within this group only: a label an earlier group already names is a separate
-          // conjunct there, and dropping it here would weaken this one.
-          auto as_set = std::unordered_set(or_labels_vec->begin(), or_labels_vec->end());
-          for (auto &label : labels_test->labels_) {
-            if (as_set.insert(label).second) {
-              or_labels_vec->push_back(label);
-            }
-          }
-          it->or_labels = existing_or_labels;
+      // The disjuncts' labels are one group; a label stated twice is named once.
+      std::vector<LabelIx> group;
+      for (auto *filter : filters) {
+        auto const &label = utils::Downcast<LabelsTest>(filter)->labels_.front();
+        if (!std::ranges::contains(group, label)) {
+          group.push_back(label);
         }
       }
-      // A group equal to one the filter already has is redundant, as in the pattern merge. Keeping
-      // it breaks index selection, which erases one copy and expects no other.
-      for (auto filter_pos : grown_filters) {
-        auto &filter_info = all_filters_[filter_pos];
-        auto &groups = dynamic_cast<LabelsTest *>(filter_info.expression)->or_labels_;
-        auto earlier = std::span(groups).first(groups.size() - 1);
-        if (std::ranges::any_of(earlier, [&](const auto &group) { return SameLabelGroup(group, groups.back()); })) {
-          groups.pop_back();
-          filter_info.or_labels = groups;
+      auto *labels_test = utils::Downcast<LabelsTest>(filters.front());
+      auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
+      auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
+      if (it == all_filters_.end()) {
+        // The first disjunct's LabelsTest stands for the whole OR.
+        labels_test->labels_.clear();
+        labels_test->or_labels_.push_back(std::move(group));
+        auto filter_info = FilterInfo{FilterInfo::Type::Label, labels_test, collector.symbols_};
+        filter_info.or_labels = labels_test->or_labels_;
+        all_filters_.emplace_back(std::move(filter_info));
+      } else {
+        // One more OR group of the existing LabelsTest, kept whole, as in the pattern merge. A group
+        // equal to one it already has is redundant, and index selection expects no duplicate.
+        auto &existing_or_labels = dynamic_cast<LabelsTest *>(it->expression)->or_labels_;
+        if (std::ranges::none_of(existing_or_labels,
+                                 [&](const auto &existing) { return SameLabelGroup(existing, group); })) {
+          existing_or_labels.push_back(std::move(group));
         }
+        it->or_labels = existing_or_labels;
       }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
