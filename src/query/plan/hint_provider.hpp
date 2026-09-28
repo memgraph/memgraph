@@ -359,9 +359,12 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     auto const scan_symbol = dynamic_cast<ScanAll *>(op.input().get())->output_symbol_;
     auto const scan_type = op.input()->GetTypeInfo();
 
-    // A hint outlives nothing, so anything collection needs to build belongs to this scratch storage.
+    // A hint reads a plan the cache serves to every execution of the query, so it may write to nothing that
+    // plan owns: collecting without merging leaves the plan's own tests alone, and the test the fold builds
+    // belongs to this scratch storage.
     AstStorage scratch;
-    auto filters = Filters::FromExpression(op.expression_, symbol_table_, scratch);
+    Filters filters;
+    filters.AddOperatorFilters(op.expression_, symbol_table_, scratch);
     const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
                                                        [](const auto &item) { return fmt::format(":{0}", item.name); });
     const std::string filtered_properties =

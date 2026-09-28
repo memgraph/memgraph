@@ -213,10 +213,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
 
-    // Predicates we consumed here. The Cartesian decision below needs these, not the leftovers.
+    // Predicates we consumed here. The Cartesian decision below needs these, not the leftovers. Collected the
+    // same way as the ones the removal set was built from, so a filter is the same filter in both.
     std::vector<FilterInfo> removed_filters;
     {
-      auto own_filters = Filters::FromExpression(op.expression_, *symbol_table_, *ast_storage_);
+      Filters own_filters;
+      own_filters.AddOperatorFilters(op.expression_, *symbol_table_, *ast_storage_);
       for (auto const &filter : own_filters) {
         if (filter_exprs_for_removal_.contains(filter.expression)) {
           removed_filters.push_back(filter);
