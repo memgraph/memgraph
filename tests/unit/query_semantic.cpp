@@ -10,11 +10,13 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -2580,6 +2582,62 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverItsOwnNodesInsideCreateI
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
 
   EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+// CREATE and MERGE build a node, so they take a conjunction of labels and nothing else: there is no
+// node to build from '|', '!' or '%'.
+TYPED_TEST(TestSymbolGenerator, CreateOrMergeWithLabelTermIsRejected) {
+  // The check is on the term being there, not on its operator, so one CREATE and one MERGE suffice.
+  // CREATE (n:%)
+  auto *wildcard = NODE_WITH_TERM("n", LABEL_TERM_WILDCARD());
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(wildcard))))), SemanticException);
+
+  // MERGE (n:!A)
+  auto *merged = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MERGE(PATTERN(merged))))), SemanticException);
+
+  // CREATE (n:A:B) -- a conjunction is what a write takes, and it still does.
+  auto *conjunction = NODE_WITH_LABELS("n", std::vector<std::string>{"A", "B"}, false);
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(conjunction))))));
+
+  // MATCH (n:!A) -- reading with one is fine.
+  auto *matched = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(matched)), RETURN("n")))));
+}
+
+// The rejection reaches a node wherever a write builds one. Each case also runs with a plain node, which
+// must pass, so the throw is the label term's.
+TYPED_TEST(TestSymbolGenerator, NestedCreateOrMergeWithLabelTermIsRejected) {
+  auto term = [&] { return NODE_WITH_TERM("n", LABEL_TERM_OR(LABEL_TERM_LEAF("A"), LABEL_TERM_LEAF("B"))); };
+  auto plain = [&] { return NODE("n"); };
+  using MakeNode = std::function<NodeAtom *()>;
+  const std::vector<std::pair<std::string, std::function<CypherQuery *(const MakeNode &)>>> cases{
+      // CREATE (m)-[:R]->(n:A|B)
+      {"edge endpoint",
+       [&](const MakeNode &node) {
+         return QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {"R"}), node()))));
+       }},
+      // MERGE (m)-[:R]->(n:A|B)
+      {"merged edge endpoint",
+       [&](const MakeNode &node) {
+         return QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {"R"}), node()))));
+       }},
+      // FOREACH (i IN [1] | CREATE (n:A|B))
+      {"FOREACH",
+       [&](const MakeNode &node) {
+         return QUERY(SINGLE_QUERY(FOREACH(NEXPR("i", LIST(LITERAL(1))), {CREATE(PATTERN(node()))})));
+       }},
+      // CALL { CREATE (n:A|B) }
+      {"CALL subquery",
+       [&](const MakeNode &node) {
+         return QUERY(SINGLE_QUERY(CALL_SUBQUERY(QUERY(SINGLE_QUERY(CREATE(PATTERN(node())))))));
+       }},
+  };
+  for (const auto &[name, make_query] : cases) {
+    SCOPED_TRACE(name);
+    EXPECT_THROW(MakeSymbolTable(make_query(term)), SemanticException);
+    EXPECT_NO_THROW(MakeSymbolTable(make_query(plain)));
+  }
 }
 
 #undef COMPREHENSION_OVER

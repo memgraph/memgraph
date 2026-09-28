@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
@@ -1153,6 +1155,28 @@ class AllPropertiesLookup : public Expression {
 
 using QueryLabelType = std::variant<LabelIx, Expression *>;
 
+/// A node label expression: `&`, `|`, `!`, `%` and parentheses over label leaves, or a plain conjunction
+/// such as `:A:B`. Not a `Tree`; `LowerLabelTerm` turns it into boolean operators over `LabelsTest`, or
+/// keeps it whole in `LabelsTest::term_`.
+struct LabelTerm {
+  enum class Kind : uint8_t { Label, Dynamic, Wildcard, And, Or, Not };
+
+  Kind kind{Kind::Label};
+  LabelIx label{};                  ///< `Kind::Label` only.
+  Expression *expression{nullptr};  ///< `Kind::Dynamic` only: the `variable.prop` that names the label.
+  std::vector<LabelTerm> children;  ///< `And`/`Or`: the operands. `Not`: exactly one.
+
+  LabelTerm Clone(AstStorage *storage) const;
+
+  /// The leaves of a plain conjunction -- one leaf, or an `And` of leaves -- or nullopt for any other shape.
+  /// Only a conjunction holds a `Dynamic` leaf: the grammar keeps it away from the operators.
+  std::optional<std::vector<QueryLabelType>> Conjunction() const;
+};
+
+/// Build a boolean expression over `subject` from `term`. Every leaf becomes a `LabelsTest`, so the
+/// planner still sees the labels it can index.
+Expression *LowerLabelTerm(AstStorage &storage, Expression *subject, const LabelTerm &term);
+
 class LabelsTest : public Expression {
  public:
   static const utils::TypeInfo kType;
@@ -1175,12 +1199,16 @@ class LabelsTest : public Expression {
 
   /// Whether this asks only that the value is a node. Such a test yields null for a null, true for a vertex,
   /// and raises for any other type.
-  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty(); }
+  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty() && !any_label_ && !term_; }
 
   Expression *expression_{nullptr};
   std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
   std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
                                                  // one of the labels in "inner" vector
+  bool any_label_{false};                        // The `%` wildcard: the label set has to be non-empty.
+  /// A label expression the fields above cannot express, held whole because the subject must not be
+  /// duplicated. Set only when `expression_` is not an `Identifier`; see `LowerLabelTerm`.
+  std::optional<LabelTerm> term_;
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1196,13 +1224,14 @@ class LabelsTest : public Expression {
         object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
       }
     }
+    object->any_label_ = any_label_;
+    if (term_) object->term_ = term_->Clone(storage);
     return object;
   }
 
  protected:
-  LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool label_expression = false)
-      : expression_(expression) {
-    if (!label_expression) {
+  LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool or_group = false) : expression_(expression) {
+    if (!or_group) {
       labels_ = std::move(labels);
     } else {
       or_labels_.push_back(std::move(labels));
@@ -1765,30 +1794,29 @@ class NodeAtom : public memgraph::query::PatternAtom {
 
   /// Whether this atom states anything about the node beyond naming it.
   bool HasLabelsOrProperties() const {
-    if (!labels_.empty()) return true;
+    if (label_term_) return true;
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       return !properties->empty();
     }
     return std::get<ParameterLookup *>(properties_) != nullptr;
   }
 
-  std::vector<QueryLabelType> labels_;
+  /// The labels a plain conjunction names, none included, or nullopt when the label expression is no
+  /// conjunction. A write takes only a conjunction.
+  std::optional<std::vector<QueryLabelType>> LabelConjunction() const {
+    if (!label_term_) return std::vector<QueryLabelType>{};
+    return label_term_->Conjunction();
+  }
+
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
-  bool label_expression_{false};
+  /// Unset when the pattern names no label; a `$param` bound to an empty list names none either.
+  std::optional<LabelTerm> label_term_;
 
   NodeAtom *Clone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->labels_.resize(labels_.size());
-    for (auto i = 0; i < object->labels_.size(); ++i) {
-      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
-        object->labels_[i] = storage->GetLabelIx(label->name);
-      } else {
-        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
-      }
-    }
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);
       for (const auto &[property, value_expression] : *properties) {
@@ -1798,7 +1826,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     } else {
       object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
     }
-    object->label_expression_ = label_expression_;
+    if (label_term_) object->label_term_ = label_term_->Clone(storage);
     return object;
   }
 

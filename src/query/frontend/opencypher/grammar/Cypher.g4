@@ -171,7 +171,7 @@ patternElement : ( nodePattern ( patternElementChain )* )
                | ( '(' patternElement ')' )
                ;
 
-nodePattern : '(' ( variable )? ( nodeLabels | labelExpression )? ( properties )? ')' ;
+nodePattern : '(' ( variable )? ( nodeLabelExpression )? ( properties )? ')' ;
 
 patternElementChain : relationshipPattern nodePattern ;
 
@@ -203,7 +203,37 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelExpression: ':' symbolicName ( '|' symbolicName )+ ;
+// Either one ':' term with any operators (':A&!B|C'), or the openCypher chain ':A:B:C' of
+// plain labels. The visitor rejects a mix of the two (':A|B:C').
+nodeLabelExpression : ( ':' labelSegment )+ ;
+
+// A `variable.prop` label never follows an operator: after '|' it would compete with the projection in
+// '[x IN xs WHERE x:A | x.v]', and that ambiguity costs a full-context prediction per comprehension.
+labelSegment : dynamicLabel
+             | labelTerm
+             ;
+
+dynamicLabel : variable ( propertyLookup )+
+             | '(' dynamicLabel ')'
+             ;
+
+// Non-greedy, so '[x IN xs WHERE x:A | x.v]' keeps '| x.v' as the projection.
+labelTerm : labelTermAnd ( '|' labelTermAnd )*? ;
+
+labelTermAnd : labelTermNot ( '&' labelTermNot )* ;
+
+labelTermNot : '!' labelTermNot
+             | labelTermAtom
+             ;
+
+labelTermAtom : labelLeaf
+              | '%'
+              | '(' labelTerm ')'
+              ;
+
+labelLeaf : symbolicName
+          | parameter
+          ;
 
 labelName : symbolicName
           | parameter
@@ -242,7 +272,7 @@ expression3 : ( ( '+' | '-' ) )* expression2a ;
 
 stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression6) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
 
-expression2a : expression2b ( nodeLabels )? ;
+expression2a : expression2b ( nodeLabelExpression )? ;
 
 expression2b : atom ( memberAccess )* ;
 

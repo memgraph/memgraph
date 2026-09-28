@@ -204,6 +204,9 @@ auto MatchesIdentifier(Identifier *identifier) {
     auto *existing_label_test = dynamic_cast<LabelsTest *>(existing.expression);
     if (!existing_label_test) return false;
 
+    // Keep `%` out of a label filter an index scan may erase: a node scan implies it, an edge scan does not.
+    if (existing_label_test->any_label_) return false;
+
     auto *exisiting_identifier = dynamic_cast<Identifier *>(existing_label_test->expression_);
     if (!exisiting_identifier) return false;
 
@@ -240,10 +243,11 @@ void AddAndLabels(std::vector<LabelIx> &and_labels, std::vector<std::vector<Labe
   });
 }
 
-/// The single label a test contributes to a disjunction over one variable, or nothing if it demands anything
-/// else of the variable.
+/// The labels a test contributes to a disjunction over one variable -- a single label, or a single OR group as
+/// `n:A|B` has -- or nothing if it demands anything else of the variable.
 auto DisjunctLabels(const LabelsTest &labels_test) -> const std::vector<LabelIx> * {
   if (labels_test.labels_.size() == 1 && labels_test.or_labels_.empty()) return &labels_test.labels_;
+  if (labels_test.labels_.empty() && labels_test.or_labels_.size() == 1) return &labels_test.or_labels_.front();
   return nullptr;
 }
 
@@ -489,8 +493,19 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   };
   auto add_node_filter = [&](NodeAtom *node) {
     const auto &node_symbol = symbol_table.at(*node->identifier_);
+    const auto conjunction = node->LabelConjunction();
+    if (!conjunction) {
+      // Pattern position and WHERE position have to yield the same filters, so the lowered term goes
+      // through the very analysis a WHERE expression gets.
+      CollectFilterExpression(LowerLabelTerm(storage, node->identifier_, *node->label_term_),
+                              symbol_table,
+                              storage,
+                              LabelTestMerging::kAllowed);
+      add_properties(node);
+      return;
+    }
     std::vector<LabelIx> labels;
-    for (auto label : node->labels_) {
+    for (const auto &label : *conjunction) {
       if (std::get_if<Expression *>(&label)) {
         throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
@@ -501,20 +516,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(node->identifier_));
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
-        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels, node->label_expression_);
+        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
         DeriveLabelView(label_filter);
         all_filters_.emplace_back(label_filter);
       } else {
-        // Add to existing LabelsTest
-        // First cover OR expressions in LabelsTest
-        // A disjunction is one more OR group of the test already collected. Each group is a conjunct of its
-        // own, so it is kept whole; a conjunction adds to the labels the node must carry.
-        if (node->label_expression_) {
-          AddOrLabelGroup(*it, labels);
-        } else {
-          AddAndLabels(*it, labels);
-        }
+        // Add these labels to the existing LabelsTest.
+        AddAndLabels(*it, labels);
       }
     }
     add_properties(node);
@@ -916,7 +924,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         all_filters_.emplace_back(make_filter(FilterInfo::Type::Node));
         return;
       }
-      auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
+      // `%` keeps a filter of its own, for the reason given in MatchesIdentifier.
+      auto it = labels_test->any_label_ ? all_filters_.end()
+                                        : std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
       if (it == all_filters_.end() || merging == LabelTestMerging::kForbidden) {
         // Either no label test of this identifier was collected yet, or the one collected belongs to another
         // operator and says nothing about the rows this expression is asked about.
@@ -1054,8 +1064,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
   } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
     auto filters = SplitExpression(or_operator, SplitExpressionMode::OR);
-    // Fold an OR of single-label tests on one variable into one OR group of its LabelsTest. Any other
-    // OR stays generic: `n:A OR m:B` is not a group of either variable.
+    // Fold an OR of label choices on one variable into one OR group of a LabelsTest. A choice is what
+    // DisjunctLabels accepts. Any other OR stays generic: `n:A OR m:B` is not a group of either variable.
     std::optional<int32_t> symbol_pos;
     auto is_each_labels_test = std::ranges::all_of(filters, [&](auto &filter) {
       auto *labels_test = utils::Downcast<LabelsTest>(filter);
@@ -1087,7 +1097,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       if (it == all_filters_.end() || merging == LabelTestMerging::kForbidden) {
         // The group gets a test of its own. Rewriting a disjunct's test would leave the query holding a test
         // it was not parsed with, and a later collection of the same query reading something else.
-        auto *group_test = storage.Create<LabelsTest>(identifier, std::move(group), /*label_expression=*/true);
+        auto *group_test = storage.Create<LabelsTest>(identifier, std::move(group), /*or_group=*/true);
         auto filter_info = FilterInfo{FilterInfo::Type::Label, group_test, collector.symbols_};
         DeriveLabelView(filter_info);
         all_filters_.emplace_back(std::move(filter_info));

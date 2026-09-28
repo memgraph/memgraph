@@ -837,13 +837,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
         return std::get<ParameterLookup *>(node.properties_);
       });
-      return NodeCreationInfo{node_symbol, GetLabelIds(node.labels_), properties};
+      // The symbol generator refuses a write whose labels are no conjunction.
+      return NodeCreationInfo{node_symbol, GetLabelIds(node.LabelConjunction().value()), properties};
     };
 
     auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
-      if (node->label_expression_) {
-        throw SemanticException("Label expression not supported in CREATE and MERGE clauses.");
-      }
       const auto &node_symbol = symbol_table.at(*node->identifier_);
       if (bound_symbols.insert(node_symbol).second) {
         auto node_info = node_to_creation_info(*node);

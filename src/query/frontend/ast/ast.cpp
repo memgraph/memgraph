@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+
+#include <algorithm>
+
 #include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
@@ -552,6 +555,95 @@ Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggre
   DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP ||
                                          op == Aggregation::Op::DERIVE),
              "expression2 is obligatory in COLLECT_MAP, PROJECT_LISTS and DERIVE, and invalid otherwise");
+}
+
+LabelTerm LabelTerm::Clone(AstStorage *storage) const {
+  LabelTerm object;
+  object.kind = kind;
+  if (kind == Kind::Label) object.label = storage->GetLabelIx(label.name);
+  if (expression != nullptr) object.expression = expression->Clone(storage);
+  object.children.reserve(children.size());
+  for (const auto &child : children) {
+    object.children.push_back(child.Clone(storage));
+  }
+  return object;
+}
+
+std::optional<std::vector<QueryLabelType>> LabelTerm::Conjunction() const {
+  auto leaf = [](const LabelTerm &term) -> std::optional<QueryLabelType> {
+    if (term.kind == Kind::Label) return term.label;
+    if (term.kind == Kind::Dynamic) return term.expression;
+    return std::nullopt;
+  };
+  if (auto single = leaf(*this)) return std::vector{*single};
+  if (kind != Kind::And) return std::nullopt;
+  std::vector<QueryLabelType> labels;
+  labels.reserve(children.size());
+  for (const auto &child : children) {
+    auto label = leaf(child);
+    if (!label) return std::nullopt;
+    labels.push_back(*label);
+  }
+  return labels;
+}
+
+namespace {
+
+Expression *LowerLabelTermNode(AstStorage &storage, Expression *subject, const LabelTerm &term) {
+  // Each leaf gets its own copy of the subject, which is an identifier -- see `LowerLabelTerm`.
+  auto leaf_subject = [&] { return subject->Clone(&storage); };
+  auto fold = [&]<typename Operator>() -> Expression * {
+    // A `$param` bound to an empty list names no label: only a node test is left.
+    if (term.children.empty()) return storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{});
+    Expression *folded = LowerLabelTermNode(storage, subject, term.children.front());
+    for (const auto &child : term.children | rv::drop(1)) {
+      folded = storage.Create<Operator>(folded, LowerLabelTermNode(storage, subject, child));
+    }
+    return folded;
+  };
+
+  switch (term.kind) {
+    case LabelTerm::Kind::Label:
+      return storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{term.label});
+    case LabelTerm::Kind::Dynamic:
+      throw SemanticException("You can't use labels in filter expressions.");
+    case LabelTerm::Kind::Wildcard: {
+      auto *test = storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{});
+      test->any_label_ = true;
+      return test;
+    }
+    case LabelTerm::Kind::Not:
+      return storage.Create<NotOperator>(LowerLabelTermNode(storage, subject, term.children.front()));
+    case LabelTerm::Kind::Or:
+      // A disjunction of plain labels stays one LabelsTest holding one OR group: that is the shape index
+      // selection already turns into a union of per-label scans.
+      if (r::all_of(term.children, [](const LabelTerm &child) { return child.kind == LabelTerm::Kind::Label; })) {
+        auto labels = std::vector<LabelIx>{};
+        labels.reserve(term.children.size());
+        for (const auto &child : term.children) {
+          // A repeated label adds nothing to the choice, but index selection would scan it once per copy.
+          if (!std::ranges::contains(labels, child.label)) labels.push_back(child.label);
+        }
+        return storage.Create<LabelsTest>(leaf_subject(), std::move(labels), /*or_group=*/true);
+      }
+      return fold.template operator()<OrOperator>();
+    case LabelTerm::Kind::And:
+      return fold.template operator()<AndOperator>();
+  }
+  LOG_FATAL("Unexpected LabelTerm::Kind");
+}
+
+}  // namespace
+
+Expression *LowerLabelTerm(AstStorage &storage, Expression *subject, const LabelTerm &term) {
+  // Only an identifier may be copied per leaf: any other subject would be evaluated once per leaf, and
+  // may hold anonymous identifiers the parser has not filled in yet. It keeps the term whole.
+  if (!utils::Downcast<Identifier>(subject)) {
+    auto *test = storage.Create<LabelsTest>(subject, std::vector<LabelIx>{});
+    test->term_ = term;
+    return test;
+  }
+  return LowerLabelTermNode(storage, subject, term);
 }
 
 auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {

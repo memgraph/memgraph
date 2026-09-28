@@ -1226,6 +1226,92 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
   }
 }
 
+// `%` asks whether the node carries any label at all, and says nothing about which.
+TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
+  auto labelled = this->dba.InsertVertex();
+  ASSERT_TRUE(labelled.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  auto bare = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+
+  auto *identifier = this->storage.template Create<Identifier>("n");
+  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+
+  auto wildcard = [&] {
+    auto *op = this->storage.template Create<LabelsTest>(identifier, std::vector<LabelIx>{});
+    op->any_label_ = true;
+    return op;
+  };
+
+  {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue(labelled));
+    EXPECT_EQ(this->Eval(wildcard()).ValueBool(), true);
+  }
+  {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue(bare));
+    EXPECT_EQ(this->Eval(wildcard()).ValueBool(), false);
+    // The wildcard is what such a test asks, so it is not the "is this a node" test.
+    EXPECT_FALSE(wildcard()->IsNodeTest());
+  }
+  {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue());
+    EXPECT_TRUE(this->Eval(wildcard()).IsNull());
+    // Null in, null out, through the negation a lowered `!%` puts on top.
+    auto *negated = this->storage.template Create<NotOperator>(wildcard());
+    EXPECT_TRUE(this->Eval(negated).IsNull());
+  }
+}
+
+// A term kept whole, as a subject that is no identifier gets it, is evaluated against the one vertex.
+TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
+  auto animal_ix = this->storage.GetLabelIx("ANIMAL");
+  auto plant_ix = this->storage.GetLabelIx("PLANT");
+  auto animal = this->dba.InsertVertex();
+  ASSERT_TRUE(animal.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  auto plant = this->dba.InsertVertex();
+  ASSERT_TRUE(plant.AddLabel(this->dba.NameToLabel("PLANT")).has_value());
+  auto both = this->dba.InsertVertex();
+  ASSERT_TRUE(both.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  ASSERT_TRUE(both.AddLabel(this->dba.NameToLabel("PLANT")).has_value());
+  auto bare = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+
+  auto *identifier = this->storage.template Create<Identifier>("n");
+  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+
+  auto leaf = [](LabelIx label) { return LabelTerm{.kind = LabelTerm::Kind::Label, .label = label}; };
+  auto test_of = [&](LabelTerm term) {
+    auto *op = this->storage.template Create<LabelsTest>(identifier, std::vector<LabelIx>{});
+    op->term_ = std::move(term);
+    return op;
+  };
+  // (ANIMAL|%)&!PLANT
+  auto term =
+      LabelTerm{.kind = LabelTerm::Kind::And,
+                .children = {LabelTerm{.kind = LabelTerm::Kind::Or,
+                                       .children = {leaf(animal_ix), LabelTerm{.kind = LabelTerm::Kind::Wildcard}}},
+                             LabelTerm{.kind = LabelTerm::Kind::Not, .children = {leaf(plant_ix)}}}};
+  // An empty `$p` under an operator: an `And` of nothing.
+  auto empty_conjunction = LabelTerm{.kind = LabelTerm::Kind::And};
+
+  auto eval_on = [&](const TypedValue &value, LabelsTest *op) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, value);
+    return this->Eval(op);
+  };
+  EXPECT_TRUE(eval_on(TypedValue(animal), test_of(term)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(plant), test_of(term)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(both), test_of(term)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(bare), test_of(term)).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(bare), test_of(empty_conjunction)).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(), test_of(term)).IsNull());
+  EXPECT_THROW(eval_on(TypedValue(1), test_of(term)), QueryRuntimeException);
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
   // Setup: Create edge with TYPE_A
   auto from_vertex = this->dba.InsertVertex();
