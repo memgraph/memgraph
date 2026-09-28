@@ -166,52 +166,68 @@ class AuthLayer {
   /// A drop naming nothing is not a failure. The main may have created and dropped a record between snapshots,
   /// and the remove calls report that by returning false.
   [[nodiscard]] bool ApplyBatch(std::vector<replication::AuthOp> const &ops) {
-    AuthTransaction tx;
-    // The guard holds the write lock, so it has to be gone before Commit takes its own.
+    // Users and roles go through the overlay and land in one flush, so a replica holds all of them or none.
+    //
+    // Profiles do not, and must not: `UserProfiles` answers from an in-memory cache beside the store and writes
+    // to both as it goes, so putting it behind the overlay would let a failed flush leave the cache holding a
+    // change the store never took. Profiles are not transactional on the main either, which is why a profile
+    // write is refused inside a transaction there -- so a batch carrying one always carries only that one, and
+    // there is nothing for it to be atomic across.
     try {
-      auto locked = Lock(&tx);
-      for (auto const &op : ops) {
-        std::visit(
-            utils::Overloaded{[&](replication::AuthUpdateOp const &update) {
-                                // The main never builds an update that names nothing, so one arriving
-                                // here is a corrupt request rather than a no-op to skip.
-                                if (!update.user && !update.role && !update.profile) {
-                                  throw AuthException("Received an auth update naming no record");
-                                }
-                                if (update.user) locked->SaveUser(*update.user);
-                                if (update.role) locked->SaveRole(*update.role);
-                                if (update.profile) {
-                                  if (!locked->CreateOrUpdateProfile(
-                                          update.profile->name, update.profile->limits, update.profile->usernames)) {
-                                    throw AuthException("Couldn't create or update profile '{}'", update.profile->name);
-                                  }
-                                }
-                              },
-                              [&](replication::AuthDropOp const &drop) {
-                                switch (drop.type) {
-                                  using enum replication::AuthDataType;
-                                  case USER:
-                                    locked->RemoveUser(drop.name);
-                                    break;
-                                  case ROLE:
-                                    locked->RemoveRole(drop.name, /*force=*/true);
-                                    break;
-                                  case PROFILE:
-                                    locked->DropProfile(drop.name);
-                                    break;
-                                  case N:
-                                    throw AuthException("Received an auth drop of no known kind");
-                                }
-                              }},
-            op);
+      {
+        auto locked = auth_->Lock();
+        for (auto const &op : ops) {
+          if (auto const *update = std::get_if<replication::AuthUpdateOp>(&op); update && update->profile) {
+            if (!locked->CreateOrUpdateProfile(
+                    update->profile->name, update->profile->limits, update->profile->usernames)) {
+              throw AuthException("Couldn't create or update profile '{}'", update->profile->name);
+            }
+          } else if (auto const *drop = std::get_if<replication::AuthDropOp>(&op);
+                     drop && drop->type == replication::AuthDataType::PROFILE) {
+            locked->DropProfile(drop->name);
+          }
+        }
       }
+
+      AuthTransaction tx;
+      {
+        // The guard holds the write lock, so it has to be gone before Commit takes its own.
+        auto locked = Lock(&tx);
+        for (auto const &op : ops) {
+          std::visit(utils::Overloaded{[&](replication::AuthUpdateOp const &update) {
+                                         // The main never builds an update that names nothing, so one arriving
+                                         // here is a corrupt request rather than a no-op to skip.
+                                         if (!update.user && !update.role && !update.profile) {
+                                           throw AuthException("Received an auth update naming no record");
+                                         }
+                                         if (update.user) locked->SaveUser(*update.user);
+                                         if (update.role) locked->SaveRole(*update.role);
+                                       },
+                                       [&](replication::AuthDropOp const &drop) {
+                                         switch (drop.type) {
+                                           using enum replication::AuthDataType;
+                                           case USER:
+                                             locked->RemoveUser(drop.name);
+                                             break;
+                                           case ROLE:
+                                             locked->RemoveRole(drop.name, /*force=*/true);
+                                             break;
+                                           case PROFILE:
+                                             break;  // applied above, outside the overlay
+                                           case N:
+                                             throw AuthException("Received an auth drop of no known kind");
+                                         }
+                                       }},
+                     op);
+        }
+      }
+
+      // The rest buffered cleanly; one flush puts the whole of it in the store.
+      return Commit(tx, nullptr);
     } catch (AuthException const &e) {
       spdlog::warn("Applying an auth batch of {} operation(s) failed: {}", ops.size(), e.what());
       return false;
     }
-
-    // The batch buffered cleanly; one flush puts the whole of it in the store.
-    return Commit(tx, nullptr);
   }
 #endif
 
