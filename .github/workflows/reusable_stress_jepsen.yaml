@@ -68,7 +68,7 @@ env:
 jobs:
   ha-test:
     name: "Run Jepsen HA Tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, valkyrie]
     timeout-minutes: 720
     steps:
       - name: Set up repository
