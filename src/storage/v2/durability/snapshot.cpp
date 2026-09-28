@@ -753,6 +753,13 @@ bool OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const 
 
 namespace {
 
+// Sink for float vectors extracted from VectorIndexId property values in LoadPartialVertices.
+// The map lives in IndicesMetadata; the mutex is a caller-scoped local. Non-owning view of both.
+struct VertexVectorsCapture {
+  VectorIndexRecovery::VertexVectors *map;
+  std::mutex *mutex;
+};
+
 std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
   std::vector<BatchInfo> infos;
   const auto infos_size = snapshot.ReadUint();
@@ -939,7 +946,8 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge>
 uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListDb<Vertex> &vertices,
                              SharedSchemaTracking *schema_info, const uint64_t from_offset,
                              const uint64_t vertices_count, const SnapshotIdMap &snapshot_id_map,
-                             NameIdMapper *name_id_mapper, ProgressCallback const &on_progress = {}) {
+                             NameIdMapper *name_id_mapper, ProgressCallback const &on_progress = {},
+                             VertexVectorsCapture *capture = nullptr) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset))
@@ -949,6 +957,8 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListD
   uint64_t last_vertex_gid = 0;
   spdlog::info("Recovering {} vertices.", vertices_count);
   std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
+  // Populated when capture != nullptr; merged into the shared map once under capture->mutex after the vertex loop.
+  VectorIndexRecovery::VertexVectors local_capture;
   uint64_t five_percent_chunk = vertices_count / 20;
   if (five_percent_chunk == 0) {
     spdlog::debug("Started to recover vertex set <0 - {}>", vertices_count);
@@ -1008,7 +1018,16 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListD
           if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
           auto value = snapshot.ReadExternalPropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
-          read_properties.emplace_back(snapshot_id_map.GetProperty(*key), ToPropertyValue(*value, name_id_mapper));
+          auto prop_id = snapshot_id_map.GetProperty(*key);
+          auto prop_value = ToPropertyValue(*value, name_id_mapper);
+          // Before InitProperties discards the embedded vector, capture it.
+          if (capture && prop_value.IsVectorIndexId()) {
+            auto vec = prop_value.ValueVectorIndexList();
+            if (!vec.empty()) {
+              local_capture[prop_id].emplace(Gid::FromUint(*gid), std::move(vec));
+            }
+          }
+          read_properties.emplace_back(prop_id, std::move(prop_value));
         }
         it->properties.InitProperties(std::move(read_properties));
       }
@@ -1045,6 +1064,16 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListD
     if (on_progress) on_progress();
   }
   spdlog::info("Process of recovering {} vertices is finished.", vertices_count);
+
+  if (capture && !local_capture.empty()) {
+    auto lock = std::lock_guard{*capture->mutex};
+    for (auto &[prop_id, gid_map] : local_capture) {
+      auto &shared_gid_map = (*capture->map)[prop_id];
+      for (auto &[gid, vec] : gid_map) {
+        shared_gid_map.emplace(gid, std::move(vec));
+      }
+    }
+  }
 
   return last_vertex_gid;
 }
@@ -3754,6 +3783,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     }
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
+    std::mutex vertex_capture_mutex;
+    VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path,
@@ -3763,9 +3794,17 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
          &snapshot_id_map,
          &last_vertex_gid,
          &on_progress,
-         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(
-              path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+         name_id_mapper,
+         &capture](const size_t batch_index, const BatchInfo &batch) {
+          const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                    *vertices,
+                                                                    schema_info,
+                                                                    batch.offset,
+                                                                    batch.count,
+                                                                    snapshot_id_map,
+                                                                    name_id_mapper,
+                                                                    on_progress,
+                                                                    &capture);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -4056,8 +4095,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
                                     .scalar_kind = ScalarFromName(kDefaultScalarKind)};
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -4287,6 +4325,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -4296,9 +4336,17 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -4634,8 +4682,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
                                     .scalar_kind = ScalarFromName(kDefaultScalarKind)};
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -4885,6 +4932,8 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -4894,9 +4943,17 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -5205,8 +5262,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
                                     .scalar_kind = ScalarFromName(kDefaultScalarKind)};
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -5457,6 +5513,8 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -5466,9 +5524,17 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -5779,8 +5845,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
                                     .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -6030,6 +6095,8 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -6039,9 +6106,17 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -6354,8 +6429,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
                                     .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -6658,6 +6732,8 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -6667,9 +6743,17 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -6982,8 +7066,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
                                     .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -7295,6 +7378,8 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -7304,9 +7389,17 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -7619,8 +7712,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
                                     .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -7995,6 +8087,8 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -8004,9 +8098,17 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -8323,8 +8425,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
                                     .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -8736,6 +8837,8 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -8745,9 +8848,17 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -9062,25 +9173,25 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
-        index_entries.reserve(*entry_count);
-        utils::small_vector<float> vector;
-        vector.reserve(*dimension);
-        for (uint64_t j = 0; j < *entry_count; ++j) {
-          auto gid = snapshot.ReadUint();
-          if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
-
-          for (uint64_t k = 0; k < *dimension; ++k) {
-            auto value = snapshot.ReadDouble();
-            if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
-            vector.push_back(static_cast<float>(*value));
+        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        {
+          auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
+          utils::small_vector<float> vec;
+          vec.reserve(*dimension);
+          for (uint64_t j = 0; j < *entry_count; ++j) {
+            auto gid = snapshot.ReadUint();
+            if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
+            for (uint64_t k = 0; k < *dimension; ++k) {
+              auto value = snapshot.ReadDouble();
+              if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
+              vec.push_back(static_cast<float>(*value));
+            }
+            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            vec.clear();
           }
-          index_entries.emplace(Gid::FromUint(*gid), vector);
-          vector.clear();
         }
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = std::move(index_entries)});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Vector indices are recovered.");
     }
@@ -9584,6 +9695,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -9593,9 +9706,17 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -9952,25 +10073,25 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
-        index_entries.reserve(*entry_count);
-        utils::small_vector<float> vector;
-        vector.reserve(*dimension);
-        for (uint64_t j = 0; j < *entry_count; ++j) {
-          auto gid = snapshot.ReadUint();
-          if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
-
-          for (uint64_t k = 0; k < *dimension; ++k) {
-            auto value = snapshot.ReadDouble();
-            if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
-            vector.push_back(static_cast<float>(*value));
+        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        {
+          auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
+          utils::small_vector<float> vec;
+          vec.reserve(*dimension);
+          for (uint64_t j = 0; j < *entry_count; ++j) {
+            auto gid = snapshot.ReadUint();
+            if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
+            for (uint64_t k = 0; k < *dimension; ++k) {
+              auto value = snapshot.ReadDouble();
+              if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
+              vec.push_back(static_cast<float>(*value));
+            }
+            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            vec.clear();
           }
-          index_entries.emplace(Gid::FromUint(*gid), vector);
-          vector.clear();
         }
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = std::move(index_entries)});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Vector indices are recovered.");
     }
@@ -10408,6 +10529,8 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -10417,9 +10540,17 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -10759,25 +10890,25 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
-        index_entries.reserve(*entry_count);
-        utils::small_vector<float> vector;
-        vector.reserve(*dimension);
-        for (uint64_t j = 0; j < *entry_count; ++j) {
-          auto gid = snapshot.ReadUint();
-          if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
-
-          for (uint64_t k = 0; k < *dimension; ++k) {
-            auto value = snapshot.ReadDouble();
-            if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
-            vector.push_back(static_cast<float>(*value));
+        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        {
+          auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
+          utils::small_vector<float> vec;
+          vec.reserve(*dimension);
+          for (uint64_t j = 0; j < *entry_count; ++j) {
+            auto gid = snapshot.ReadUint();
+            if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
+            for (uint64_t k = 0; k < *dimension; ++k) {
+              auto value = snapshot.ReadDouble();
+              if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
+              vec.push_back(static_cast<float>(*value));
+            }
+            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            vec.clear();
           }
-          index_entries.emplace(Gid::FromUint(*gid), vector);
-          vector.clear();
         }
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = std::move(index_entries)});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Vector indices are recovered.");
     }
@@ -11214,6 +11345,8 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -11223,9 +11356,17 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -11556,25 +11697,25 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
-        index_entries.reserve(*entry_count);
-        utils::small_vector<float> vector;
-        vector.reserve(*dimension);
-        for (uint64_t j = 0; j < *entry_count; ++j) {
-          auto gid = snapshot.ReadUint();
-          if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
-
-          for (uint64_t k = 0; k < *dimension; ++k) {
-            auto value = snapshot.ReadDouble();
-            if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
-            vector.push_back(static_cast<float>(*value));
+        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        {
+          auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
+          utils::small_vector<float> vec;
+          vec.reserve(*dimension);
+          for (uint64_t j = 0; j < *entry_count; ++j) {
+            auto gid = snapshot.ReadUint();
+            if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
+            for (uint64_t k = 0; k < *dimension; ++k) {
+              auto value = snapshot.ReadDouble();
+              if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
+              vec.push_back(static_cast<float>(*value));
+            }
+            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            vec.clear();
           }
-          index_entries.emplace(Gid::FromUint(*gid), vector);
-          vector.clear();
         }
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = std::move(index_entries)});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Vector indices are recovered.");
     }
@@ -12003,6 +12144,8 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
+      std::mutex vertex_capture_mutex;
+      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -12012,9 +12155,17 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
            &snapshot_id_map,
            &last_vertex_gid,
            &on_progress,
-           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(
-                path, *vertices, schema_info, batch.offset, batch.count, snapshot_id_map, name_id_mapper, on_progress);
+           name_id_mapper,
+           &capture](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      snapshot_id_map,
+                                                                      name_id_mapper,
+                                                                      on_progress,
+                                                                      &capture);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -12354,25 +12505,25 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
-        index_entries.reserve(*entry_count);
-        utils::small_vector<float> vector;
-        vector.reserve(*dimension);
-        for (uint64_t j = 0; j < *entry_count; ++j) {
-          auto gid = snapshot.ReadUint();
-          if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
-
-          for (uint64_t k = 0; k < *dimension; ++k) {
-            auto value = snapshot.ReadDouble();
-            if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
-            vector.push_back(static_cast<float>(*value));
+        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        {
+          auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
+          utils::small_vector<float> vec;
+          vec.reserve(*dimension);
+          for (uint64_t j = 0; j < *entry_count; ++j) {
+            auto gid = snapshot.ReadUint();
+            if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
+            for (uint64_t k = 0; k < *dimension; ++k) {
+              auto value = snapshot.ReadDouble();
+              if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
+              vec.push_back(static_cast<float>(*value));
+            }
+            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            vec.clear();
           }
-          index_entries.emplace(Gid::FromUint(*gid), vector);
-          vector.clear();
         }
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = std::move(index_entries)});
+        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = std::move(spec)});
       }
       spdlog::info("Vector indices are recovered.");
     }

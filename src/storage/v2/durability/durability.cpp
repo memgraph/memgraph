@@ -285,6 +285,20 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Label indices statistics are recreated.");
   }
 
+  // Vector idx on nodes — must run before label+property, global vertex property, text, and point
+  // rebuilds so they see the final VectorIndexIdData form, not the intermediate plain-list.
+  {
+    spdlog::info("Recreating {} vector indices.", indices_metadata.vector_indices.size());
+    auto vertices_acc = vertices->access();
+    indices->vector_index_.RecoverAllVectorIndices(indices_metadata.vector_indices,
+                                                   indices_metadata.vertex_vectors,
+                                                   vertices_acc,
+                                                   name_id_mapper,
+                                                   updater,
+                                                   on_progress);
+    spdlog::info("Vector indices are recreated.");
+  }
+
   // Recover label+property indices.
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   {
@@ -435,16 +449,6 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                    name_id_mapper->IdToName(property.AsUint()));
     }
     spdlog::info("Point indices are recreated.");
-  }
-  // Vector idx on nodes
-  {
-    spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
-    auto vertices_acc = vertices->access();
-    for (auto &recovery_info : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, updater, on_progress);
-      spdlog::info("Vector index {} is recreated from metadata", recovery_info.spec.index_name);
-    }
-    spdlog::info("Vector indices are recreated.");
   }
   // Vector idx on edges
   {
