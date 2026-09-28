@@ -309,6 +309,10 @@ def test_set_offset(kafka_producer, kafka_topics, connection, transformation):
         cursor,
         f"CREATE KAFKA STREAM test TOPICS {kafka_topics[0]} TRANSFORM {transformation} BATCH_SIZE 1",
     )
+    # Let the consumer finish joining its group before the first offset change: set_stream_offset re-subscribes, and
+    # doing that while the initial join is in flight leaves an orphaned pending member that stalls the group for 45s.
+    common.start_stream(cursor, "test")
+    common.stop_stream(cursor, "test")
 
     messages = [f"{i} message" for i in range(1, 21)]
     for message in messages:
