@@ -583,6 +583,27 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByProjectedItemNeedsAggregation) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, ReturnOrderByDifferentAggregatedItem) {
+  auto &ast_generator = *GetParam();
+  for (auto const *text : {"MATCH (n) RETURN count(DISTINCT n.x) AS c ORDER BY count(n.x)",
+                           "MATCH (n) RETURN toUpper(n.x) AS u, count(*) AS c ORDER BY toLower(n.x)",
+                           "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n:B"}) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query);
+    auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+    EXPECT_FALSE(dynamic_cast<Identifier *>(return_clause->body_.order_by[0].expression)) << text;
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ReturnOrderByImpureAggregatedItem) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (n) RETURN count(n) AS c, rand() AS r ORDER BY rand()"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  EXPECT_TRUE(dynamic_cast<Function *>(return_clause->body_.order_by[0].expression));
+}
+
 TEST_P(CypherMainVisitorTest, ReturnOrderByShadowedAggregatedItem) {
   auto &ast_generator = *GetParam();
   auto *query =
