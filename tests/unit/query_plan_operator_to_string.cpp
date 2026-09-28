@@ -488,8 +488,8 @@ TYPED_TEST(OperatorToStringTest, FilterWildcardLabel) {
   auto node_ident = IDENT("person");
 
   auto *labels_test = LABELS_TEST(node_ident, std::vector<LabelIx>{});
-  labels_test->any_label_ = true;
-  auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
+  labels_test->term_ = LabelTerm{.kind = LabelTerm::Kind::Wildcard};
+  auto label_filter_info = FilterInfo{FilterInfo::Type::Generic, labels_test, {node}};
 
   Filters filters;
   filters.SetFilters({label_filter_info});

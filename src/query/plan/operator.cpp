@@ -22,6 +22,7 @@
 #include <exception>
 #include <execution>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -35,6 +36,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include <absl/base/no_destructor.h>
 #include <cppitertools/chain.hpp>
@@ -4990,10 +4992,6 @@ std::string LabelsTestName(LabelsTest const *filter_expression) {
   for (const auto &label : filter_expression->labels_) {
     AND_label_names.insert(label.name);
   }
-  // `%` reads as one more thing the node must satisfy, alongside the labels it names.
-  if (filter_expression->any_label_) {
-    AND_label_names.insert("%");
-  }
 
   std::string OR_label_string;
   if (!filter_expression->or_labels_.empty()) {
@@ -5023,11 +5021,58 @@ std::string LabelsTestName(LabelsTest const *filter_expression) {
   return fmt::format("({} {}{})", identifier_expression->name_, AND_label_string, OR_label_string);
 }
 
-/// A lowered label expression reads as the labels it tests rather than as the symbols it touches:
-/// `NOT (n :C)`, `((n :A) OR NOT (n :B))`. Anything else has no such name.
+/// A label term over `subject`, as the boolean operators over one labels test per leaf it stands for read:
+/// `NOT (n :C)`, `((n :A) OR NOT (n :B))`, `(n :A|B)` for a disjunction of labels, `(n)` for no label.
+std::optional<std::string> LabelTermName(const LabelTerm &term, std::string_view subject) {
+  auto test = [&](std::string_view labels) {
+    return labels.empty() ? fmt::format("({})", subject) : fmt::format("({} :{})", subject, labels);
+  };
+  auto fold = [&](std::string_view word) -> std::optional<std::string> {
+    if (term.children.empty()) return test("");
+    auto folded = LabelTermName(term.children.front(), subject);
+    for (const auto &child : term.children | std::views::drop(1)) {
+      auto name = LabelTermName(child, subject);
+      if (!folded || !name) return std::nullopt;
+      folded = fmt::format("({} {} {})", *folded, word, *name);
+    }
+    return folded;
+  };
+  switch (term.kind) {
+    case LabelTerm::Kind::Label:
+      return test(term.label.name);
+    case LabelTerm::Kind::Dynamic:
+      return std::nullopt;
+    case LabelTerm::Kind::Wildcard:
+      return test("%");
+    case LabelTerm::Kind::Not: {
+      auto inner = LabelTermName(term.children.front(), subject);
+      if (!inner) return std::nullopt;
+      return fmt::format("NOT {}", *inner);
+    }
+    case LabelTerm::Kind::Or:
+      if (!term.children.empty() && std::ranges::all_of(term.children, [](const LabelTerm &child) {
+            return child.kind == LabelTerm::Kind::Label;
+          })) {
+        std::vector<std::string_view> names;
+        for (const auto &child : term.children) {
+          if (!std::ranges::contains(names, std::string_view{child.label.name})) names.emplace_back(child.label.name);
+        }
+        return test(utils::Join(names, "|"));
+      }
+      return fold("OR");
+    case LabelTerm::Kind::And:
+      return fold("AND");
+  }
+  return std::nullopt;
+}
+
+/// A label expression reads as the labels it tests rather than as the symbols it touches: `NOT (n :C)`,
+/// `((n :A) OR NOT (n :B))`. Anything else has no such name.
 std::optional<std::string> LoweredLabelExpressionName(Expression *expression) {
   if (auto *labels_test = utils::Downcast<LabelsTest>(expression)) {
-    if (!utils::Downcast<Identifier>(labels_test->expression_)) return std::nullopt;
+    auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
+    if (!identifier) return std::nullopt;
+    if (labels_test->term_) return LabelTermName(*labels_test->term_, identifier->name_);
     return LabelsTestName(labels_test);
   }
   if (auto *negation = utils::Downcast<NotOperator>(expression)) {
@@ -5045,6 +5090,22 @@ std::optional<std::string> LoweredLabelExpressionName(Expression *expression) {
   // Only a conjunction nested under `OR` or `NOT` gets here; a top-level one is already split apart.
   if (auto *conjunction = utils::Downcast<AndOperator>(expression)) return binary(conjunction, "AND");
   return std::nullopt;
+}
+
+/// The name of each conjunct of a label expression that a filter holds as one test.
+std::optional<std::vector<std::string>> LabelConjunctNames(FilterInfo const &filter) {
+  if (filter.type != FilterInfo::Type::Generic) return std::nullopt;
+  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
+  if (!labels_test || !labels_test->term_ || labels_test->term_->kind != LabelTerm::Kind::And) return std::nullopt;
+  auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
+  if (!identifier || labels_test->term_->children.empty()) return std::nullopt;
+  std::vector<std::string> names;
+  for (const auto &conjunct : labels_test->term_->children) {
+    auto name = LabelTermName(conjunct, identifier->name_);
+    if (!name) return std::nullopt;
+    names.push_back(*std::move(name));
+  }
+  return names;
 }
 
 }  // namespace
@@ -5122,6 +5183,11 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
 std::string Filter::ToString(const DbAccessor * /*dba*/) const {
   std::set<std::string, std::less<>> filter_names;
   for (const auto &filter : all_filters_) {
+    // The conjuncts of a label expression read as the filters they would be one by one.
+    if (auto names = LabelConjunctNames(filter)) {
+      filter_names.insert(std::make_move_iterator(names->begin()), std::make_move_iterator(names->end()));
+      continue;
+    }
     filter_names.insert(SingleFilterName(filter));
   }
   return fmt::format("Filter {}", utils::IterableToString(filter_names, ", ", [](const auto &name) { return name; }));

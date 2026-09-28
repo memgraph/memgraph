@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <functional>
 #include <optional>
+#include <ranges>
 #include <stack>
 #include <string_view>
 #include <unordered_map>
@@ -203,9 +204,6 @@ auto MatchesIdentifier(Identifier *identifier) {
 
     auto *existing_label_test = dynamic_cast<LabelsTest *>(existing.expression);
     if (!existing_label_test) return false;
-
-    // Keep `%` out of a label filter an index scan may erase: a node scan implies it, an edge scan does not.
-    if (existing_label_test->any_label_) return false;
 
     auto *exisiting_identifier = dynamic_cast<Identifier *>(existing_label_test->expression_);
     if (!exisiting_identifier) return false;
@@ -495,9 +493,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     const auto &node_symbol = symbol_table.at(*node->identifier_);
     const auto conjunction = node->LabelConjunction();
     if (!conjunction) {
-      // Pattern position and WHERE position have to yield the same filters, so the lowered term goes
-      // through the very analysis a WHERE expression gets.
-      CollectFilterExpression(LowerLabelTerm(storage, node->identifier_, *node->label_term_),
+      // Pattern position and WHERE position have to yield the same filters, so the term goes through the
+      // very analysis a WHERE expression gets.
+      CollectFilterExpression(MakeLabelsTest(storage, node->identifier_, *node->label_term_),
                               symbol_table,
                               storage,
                               LabelTestMerging::kAllowed);
@@ -917,6 +915,14 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
+    // The conjuncts of a label expression that index selection can use become tests of their own. In reverse,
+    // as SplitExpression hands over the operands of an AND.
+    if (auto pieces = SplitLabelsTest(storage, *labels_test); !pieces.empty()) {
+      for (auto *piece : pieces | std::views::reverse) {
+        AnalyzeAndStoreFilter(piece, symbol_table, storage, merging);
+      }
+      return;
+    }
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
@@ -924,9 +930,13 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         all_filters_.emplace_back(make_filter(FilterInfo::Type::Node));
         return;
       }
-      // `%` keeps a filter of its own, for the reason given in MatchesIdentifier.
-      auto it = labels_test->any_label_ ? all_filters_.end()
-                                        : std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
+      // Index selection reads only the labels a test demands outright. A whole term demands none: an index scan
+      // must never absorb it, `%` included, which a node scan implies but an edge scan does not.
+      if (labels_test->term_) {
+        all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        return;
+      }
+      auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
       if (it == all_filters_.end() || merging == LabelTestMerging::kForbidden) {
         // Either no label test of this identifier was collected yet, or the one collected belongs to another
         // operator and says nothing about the rows this expression is asked about.
@@ -1036,6 +1046,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Re-entering CollectFilterExpression also splits any conjunction inside.
     if (auto *inner_not = utils::Downcast<NotOperator>(is_not->expression_)) {
       CollectFilterExpression(inner_not->expression_, symbol_table, storage, merging);
+      return;
+    }
+    // The same pair, with the inner negation the `!` of a label expression: `NOT n:!A`.
+    if (auto *labels_test = utils::Downcast<LabelsTest>(is_not->expression_);
+        labels_test && labels_test->term_ && labels_test->term_->kind == LabelTerm::Kind::Not &&
+        utils::Downcast<Identifier>(labels_test->expression_)) {
+      auto *negated =
+          MakeLabelsTest(storage, labels_test->expression_->Clone(&storage), labels_test->term_->children.front());
+      AnalyzeAndStoreFilter(negated, symbol_table, storage, merging);
       return;
     }
     // WHERE NOT point.withinbbox()

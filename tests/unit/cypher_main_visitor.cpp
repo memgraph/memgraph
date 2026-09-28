@@ -10003,9 +10003,9 @@ std::string TermToString(const LabelTerm &term) {
   }
 }
 
-/// A lowered label expression as text, in the same notation, with one labels test reading as
-/// `A`, `A:B` (conjunction), `(A|B)` (one OR group), `%` for the wildcard and `{...}` for a term kept whole.
-std::string LoweredToString(Expression *expression) {
+/// A label expression as text, in the same notation, with one labels test reading as `A`, `A:B`
+/// (conjunction), `(A|B)` (one OR group) and `{...}` for a term kept whole.
+std::string LabelsToString(Expression *expression) {
   if (auto *test = dynamic_cast<LabelsTest *>(expression)) {
     std::vector<std::string> parts;
     for (const auto &label : test->labels_) parts.push_back(label.name);
@@ -10017,7 +10017,6 @@ std::string LoweredToString(Expression *expression) {
       }
       parts.push_back("(" + names + ")");
     }
-    if (test->any_label_) parts.emplace_back("%");
     if (test->term_) parts.push_back("{" + TermToString(*test->term_) + "}");
     std::string out;
     for (const auto &part : parts) {
@@ -10027,13 +10026,13 @@ std::string LoweredToString(Expression *expression) {
     return out.empty() ? "<node>" : out;
   }
   if (auto *negation = dynamic_cast<NotOperator *>(expression)) {
-    return "!" + LoweredToString(negation->expression_);
+    return "!" + LabelsToString(negation->expression_);
   }
   if (auto *conjunction = dynamic_cast<AndOperator *>(expression)) {
-    return "&(" + LoweredToString(conjunction->expression1_) + "," + LoweredToString(conjunction->expression2_) + ")";
+    return "&(" + LabelsToString(conjunction->expression1_) + "," + LabelsToString(conjunction->expression2_) + ")";
   }
   if (auto *disjunction = dynamic_cast<OrOperator *>(expression)) {
-    return "|(" + LoweredToString(disjunction->expression1_) + "," + LoweredToString(disjunction->expression2_) + ")";
+    return "|(" + LabelsToString(disjunction->expression1_) + "," + LabelsToString(disjunction->expression2_) + ")";
   }
   return "<other>";
 }
@@ -10193,7 +10192,8 @@ TEST(CypherMainVisitorParameterTest, LabelExpressionParameterLeaf) {
   }
 }
 
-// In expression position a label expression lowers straight into boolean operators over labels tests.
+// In expression position a label expression is one labels test, whatever its shape: the planner splits it,
+// not the parser, and drops `!!` there.
 TEST_P(CypherMainVisitorTest, LabelExpressionInExpressionPosition) {
   auto &ast_generator = *GetParam();
   const std::vector<std::pair<std::string, std::string>> cases{
@@ -10201,16 +10201,22 @@ TEST_P(CypherMainVisitorTest, LabelExpressionInExpressionPosition) {
       {"n:A:B", "A:B"},
       {"n:A&B", "A:B"},
       {"n:A|B", "(A|B)"},
-      {"n:!A", "!A"},
-      {"n:%", "%"},
-      {"n:!%", "!%"},
-      {"n:(A|B)&!C", "&((A|B),!C)"},
-      {"n:A|B&C", "|(A,&(B,C))"},
-      {"n:A&%", "&(A,%)"},
+      {"n:A|A", "(A)"},
+      {"n:!A", "{!A}"},
+      {"n:%", "{%}"},
+      {"n:!%", "{!%}"},
+      {"n:(A|B)&!C", "{&(|(A,B),!C)}"},
+      {"n:A|B&C", "{|(A,&(B,C))}"},
+      {"n:A&%", "{&(A,%)}"},
+      {"n:!!A", "{!!A}"},
+      {"n:!!(A&(B|C))", "{!!&(A,|(B,C))}"},
+      {"n:A&!!(B&!C)", "{&(A,!!&(B,!C))}"},
+      {"n:A|!!B", "{|(A,!!B)}"},
+      {"n:!(A&!!B)", "{!&(A,!!B)}"},
   };
   for (const auto &[expression, expected] : cases) {
     auto *query = ast_generator.ParseQuery(fmt::format("MATCH (n) RETURN {} AS v", expression));
-    EXPECT_EQ(LoweredToString(FirstReturnedExpression(query)), expected) << expression;
+    EXPECT_EQ(LabelsToString(FirstReturnedExpression(query)), expected) << expression;
     CheckRWType(query, kRead);
   }
 }
@@ -10221,7 +10227,7 @@ TEST_P(CypherMainVisitorTest, LabelExpressionOverExpressionKeepsTheTermWhole) {
   auto &ast_generator = *GetParam();
   const std::vector<std::pair<std::string, std::string>> cases{
       {"head([n]):A|!B", "{|(A,!B)}"},
-      {"head([n]):A|B", "{|(A,B)}"},
+      {"head([n]):A|B", "(A|B)"},
       {"head([n]):!%", "{!%}"},
       {"head([n]):A&B", "A:B"},
   };
@@ -10230,7 +10236,7 @@ TEST_P(CypherMainVisitorTest, LabelExpressionOverExpressionKeepsTheTermWhole) {
     auto *labels_test = dynamic_cast<LabelsTest *>(FirstReturnedExpression(query));
     ASSERT_TRUE(labels_test) << expression;
     EXPECT_TRUE(dynamic_cast<Function *>(labels_test->expression_)) << expression;
-    EXPECT_EQ(LoweredToString(labels_test), expected) << expression;
+    EXPECT_EQ(LabelsToString(labels_test), expected) << expression;
   }
 }
 
@@ -10241,33 +10247,33 @@ TEST_P(CypherMainVisitorTest, LabelExpressionBindsTighterThanOperators) {
     auto *equality = dynamic_cast<EqualOperator *>(
         FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:A&B = true AS v")));
     ASSERT_TRUE(equality);
-    EXPECT_EQ(LoweredToString(equality->expression1_), "A:B");
+    EXPECT_EQ(LabelsToString(equality->expression1_), "A:B");
   }
   {
     auto *disjunction = dynamic_cast<OrOperator *>(
         FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:A|B OR n.n = 'c' AS v")));
     ASSERT_TRUE(disjunction);
-    EXPECT_EQ(LoweredToString(disjunction->expression1_), "(A|B)");
+    EXPECT_EQ(LabelsToString(disjunction->expression1_), "(A|B)");
   }
   {
     auto *negation = dynamic_cast<NotOperator *>(
         FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN NOT n:!A AS v")));
     ASSERT_TRUE(negation);
-    EXPECT_EQ(LoweredToString(negation->expression_), "!A");
+    EXPECT_EQ(LabelsToString(negation->expression_), "{!A}");
   }
   {
     // '%' after a complete term cannot continue it, so it stays modulo.
     auto *modulo =
         dynamic_cast<ModOperator *>(FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:A % 2 AS v")));
     ASSERT_TRUE(modulo);
-    EXPECT_EQ(LoweredToString(modulo->expression1_), "A");
+    EXPECT_EQ(LabelsToString(modulo->expression1_), "A");
   }
   {
     // '!=' still wins by maximal munch.
     auto *inequality = dynamic_cast<NotEqualOperator *>(
         FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:A != true AS v")));
     ASSERT_TRUE(inequality);
-    EXPECT_EQ(LoweredToString(inequality->expression1_), "A");
+    EXPECT_EQ(LabelsToString(inequality->expression1_), "A");
   }
 }
 
@@ -10281,7 +10287,7 @@ TEST_P(CypherMainVisitorTest, LabelExpressionComprehensionPipe) {
         FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN [x IN [n] WHERE x:A|x.n] AS v")));
     ASSERT_TRUE(comprehension);
     ASSERT_TRUE(comprehension->expression_);
-    EXPECT_EQ(LoweredToString(comprehension->where_->expression_), "A");
+    EXPECT_EQ(LabelsToString(comprehension->where_->expression_), "A");
   }
   // Filter `x:A|B`, projection `y`: the last pipe is the projection, the one before it a disjunction.
   {
@@ -10289,7 +10295,7 @@ TEST_P(CypherMainVisitorTest, LabelExpressionComprehensionPipe) {
         ast_generator.ParseQuery("MATCH (n) WITH n, 7 AS y RETURN [x IN [n] WHERE x:A|B|y] AS v")));
     ASSERT_TRUE(comprehension);
     ASSERT_TRUE(comprehension->expression_);
-    EXPECT_EQ(LoweredToString(comprehension->where_->expression_), "(A|B)");
+    EXPECT_EQ(LabelsToString(comprehension->where_->expression_), "(A|B)");
   }
   // Parentheses force a disjunction and leave the comprehension without a projection.
   {
@@ -10297,7 +10303,7 @@ TEST_P(CypherMainVisitorTest, LabelExpressionComprehensionPipe) {
         FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN [x IN [n] WHERE x:(A|B)] AS v")));
     ASSERT_TRUE(comprehension);
     EXPECT_FALSE(comprehension->expression_);
-    EXPECT_EQ(LoweredToString(comprehension->where_->expression_), "(A|B)");
+    EXPECT_EQ(LabelsToString(comprehension->where_->expression_), "(A|B)");
   }
   // Outside a comprehension nothing can claim the pipe, so it is always a disjunction.
   for (const auto *expression : {"[n:A|B]", "[n:A|C, 1]", "{k: n:A|C}"}) {
@@ -10308,7 +10314,7 @@ TEST_P(CypherMainVisitorTest, LabelExpressionComprehensionPipe) {
     auto *query = ast_generator.ParseQuery("MATCH (n) RETURN CASE WHEN n:A|B THEN 1 ELSE 0 END AS v");
     auto *case_expression = dynamic_cast<IfOperator *>(FirstReturnedExpression(query));
     ASSERT_TRUE(case_expression);
-    EXPECT_EQ(LoweredToString(case_expression->condition_), "(A|B)");
+    EXPECT_EQ(LabelsToString(case_expression->condition_), "(A|B)");
   }
 }
 

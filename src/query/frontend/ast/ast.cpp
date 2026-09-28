@@ -589,61 +589,100 @@ std::optional<std::vector<QueryLabelType>> LabelTerm::Conjunction() const {
 
 namespace {
 
-Expression *LowerLabelTermNode(AstStorage &storage, Expression *subject, const LabelTerm &term) {
-  // Each leaf gets its own copy of the subject, which is an identifier -- see `LowerLabelTerm`.
-  auto leaf_subject = [&] { return subject->Clone(&storage); };
-  auto fold = [&]<typename Operator>() -> Expression * {
-    // A `$param` bound to an empty list names no label: only a node test is left.
-    if (term.children.empty()) return storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{});
-    Expression *folded = LowerLabelTermNode(storage, subject, term.children.front());
-    for (const auto &child : term.children | rv::drop(1)) {
-      folded = storage.Create<Operator>(folded, LowerLabelTermNode(storage, subject, child));
-    }
-    return folded;
-  };
+bool IsLabel(const LabelTerm &term) { return term.kind == LabelTerm::Kind::Label; }
 
-  switch (term.kind) {
-    case LabelTerm::Kind::Label:
-      return storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{term.label});
-    case LabelTerm::Kind::Dynamic:
-      throw SemanticException("You can't use labels in filter expressions.");
-    case LabelTerm::Kind::Wildcard: {
-      auto *test = storage.Create<LabelsTest>(leaf_subject(), std::vector<LabelIx>{});
-      test->any_label_ = true;
-      return test;
-    }
-    case LabelTerm::Kind::Not:
-      return storage.Create<NotOperator>(LowerLabelTermNode(storage, subject, term.children.front()));
-    case LabelTerm::Kind::Or:
-      // A disjunction of plain labels stays one LabelsTest holding one OR group: that is the shape index
-      // selection already turns into a union of per-label scans.
-      if (r::all_of(term.children, [](const LabelTerm &child) { return child.kind == LabelTerm::Kind::Label; })) {
-        auto labels = std::vector<LabelIx>{};
-        labels.reserve(term.children.size());
-        for (const auto &child : term.children) {
-          // A repeated label adds nothing to the choice, but index selection would scan it once per copy.
-          if (!std::ranges::contains(labels, child.label)) labels.push_back(child.label);
-        }
-        return storage.Create<LabelsTest>(leaf_subject(), std::move(labels), /*or_group=*/true);
-      }
-      return fold.template operator()<OrOperator>();
-    case LabelTerm::Kind::And:
-      return fold.template operator()<AndOperator>();
+/// A label, or a disjunction of labels: the conjuncts index selection can use.
+bool IsLabelChoice(const LabelTerm &term) {
+  return IsLabel(term) ||
+         (term.kind == LabelTerm::Kind::Or && !term.children.empty() && r::all_of(term.children, IsLabel));
+}
+
+/// `term` with `!!` dropped and nested `&` flattened along its conjunction, each label kept once there. Nothing
+/// under a single `!` or a `|` changes, as filter collection never looked there. Sets `changed` if anything did.
+LabelTerm Normalise(LabelTerm term, bool &changed) {
+  while (term.kind == LabelTerm::Kind::Not && term.children.front().kind == LabelTerm::Kind::Not) {
+    auto inner = std::move(term.children.front().children.front());
+    term = std::move(inner);
+    changed = true;
   }
-  LOG_FATAL("Unexpected LabelTerm::Kind");
+  if (term.kind != LabelTerm::Kind::And) return term;
+
+  std::vector<LabelTerm> conjuncts;
+  auto append = [&](LabelTerm conjunct) {
+    const bool repeated = IsLabel(conjunct) && r::any_of(conjuncts, [&](const LabelTerm &kept) {
+                            return IsLabel(kept) && kept.label == conjunct.label;
+                          });
+    if (repeated) {
+      changed = true;
+      return;
+    }
+    conjuncts.push_back(std::move(conjunct));
+  };
+  for (auto &child : term.children) {
+    auto normal = Normalise(std::move(child), changed);
+    if (normal.kind != LabelTerm::Kind::And) {
+      append(std::move(normal));
+      continue;
+    }
+    changed = true;
+    for (auto &grandchild : normal.children) {
+      append(std::move(grandchild));
+    }
+  }
+  if (conjuncts.size() == 1U) {
+    changed = true;
+    return std::move(conjuncts.front());
+  }
+  return LabelTerm{.kind = LabelTerm::Kind::And, .children = std::move(conjuncts)};
 }
 
 }  // namespace
 
-Expression *LowerLabelTerm(AstStorage &storage, Expression *subject, const LabelTerm &term) {
-  // Only an identifier may be copied per leaf: any other subject would be evaluated once per leaf, and
-  // may hold anonymous identifiers the parser has not filled in yet. It keeps the term whole.
-  if (!utils::Downcast<Identifier>(subject)) {
-    auto *test = storage.Create<LabelsTest>(subject, std::vector<LabelIx>{});
-    test->term_ = term;
-    return test;
+LabelsTest *MakeLabelsTest(AstStorage &storage, Expression *subject, LabelTerm term) {
+  if (auto labels = term.Conjunction()) return storage.Create<LabelsTest>(subject, *labels);
+  if (IsLabelChoice(term)) {
+    auto labels = std::vector<LabelIx>{};
+    labels.reserve(term.children.size());
+    for (const auto &child : term.children) {
+      // A repeated label adds nothing to the choice, but index selection would scan it once per copy.
+      if (!std::ranges::contains(labels, child.label)) labels.push_back(child.label);
+    }
+    return storage.Create<LabelsTest>(subject, std::move(labels), /*or_group=*/true);
   }
-  return LowerLabelTermNode(storage, subject, term);
+  auto *test = storage.Create<LabelsTest>(subject, std::vector<LabelIx>{});
+  test->term_ = std::move(term);
+  return test;
+}
+
+std::vector<LabelsTest *> SplitLabelsTest(AstStorage &storage, const LabelsTest &test) {
+  // Only an identifier may be copied per piece: any other subject would be evaluated once per piece.
+  if (!test.term_ || !utils::Downcast<Identifier>(test.expression_)) return {};
+  bool changed = false;
+  auto term = Normalise(*test.term_, changed);
+  if (term.kind != LabelTerm::Kind::And || r::none_of(term.children, IsLabelChoice)) {
+    // Normalising alone can still leave a label, as of `!!A`, or fewer operators to test.
+    if (!changed) return {};
+    return {MakeLabelsTest(storage, test.expression_->Clone(&storage), std::move(term))};
+  }
+
+  std::vector<LabelsTest *> pieces;
+  std::vector<LabelTerm> rest;
+  for (auto &conjunct : term.children) {
+    if (IsLabelChoice(conjunct)) {
+      pieces.push_back(MakeLabelsTest(storage, test.expression_->Clone(&storage), std::move(conjunct)));
+    } else {
+      rest.push_back(std::move(conjunct));
+    }
+  }
+  // The rest stay one test, so the subject is read once for all of them.
+  if (!rest.empty()) {
+    auto rest_term = rest.size() == 1U ? std::move(rest.front())
+                                       : LabelTerm{.kind = LabelTerm::Kind::And, .children = std::move(rest)};
+    pieces.push_back(MakeLabelsTest(storage, test.expression_->Clone(&storage), std::move(rest_term)));
+  }
+  DMG_ASSERT(r::all_of(pieces, [&](const LabelsTest *piece) { return SplitLabelsTest(storage, *piece).empty(); }),
+             "A piece of a split labels test splits again");
+  return pieces;
 }
 
 auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {

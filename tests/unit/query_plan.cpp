@@ -5330,7 +5330,7 @@ TYPED_TEST(TestPlanner, WildcardSurvivesEdgeTypeIndexScan) {
   dba.SetIndexCount(dba.EdgeType("Type1"), 1);
 
   auto *wildcard = LABELS_TEST(IDENT("r"), std::vector<memgraph::query::LabelIx>{});
-  wildcard->any_label_ = true;
+  wildcard->term_ = LABEL_TERM_WILDCARD();
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT), NODE("anon2"))),
                    WHERE(AND(LABELS_TEST(IDENT("r"), std::vector{this->storage.GetLabelIx("Type1")}), wildcard)),

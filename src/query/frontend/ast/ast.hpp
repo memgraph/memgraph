@@ -1156,8 +1156,7 @@ class AllPropertiesLookup : public Expression {
 using QueryLabelType = std::variant<LabelIx, Expression *>;
 
 /// A node label expression: `&`, `|`, `!`, `%` and parentheses over label leaves, or a plain conjunction
-/// such as `:A:B`. Not a `Tree`; `LowerLabelTerm` turns it into boolean operators over `LabelsTest`, or
-/// keeps it whole in `LabelsTest::term_`.
+/// such as `:A:B`. Not a `Tree`; `MakeLabelsTest` holds it in a `LabelsTest`.
 struct LabelTerm {
   enum class Kind : uint8_t { Label, Dynamic, Wildcard, And, Or, Not };
 
@@ -1173,9 +1172,16 @@ struct LabelTerm {
   std::optional<std::vector<QueryLabelType>> Conjunction() const;
 };
 
-/// Build a boolean expression over `subject` from `term`. Every leaf becomes a `LabelsTest`, so the
-/// planner still sees the labels it can index.
-Expression *LowerLabelTerm(AstStorage &storage, Expression *subject, const LabelTerm &term);
+class LabelsTest;
+
+/// The test `subject:term` stands for. A conjunction of labels fills `labels_`, a disjunction of labels one
+/// `or_labels_` group, and anything else is kept whole in `term_`.
+LabelsTest *MakeLabelsTest(AstStorage &storage, Expression *subject, LabelTerm term);
+
+/// The tests a `term_` test over an identifier stands for once `!!` is dropped and `&` flattened, so that index
+/// selection sees its labels: one test per conjunct that is a label or a disjunction of labels, in the order
+/// written, then one test with all other conjuncts. Empty when that leaves the test as it is.
+std::vector<LabelsTest *> SplitLabelsTest(AstStorage &storage, const LabelsTest &test);
 
 class LabelsTest : public Expression {
  public:
@@ -1199,15 +1205,14 @@ class LabelsTest : public Expression {
 
   /// Whether this asks only that the value is a node. Such a test yields null for a null, true for a vertex,
   /// and raises for any other type.
-  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty() && !any_label_ && !term_; }
+  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty() && !term_; }
 
   Expression *expression_{nullptr};
   std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
   std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
                                                  // one of the labels in "inner" vector
-  bool any_label_{false};                        // The `%` wildcard: the label set has to be non-empty.
-  /// A label expression the fields above cannot express, held whole because the subject must not be
-  /// duplicated. Set only when `expression_` is not an `Identifier`; see `LowerLabelTerm`.
+  /// A label expression the fields above cannot express, held whole so the subject is evaluated once. Never
+  /// set together with them; see `MakeLabelsTest`.
   std::optional<LabelTerm> term_;
 
   LabelsTest *Clone(AstStorage *storage) const override {
@@ -1224,7 +1229,6 @@ class LabelsTest : public Expression {
         object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
       }
     }
-    object->any_label_ = any_label_;
     if (term_) object->term_ = term_->Clone(storage);
     return object;
   }

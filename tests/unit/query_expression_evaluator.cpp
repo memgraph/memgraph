@@ -1239,7 +1239,7 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
 
   auto wildcard = [&] {
     auto *op = this->storage.template Create<LabelsTest>(identifier, std::vector<LabelIx>{});
-    op->any_label_ = true;
+    op->term_ = LabelTerm{.kind = LabelTerm::Kind::Wildcard};
     return op;
   };
 
@@ -1259,7 +1259,7 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
     auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
     frame_writer.Write(node_symbol, TypedValue());
     EXPECT_TRUE(this->Eval(wildcard()).IsNull());
-    // Null in, null out, through the negation a lowered `!%` puts on top.
+    // Null in, null out, through a negation on top.
     auto *negated = this->storage.template Create<NotOperator>(wildcard());
     EXPECT_TRUE(this->Eval(negated).IsNull());
   }

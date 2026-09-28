@@ -3892,8 +3892,8 @@ antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aC
   if (ctx->nodeLabelExpression()) {
     auto term = std::any_cast<LabelTerm>(ctx->nodeLabelExpression()->accept(this));
     auto labels = term.Conjunction();
-    expression =
-        labels ? storage_->Create<LabelsTest>(expression, *labels) : LowerLabelTerm(*storage_, expression, term);
+    expression = labels ? storage_->Create<LabelsTest>(expression, *labels)
+                        : MakeLabelsTest(*storage_, expression, std::move(term));
   }
   return expression;
 }
