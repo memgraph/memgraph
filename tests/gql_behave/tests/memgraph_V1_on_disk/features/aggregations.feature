@@ -1001,3 +1001,36 @@ Feature: Aggregations
             MATCH (n:Node) RETURN n.value + 1 AS v, COUNT(*) AS c ORDER BY n.value + 1
             """
         Then an error should be raised
+
+    Scenario: Order by a returned IN test in a query with a label parameter
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {x: 1, list: [1, 2]}), (:Node {x: 3, list: [1, 2]}), (:Node {x: 3, list: [1, 2]})
+            """
+        And parameters are:
+            | label | Node |
+        When executing query:
+            """
+            MATCH (n:$label) RETURN n.x IN n.list AS found, COUNT(*) AS c ORDER BY n.x IN n.list
+            """
+        Then the result should be, in order:
+            | found | c |
+            | false | 2 |
+            | true  | 1 |
+
+    Scenario: Filter a WITH by a projected IN test in a query with a label parameter
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {x: 1, list: [1, 2]}), (:Node {x: 3, list: [1, 2]}), (:Node {x: 3, list: [1, 2]})
+            """
+        And parameters are:
+            | label | Node |
+        When executing query:
+            """
+            MATCH (n:$label) WITH n.x IN n.list AS found, COUNT(*) AS c WHERE n.x IN n.list RETURN found, c
+            """
+        Then the result should be:
+            | found | c |
+            | true  | 1 |
