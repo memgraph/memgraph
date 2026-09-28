@@ -71,6 +71,13 @@ def kafka_topics(request):
                     pass
                 time.sleep(1)
 
+    # The broker applies new topics to its metadata asynchronously (noticeably late under CI load), and
+    # CREATE KAFKA STREAM rejects topics missing from the metadata, so wait until they are visible.
+    while not set(topics) <= set(admin.list_topics()):
+        if time.time() > deadline:
+            pytest.fail(f"Topics not visible in broker metadata: {topics}")
+        time.sleep(0.2)
+
     yield topics
 
     # teardown

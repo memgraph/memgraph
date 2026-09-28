@@ -198,6 +198,7 @@ def test_sso_multiple_streams(kafka_topics, pulsar_topics, sso_connection):
         session.run(
             f"""CREATE KAFKA STREAM sso_kafka_stream1 TOPICS {kafka_topics[0]}
             TRANSFORM kafka_transform.simple
+            CONSUMER_GROUP sso_kafka_stream1_group
             BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
         ).consume()
 
@@ -262,6 +263,7 @@ def test_multi_role_admin_stream_creation(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM admin_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
+                CONSUMER_GROUP admin_kafka_stream_group
                 BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
@@ -290,6 +292,7 @@ def test_multi_role_architect_stream_creation(kafka_topics, multi_role_connectio
             session.run(
                 f"""CREATE KAFKA STREAM architect_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
+                CONSUMER_GROUP architect_kafka_stream_group
                 BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
@@ -318,6 +321,7 @@ def test_multi_role_user_stream_creation(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM user_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
+                CONSUMER_GROUP user_kafka_stream_group
                 BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
@@ -468,6 +472,8 @@ def test_multi_role_wrong_types(multi_role_connection):
 
 def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
     """Test creating streams across different databases with different roles."""
+    # Each stream gets its own consumer group: unstarted streams sharing a group stall its rebalance for seconds,
+    # which makes the instance shutdown at teardown exceed the stop timeout.
     assert len(kafka_topics) > 0
 
     # Test admin user creating streams in different databases
@@ -481,6 +487,7 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM admin_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
+                CONSUMER_GROUP admin_stream_group
                 BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
@@ -489,6 +496,7 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM architect_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
+                CONSUMER_GROUP architect_stream_group
                 BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
@@ -497,6 +505,7 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM user_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
+                CONSUMER_GROUP user_stream_group
                 BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
@@ -533,6 +542,7 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
                 session.run(
                     f"""CREATE KAFKA STREAM admin_stream TOPICS {kafka_topics[0]}
                     TRANSFORM kafka_transform.simple
+                    CONSUMER_GROUP admin_stream_group
                     BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
                 ).consume()
                 assert False, "Architect should not be able to create stream in admin_db"
@@ -544,6 +554,7 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
             session.run(
                 f"""CREATE KAFKA STREAM architect_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
+                CONSUMER_GROUP architect_stream_group
                 BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
@@ -552,6 +563,7 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
             session.run(
                 f"""CREATE KAFKA STREAM user_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
+                CONSUMER_GROUP user_stream_group
                 BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
