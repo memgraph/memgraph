@@ -21,6 +21,12 @@ services:
       - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
       - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
       - KAFKA_LOG_DIRS=/tmp/kraft-combined-logs
+    # `docker compose up --wait` blocks until this passes; `up -d` alone returns before the broker accepts requests
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
 
 networks:
   default:

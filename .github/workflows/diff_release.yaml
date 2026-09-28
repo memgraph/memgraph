@@ -800,20 +800,10 @@ jobs:
         run: |
           cd tests/e2e/streams/kafka
           docker pull apache/kafka:3.9.0
-          docker compose up -d
+          docker compose up -d --wait --wait-timeout 120
           cd ../pulsar
           docker pull apachepulsar/pulsar:2.8.1
-          # The mgbuild container reaches Pulsar over the shared package_default network
-          PULSAR_ADVERTISED_ADDRESS=pulsar docker compose up -d
-
-          # `up -d` returns before the brokers accept requests; wait for both
-          wait_for() {
-            for _ in $(seq 1 60); do "$@" >/dev/null 2>&1 && return 0; sleep 2; done
-            echo "Timed out waiting for: $*"; return 1
-          }
-          wait_for docker compose -f ../kafka/docker-compose.yml exec -T kafka \
-            /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-          wait_for curl -sf http://localhost:6652/admin/v2/brokers/health
+          docker compose up -d --wait --wait-timeout 120
 
       - name: Run e2e tests
         run: |
