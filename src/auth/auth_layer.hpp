@@ -245,6 +245,10 @@ class AuthLayer {
     // sent: a read-only transaction has nothing to publish, and a zero-operation request would only cost a round
     // trip.
 #ifdef MG_ENTERPRISE
+    // A null `system_tx` means the operations are deliberately not forwarded: that is how ApplyBatch commits a
+    // batch a replica has just received, since a replica must not replicate onward. A session on a main always
+    // has one by here, because the interpreter creates it exactly when there is something to replicate and
+    // refuses the commit if it cannot. Either way the clear below is what ends their life.
     if (system_tx && !tx.pending_actions_.empty()) {
       system_tx->AddAction(std::make_unique<BatchedAuthAction>(std::move(tx.pending_actions_)));
     }
