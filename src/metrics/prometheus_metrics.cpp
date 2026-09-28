@@ -1237,9 +1237,9 @@ std::vector<prometheus::MetricFamily> PrometheusMetrics::CollectForScrape() {
   }
   auto families = registry_.Collect();
   for (auto &family : families) {
-    // An entry released since the snapshot has no uuid left to present. Drop the whole metric:
-    // blanking the label would collapse two such series onto one label set, and a scrape carrying
-    // a duplicate label set is rejected in its entirety.
+    // A series whose entry is missing from the snapshot, such as one registered after it, has no
+    // uuid to present. Drop the whole metric: blanking the label would collapse two such series onto
+    // one label set, and a scrape carrying a duplicate label set is rejected in its entirety.
     std::erase_if(family.metric, [&](auto const &metric) {
       auto const label = r::find(metric.label, kEntryLabel, &prometheus::ClientMetric::Label::name);
       return label != metric.label.end() && !uuid_by_entry.contains(label->value);
