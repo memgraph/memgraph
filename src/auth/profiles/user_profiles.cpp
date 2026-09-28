@@ -160,9 +160,9 @@ std::optional<UserProfiles::Profile> UserProfiles::Get(std::string_view name) co
 }
 
 std::vector<UserProfiles::Profile> UserProfiles::GetAll() const {
+  auto l = std::shared_lock{mtx_};
   std::vector<UserProfiles::Profile> profiles;
   profiles.reserve(profiles_.size());
-  auto l = std::shared_lock{mtx_};
   for (const auto &profile : profiles_) {
     profiles.emplace_back(profile);
   }
