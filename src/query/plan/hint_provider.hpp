@@ -359,7 +359,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     auto const scan_symbol = dynamic_cast<ScanAll *>(op.input().get())->output_symbol_;
     auto const scan_type = op.input()->GetTypeInfo();
 
-    auto filters = Filters::FromExpression(op.expression_, symbol_table_);
+    // A hint outlives nothing, so anything collection needs to build belongs to this scratch storage.
+    AstStorage scratch;
+    auto filters = Filters::FromExpression(op.expression_, symbol_table_, scratch);
     const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
                                                        [](const auto &item) { return fmt::format(":{0}", item.name); });
     const std::string filtered_properties =

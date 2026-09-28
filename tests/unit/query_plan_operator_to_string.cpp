@@ -407,8 +407,8 @@ TYPED_TEST(OperatorToStringTest, FilterNodeTestStaysApartFromLabels) {
       LABELS_TEST(IDENT("person")->MapTo(node), std::vector<LabelIx>{this->storage.GetLabelIx("Customer")});
 
   Filters filters;
-  filters.AddOperatorFilters(node_test, this->symbol_table);
-  filters.AddOperatorFilters(label_test, this->symbol_table);
+  filters.AddOperatorFilters(node_test, this->symbol_table, this->storage);
+  filters.AddOperatorFilters(label_test, this->symbol_table, this->storage);
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
   last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, node_test, filters);

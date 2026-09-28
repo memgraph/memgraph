@@ -5608,6 +5608,109 @@ TYPED_TEST(TestPlanner, LabelDisjunctionNotOnOneVariableStaysGeneric) {
   }
 }
 
+// A query's AST outlives the plan made from it, so planning it again must give the same plan. A label
+// disjunction is the case that tells: it is the only filter whose collection rewrote the tests the parser built.
+TYPED_TEST(TestPlanner, PlanningOneAstTwiceGivesTheSamePlan) {
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+  dba.SetIndexCount(dba.Label("Label2"), 1);
+  auto *node_identifier = IDENT("n");
+  // MATCH (n) WHERE n:Label1 OR n:Label2 RETURN n
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         WHERE(OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+                                  LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label2")}))),
+                         RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+
+  for (int planning = 1; planning <= 2; ++planning) {
+    SCOPED_TRACE("planning number " + std::to_string(planning));
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(), symbol_table, ExpectUnion(left, right), ExpectDistinct(), ExpectProduce());
+    DeleteListContent(&left);
+    DeleteListContent(&right);
+  }
+
+  // The same two conjuncts the other way round in the query. Which of them the collection reaches first decides
+  // which test it writes into, so both orders have to give the same plan twice over.
+  auto *reversed_identifier = IDENT("n");
+  // MATCH (n) WHERE n:Label3 AND (n:Label1 OR n:Label2) RETURN n
+  auto *reversed = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   WHERE(AND(LABELS_TEST(reversed_identifier, std::vector{this->storage.GetLabelIx("Label3")}),
+                             OR(LABELS_TEST(reversed_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+                                LABELS_TEST(reversed_identifier, std::vector{this->storage.GetLabelIx("Label2")})))),
+                   RETURN("n")));
+  auto reversed_symbol_table = memgraph::query::MakeSymbolTable(reversed);
+  for (int planning = 1; planning <= 2; ++planning) {
+    SCOPED_TRACE("reversed-conjunct planning number " + std::to_string(planning));
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, reversed_symbol_table, reversed);
+    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              reversed_symbol_table,
+              ExpectUnion(left, right),
+              ExpectDistinct(),
+              ExpectFilter(),
+              ExpectProduce());
+    DeleteListContent(&left);
+    DeleteListContent(&right);
+  }
+
+  // A disjunction beside another conjunct over the same variable. Both reach the same filter, so a collection
+  // that wrote its findings into the query's own tests would leave the second collection reading neither.
+  auto *conjunct_identifier = IDENT("n");
+  // MATCH (n) WHERE (n:Label1 OR n:Label2) AND n:Label3 RETURN n
+  auto *beside_conjunct = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   WHERE(AND(OR(LABELS_TEST(conjunct_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+                                LABELS_TEST(conjunct_identifier, std::vector{this->storage.GetLabelIx("Label2")})),
+                             LABELS_TEST(conjunct_identifier, std::vector{this->storage.GetLabelIx("Label3")}))),
+                   RETURN("n")));
+  auto conjunct_symbol_table = memgraph::query::MakeSymbolTable(beside_conjunct);
+  for (int planning = 1; planning <= 2; ++planning) {
+    SCOPED_TRACE("beside-conjunct planning number " + std::to_string(planning));
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, conjunct_symbol_table, beside_conjunct);
+    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              conjunct_symbol_table,
+              ExpectUnion(left, right),
+              ExpectDistinct(),
+              ExpectFilter(),
+              ExpectProduce());
+    DeleteListContent(&left);
+    DeleteListContent(&right);
+  }
+
+  // The same disjunction where the node's pattern already states a label: the group is merged into the test
+  // that pattern built, which is a new test for each planning, so this plan never depended on the fold.
+  auto *pattern_identifier = IDENT("n");
+  // MATCH (n:Label3) WHERE n:Label1 OR n:Label2 RETURN n
+  auto *with_pattern_label =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label3"))),
+                         WHERE(OR(LABELS_TEST(pattern_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+                                  LABELS_TEST(pattern_identifier, std::vector{this->storage.GetLabelIx("Label2")}))),
+                         RETURN("n")));
+  auto pattern_symbol_table = memgraph::query::MakeSymbolTable(with_pattern_label);
+  for (int planning = 1; planning <= 2; ++planning) {
+    SCOPED_TRACE("pattern-label planning number " + std::to_string(planning));
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, pattern_symbol_table, with_pattern_label);
+    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              pattern_symbol_table,
+              ExpectUnion(left, right),
+              ExpectDistinct(),
+              ExpectFilter(),
+              ExpectProduce());
+    DeleteListContent(&left);
+    DeleteListContent(&right);
+  }
+}
+
 // What index selection may use of a label filter is what its label test demands, on every path that collects
 // one. The two part company only where a scan absorbs a label, which is not collection.
 TYPED_TEST(TestPlanner, ALabelFilterAgreesWithItsTest) {
@@ -5682,8 +5785,8 @@ TYPED_TEST(TestPlanner, FiltersOfTwoOperatorsAreKeptApart) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
 
   memgraph::query::plan::Filters filters;
-  filters.AddOperatorFilters(first, symbol_table);
-  filters.AddOperatorFilters(second, symbol_table);
+  filters.AddOperatorFilters(first, symbol_table, this->storage);
+  filters.AddOperatorFilters(second, symbol_table, this->storage);
 
   const auto &symbol = symbol_table.at(*dynamic_cast<memgraph::query::Identifier *>(first->expression_));
   std::set<std::string> offered;
@@ -5704,7 +5807,7 @@ TYPED_TEST(TestPlanner, FiltersOfOneExpressionAreCollectedTogether) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(conjunction), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
 
-  auto filters = memgraph::query::plan::Filters::FromExpression(conjunction, symbol_table);
+  auto filters = memgraph::query::plan::Filters::FromExpression(conjunction, symbol_table, this->storage);
 
   auto count = std::count_if(filters.begin(), filters.end(), [](const auto &filter) {
     return filter.type == memgraph::query::plan::FilterInfo::Type::Label;

@@ -54,7 +54,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.AddOperatorFilters(op.expression_, *symbol_table_);
+    filters_.AddOperatorFilters(op.expression_, *symbol_table_, *ast_storage_);
 
     return true;
   }
@@ -65,7 +65,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
-      op.all_filters_ = Filters::FromExpression(op.expression_, *symbol_table_);
+      op.all_filters_ = Filters::FromExpression(op.expression_, *symbol_table_, *ast_storage_);
     }
 
     // Filters are pushed down as far as they can go.
@@ -1143,7 +1143,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto filter = std::make_shared<Filter>(result, std::vector<std::shared_ptr<LogicalOperator>>{}, test);
 
       // Need to populate the all_filters
-      auto all_filters = Filters::FromExpression(filter->expression_, *symbol_table_);
+      auto all_filters = Filters::FromExpression(filter->expression_, *symbol_table_, *ast_storage_);
       filter->all_filters_ = std::move(all_filters);
       result = std::move(filter);
     }

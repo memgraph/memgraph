@@ -240,6 +240,13 @@ void AddAndLabels(std::vector<LabelIx> &and_labels, std::vector<std::vector<Labe
   });
 }
 
+/// The single label a test contributes to a disjunction over one variable, or nothing if it demands anything
+/// else of the variable.
+auto DisjunctLabels(const LabelsTest &labels_test) -> const std::vector<LabelIx> * {
+  if (labels_test.labels_.size() == 1 && labels_test.or_labels_.empty()) return &labels_test.labels_;
+  return nullptr;
+}
+
 /// Records what index selection may use of a label filter: whatever its test demands. The two part company
 /// only where a scan absorbs a label, which every collection then re-derives from the test.
 void DeriveLabelView(FilterInfo &filter) {
@@ -530,32 +537,34 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 
 // Adds the where filter expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) {
-  CollectFilterExpression(where.expression_, symbol_table, LabelTestMerging::kAllowed);
+void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table, AstStorage &storage) {
+  CollectFilterExpression(where.expression_, symbol_table, storage, LabelTestMerging::kAllowed);
 }
 
-auto Filters::FromExpression(Expression *expr, const SymbolTable &symbol_table) -> Filters {
+auto Filters::FromExpression(Expression *expr, const SymbolTable &symbol_table, AstStorage &storage) -> Filters {
   Filters filters;
-  filters.CollectFilterExpression(expr, symbol_table, LabelTestMerging::kAllowed);
+  filters.CollectFilterExpression(expr, symbol_table, storage, LabelTestMerging::kAllowed);
   return filters;
 }
 
-void Filters::AddOperatorFilters(Expression *expr, const SymbolTable &symbol_table) {
-  CollectFilterExpression(expr, symbol_table, LabelTestMerging::kForbidden);
+void Filters::AddOperatorFilters(Expression *expr, const SymbolTable &symbol_table, AstStorage &storage) {
+  CollectFilterExpression(expr, symbol_table, storage, LabelTestMerging::kForbidden);
 }
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, LabelTestMerging merging) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, AstStorage &storage,
+                                      LabelTestMerging merging) {
   auto filters = SplitExpression(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table, merging);
+    AnalyzeAndStoreFilter(filter, symbol_table, storage, merging);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, LabelTestMerging merging) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, AstStorage &storage,
+                                    LabelTestMerging merging) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -1016,7 +1025,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // yield a generic filter and hide a comparison an index could answer.
     // Re-entering CollectFilterExpression also splits any conjunction inside.
     if (auto *inner_not = utils::Downcast<NotOperator>(is_not->expression_)) {
-      CollectFilterExpression(inner_not->expression_, symbol_table, merging);
+      CollectFilterExpression(inner_not->expression_, symbol_table, storage, merging);
       return;
     }
     // WHERE NOT point.withinbbox()
@@ -1050,7 +1059,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     std::optional<int32_t> symbol_pos;
     auto is_each_labels_test = std::ranges::all_of(filters, [&](auto &filter) {
       auto *labels_test = utils::Downcast<LabelsTest>(filter);
-      if (!labels_test || labels_test->labels_.size() != 1) {
+      if (!labels_test || !DisjunctLabels(*labels_test)) {
         return false;
       }
       auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
@@ -1066,19 +1075,20 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       // The disjuncts' labels are one group; a label stated twice is named once.
       std::vector<LabelIx> group;
       for (auto *filter : filters) {
-        auto const &label = utils::Downcast<LabelsTest>(filter)->labels_.front();
-        if (!std::ranges::contains(group, label)) {
-          group.push_back(label);
+        for (const auto &label : *DisjunctLabels(*utils::Downcast<LabelsTest>(filter))) {
+          if (!std::ranges::contains(group, label)) {
+            group.push_back(label);
+          }
         }
       }
       auto *labels_test = utils::Downcast<LabelsTest>(filters.front());
       auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
       auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
       if (it == all_filters_.end() || merging == LabelTestMerging::kForbidden) {
-        // The first disjunct's LabelsTest stands for the whole OR.
-        labels_test->labels_.clear();
-        labels_test->or_labels_.push_back(std::move(group));
-        auto filter_info = FilterInfo{FilterInfo::Type::Label, labels_test, collector.symbols_};
+        // The group gets a test of its own. Rewriting a disjunct's test would leave the query holding a test
+        // it was not parsed with, and a later collection of the same query reading something else.
+        auto *group_test = storage.Create<LabelsTest>(identifier, std::move(group), /*label_expression=*/true);
+        auto filter_info = FilterInfo{FilterInfo::Type::Label, group_test, collector.symbols_};
         DeriveLabelView(filter_info);
         all_filters_.emplace_back(std::move(filter_info));
       } else {
@@ -1129,7 +1139,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
     }
   }
   if (where) {
-    matching.filters.CollectWhereFilter(*where, symbol_table);
+    matching.filters.CollectWhereFilter(*where, symbol_table, storage);
   }
 }
 
