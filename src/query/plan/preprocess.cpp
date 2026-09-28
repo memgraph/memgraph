@@ -1452,6 +1452,30 @@ std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressio
   return expressions;
 }
 
+Expression *SplitLabelsTests(Expression *expression, AstStorage &storage) {
+  if (auto *conjunction = utils::Downcast<AndOperator>(expression)) {
+    auto *lhs = SplitLabelsTests(conjunction->expression1_, storage);
+    auto *rhs = SplitLabelsTests(conjunction->expression2_, storage);
+    if (lhs == conjunction->expression1_ && rhs == conjunction->expression2_) return expression;
+    return storage.Create<AndOperator>(lhs, rhs);
+  }
+  if (auto *outer = utils::Downcast<NotOperator>(expression)) {
+    // Filter collection looks through a double negation, so this does too.
+    auto *inner = utils::Downcast<NotOperator>(outer->expression_);
+    if (!inner) return expression;
+    auto *operand = SplitLabelsTests(inner->expression_, storage);
+    if (operand == inner->expression_) return expression;
+    return storage.Create<NotOperator>(storage.Create<NotOperator>(operand));
+  }
+  auto *labels_test = utils::Downcast<LabelsTest>(expression);
+  if (!labels_test) return expression;
+  Expression *joined = nullptr;
+  for (auto *piece : SplitLabelsTest(storage, *labels_test)) {
+    joined = joined ? static_cast<Expression *>(storage.Create<AndOperator>(joined, piece)) : piece;
+  }
+  return joined ? joined : expression;
+}
+
 Expression *SubstituteExpression(Expression *expression, Expression *old, Expression *in) {
   if (expression == old) return in;
 

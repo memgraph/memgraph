@@ -556,7 +556,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                      write_occurred || call_proc->graph_access_ == GraphAccess::Write,
                                                      eligible);
             if (call_proc->where_) {
-              auto *filter_expr = call_proc->where_->expression_;
+              // Split as filter collection splits, so an index scan below finds the label test it consumes.
+              auto *filter_expr = SplitLabelsTests(call_proc->where_->expression_, *context.ast_storage);
               auto where_filters = Filters::FromExpression(filter_expr, *context.symbol_table, *context.ast_storage);
               input_op = std::make_unique<Filter>(std::move(input_op),
                                                   std::vector<std::shared_ptr<LogicalOperator>>{},

@@ -806,4 +806,9 @@ std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressio
  */
 Expression *SubstituteExpression(Expression *expr, Expression *old, Expression *in);
 
+/// `expression` with every labels test among its AND operands (under NOT NOT too) replaced by the AND of the
+/// pieces SplitLabelsTest makes of it. A Filter built from the result holds the tests filter collection
+/// yields, so an index scan can remove the one it consumes. The expression itself is not changed.
+Expression *SplitLabelsTests(Expression *expression, AstStorage &storage);
+
 }  // namespace memgraph::query::plan
