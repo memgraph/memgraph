@@ -87,6 +87,7 @@ nothing arrives unprompted either.
 11. As an administrator, I want `REVOKE` to remove a deny whatever its strength, so that there is nothing new to learn about removing permissions.
 12. As an administrator, I want weak denies available on labels, edge types, privileges, and database access as well as properties, so that the same overlap problem has the same answer everywhere.
 13. As an administrator, I want a grant I give a user directly to override a weak deny on one of their roles, so that I can make an exception for one person without editing a shared role.
+14. As an administrator, I want a role scoped to one database to only override weak denies on that database, so that scoping a role still limits what it can do.
 
 ## Implementation Decisions
 
@@ -111,6 +112,28 @@ person without editing a shared role.
 
 A weak deny given to a user directly is overridden by a grant from any of that
 user's roles. The user level is another source, not a privileged one.
+
+### An override can differ between databases
+
+A role can be scoped to particular databases, and only the roles a user holds on
+the database being queried take part in deciding access there. So a weak deny
+can be overridden on one database and hold on another, for the same user with
+the same roles.
+
+Take a user holding both of these:
+
+- `engineer`, on `db1` and `db2`, weak-denying `salary`.
+- `HR`, on `db1` only, granting `salary`.
+
+The user reads `salary` on `db1`, where `HR` is one of their roles and its grant
+overrides the weak deny. On `db2` they get `Null`, because `HR` is not a role
+they hold there and nothing overrides the deny.
+
+This follows from how roles are already scoped rather than from anything new,
+but it becomes visible here: until now a deny held everywhere regardless of
+which roles applied, so there was nothing for the scoping to change. An
+administrator diagnosing an unexpected `Null` should check which databases the
+overriding role covers, not just that the role exists.
 
 ### Across roles, the strongest deny wins
 
@@ -230,6 +253,8 @@ nothing:
   as separate rows.
 - A weak deny of a database on one role, overridden by another role's grant of
   that database.
+- A weak deny overridden on one database and holding on another, where the
+  overriding role is scoped to only one of them.
 
 ## Out of Scope
 
