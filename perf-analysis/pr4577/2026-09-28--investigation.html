@@ -1,0 +1,95 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Daily bench regression 09-24</title>
+<style>body{font:14px/1.5 system-ui;max-width:960px;margin:2em auto;padding:0 16px}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}code{background:#eee;padding:0 3px}.improve{color:green;font-weight:bold}.noise{color:#888}.regress{color:red;font-weight:bold}</style></head><body>
+<h1>Daily benchmark regression (starting 09-24 nightly)</h1>
+<h2>Summary</h2>
+<p>~2–3% throughput drop on cheap single-node mgbench point queries (single_vertex_read, vertex_on_label_property_index, create/vertex, vertex_on_property) from nightly c67f6b98d (09-24). Heavy suites flat.</p>
+<h2>Current State</h2>
+<table><tr><th>Component</th><th>Finding / Hypothesis</th><th>Implication</th><th>Status</th></tr>
+<tr><td>Nightly logs 09-17..09-27</td><td>Step at 09-24, clean separation, iter CV 0.5–1.5%</td><td>Real, small regression</td><td>VERIFIED (logs)</td></tr>
+<tr><td>Runner</td><td>All 09-24+ on firebird; firebird baseline nights also clean</td><td>Not a machine artefact</td><td>VERIFIED</td></tr>
+<tr><td>PR Diff benchmark runs</td><td>Base 5d3d36da5 clean; base b428539a2 −2..−3% (#4886, #4900)</td><td>Window = #4854, #4865, #4577, #4904, #4903, #4879</td><td>VERIFIED</td></tr>
+<tr><td>#4854/#4865</td><td>Benchmarked ~0%; range-diff identical except 13-line c567ddc2b</td><td>Mostly cleared</td><td>VERIFIED (weak: 1 iter/run)</td></tr>
+<tr><td>#4577 1233eabb6</td><td>Session::DoRead → boost::asio::dispatch(strand_) from worker thread (extra executor hop per request) — HYPOTHESIS REJECTED</td><td>Local A/B shows B is 5–9% FASTER; #4577 is NOT the cause</td><td>FALSIFIED by local A/B</td></tr>
+</table>
+
+<h2>Local A/B Benchmark Setup (2026-09-28)</h2>
+<table><tr><th>Parameter</th><th>Value</th></tr>
+<tr><td>Arm A binary</td><td>/home/andreja.linux/workspace/wt-ab-4577-A/build/memgraph (commit 88c90e77c)</td></tr>
+<tr><td>Arm B binary</td><td>/home/andreja.linux/workspace/wt-ab-4577-B/build/memgraph (commit 1233eabb6)</td></tr>
+<tr><td>Client binary</td><td>/home/andreja.linux/workspace/wt-ab-4577-A/build/tests/mgbench/client</td></tr>
+<tr><td>CPU pinning</td><td>Memgraph: taskset -c 0-7 | Client: taskset -c 8-11 (disjoint, single NUMA node)</td></tr>
+<tr><td>Machine</td><td>aarch64, 12 vCPU (1 thread/core), 15GB RAM, Linux 6.14.0-37-generic</td></tr>
+<tr><td>Toolchain</td><td>/opt/toolchain-v8 (clang 22.1.8), RelWithDebInfo</td></tr>
+<tr><td>Interleaving</td><td>A,B,B,A,A,B,B,A,... (8 runs/arm/query)</td></tr>
+<tr><td>Runtime/query</td><td>15 seconds (--single-threaded-runtime-sec 15)</td></tr>
+<tr><td>Workers</td><td>4 benchmark workers, 4 import workers</td></tr>
+<tr><td>Dataset</td><td>pokec/small (10000 vertices, 121716 edges, pre-cached)</td></tr>
+<tr><td>Script</td><td>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/run_ab.py</td></tr>
+<tr><td>Status</td><td>COMPLETE (2026-09-28)</td></tr>
+</table>
+
+<h2>AUDIT TABLE — Final Results</h2>
+<p>A = 88c90e77c (pre-#4577, parent commit on master); B = 1233eabb6 (#4577 squash). 8 runs per arm. Mann-Whitney p-values computed via scipy.stats.mannwhitneyu (two-sided).</p>
+<table>
+<tr><th>Query</th><th>A median QPS</th><th>B median QPS</th><th>B/A</th><th>B−A %</th><th>A/A (noise)</th><th>p_MW</th><th>Verdict</th></tr>
+<tr><td>arango/single_vertex_read</td><td>54,297</td><td>59,087</td><td>1.0882</td><td class="improve">+8.82%</td><td>0.9939</td><td>&lt;0.001</td><td class="improve">IMPROVE</td></tr>
+<tr><td>arango/single_vertex_write</td><td>51,854</td><td>55,864</td><td>1.0773</td><td class="improve">+7.73%</td><td>1.0008</td><td>&lt;0.001</td><td class="improve">IMPROVE</td></tr>
+<tr><td>arango/single_edge_write</td><td>49,046</td><td>51,485</td><td>1.0497</td><td class="improve">+4.97%</td><td>1.0121</td><td>&lt;0.001</td><td class="improve">IMPROVE</td></tr>
+<tr><td>match/vertex_on_label_property_index</td><td>54,429</td><td>59,066</td><td>1.0852</td><td class="improve">+8.52%</td><td>0.9996</td><td>&lt;0.001</td><td class="improve">IMPROVE</td></tr>
+<tr><td>match/vertex_on_property</td><td>54,230</td><td>59,296</td><td>1.0934</td><td class="improve">+9.34%</td><td>1.0024</td><td>&lt;0.001</td><td class="improve">IMPROVE</td></tr>
+<tr><td>create/vertex</td><td>56,933</td><td>61,512</td><td>1.0804</td><td class="improve">+8.04%</td><td>1.0077</td><td>&lt;0.001</td><td class="improve">IMPROVE</td></tr>
+<tr><td>arango/expansion_4 (heavy control)</td><td>76.6</td><td>76.1</td><td>0.9933</td><td class="noise">−0.67%</td><td>0.9932</td><td>0.798</td><td class="noise">NOISE</td></tr>
+</table>
+<p><strong>Noise floor</strong>: A/A ratios 0.993–1.012 (0.1–1.2% intra-arm variance). All point-query B/A effects are 5–9x larger than the noise floor. Control query (expansion_4) shows noise at p=0.798 — method correctly identifies null differences.</p>
+
+<h2>Conclusion</h2>
+<p><strong>Hypothesis REJECTED.</strong> PR #4577 did NOT cause the daily benchmark regression. In fact, B (post-#4577) is 5–9% FASTER than A (pre-#4577) on all six point-query workloads, with p&lt;0.001 (Mann-Whitney, two-sided). The 5–9% improvement is consistent across all workload types (read, write, edge-write, index scan, property scan, create). The regression must originate from a different PR in the merge window: #4904, #4903, #4879, or a combination thereof.</p>
+<p>The 5–9% improvement from #4577 may actually be masking the regression — if #4577 improved performance by ~7% and the CI shows only 2–3% net regression, the true regression delta from the other PRs may be ~9–10%.</p>
+
+<h2>Raw Data</h2>
+<ul>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/raw_pokec_small_arango_single_vertex_read.json</li>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/raw_pokec_small_arango_single_vertex_write.json</li>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/raw_pokec_small_arango_single_edge_write.json</li>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/raw_pokec_small_match_vertex_on_label_property_index.json</li>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/raw_pokec_small_match_vertex_on_property.json</li>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/raw_pokec_small_create_vertex.json</li>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/raw_pokec_small_arango_expansion_4.json</li>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/summary.json</li>
+<li>/home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/summary.csv</li>
+</ul>
+
+<h2>Action Plan (Next Steps)</h2>
+<ol>
+<li>Investigate #4904, #4903, #4879 as the actual regression source. Bisect with the same A/B methodology.</li>
+<li>Arm C: benchmark at 88c90e77c^1 (pre-window) to bound the regression window precisely.</li>
+<li>Note: the 5–9% improvement from #4577 may be eroding the visibility of the true regression in CI data. The actual culprit regression may be ~9–10% before #4577's improvement offset.</li>
+</ol>
+
+<h2>Decision Log</h2>
+<ul>
+<li>2026-09-28: bench-graph-api unreachable → parse GitHub job logs.</li>
+<li>2026-09-28: local machine noisy (12 vCPU VM) → interleave + many reps + A/A.</li>
+<li>2026-09-28: A/B benchmark complete (112 benchmark runs, 2× 7 queries × 8 arms). #4577 cleared — IMPROVE across the board. Regression source is elsewhere.</li>
+</ul>
+<h2>Experiment ladder (CI, benchmark-only Diff runs, cancelled after mgbench)</h2>
+<p>Branches off master <code>8902f6768</code>. Each run is compared against E0 with <code>ci/ci_cmp.py</code>: a 12-query signal-set median plus an 8-query stable-traversal control. Decision rule: signal − control ≥ +1.5% means recovered.</p>
+<table><tr><th>#</th><th>Branch</th><th>Change</th><th>Why this order</th><th>Status</th></tr>
+<tr><td>E0</td><td>tmp/perf4577-e0-master</td><td>master as-is</td><td>baseline on current code</td><td>running</td></tr>
+<tr><td>E1</td><td>tmp/perf4577-e1-revert</td><td>full revert of 1233eabb6 (clean)</td><td>go/no-go: if it doesn't recover, #4577 isn't the cause</td><td>queued after E0</td></tr>
+<tr><td>E2</td><td>tbd</td><td>DoRead(): arm async_read_some directly from worker again (keep terminate checks)</td><td>only per-request thread hop; biggest suspect</td><td>pending decipher</td></tr>
+<tr><td>E3</td><td>tbd</td><td>SetUser/SetSessionInfo: skip atomic&lt;shared_ptr&gt; store when unchanged</td><td>per-RUN atomic shared_ptr (maybe spinlock-pool)</td><td>pending decipher</td></tr>
+<tr><td>E4+</td><td>tbd</td><td>remaining deltas from decipher tables (registry, Interpreter layout/false sharing, Prepare dispatch)</td><td>least likely</td><td>pending decipher</td></tr>
+</table>
+<h2>Decision log (cont.)</h2><ul>
+<li>2026-09-28: CI A/B (1 pair, doctor-doom): pre-4577 at pre-regression level; #4577 signal −2.3%, control +0.8%. Points to #4577, not conclusive. User: assume #4577 and experiment on CI.</li>
+<li>2026-09-28: local aarch64 A/B showed #4577 +5–9% faster, so local runs can't be used for this class of change; CI only.</li><li>2026-09-28: network-layer decipher — DoRead() dispatch(strand_) from a PriorityThreadPool worker is always queued (running_in_this_thread()=false) → +1 io-thread wakeup (eventfd/epoll) and +1 shared_ptr refcount pair per request. Registry is per-connection only. → E2 probe (tmp/perf4577-e2-doread-direct, e359aa182; not mergeable: worker touches socket like pre-#4577).</li>
+<li>2026-09-28: query-layer decipher — SetUser/SetSessionInfo atomic&lt;shared_ptr&gt; stores are NOT per-query (RuntimeConfig::Configure early-returns on unchanged extras, SessionHL.cpp:787); libstdc++ 16.2 atomic&lt;shared_ptr&gt; = per-object spin bit, not lock-free. SessionQuery downcasts unreachable for Cypher. Old E3 dropped.</li>
+<li>2026-09-28: measured Interpreter layout via gdb ptype/o (aarch64 builds): +32 B (1384→1416); db_acc_ 224→256, never straddles a line (agent's straddle claim refuted). Layout experiment kept as low-prior E3.</li></ul>
+<h2>References</h2>
+<ul>
+<li>Nightly runs: Daily Benchmark workflow 35165205856 … 36281614268</li>
+<li>PR runs: #4900 35851505758 (clean), 35877554681 (regressed); #4886 35879999187</li>
+<li>Benchmark script: /home/andreja.linux/workspace/opencode-work/daily-bench-regression-0924/ab/run_ab.py</li>
+</ul>
+</body></html>
