@@ -513,7 +513,17 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 // Adds the where filter expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
 void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) {
-  CollectFilterExpression(where.expression_, symbol_table);
+  CollectFilterExpression(where.expression_, symbol_table, LabelTestMerging::kAllowed);
+}
+
+auto Filters::FromExpression(Expression *expr, const SymbolTable &symbol_table) -> Filters {
+  Filters filters;
+  filters.CollectFilterExpression(expr, symbol_table, LabelTestMerging::kAllowed);
+  return filters;
+}
+
+void Filters::AddOperatorFilters(Expression *expr, const SymbolTable &symbol_table) {
+  CollectFilterExpression(expr, symbol_table, LabelTestMerging::kForbidden);
 }
 
 // Adds the expression to `all_filters_` and collects additional

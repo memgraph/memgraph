@@ -557,8 +557,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                      eligible);
             if (call_proc->where_) {
               auto *filter_expr = call_proc->where_->expression_;
-              Filters where_filters;
-              where_filters.CollectFilterExpression(filter_expr, *context.symbol_table);
+              auto where_filters = Filters::FromExpression(filter_expr, *context.symbol_table);
               input_op = std::make_unique<Filter>(std::move(input_op),
                                                   std::vector<std::shared_ptr<LogicalOperator>>{},
                                                   filter_expr,
@@ -1737,8 +1736,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     if (filter_expr) {
       filter_expr = CompactFilters(filter_expr, storage);  // Can only compact; not delete the whole expression
                                                            // Could do in the future when we have parse-time constants
-      Filters operator_filters;
-      operator_filters.CollectFilterExpression(filter_expr, symbol_table);
+      auto operator_filters = Filters::FromExpression(filter_expr, symbol_table);
       last_op = std::make_unique<Filter>(
           std::move(last_op), std::move(pattern_filters), filter_expr, std::move(operator_filters));
     }

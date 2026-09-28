@@ -46,7 +46,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_, Filters::LabelTestMerging::kForbidden);
+    filters_.AddOperatorFilters(op.expression_, *symbol_table_);
     return true;
   }
 
@@ -59,9 +59,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
-      Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
-      op.all_filters_ = std::move(leftover_filters);
+      op.all_filters_ = Filters::FromExpression(op.expression_, *symbol_table_);
     }
 
     if (!op.expression_ || filter_exprs_for_removal_.contains(op.expression_)) {

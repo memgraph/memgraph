@@ -5608,6 +5608,49 @@ TYPED_TEST(TestPlanner, LabelDisjunctionNotOnOneVariableStaysGeneric) {
   }
 }
 
+// What one operator's expression requires is added to a collection that may already hold another operator's,
+// so each label test stays a filter of its own and neither test is rewritten. Both are still offered to index
+// selection, which reads the labels of every filter of a symbol.
+TYPED_TEST(TestPlanner, FiltersOfTwoOperatorsAreKeptApart) {
+  auto label1 = this->storage.GetLabelIx("Label1");
+  auto label2 = this->storage.GetLabelIx("Label2");
+  auto *first = LABELS_TEST(IDENT("n"), std::vector{label1});
+  auto *second = LABELS_TEST(IDENT("n"), std::vector{label2});
+  // Two operators over `n`, each testing one label.
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(AND(first, second)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+
+  memgraph::query::plan::Filters filters;
+  filters.AddOperatorFilters(first, symbol_table);
+  filters.AddOperatorFilters(second, symbol_table);
+
+  const auto &symbol = symbol_table.at(*dynamic_cast<memgraph::query::Identifier *>(first->expression_));
+  std::set<std::string> offered;
+  for (const auto &label : filters.FilteredLabels(symbol)) offered.insert(label.name);
+  EXPECT_EQ(offered, (std::set<std::string>{"Label1", "Label2"}));
+  // Neither test was rewritten to stand for both.
+  ASSERT_EQ(first->labels_.size(), 1U);
+  ASSERT_EQ(second->labels_.size(), 1U);
+  EXPECT_EQ(first->labels_.front().name, "Label1");
+  EXPECT_EQ(second->labels_.front().name, "Label2");
+}
+
+// One expression's label tests over one symbol apply to the same rows, so they are collected as one filter.
+TYPED_TEST(TestPlanner, FiltersOfOneExpressionAreCollectedTogether) {
+  auto label1 = this->storage.GetLabelIx("Label1");
+  auto label2 = this->storage.GetLabelIx("Label2");
+  auto *conjunction = AND(LABELS_TEST(IDENT("n"), std::vector{label1}), LABELS_TEST(IDENT("n"), std::vector{label2}));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(conjunction), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+
+  auto filters = memgraph::query::plan::Filters::FromExpression(conjunction, symbol_table);
+
+  auto count = std::count_if(filters.begin(), filters.end(), [](const auto &filter) {
+    return filter.type == memgraph::query::plan::FilterInfo::Type::Label;
+  });
+  EXPECT_EQ(count, 1);
+}
+
 // A node written with a label disjunction must carry one of its labels, so the collected filter names them as a
 // group and demands no label of its own. Naming them as AND labels would make a reader of the matching demand
 // every one of them.

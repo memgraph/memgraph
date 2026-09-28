@@ -203,7 +203,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_, Filters::LabelTestMerging::kForbidden);
+    filters_.AddOperatorFilters(op.expression_, *symbol_table_);
     return true;
   }
 
@@ -216,8 +216,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // Predicates we consumed here. The Cartesian decision below needs these, not the leftovers.
     std::vector<FilterInfo> removed_filters;
     {
-      Filters own_filters;
-      own_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      auto own_filters = Filters::FromExpression(op.expression_, *symbol_table_);
       for (auto const &filter : own_filters) {
         if (filter_exprs_for_removal_.contains(filter.expression)) {
           removed_filters.push_back(filter);
@@ -228,9 +227,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
-      Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
-      op.all_filters_ = std::move(leftover_filters);
+      op.all_filters_ = Filters::FromExpression(op.expression_, *symbol_table_);
     }
 
     // A Cartesian pulls its right branch once per pass, not once per left row, so it cannot feed a
