@@ -11528,6 +11528,14 @@ void Interpreter::Commit() {
       // The list is also empty for every auth transaction in a community build, because the actions that would
       // populate it are compiled out there along with the rest of the enterprise auth surface. That is correct
       // rather than incidental: a community build has no auth delta to send.
+      // Failing here costs the user the whole transaction, not one statement: the throw leaves through
+      // AbortCommand, which sets `expect_rollback_`, and the buffered work goes with it. That is the same
+      // bargain a serialization error strikes on the data path (`Unable to commit due to serialization error.
+      // Try retrying this transaction...`), where retrying also means running the statements again, so auth is
+      // not the odd one out. Worth knowing before changing it: `kSystemTxTryMS` is a fixed 100ms shared with the
+      // single-statement path above, and it is shorter than the lock is ever held, because the holder keeps it
+      // across replication. Waiting longer would want to stay interruptible, and would want doing at both call
+      // sites rather than only this one.
       if (!system_transaction_ && !on_coordinator && !auth_transaction_->pending_actions().empty()) {
         system_transaction_ =
             interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
