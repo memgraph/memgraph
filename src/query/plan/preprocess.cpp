@@ -1145,6 +1145,14 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   }
 }
 
+void CollectSubqueryMatchings(Filters &filters, SymbolTable &symbol_table, AstStorage &storage) {
+  for (auto &filter : filters) {
+    SubqueryMatchingCollector collector(symbol_table, storage);
+    filter.expression->Accept(collector);
+    filter.subquery_matchings = collector.getSubqueryMatchings();
+  }
+}
+
 void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
   AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
 

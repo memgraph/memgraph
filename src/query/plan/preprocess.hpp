@@ -548,6 +548,12 @@ class Filters final {
   void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
 };
 
+/// Fills in @c FilterInfo::subquery_matchings for every filter, so each EXISTS/COUNT/COLLECT body gets a branch.
+/// A WHERE that belongs to a @c Matching is served by @c AddMatching instead; this is for the ones that do not.
+/// Leaves FilterInfo::pattern_comprehension_matchings empty: the caller already plans each pattern comprehension
+/// as a RollUpApply below the Filter, so a branch here would compute it twice.
+void CollectSubqueryMatchings(Filters &filters, SymbolTable &symbol_table, AstStorage &storage);
+
 /// Normalized representation of a single or multiple Match clauses.
 ///
 /// For example, `MATCH (a :Label) -[e1]- (b) -[e2]- (c) MATCH (n) -[e3]- (m)
