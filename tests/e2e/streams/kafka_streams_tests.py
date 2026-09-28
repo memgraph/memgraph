@@ -549,8 +549,11 @@ def test_db_memory_grows_from_kafka_stream_ingestion(kafka_producer, kafka_topic
     for _ in range(msg_count):
         kafka_producer.send(topic, common.SIMPLE_MSG).get(timeout=KAFKA_PRODUCER_SENDING_MSG_DEFAULT_TIMEOUT)
 
-    # Wait for the last message to be ingested before measuring.
-    common.kafka_check_vertex_exists_with_topic_and_payload(cursor, topic, common.SIMPLE_MSG)
+    # Wait until every message is ingested before measuring (the messages are identical, so count them).
+    def ingested_count():
+        return common.execute_and_fetch_all(cursor, f"MATCH (n:MESSAGE {{topic: '{topic}'}}) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(msg_count, ingested_count, max_duration=60)
 
     after = _parse_size_bytes(_get_storage_info(cursor).get("tenant_memory_tracked", "0B"))
 

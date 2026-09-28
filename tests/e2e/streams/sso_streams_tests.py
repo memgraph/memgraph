@@ -55,35 +55,37 @@ def sso_connection(request):
     test_name = request.function.__name__
     instances = get_instances(test_name)
 
-    # Start Memgraph without SSO first
-    interactive_mg_runner.start_all(instances)
+    # Teardown in `finally` so a failed setup also removes the instance's data directory
+    try:
+        # Start Memgraph without SSO first
+        interactive_mg_runner.start_all(instances)
 
-    # Create roles and users for SSO
-    with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
-        with client.session() as session:
-            session.run("CREATE ROLE architect;").consume()
-            session.run("GRANT ALL PRIVILEGES TO architect;").consume()
+        # Create roles and users for SSO
+        with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
+            with client.session() as session:
+                session.run("CREATE ROLE architect;").consume()
+                session.run("GRANT ALL PRIVILEGES TO architect;").consume()
 
-    interactive_mg_runner.stop(instances, INSTANCE_NAME)
+        interactive_mg_runner.stop(instances, INSTANCE_NAME)
 
-    # Restart with SSO enabled
-    instances[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
-    interactive_mg_runner.start_all(instances)
+        # Restart with SSO enabled
+        instances[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
+        interactive_mg_runner.start_all(instances)
 
-    # Create SSO authenticated connection
-    response = base64.b64encode(b"dummy_value").decode("utf-8")
-    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+        # Create SSO authenticated connection
+        response = base64.b64encode(b"dummy_value").decode("utf-8")
+        MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
-    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        # Verify current user
-        with client.session() as session:
-            current_user_result = list(session.run("SHOW CURRENT USER;"))
-            assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
+        with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+            # Verify current user
+            with client.session() as session:
+                current_user_result = list(session.run("SHOW CURRENT USER;"))
+                assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
 
-        yield client
+            yield client
 
-    # Cleanup
-    interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
+    finally:
+        interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
 
 
 @pytest.fixture(scope="function")
@@ -92,53 +94,55 @@ def multi_role_connection(request):
     test_name = request.function.__name__
     instances = get_instances(test_name)
 
-    # Start Memgraph without SSO first
-    interactive_mg_runner.start_all(instances)
+    # Teardown in `finally` so a failed setup also removes the instance's data directory
+    try:
+        # Start Memgraph without SSO first
+        interactive_mg_runner.start_all(instances)
 
-    # Create roles, databases, and permissions
-    with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
-        with client.session() as session:
-            # Create roles
-            session.run("CREATE ROLE admin;").consume()
-            session.run("CREATE ROLE architect;").consume()
-            session.run("CREATE ROLE user;").consume()
+        # Create roles, databases, and permissions
+        with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
+            with client.session() as session:
+                # Create roles
+                session.run("CREATE ROLE admin;").consume()
+                session.run("CREATE ROLE architect;").consume()
+                session.run("CREATE ROLE user;").consume()
 
-            # Grant privileges
-            session.run("GRANT ALL PRIVILEGES TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
-            session.run("GRANT ALL PRIVILEGES TO architect;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO architect;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO architect;").consume()
-            session.run("GRANT MATCH, CREATE, STREAM, MULTI_DATABASE_USE TO user;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO user;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO user;").consume()
+                # Grant privileges
+                session.run("GRANT ALL PRIVILEGES TO admin;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
+                session.run("GRANT ALL PRIVILEGES TO architect;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO architect;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO architect;").consume()
+                session.run("GRANT MATCH, CREATE, STREAM, MULTI_DATABASE_USE TO user;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO user;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO user;").consume()
 
-            # Create databases
-            session.run("CREATE DATABASE admin_db;").consume()
-            session.run("CREATE DATABASE architect_db;").consume()
-            session.run("CREATE DATABASE user_db;").consume()
+                # Create databases
+                session.run("CREATE DATABASE admin_db;").consume()
+                session.run("CREATE DATABASE architect_db;").consume()
+                session.run("CREATE DATABASE user_db;").consume()
 
-            # Grant database access to roles
-            session.run("GRANT DATABASE admin_db TO admin;").consume()
-            session.run("GRANT DATABASE architect_db TO architect;").consume()
-            session.run("GRANT DATABASE user_db TO user;").consume()
+                # Grant database access to roles
+                session.run("GRANT DATABASE admin_db TO admin;").consume()
+                session.run("GRANT DATABASE architect_db TO architect;").consume()
+                session.run("GRANT DATABASE user_db TO user;").consume()
 
-            # Set main databases for roles
-            session.run("SET MAIN DATABASE admin_db FOR admin;").consume()
-            session.run("SET MAIN DATABASE architect_db FOR architect;").consume()
-            session.run("SET MAIN DATABASE user_db FOR user;").consume()
+                # Set main databases for roles
+                session.run("SET MAIN DATABASE admin_db FOR admin;").consume()
+                session.run("SET MAIN DATABASE architect_db FOR architect;").consume()
+                session.run("SET MAIN DATABASE user_db FOR user;").consume()
 
-    interactive_mg_runner.stop(instances, INSTANCE_NAME)
+        interactive_mg_runner.stop(instances, INSTANCE_NAME)
 
-    # Restart with SSO enabled
-    instances[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
-    interactive_mg_runner.start_all(instances)
+        # Restart with SSO enabled
+        instances[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
+        interactive_mg_runner.start_all(instances)
 
-    yield instances
+        yield instances
 
-    # Cleanup
-    interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
+    finally:
+        interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
 
 
 def test_sso_kafka_stream_creation(kafka_topics, sso_connection):
