@@ -129,6 +129,8 @@ def test_check_stream(kafka_producer, kafka_topics, connection, transformation):
     common.create_stream(cursor, stream_name, kafka_topics[0], transformation, batch_size=BATCH_SIZE)
     common.start_stream(cursor, stream_name)
     kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=KAFKA_PRODUCER_SENDING_MSG_DEFAULT_TIMEOUT)
+    # Wait for the message to be ingested (and its offset committed) before stopping, or CHECK STREAM below starts at it
+    common.kafka_check_vertex_exists_with_topic_and_payload(cursor, kafka_topics[0], common.SIMPLE_MSG)
     common.stop_stream(cursor, stream_name)
 
     messages = [b"first message", b"second message", b"third message"]
