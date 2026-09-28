@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <optional>
 #include <span>
 #include <stack>
 #include <string_view>
@@ -1027,14 +1028,22 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
   } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
     auto filters = SplitExpression(or_operator, SplitExpressionMode::OR);
-    // If each filter is LabelsTest we aim to cover basic case and put them in existing LabelsTest
-    // If there is a non-LabelsTest filter we fallback to generic
-    auto is_each_labels_test = std::ranges::all_of(filters, [](auto &filter) {
+    // Fold an OR of single-label tests on one variable into one OR group of its LabelsTest. Any other
+    // OR stays generic: `n:A OR m:B` is not a group of either variable.
+    std::optional<int32_t> symbol_pos;
+    auto is_each_labels_test = std::ranges::all_of(filters, [&](auto &filter) {
       auto *labels_test = utils::Downcast<LabelsTest>(filter);
-      if (!labels_test) {
+      if (!labels_test || labels_test->labels_.size() != 1) {
         return false;
       }
-      return labels_test->labels_.size() == 1;
+      auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
+      if (!identifier) {
+        return false;
+      }
+      if (!symbol_pos) {
+        symbol_pos = identifier->symbol_pos_;
+      }
+      return identifier->symbol_pos_ == *symbol_pos;
     });
     if (is_each_labels_test) {
       std::unordered_map<uint32_t, std::vector<LabelIx> *> already_seen_symbols;

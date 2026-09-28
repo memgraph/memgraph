@@ -1138,3 +1138,48 @@ Feature: Match
             | 'ab' |
             | 'ac' |
             | 'b'  |
+
+    Scenario: A label disjunction over two variables tests either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n), (m) WHERE n:A OR m:B RETURN count(*) AS c;
+            """
+        Then the result should be:
+            | c  |
+            | 24 |
+
+    Scenario: A label disjunction over two variables after WITH * tests either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n), (m) WITH * WHERE n:A OR m:B RETURN count(*) AS c;
+            """
+        Then the result should be:
+            | c  |
+            | 24 |
+
+    Scenario: A label disjunction over an expression that is not a variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE head([n]):A OR head([n]):B RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |

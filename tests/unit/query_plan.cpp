@@ -5541,6 +5541,34 @@ TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
   }
 }
 
+// Only an OR of label tests on one variable is an OR group of that variable. Any other stays one generic
+// filter: folded, `n:Label1 OR m:Label2` was planned as `n:Label1 AND m:Label2`, and a test on `head([n])`,
+// which has no variable, aborted the planner.
+TYPED_TEST(TestPlanner, LabelDisjunctionNotOnOneVariableStaysGeneric) {
+  FakeDbAccessor dba;
+  auto label1 = this->storage.GetLabelIx("Label1");
+  auto label2 = this->storage.GetLabelIx("Label2");
+  using NoGroups = std::vector<std::set<std::string>>;
+  {
+    // MATCH (n)-[r]->(m) WHERE n:Label1 OR m:Label2 RETURN n
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+        WHERE(OR(LABELS_TEST(IDENT("n"), std::vector{label1}), LABELS_TEST(IDENT("m"), std::vector{label2}))),
+        RETURN("n")));
+    CheckPlan<TypeParam>(
+        query, this->storage, ExpectScanAll(), ExpectExpand(), ExpectFilterOrLabels(NoGroups{}), ExpectProduce());
+  }
+  {
+    // MATCH (n) WHERE head([n]):Label1 OR head([n]):Label2 RETURN n
+    auto head = [&] { return FN("head", LIST(IDENT("n"))); };
+    auto *query = QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     WHERE(OR(LABELS_TEST(head(), std::vector{label1}), LABELS_TEST(head(), std::vector{label2}))),
+                     RETURN("n")));
+    CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectFilterOrLabels(NoGroups{}), ExpectProduce());
+  }
+}
+
 TYPED_TEST(TestPlanner, BasicExistsSubquery) {
   FakeDbAccessor dba;
 
