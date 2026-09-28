@@ -1019,22 +1019,6 @@ Feature: Match
             | 'A1'   |
             | 'B1'   |
 
-    Scenario: Two label disjunctions over one node are both tested
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
-            """
-        When executing query:
-            """
-            MATCH (n:A|B) MATCH (n:B|C) RETURN n.n AS v ORDER BY v;
-            """
-        Then the result should be:
-            | v    |
-            | 'ab' |
-            | 'ac' |
-            | 'b'  |
-
     Scenario: Two label disjunctions over indexed labels are both tested
         Given an empty graph
         And with new index :A

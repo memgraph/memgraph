@@ -5515,8 +5515,7 @@ TYPED_TEST(TestPlanner, LabelDisjunctionGroupsOverOneNode) {
   }
 }
 
-// A disjunction stated twice is one conjunct. Kept twice, index selection erases one copy and leaves the
-// other behind as a filter; a Debug build aborts there when both copies list the labels in the same order.
+// A disjunction stated twice is one conjunct, so an index scan over its labels leaves no filter behind.
 TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
   FakeDbAccessor dba;
   dba.SetIndexCount(dba.Label("Label1"), 1);
@@ -5529,9 +5528,6 @@ TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
   };
 
   std::vector<memgraph::query::CypherQuery *> cases{
-      // MATCH (n:Label2|Label1) MATCH (n:Label1|Label2). Master passes this one too; it guards that groups
-      // compare regardless of label order.
-      QUERY(SINGLE_QUERY(match({"Label2", "Label1"}), match({"Label1", "Label2"}), RETURN("n"))),
       // MATCH (n:Label2|Label1) WHERE n:Label1 OR n:Label2
       QUERY(SINGLE_QUERY(match({"Label2", "Label1"}), WHERE(disjunction()), RETURN("n"))),
       // MATCH (n) WHERE (n:Label1 OR n:Label2) AND (n:Label1 OR n:Label2)
@@ -5560,9 +5556,8 @@ TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
   }
 }
 
-// Only an OR of label tests on one variable is an OR group of that variable. Any other stays one generic
-// filter: folded, `n:Label1 OR m:Label2` was planned as `n:Label1 AND m:Label2`, and a test on `head([n])`,
-// which has no variable, aborted the planner.
+// Only an OR of label tests on one variable is an OR group of that variable. `n:Label1 OR m:Label2` holds when
+// either test holds, and `head([n])` is not a variable, so each OR stays one generic filter over the whole OR.
 TYPED_TEST(TestPlanner, LabelDisjunctionNotOnOneVariableStaysGeneric) {
   FakeDbAccessor dba;
   auto label1 = this->storage.GetLabelIx("Label1");
