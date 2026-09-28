@@ -39,20 +39,18 @@ def connection():
         execute_and_fetch_all(cursor, f"DROP USER {username}")
 
 
-def get_topics(num):
-    return [f"topic_{i}" for i in range(num)]
+def unique_topics(request, num):
+    """Topic names derived from the test name so tests (and leftovers from aborted runs) never share topics."""
+    safe = re.sub(r"[^\w]", "_", request.node.name)  # e.g. "test_simple[kafka_transform.simple]" -> underscores only
+    return [f"{safe}_topic_{i}" for i in range(num)]
 
 
 @pytest.fixture(scope="function")
 def kafka_topics(request):
     admin = KafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS, client_id="test")
 
-    # generate a safe, unique prefix from the test name
-    raw = request.node.name  # e.g. "test_separate_consumers[kafka_transform.with_parameters]"
-    safe = re.sub(r"[^\w]", "_", raw)  # now underscores only
-
     # build 3 new topics, one request each so one leftover topic doesn't fail the whole batch
-    topics = [f"{safe}_topic_{i}" for i in range(3)]
+    topics = unique_topics(request, 3)
     deadline = time.time() + 30
     for topic in topics:
         while True:
@@ -73,20 +71,26 @@ def kafka_topics(request):
 
     # The broker applies new topics to its metadata asynchronously (noticeably late under CI load), and
     # CREATE KAFKA STREAM rejects topics missing from the metadata, so wait until they are visible.
+    deadline = time.time() + 30
     while not set(topics) <= set(admin.list_topics()):
         if time.time() > deadline:
             pytest.fail(f"Topics not visible in broker metadata: {topics}")
         time.sleep(0.2)
 
-    yield topics
-
-    # teardown
-    admin.delete_topics(topics, timeout_ms=5000)
+    try:
+        yield topics
+    finally:
+        # A failed delete must not turn the test result into a teardown error; the next run copes with leftovers
+        try:
+            admin.delete_topics(topics, timeout_ms=5000)
+        except KafkaError:
+            pass
+        admin.close()
 
 
 @pytest.fixture(scope="function")
 def kafka_producer():
-    yield KafkaProducer(bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS], api_version_auto_timeout_ms=10000)
+    yield KafkaProducer(bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS], bootstrap_timeout_ms=10000)
 
 
 @pytest.fixture(scope="function")
@@ -94,9 +98,20 @@ def pulsar_client():
     yield pulsar.Client(PULSAR_SERVICE_URL)
 
 
+def delete_pulsar_topic(topic):
+    # Pulsar answers 204 even when the topic doesn't exist, so a failure here means the admin endpoint is broken
+    requests.delete(
+        f"{PULSAR_ADMIN_URL}/admin/v2/persistent/public/default/{topic}?force=true", timeout=10
+    ).raise_for_status()
+
+
 @pytest.fixture(scope="function")
-def pulsar_topics():
-    topics = get_topics(3)
+def pulsar_topics(request):
+    topics = unique_topics(request, 3)
     for topic in topics:
-        requests.delete(f"{PULSAR_ADMIN_URL}/admin/v2/persistent/public/default/{topic}?force=true")
-    yield topics
+        delete_pulsar_topic(topic)
+    try:
+        yield topics
+    finally:
+        for topic in topics:
+            delete_pulsar_topic(topic)
