@@ -3124,7 +3124,7 @@ bool SameOwnFields(Expression &lhs, Expression &rhs) {
     return l->labels_ == r.labels_ && l->or_labels_ == r.or_labels_;
   }
   if (auto *l = utils::Downcast<Function>(&lhs)) {
-    return l->function_name_ == static_cast<Function &>(rhs).function_name_;
+    return l->function_name_ == static_cast<Function &>(rhs).function_name_ && IsFunctionPure(l->function_name_);
   }
   return true;
 }
