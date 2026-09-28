@@ -11475,12 +11475,22 @@ void Interpreter::Commit() {
     // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
     // the whole time the user held the transaction open.
     if (auth_transaction_) {
-      // Covers every exit of this block, a throw included. Gives the status back as ACTIVE, which is what both
-      // exits below expect: each makes the ACTIVE -> IDLE transition itself and clears `current_transaction_`
-      // under it. The status half is a no-op until the claim below lands, since only STARTED_COMMITTING is ours
-      // to give back.
+      // Covers every exit of this block, a throw included.
+      //
+      // The claim is given back here only when nothing is left to replicate. With a system transaction the
+      // commit is not over at this brace -- replication runs below -- and letting go here would put the status
+      // back to ACTIVE for that whole window, which is the false kill the claim exists to prevent. In that case
+      // `clean_status` releases instead, after replication. Without one, `FinishAutocommitNothing` retires the
+      // transaction immediately below and it only knows how to start from ACTIVE.
+      //
+      // The status half is a no-op until the claim below lands, since only STARTED_COMMITTING is ours to give
+      // back.
       utils::OnScopeExit const clear_auth_tx([this]() {
         auth_transaction_.reset();
+        // Both throws below reach here with no system transaction -- the first because failing to take one is
+        // what it reports, the second because it resets before throwing -- so a failed commit always releases
+        // here and only a continuing one defers to `clean_status`.
+        if (system_transaction_) return;
         auto expected = TransactionStatus::STARTED_COMMITTING;
         while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
           if (expected == TransactionStatus::VERIFYING) {
@@ -11573,10 +11583,14 @@ void Interpreter::Commit() {
       // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
       // ShowTransactions may also CAS us to VERIFYING - the CAS loop naturally spin-waits on that.
+      //
+      // An auth commit arrives still holding STARTED_COMMITTING: it keeps the claim across the replication
+      // above, so a terminate arriving during it reports that it killed nothing rather than reporting a kill
+      // for a transaction that goes on to finish. The data path arrives at ACTIVE. Retire either.
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
-        if (expected == TransactionStatus::TERMINATED) {
-          continue;
+        if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::STARTED_COMMITTING) {
+          continue;  // retry from what was observed; compare_exchange_weak already loaded it
         }
         expected = TransactionStatus::ACTIVE;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
