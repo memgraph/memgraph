@@ -29,21 +29,27 @@ CTL = [
     "arango/allshortest_paths/",
 ]
 
-base = json.load(open(sys.argv[1]))
-for path in sys.argv[2:]:
-    exp = json.load(open(path))
-    a, b = base["qps"], exp["qps"]
-    common = [k for k in a if k in b]
-    r = {k: b[k] / a[k] - 1 for k in common}
-    sig = [r[k] for k in common if any(k.startswith(p) for p in SIG)]
-    ctl = [r[k] for k in common if any(k.startswith(p) for p in CTL)]
-    print(
-        f"## {exp['branch']} ({exp['sha'][:9]}, {exp['runner']}) vs {base['branch']} ({base['sha'][:9]}, {base['runner']})"
-    )
-    print(
-        f"SIGNAL median {st.median(sig) * 100:+.1f}% ({sum(x > 0 for x in sig)}/{len(sig)} faster) | "
-        f"CONTROL median {st.median(ctl) * 100:+.1f}% | signal-control {(st.median(sig) - st.median(ctl)) * 100:+.1f}%"
-    )
-    for k in common:
-        tag = "S" if any(k.startswith(p) for p in SIG) else "C" if any(k.startswith(p) for p in CTL) else " "
-        print(f"  {tag} {'/'.join(k.split('/')[:2]):<42}{a[k]:>10.1f}{b[k]:>10.1f}{r[k] * 100:>+7.1f}%")
+
+def main():
+    base = json.load(open(sys.argv[1]))
+    for path in sys.argv[2:]:
+        exp = json.load(open(path))
+        a, b = base["qps"], exp["qps"]
+        common = [k for k in a if k in b]
+        r = {k: b[k] / a[k] - 1 for k in common}
+        sig = [r[k] for k in common if any(k.startswith(p) for p in SIG)]
+        ctl = [r[k] for k in common if any(k.startswith(p) for p in CTL)]
+        print(
+            f"## {exp['branch']} ({exp['sha'][:9]}, {exp['runner']}) vs {base['branch']} ({base['sha'][:9]}, {base['runner']})"
+        )
+        print(
+            f"SIGNAL median {st.median(sig) * 100:+.1f}% ({sum(x > 0 for x in sig)}/{len(sig)} faster) | "
+            f"CONTROL median {st.median(ctl) * 100:+.1f}% | signal-control {(st.median(sig) - st.median(ctl)) * 100:+.1f}%"
+        )
+        for k in common:
+            tag = "S" if any(k.startswith(p) for p in SIG) else "C" if any(k.startswith(p) for p in CTL) else " "
+            print(f"  {tag} {'/'.join(k.split('/')[:2]):<42}{a[k]:>10.1f}{b[k]:>10.1f}{r[k] * 100:>+7.1f}%")
+
+
+if __name__ == "__main__":
+    main()

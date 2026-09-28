@@ -16,11 +16,14 @@ Scratch branch for perf-box investigation. **Not for merge.** Base: master `8902
   | master + full revert of #4577 vs master | firebird / doctor-doom | **+4.5%** |
   | master + E2 DoRead probe vs master | firebird / doctor-doom | +1.8% |
   | master + E2 DoRead probe vs master + full revert | firebird / firebird | −2.1% |
+  | **master + full revert vs master (repeat)** | **firebird / firebird** | **+4.4%** |
+  | **master + E2 DoRead probe vs master (repeat)** | **firebird / firebird** | **+2.0%** |
 
 - The only per-request change in #4577 is **`Session::DoRead()` → `dispatch(strand_)` → `ArmRead_`**,
   which adds a worker→io-thread hop per request. The E2 probe that removes it recovers **only
-  about half** of what the full revert recovers. That gap is at the noise floor of single-iteration
-  runs (the controls moved 1.5% between two same-machine runs), so it is **the open question for the perf box**.
+  about half** of what the full revert recovers, **twice** (+1.8% cross-machine, +2.0% same machine).
+  So the hop is likely ~half the cost and **something else in #4577 is the other half**. That split is
+  **the open question for the perf box**.
 - **Local aarch64 A/B (12 vCPU VM, 4 clients) showed #4577 5–9% *faster*.** Local A/B on a small
   box is misleading for this change. See "Topology" below for the likely reason.
 
@@ -37,7 +40,7 @@ Full per-query numbers: [`raw_results.md`](raw_results.md). Raw JSON: [`data/`](
 | `tmp/perf4577-e2-doread-direct` | `e359aa182` | master + worker arms `async_read_some` directly again (**probe, reintroduces the lost-termination window below — do not merge**) |
 | `tmp/perf4577-analysis` | this branch | this doc + data + scripts |
 
-A repeat E0 run (master, run `36409024767`) was still in progress when this was written.
+E0 was run twice: run 1 `36396283130` on doctor-doom, run 2 `36409024767` on firebird. E1 and E2 ran on firebird, so the run-2 comparisons are same-machine.
 
 ## Workload that shows it
 
@@ -198,8 +201,8 @@ No hot member straddles a cache line before or after. Worth re-measuring on the 
      `IOContextThreadPool`), plus its CPU%. Is it saturating after #4577?
    - `perf trace -s` / `strace -c -f`: count `eventfd`/`write`/`epoll_wait` syscalls per request.
 3. **Split the remaining gap** (E2 recovered ~half on CI):
-   - E2 vs E1 on the same box, many iterations. If E2 ≈ E1, the hop is the whole story and the CI gap was noise.
-   - If not: build "#4577 reverted except `session.hpp`" to split network vs everything else, then
+   - E2 vs E1 on the same box, many iterations. CI says E2 ≈ halfway (twice), so expect a gap.
+   - Then build "#4577 reverted except `session.hpp`" to split network vs everything else, then
      move the `foreign_*` members to the end of `Interpreter` (layout).
 4. **Candidate knobs to sanity-check the hypothesis** (not fixes): `--scheduler=asio` (DoReadAsio
    path, no cross-pool hop); a patched build with `io_n_threads > 1`.
@@ -210,6 +213,7 @@ No hot member straddles a cache line before or after. Worth re-measuring on the 
   else false) on a pushed branch, cancels it after the `Run mgbench` step, downloads the job log, and
   writes `<branch>.json`.
 - `ci/ci_cmp.py <base.json> <exp.json>...`: signal/control medians + per-query table.
+- `ci/gen_raw.py > raw_results.md`: regenerate the per-query table and pairwise summary from `data/` (add new runs to `RUNS`/`PAIRS`).
 - `ci/bench_compare.py`: PR-vs-nightly comparator (same as `~/.claude/skills/ship-pr/bench_compare.py`).
 - `data/nightly_0917-0927_mgbench.json`: per-night, per-query iteration lists parsed from the
   Daily Benchmark logs (`{night: {suite: {query: [qps…]}}}`).
