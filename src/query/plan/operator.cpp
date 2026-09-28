@@ -1073,17 +1073,85 @@ VertexAccessor const &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame
   }
 }
 
+namespace {
+
+/// Refuses the pair a sort would have refused, for a walk kept in place of one.
+///
+/// A walk hands back the stored order, which places every pair of values it can
+/// hold. A sort places fewer: two maps have no order between them, since the
+/// stored one tells them apart by the identifiers their keys were interned as,
+/// and that is a fact about the order the keys were first seen in rather than
+/// about the maps. Handing back a pair the sort declines would answer a query
+/// the sort refuses.
+///
+/// Asking the sort's own relation of each neighbouring pair refuses in the same
+/// places. A pair it cannot place shares one run of the stored order, so the two
+/// are neighbours among the values of that run, and a column holding two of them
+/// reaches the pair. A pair it can place is asked and answered, which also says
+/// the walk handed the column back in the order the sort would have.
+class SortStandsInCheck {
+ public:
+  SortStandsInCheck(std::span<storage::PropertyPath const> properties, std::span<std::size_t const> columns,
+                    storage::View view)
+      : view_{view} {
+    for (auto const column : columns) columns_.push_back(properties[column]);
+  }
+
+  void operator()(VertexAccessor const &vertex, ExecutionContext &context) {
+    auto read = std::vector<TypedValue>{};
+    read.reserve(columns_.size());
+    for (auto const &column : columns_) read.push_back(ValueOf(vertex, column, context));
+
+    if (!previous_.empty()) {
+      for (auto const &[before, after] : rv::zip(previous_, read)) {
+        // Refuses the pair a sort has no order for, as the sort would have.
+        std::ignore = relations::orderability::Compare(before, after);
+      }
+    }
+    previous_ = std::move(read);
+  }
+
+  /// Forgets the row the next one would have been asked against, for a walk
+  /// starting over.
+  void Reset() { previous_.clear(); }
+
+ private:
+  /// The value the sort read, which is the property this column indexes, and
+  /// then whatever the rest of the path names within it.
+  TypedValue ValueOf(VertexAccessor const &vertex, storage::PropertyPath const &path, ExecutionContext &context) const {
+    auto *mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+    auto value = TypedValue{*vertex.GetProperty(view_, path.front()), mapper};
+    for (auto const step : path | rv::drop(1)) {
+      if (!value.IsMap()) return TypedValue{};
+      TypedValue::TString const name{context.db_accessor->GetStorageAccessor()->PropertyToName(step),
+                                     context.evaluation_context.memory};
+      auto const found = value.ValueMap().find(name);
+      if (found == value.ValueMap().end()) return TypedValue{};
+      value = found->second;
+    }
+    return value;
+  }
+
+  std::vector<storage::PropertyPath> columns_;
+  storage::View view_;
+  std::vector<TypedValue> previous_;
+};
+
+}  // namespace
+
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
   explicit ScanAllCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
-                         TVerticesFun get_vertices, const char *op_name)
+                         TVerticesFun get_vertices, const char *op_name,
+                         std::optional<SortStandsInCheck> stands_in_for_a_sort = std::nullopt)
       : self_(self),
         output_symbol_(std::move(output_symbol)),
         input_cursor_(std::move(input_cursor)),
         view_(view),
         get_vertices_(std::move(get_vertices)),
-        op_name_(op_name) {}
+        op_name_(op_name),
+        stands_in_for_a_sort_(std::move(stands_in_for_a_sort)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -1108,6 +1176,8 @@ class ScanAllCursor : public Cursor {
       return false;
     }
 #endif
+
+    if (stands_in_for_a_sort_) (*stands_in_for_a_sort_)(*vertices_it_.value(), context);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     frame_writer.Write(output_symbol_, *vertices_it_.value());
@@ -1135,6 +1205,7 @@ class ScanAllCursor : public Cursor {
     vertices_ = std::nullopt;
     vertices_it_ = std::nullopt;
     vertices_end_it_ = std::nullopt;
+    if (stands_in_for_a_sort_) stands_in_for_a_sort_->Reset();
   }
 
  private:
@@ -1147,6 +1218,7 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_->begin())> vertices_it_;
   std::optional<decltype(vertices_->end())> vertices_end_it_;
   const char *op_name_;
+  std::optional<SortStandsInCheck> stands_in_for_a_sort_;
 };
 
 template <typename TEdgesFun>
@@ -1612,13 +1684,17 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
   };
+  auto stands_in_for_a_sort =
+      sort_columns_.empty() ? std::nullopt : std::make_optional<SortStandsInCheck>(properties_, sort_columns_, view_);
+
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
                                                                 *this,
                                                                 output_symbol_,
                                                                 input_->MakeCursor(mem, metric_handles),
                                                                 view_,
                                                                 std::move(vertices),
-                                                                "ScanAllByLabelProperties");
+                                                                "ScanAllByLabelProperties",
+                                                                std::move(stands_in_for_a_sort));
 }
 
 std::string ScanAllByLabelProperties::ToString(const DbAccessor *dba) const {
@@ -1649,6 +1725,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
   object->index_order_ = index_order_;
+  object->sort_columns_ = sort_columns_;
   return object;
 }
 

@@ -12,7 +12,7 @@
 // The four relations asked by name.
 //
 // Every other test reaches them through an operator, which leaves whatever no operator reads
-// covered only by whole queries. `Admits` is the clearest case: an index range is emitted or
+// covered only by whole queries. `ValidFor` is the clearest case: an index range is emitted or
 // withheld on its answer, and no operator reaches it at all.
 
 #include <algorithm>
@@ -178,7 +178,7 @@ TEST(Comparability, AdmitsExactlyTheTypesItCanPlace) {
   for (auto const type : kEveryType) {
     auto const pair = PairOf(type);
     if (!pair) continue;
-    // A type it admits has to be a type it can answer for, and the reverse. Two switches state
+    // A type it is valid for has to be a type it can answer for, and the reverse. Two switches state
     // this separately, so nothing but a test holds them together.
     EXPECT_EQ(comparability::ValidFor(type), comparability::ComparePayload(pair->lesser, pair->greater).has_value())
         << "type " << static_cast<unsigned>(type);
@@ -206,7 +206,7 @@ TEST(Comparability, OrdersEveryTypeItAdmits) {
   for (auto const type : kEveryType) {
     if (!comparability::ValidFor(type)) continue;
     auto const pair = PairOf(type);
-    ASSERT_TRUE(pair.has_value()) << "an admitted type needs a pair here: " << static_cast<unsigned>(type);
+    ASSERT_TRUE(pair.has_value()) << "a valid type needs a pair here: " << static_cast<unsigned>(type);
     auto const order = comparability::Compare(pair->lesser, pair->greater);
     ASSERT_TRUE(order.has_value()) << "type " << static_cast<unsigned>(type);
     EXPECT_TRUE(std::is_lt(*order)) << "type " << static_cast<unsigned>(type);
@@ -230,9 +230,9 @@ TEST(Comparability, PlacesOneIntegerAgainstOneDouble) {
   EXPECT_TRUE(std::is_eq(*comparability::Compare(TypedValue(int64_t{2}), TypedValue(2.0))));
 }
 
-TEST(Comparability, PlacesEveryValueOfATypeItAdmitsExceptANaN) {
+TEST(Comparability, PlacesEveryValueOfATypeItIsValidForExceptANaN) {
   // A scan is fenced by a bound value rather than by a type, so the value-level question is the
-  // one it has to ask. The two answers agree everywhere except on the one value of an admitted
+  // one it has to ask. The two answers agree everywhere except on the one value of a valid
   // type that has no order.
   for (auto const type : kEveryType) {
     auto const pair = PairOf(type);
@@ -274,8 +274,8 @@ TEST(Comparability, LeavesAPairHoldingANaNUnordered) {
 
 // Orderability, and where it has to agree with comparability
 
-TEST(Orderability, AdmitsExactlyTheTypesItPlacesAPairOf) {
-  // Which types a sort can order is stated by `Admits`, and `Compare` states it again by refusing
+TEST(Orderability, IsValidForExactlyTheTypesItPlacesAPairOf) {
+  // Which types a sort can order is stated by `ValidFor`, and `Compare` states it again by refusing
   // the rest. Two switches, so nothing but this holds them together: a type added to one and not
   // the other answers a query wrongly rather than failing to compile.
   for (auto const type : kEveryType) {
@@ -366,7 +366,7 @@ TEST(Orderability, PlacesANaNWhereComparabilityStillWillNot) {
   // order behind the comparison operators.
   auto const nan = TypedValue(std::nan(""));
 
-  // A Double is a type comparability admits, so it answers rather than
+  // A Double is a type comparability is valid for, so it answers rather than
   // declining, and what it answers is that it has no order for the pair.
   EXPECT_FALSE(comparability::ValidFor(nan));
   EXPECT_EQ(comparability::Compare(nan, TypedValue(1.0)), std::partial_ordering::unordered);

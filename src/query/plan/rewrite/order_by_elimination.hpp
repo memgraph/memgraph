@@ -53,8 +53,8 @@ class OrderByEliminator {
     [[nodiscard]] bool may_overlap(storage::PropertyId prop) const { return !has_path() || resolved[0] == prop; }
   };
 
-  using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypeProperty *,
-                                    const ScanAllByEdgeProperty *, const ScanAllByVertexProperty *>;
+  using ProvidedScan = std::variant<ScanAllByLabelProperties *, ScanAllByEdgeTypeProperty *, ScanAllByEdgeProperty *,
+                                    ScanAllByVertexProperty *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
@@ -90,7 +90,9 @@ class OrderByEliminator {
   bool TryEliminate() {
     DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in TryEliminate");
     const auto &ctx = order_by_stack_.back();
-    const bool eliminate = CanEliminate(ctx);
+    auto sort_columns = std::vector<std::vector<std::size_t>>{};
+    const bool eliminate = CanEliminate(ctx, &sort_columns);
+    if (eliminate) TellScansTheyStandInForTheSort(ctx, sort_columns);
     order_by_stack_.pop_back();
     return eliminate;
   }
@@ -276,7 +278,8 @@ class OrderByEliminator {
   // -- scan matching --------------------------------------------------------
 
   static bool MatchGroupAgainstScan(const ProvidedScan &scan, const std::vector<OrderByEntry> &entries,
-                                    size_t group_start, size_t group_size) {
+                                    size_t group_start, size_t group_size,
+                                    std::vector<std::size_t> *sort_columns = nullptr) {
     return std::visit(
         [&](const auto *s) -> bool {
           using T = std::remove_cvref_t<decltype(*s)>;
@@ -284,6 +287,7 @@ class OrderByEliminator {
             size_t ob_ptr = 0;
             for (size_t i = 0; i < s->properties_.size() && ob_ptr < group_size; ++i) {
               if (s->properties_[i] == entries[group_start + ob_ptr].resolved) {
+                if (sort_columns) sort_columns->push_back(i);
                 // A composite index stores a missing property as NULL and sorts
                 // NULL first, but ORDER BY places NULL last, so the index order
                 // only matches ORDER BY when the sort column cannot be NULL. A
@@ -326,7 +330,27 @@ class OrderByEliminator {
   }
 
   /// Can the provided scans satisfy all ORDER BY entries without an explicit sort?
-  [[nodiscard]] static bool CanEliminate(const OrderByInfo &ctx) {
+  /// Hands each scan the columns the sort read, so that a walk kept in place of
+  /// the sort refuses the pairs the sort would have refused.
+  static void TellScansTheyStandInForTheSort(const OrderByInfo &ctx,
+                                             const std::vector<std::vector<std::size_t>> &sort_columns) {
+    for (size_t i = 0; i != sort_columns.size(); ++i) {
+      std::visit(
+          [&](auto *s) {
+            using T = std::remove_cvref_t<decltype(*s)>;
+            if constexpr (std::is_same_v<T, ScanAllByLabelProperties>) {
+              s->sort_columns_ = sort_columns[i];
+            }
+          },
+          ctx.provided_scans[i]);
+    }
+  }
+
+  /// @param sort_columns filled, per provided scan, with the columns the sort
+  /// read, so that a walk kept in place of the sort can refuse the pairs the
+  /// sort would have. Only meaningful where this answers true.
+  [[nodiscard]] static bool CanEliminate(const OrderByInfo &ctx,
+                                         std::vector<std::vector<std::size_t>> *sort_columns = nullptr) {
     if (!ctx.well_formed || !ctx.order_preserving_path || ctx.has_pending_entries()) return false;
     if (ctx.provided_scans.empty()) return false;
 
@@ -348,7 +372,11 @@ class OrderByEliminator {
       }
       const size_t group_size = entry_idx - group_start;
 
-      if (!MatchGroupAgainstScan(ctx.provided_scans[scan_idx], ctx.entries, group_start, group_size)) return false;
+      auto columns = std::vector<std::size_t>{};
+      if (!MatchGroupAgainstScan(ctx.provided_scans[scan_idx], ctx.entries, group_start, group_size, &columns)) {
+        return false;
+      }
+      if (sort_columns) sort_columns->push_back(std::move(columns));
 
       ++scan_idx;
     }

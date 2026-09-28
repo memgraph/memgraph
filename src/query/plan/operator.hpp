@@ -823,6 +823,16 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
   std::vector<ExpressionRange> expression_ranges_;
   storage::IndexOrder index_order_{storage::IndexOrder::ASC};
 
+  /// Which of @ref properties_ a sort read, where this walk was kept in place of
+  /// one, as positions into it.
+  ///
+  /// A sort refuses a pair it has no order for, and a walk handing back the
+  /// stored order has one for every pair. Naming the columns the sort read is
+  /// what keeps the refusal to those columns: a trailing column the sort never
+  /// looked at, or one an equality fenced to a single value, carries values the
+  /// sort was never asked to place.
+  std::vector<std::size_t> sort_columns_;
+
   std::string ToString(const DbAccessor *dba) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;

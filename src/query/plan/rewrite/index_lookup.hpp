@@ -355,7 +355,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     using ProvidedScan = OrderByEliminator<TDbAccessor>::ProvidedScan;
     std::optional<ProvidedScan> provided;
     if (indexed_scan && !has_in_filter) {
-      auto const *target = indexed_scan.get();
+      auto *target = indexed_scan.get();
       // A value scan fed by an Unwind is invoked once per unwound element
       // (e.g. a user UNWIND driving an equality lookup). When the lookup value
       // derives from the element the results follow element order, not
@@ -366,9 +366,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // covered by has_in_filter.
       bool const fed_by_unwind = target->input() && target->input()->GetTypeInfo() == Unwind::kType;
       if (!fed_by_unwind) {
-        if (auto *s = dynamic_cast<ScanAllByLabelProperties const *>(target)) {
+        if (auto *s = dynamic_cast<ScanAllByLabelProperties *>(target)) {
           provided = s;
-        } else if (auto *s = dynamic_cast<ScanAllByVertexProperty const *>(target)) {
+        } else if (auto *s = dynamic_cast<ScanAllByVertexProperty *>(target)) {
           provided = s;
         }
       }
