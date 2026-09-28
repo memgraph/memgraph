@@ -60,8 +60,8 @@ Reading `salary` on an `(:Employee)` node:
 The third row is the case that does not work today.
 
 The keyword is optional and precedes `DENY`. `WEAK DENY`, `STRONG DENY`, and a
-bare `DENY` are all accepted; omitting it means `STRONG`. Applies to property,
-label, and edge-type denies, and to privilege denies.
+bare `DENY` are all accepted; omitting it means `STRONG`. Applies to every kind
+of deny: properties, labels, edge types, privileges, and database access.
 
 **Advice to users:** keep using `DENY`. Switch the specific permissions or
 privilege to a `WEAK DENY` when two roles collide and the stronger role should win.
@@ -85,7 +85,7 @@ nothing arrives unprompted either.
 9. As an auditor, I want `SHOW PRIVILEGES` to distinguish weak denies from strong ones, so that I do not read a weak deny as a protection it is not.
 10. As an auditor, I want two roles denying the same thing at different strengths to appear as separate entries, so that the weaker one is visible.
 11. As an administrator, I want `REVOKE` to remove a deny whatever its strength, so that there is nothing new to learn about removing permissions.
-12. As an administrator, I want weak denies available on labels, edge types, and privileges as well as properties, so that the same overlap problem has the same answer everywhere.
+12. As an administrator, I want weak denies available on labels, edge types, privileges, and database access as well as properties, so that the same overlap problem has the same answer everywhere.
 13. As an administrator, I want a grant I give a user directly to override a weak deny on one of their roles, so that I can make an exception for one person without editing a shared role.
 
 ## Implementation Decisions
@@ -158,6 +158,11 @@ specific rule matches. Both give "specific beats wildcard" within a role.
 System privileges have no wildcard: `ALL PRIVILEGES` sets every bit
 individually, so every privilege deny is already specific.
 
+Database access has a wildcard too: a role can be granted every database at
+once rather than named ones. It ranks like the others. A role granted every
+database and weak-denying one named database denies that one; a role granted
+every database overrides another role's weak deny on a named database.
+
 ### No `WEAK GRANT`
 
 There is no weak grant, and there is no coherent meaning for one. A `GRANT` is
@@ -184,13 +189,6 @@ needs to see.
 Rows stay per role, so a weak deny and the grant that overrides it both appear,
 each against the role that holds it. `SHOW PRIVILEGES` reports what each role
 carries, not which one won.
-
-### Changing a strength warns
-
-Re-issuing a deny at a different strength changes it silently, and the statement
-that does it looks almost identical to the one it replaces. Turning a strong
-deny into a weak one is a security-relevant change made in passing, so it
-returns a warning saying what changed. The statement still succeeds.
 
 ### Compatibility
 
@@ -230,6 +228,8 @@ nothing:
   written before this feature loading with every deny strong.
 - `SHOW PRIVILEGES` showing a weak deny and a strong deny on the same property
   as separate rows.
+- A weak deny of a database on one role, overridden by another role's grant of
+  that database.
 
 ## Out of Scope
 
@@ -248,9 +248,6 @@ nothing:
 ### Limitations
 
 - **The administrator decides, in advance, which prohibition may be overridden.** This gives a mechanism, not an answer. Two orthogonal roles that each deny what the other grants are only resolved if the right one was marked `WEAK`.
-- **`WEAK DENY` on a privilege such as `AUTH` is legitimate and rarely what you want.** It is not restricted, and the documentation carries a worked warning. Reaching for `WEAK` reflexively on privileges that gate user management is how an overridable deny becomes an incident.
-- **Denying a user a database is not covered.** `DENY DATABASE` is a plain yes-or-no per database with nothing to hold a strength, so it stays absolute. Only property, label, edge-type, and privilege denies take a strength.
-- **No prior art.** Cerbos reaches the same outcome by making grant-beat-deny the default across roles, which is a breaking change; Apache Ranger's "exclude from deny" is a carve-out written inside the deny itself. This shape is new, which is both the differentiator and the risk.
 
 ### Future direction
 
