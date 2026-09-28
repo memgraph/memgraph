@@ -140,6 +140,28 @@ def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
         execute(cursor, "CREATE PROFILE unwritable LIMIT sessions 1")
 
 
+def test_a_transaction_conflicts_with_a_concurrent_change(cursor):
+    # Requirement 6: two transactions touching the same users cannot both win. The first reads the user list,
+    # another session changes it underneath, and the first is refused at COMMIT rather than overwriting silently.
+    # Opened before the first user exists, since creating one turns authentication on.
+    other = connect().cursor()
+
+    execute(cursor, "CREATE USER alice")
+
+    execute(cursor, "BEGIN")
+    assert usernames(cursor) == {"alice"}
+
+    # The other session commits a change to the set this transaction just read.
+    execute(other, "CREATE USER bob")
+
+    execute(cursor, "CREATE USER carol")
+    with pytest.raises(mgclient.DatabaseError, match="conflicted"):
+        execute(cursor, "COMMIT")
+
+    # The loser's write is gone; the winner's stands.
+    assert usernames(other) == {"alice", "bob"}
+
+
 def test_a_terminated_auth_transaction_cannot_commit(cursor):
     # Termination is cooperative: TERMINATE marks the transaction, and the committer is responsible for refusing
     # to go ahead. An auth transaction releases the data accessor, so it takes a different commit path from a data
