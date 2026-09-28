@@ -332,7 +332,7 @@ TEST_F(SafeStringTest, ThreadSafetyStrViewMixedOperations) {
         // Capture some values for verification
         if (rand() % 100 == 0) {  // 1% chance to capture
           {
-            std::scoped_lock const lock(captured_mutex);
+            std::lock_guard<std::mutex> lock(captured_mutex);
             captured_values.push_back(view);
           }
           captured_cv.notify_all();
