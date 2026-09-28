@@ -5608,6 +5608,28 @@ TYPED_TEST(TestPlanner, LabelDisjunctionNotOnOneVariableStaysGeneric) {
   }
 }
 
+// A node written with a label disjunction must carry one of its labels, so the collected filter names them as a
+// group and demands no label of its own. Naming them as AND labels would make a reader of the matching demand
+// every one of them.
+TYPED_TEST(TestPlanner, ADisjunctionInAPatternIsCollectedAsAGroup) {
+  auto *node = NODE_WITH_LABELS("n", std::vector<std::string>{"Label1", "Label2"});
+  // MATCH (n:Label1|Label2) RETURN n
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+  ASSERT_EQ(query_parts.query_parts.size(), 1U);
+  ASSERT_EQ(query_parts.query_parts.front().single_query_parts.size(), 1U);
+  const auto &filters = query_parts.query_parts.front().single_query_parts.front().matching.filters;
+  const auto &symbol = symbol_table.at(*node->identifier_);
+
+  EXPECT_TRUE(filters.FilteredLabels(symbol).empty());
+  auto groups = filters.FilteredOrLabels(symbol);
+  ASSERT_EQ(groups.size(), 1U);
+  std::set<std::string> names;
+  for (const auto &label : groups.front()) names.insert(label.name);
+  EXPECT_EQ(names, (std::set<std::string>{"Label1", "Label2"}));
+}
+
 // Each Filter tests the labels its own clause stated. A pattern filter over the same variable is a test of its
 // own, so it may neither narrow nor widen what the Filter it hangs off tests.
 TYPED_TEST(TestPlanner, LabelDisjunctionInAPatternFilterStaysThere) {

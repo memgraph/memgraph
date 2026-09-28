@@ -471,7 +471,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         // No existing LabelTest for this identifier
         auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels, node->label_expression_);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
-        label_filter.labels = labels;
+        // A disjunction asks for one of its labels, so it is one group and no AND label, as the test itself records.
+        label_filter.labels = labels_test->labels_;
+        label_filter.or_labels = labels_test->or_labels_;
         all_filters_.emplace_back(label_filter);
       } else {
         // Add to existing LabelsTest
