@@ -203,7 +203,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_, Filters::LabelTestMerging::kForbidden);
     return true;
   }
 

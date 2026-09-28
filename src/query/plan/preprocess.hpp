@@ -536,16 +536,24 @@ class Filters final {
   /// label filters and property filters, so that indexed scanning can use it.
   void CollectWhereFilter(Where &, const SymbolTable &);
 
+  /// Whether a label test may be merged into a label test already collected.
+  ///
+  /// Two tests collected from one clause are one conjunction over the same rows, so merging them is sound and
+  /// leaves the plan one test to evaluate. An accumulator that spans operators must forbid it: the test already
+  /// collected can belong to an operator over other rows, such as a pattern filter under a negation, and merging
+  /// would change what labels each of the two demands.
+  enum class LabelTestMerging : uint8_t { kAllowed, kForbidden };
+
   /// Collects filtering information from an expression.
   ///
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectFilterExpression(Expression *, const SymbolTable &);
+  void CollectFilterExpression(Expression *, const SymbolTable &, LabelTestMerging = LabelTestMerging::kAllowed);
 
  private:
   std::vector<FilterInfo> all_filters_;
-  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &, LabelTestMerging);
 };
 
 /// Normalized representation of a single or multiple Match clauses.

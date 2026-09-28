@@ -5608,6 +5608,60 @@ TYPED_TEST(TestPlanner, LabelDisjunctionNotOnOneVariableStaysGeneric) {
   }
 }
 
+// Each Filter tests the labels its own clause stated. A pattern filter over the same variable is a test of its
+// own, so it may neither narrow nor widen what the Filter it hangs off tests.
+TYPED_TEST(TestPlanner, LabelDisjunctionInAPatternFilterStaysThere) {
+  FakeDbAccessor dba;
+  using Groups = std::vector<std::set<std::string>>;
+  // MATCH (n:Label1|Label2) WHERE exists((n:Label2|Label3)-[]-()) RETURN n
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", std::vector<std::string>{"Label1", "Label2"}))),
+                         WHERE(EXISTS(PATTERN(NODE_WITH_LABELS("n", std::vector<std::string>{"Label2", "Label3"}),
+                                              EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                              NODE("node", std::nullopt, false)))),
+                         RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectFilterOrLabels(Groups{{"Label1", "Label2"}}),
+            ExpectProduce());
+}
+
+// A label a pattern filter states is a test of that pattern, not of the row the Filter it hangs off passes on.
+// Under a negation the row need not carry it at all.
+TYPED_TEST(TestPlanner, LabelInAPatternFilterStaysThere) {
+  FakeDbAccessor dba;
+  auto exists_label2 = [&] {
+    return EXISTS(PATTERN(NODE("n", "Label2"),
+                          EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                          NODE("node", std::nullopt, false)));
+  };
+  // MATCH (n:Label1) WHERE exists((n:Label2)-[]-()) RETURN n
+  {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), WHERE(exists_label2()), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAll(),
+              ExpectFilterLabels(std::set<std::string>{"Label1"}),
+              ExpectProduce());
+  }
+  // MATCH (n:Label1) WHERE NOT exists((n:Label2)-[]-()) RETURN n
+  {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), WHERE(NOT(exists_label2())), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAll(),
+              ExpectFilterLabels(std::set<std::string>{"Label1"}),
+              ExpectProduce());
+  }
+}
+
 TYPED_TEST(TestPlanner, BasicExistsSubquery) {
   FakeDbAccessor dba;
 

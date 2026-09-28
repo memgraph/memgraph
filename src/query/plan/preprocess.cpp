@@ -516,16 +516,16 @@ void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) 
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, LabelTestMerging merging) {
   auto filters = SplitExpression(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table);
+    AnalyzeAndStoreFilter(filter, symbol_table, merging);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, LabelTestMerging merging) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -878,34 +878,21 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         return;
       }
       auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
-      if (it == all_filters_.end()) {
-        // No existing LabelTest for this identifier
+      if (it == all_filters_.end() || merging == LabelTestMerging::kForbidden) {
+        // Either no label test of this identifier was collected yet, or the one collected belongs to another
+        // operator and says nothing about the rows this expression is asked about.
         auto filter = make_filter(FilterInfo::Type::Label);
         filter.labels = labels_test->labels_;
         filter.or_labels = labels_test->or_labels_;
         all_filters_.emplace_back(filter);
       } else {
         // Add these labels to existing LabelsTest
-        // First cover OR expressions in LabelsTest
+        // First cover OR expressions in LabelsTest. Each is a conjunct of its own, so it is kept whole.
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
-        auto &existing_or_labels = existing_labels_test->or_labels_;
-        std::unordered_set<LabelIx> as_set;
-        for (const auto &label_vec : existing_or_labels) {
-          for (const auto &label : label_vec) {
-            as_set.insert(label);
-          }
+        for (const auto &group : labels_test->or_labels_) {
+          AddOrLabelGroup(existing_labels_test->or_labels_, existing_labels_test->labels_, group);
         }
-
-        auto before_count = as_set.size();
-        for (auto &label_vec : labels_test->or_labels_) {
-          std::erase_if(label_vec, [&](const auto &label) { return !as_set.insert(label).second; });
-        }
-        if (as_set.size() != before_count) {
-          for (const auto &label_vec : labels_test->or_labels_) {
-            existing_or_labels.push_back(label_vec);
-          }
-          it->or_labels = existing_or_labels;
-        }
+        it->or_labels = existing_labels_test->or_labels_;
 
         // Then cover AND expressions in LabelsTest
         AddAndLabels(existing_labels_test->labels_, existing_labels_test->or_labels_, labels_test->labels_);
@@ -1006,7 +993,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // yield a generic filter and hide a comparison an index could answer.
     // Re-entering CollectFilterExpression also splits any conjunction inside.
     if (auto *inner_not = utils::Downcast<NotOperator>(is_not->expression_)) {
-      CollectFilterExpression(inner_not->expression_, symbol_table);
+      CollectFilterExpression(inner_not->expression_, symbol_table, merging);
       return;
     }
     // WHERE NOT point.withinbbox()
@@ -1064,7 +1051,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       auto *labels_test = utils::Downcast<LabelsTest>(filters.front());
       auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
       auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
-      if (it == all_filters_.end()) {
+      if (it == all_filters_.end() || merging == LabelTestMerging::kForbidden) {
         // The first disjunct's LabelsTest stands for the whole OR.
         labels_test->labels_.clear();
         labels_test->or_labels_.push_back(std::move(group));

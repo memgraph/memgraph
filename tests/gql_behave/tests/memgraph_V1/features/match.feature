@@ -1167,3 +1167,33 @@ Feature: Match
             | 'ab' |
             | 'ac' |
             | 'b'  |
+
+    Scenario: A label a negated pattern filter states is not demanded of the row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:E]->(), (:A:B {n: 'ab'})-[:E]->(), (:A {n: 'lonely'})
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE NOT exists((n:B)-[]-()) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v        |
+            | 'a'      |
+            | 'lonely' |
+
+    Scenario: A label disjunction a pattern filter states is tested whole
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:E]->(), (:B {n: 'b'})-[:E]->(), (:A:B {n: 'ab'})-[:E]->()
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) WHERE exists((n:B|C)-[]-()) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'b'  |

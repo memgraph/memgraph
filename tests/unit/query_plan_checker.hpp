@@ -285,6 +285,23 @@ class ExpectFilterOrLabels : public OpChecker<Filter> {
   std::vector<std::set<std::string>> groups_;
 };
 
+/// Checks the labels a filter demands of every row, as a set of label names.
+class ExpectFilterLabels : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterLabels(std::set<std::string> labels) : labels_(std::move(labels)) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    std::set<std::string> actual;
+    for (const auto &filter_info : filter.all_filters_) {
+      for (const auto &label : filter_info.labels) actual.insert(label.name);
+    }
+    EXPECT_EQ(actual, labels_);
+  }
+
+ private:
+  std::set<std::string> labels_;
+};
+
 class ExpectScanAllByEdgeId : public OpChecker<ScanAllByEdgeId> {
  public:
   explicit ExpectScanAllByEdgeId(bool expects_string_id = false) : expects_string_id_(expects_string_id) {}
