@@ -236,7 +236,7 @@ class DbmsHandler {
         // Only the presented uuid changes; the metric objects and every handle into them stay put.
         metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
       }
-      if (on_uuid_retired_) on_uuid_retired_(old_uuid);
+      NotifyUuidRetired_(old_uuid, kDefaultDB);
 
       return db;
     }
@@ -1011,8 +1011,8 @@ class DbmsHandler {
   // Caller invokes this only when GetConfig(db_name) already returned nullopt. Caller must hold lock_.
   DeleteError NotLiveDeleteError_(std::string_view db_name) const;
 
-  // Invoke on_uuid_retired_ after a committed drop; swallow and log any exception.
-  // The drop is already committed (husk draining or COLD removed) — a hook exception must NOT
+  // Invoke on_uuid_retired_ after a committed drop or rebind; swallow and log any exception.
+  // The retirement is already committed, so a hook exception must NOT
   // surface as a false failure to the caller. If the hook throws, that uuid's parameter rows
   // stay orphaned; nothing reclaims them. No-op when on_uuid_retired_ is empty.
   void NotifyUuidRetired_(utils::UUID const &uuid, std::string_view name_for_log);
