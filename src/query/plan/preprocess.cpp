@@ -240,6 +240,31 @@ void AddAndLabels(std::vector<LabelIx> &and_labels, std::vector<std::vector<Labe
   });
 }
 
+/// Records what index selection may use of a label filter: whatever its test demands. The two part company
+/// only where a scan absorbs a label, which every collection then re-derives from the test.
+void DeriveLabelView(FilterInfo &filter) {
+  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
+  MG_ASSERT(labels_test, "A label filter tests labels");
+  filter.labels = labels_test->labels_;
+  filter.or_labels = labels_test->or_labels_;
+}
+
+/// Adds `group` as one more OR group of the filter's label test.
+void AddOrLabelGroup(FilterInfo &filter, std::vector<LabelIx> group) {
+  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
+  MG_ASSERT(labels_test, "A label filter tests labels");
+  AddOrLabelGroup(labels_test->or_labels_, labels_test->labels_, std::move(group));
+  DeriveLabelView(filter);
+}
+
+/// Adds `labels` to the AND labels of the filter's label test.
+void AddAndLabels(FilterInfo &filter, const std::vector<LabelIx> &labels) {
+  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
+  MG_ASSERT(labels_test, "A label filter tests labels");
+  AddAndLabels(labels_test->labels_, labels_test->or_labels_, labels);
+  DeriveLabelView(filter);
+}
+
 }  // namespace
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
@@ -471,24 +496,17 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         // No existing LabelTest for this identifier
         auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels, node->label_expression_);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
-        // A disjunction asks for one of its labels, so it is one group and no AND label, as the test itself records.
-        label_filter.labels = labels_test->labels_;
-        label_filter.or_labels = labels_test->or_labels_;
+        DeriveLabelView(label_filter);
         all_filters_.emplace_back(label_filter);
       } else {
         // Add to existing LabelsTest
         // First cover OR expressions in LabelsTest
-        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
-        // If it's an OR expression, it is one more OR group of the existing LabelsTest. Each group is a
-        // conjunct of its own, so it is kept whole.
+        // A disjunction is one more OR group of the test already collected. Each group is a conjunct of its
+        // own, so it is kept whole; a conjunction adds to the labels the node must carry.
         if (node->label_expression_) {
-          AddOrLabelGroup(existing_labels_test->or_labels_, existing_labels_test->labels_, labels);
-          it->or_labels = existing_labels_test->or_labels_;
+          AddOrLabelGroup(*it, labels);
         } else {
-          // If it's an AND expression, we are adding to the AND labels of the existing LabelsTest
-          AddAndLabels(existing_labels_test->labels_, existing_labels_test->or_labels_, labels);
-          it->labels = existing_labels_test->labels_;
-          it->or_labels = existing_labels_test->or_labels_;
+          AddAndLabels(*it, labels);
         }
       }
     }
@@ -894,22 +912,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         // Either no label test of this identifier was collected yet, or the one collected belongs to another
         // operator and says nothing about the rows this expression is asked about.
         auto filter = make_filter(FilterInfo::Type::Label);
-        filter.labels = labels_test->labels_;
-        filter.or_labels = labels_test->or_labels_;
+        DeriveLabelView(filter);
         all_filters_.emplace_back(filter);
       } else {
-        // Add these labels to existing LabelsTest
-        // First cover OR expressions in LabelsTest. Each is a conjunct of its own, so it is kept whole.
-        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        // Each disjunction this test names is a conjunct of its own, so it is kept whole; the labels it
+        // requires outright are added to those the test already requires.
         for (const auto &group : labels_test->or_labels_) {
-          AddOrLabelGroup(existing_labels_test->or_labels_, existing_labels_test->labels_, group);
+          AddOrLabelGroup(*it, group);
         }
-        it->or_labels = existing_labels_test->or_labels_;
-
-        // Then cover AND expressions in LabelsTest
-        AddAndLabels(existing_labels_test->labels_, existing_labels_test->or_labels_, labels_test->labels_);
-        it->labels = existing_labels_test->labels_;
-        it->or_labels = existing_labels_test->or_labels_;
+        AddAndLabels(*it, labels_test->labels_);
       }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -1068,13 +1079,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         labels_test->labels_.clear();
         labels_test->or_labels_.push_back(std::move(group));
         auto filter_info = FilterInfo{FilterInfo::Type::Label, labels_test, collector.symbols_};
-        filter_info.or_labels = labels_test->or_labels_;
+        DeriveLabelView(filter_info);
         all_filters_.emplace_back(std::move(filter_info));
       } else {
-        // One more OR group of the existing LabelsTest, kept whole, as in the pattern merge.
-        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
-        AddOrLabelGroup(existing_labels_test->or_labels_, existing_labels_test->labels_, std::move(group));
-        it->or_labels = existing_labels_test->or_labels_;
+        // One more OR group of the test already collected, kept whole, as in the pattern merge.
+        AddOrLabelGroup(*it, std::move(group));
       }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
