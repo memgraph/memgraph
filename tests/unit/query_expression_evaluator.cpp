@@ -1312,6 +1312,62 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
   EXPECT_THROW(eval_on(TypedValue(1), test_of(term)), QueryRuntimeException);
 }
 
+// A `$param` bound to an empty list leaves an `And` of nothing, which holds, under `|` and `!` (under `&` it is
+// flattened away). On a value that is no node, an identifier's test blames the node when its first operand
+// names no label, and the labels otherwise.
+TYPED_TEST(ExpressionEvaluatorTest, LabelsTestEmptyConjunctionOperand) {
+  auto plant_ix = this->storage.GetLabelIx("PLANT");
+  auto bare = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+
+  auto *identifier = this->storage.template Create<Identifier>("n");
+  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+
+  auto nothing = [] { return LabelTerm{.kind = LabelTerm::Kind::And}; };
+  auto plant = [&] { return LabelTerm{.kind = LabelTerm::Kind::Label, .label = plant_ix}; };
+  auto test_of = [&](Expression *subject, LabelTerm term) {
+    auto *op = this->storage.template Create<LabelsTest>(subject, std::vector<LabelIx>{});
+    op->term_ = std::move(term);
+    return op;
+  };
+  auto eval_on = [&](const TypedValue &value, LabelTerm term) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, value);
+    return this->Eval(test_of(identifier, std::move(term)));
+  };
+  auto error_of = [&](Expression *subject, LabelTerm term) -> std::string {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue(1));
+    try {
+      this->Eval(test_of(subject, std::move(term)));
+    } catch (const QueryRuntimeException &e) {
+      return e.what();
+    }
+    return "no error";
+  };
+  auto negation = [](LabelTerm child) {
+    return LabelTerm{.kind = LabelTerm::Kind::Not, .children = {std::move(child)}};
+  };
+  auto either = [](LabelTerm lhs, LabelTerm rhs) {
+    return LabelTerm{.kind = LabelTerm::Kind::Or, .children = {std::move(lhs), std::move(rhs)}};
+  };
+
+  // n:!$p, n:PLANT|$p, n:$p|PLANT
+  EXPECT_FALSE(eval_on(TypedValue(bare), negation(nothing())).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(bare), either(plant(), nothing())).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(bare), either(nothing(), plant())).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(), negation(nothing())).IsNull());
+  EXPECT_TRUE(eval_on(TypedValue(), either(plant(), nothing())).IsNull());
+
+  EXPECT_EQ(error_of(identifier, negation(nothing())), "Expected a node for 'n', but got int.");
+  EXPECT_EQ(error_of(identifier, either(nothing(), plant())), "Expected a node for 'n', but got int.");
+  EXPECT_EQ(error_of(identifier, either(plant(), nothing())), "Only nodes have labels, got int.");
+  // A subject that is no identifier always blames the labels.
+  auto *literal = this->storage.template Create<PrimitiveLiteral>(1);
+  EXPECT_EQ(error_of(literal, negation(nothing())), "Only nodes have labels, got int.");
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
   // Setup: Create edge with TYPE_A
   auto from_vertex = this->dba.InsertVertex();

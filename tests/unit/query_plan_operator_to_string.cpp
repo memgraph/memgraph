@@ -573,6 +573,41 @@ TYPED_TEST(OperatorToStringTest, FilterNegatedConjunctionOfLabelTests) {
   EXPECT_EQ(last_op->ToString(&this->dba), "Filter NOT ((person :Label1) AND (person :Label2))");
 }
 
+// A term's conjuncts read as the filters they would be one by one; anything under an operator reads whole.
+TYPED_TEST(OperatorToStringTest, FilterLabelTerm) {
+  auto node = this->GetSymbol("person");
+  auto leaf = [&](const char *label) {
+    return LabelTerm{.kind = LabelTerm::Kind::Label, .label = this->storage.GetLabelIx(label)};
+  };
+  auto negation = [](LabelTerm child) {
+    return LabelTerm{.kind = LabelTerm::Kind::Not, .children = {std::move(child)}};
+  };
+  auto filter_of = [&](LabelTerm term) {
+    auto *labels_test = LABELS_TEST(IDENT("person"), std::vector<LabelIx>{});
+    labels_test->term_ = std::move(term);
+    Filters filters;
+    filters.SetFilters({FilterInfo{FilterInfo::Type::Generic, labels_test, {node}}});
+    std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+    return std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, labels_test, filters)
+        ->ToString(&this->dba);
+  };
+
+  // !Label2&!Label1
+  EXPECT_EQ(filter_of(LabelTerm{.kind = LabelTerm::Kind::And,
+                                .children = {negation(leaf("Label2")), negation(leaf("Label1"))}}),
+            "Filter NOT (person :Label1), NOT (person :Label2)");
+  // Label1|(Label2&!Label3)
+  EXPECT_EQ(filter_of(LabelTerm{.kind = LabelTerm::Kind::Or,
+                                .children = {leaf("Label1"),
+                                             LabelTerm{.kind = LabelTerm::Kind::And,
+                                                       .children = {leaf("Label2"), negation(leaf("Label3"))}}}}),
+            "Filter ((person :Label1) OR ((person :Label2) AND NOT (person :Label3)))");
+  // !(Label1|Label2|Label1)
+  EXPECT_EQ(filter_of(negation(
+                LabelTerm{.kind = LabelTerm::Kind::Or, .children = {leaf("Label1"), leaf("Label2"), leaf("Label1")}})),
+            "Filter NOT (person :Label1|Label2)");
+}
+
 TYPED_TEST(OperatorToStringTest, Produce) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Produce>(
       nullptr, std::vector<NamedExpression *>{NEXPR("pet", LITERAL(5)), NEXPR("string", LITERAL("string"))});
