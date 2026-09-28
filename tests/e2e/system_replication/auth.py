@@ -1426,8 +1426,8 @@ def test_user_profile_replication(connection, test_name):
 
 def test_transactional_auth_replication(connection, test_name):
     # Goal: show that a whole auth transaction reaches the replicas, and that an aborted one reaches neither.
-    # The actions are collected while the transaction runs and drained into a single system transaction at COMMIT,
-    # so a batch either arrives entire or not at all.
+    # The operations are collected while the transaction runs and sent as one request at COMMIT, which a replica
+    # applies through an overlay and a single flush, so a batch either arrives entire or not at all.
 
     INSTANCES = {
         "replica_1": {
@@ -1495,6 +1495,27 @@ def test_transactional_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "BEGIN")
     execute_and_fetch_all(cursor_main, "DROP USER bob")
     execute_and_fetch_all(cursor_main, "COMMIT")
+    check({("alice",)})
+
+    # Dropping a name and recreating it in one transaction sends both operations, and a replica that applied them
+    # in the wrong order would end up without the user. The main collapses the pair to a single write, so only the
+    # replicas can show that the order survived.
+    execute_and_fetch_all(cursor_main, "CREATE USER dave")
+    check({("alice",), ("dave",)})
+    execute_and_fetch_all(cursor_main, "BEGIN")
+    execute_and_fetch_all(cursor_main, "DROP USER dave")
+    execute_and_fetch_all(cursor_main, "CREATE USER dave")
+    execute_and_fetch_all(cursor_main, "COMMIT")
+    check({("alice",), ("dave",)})
+
+    # And the other way round: created then dropped leaves nothing behind.
+    execute_and_fetch_all(cursor_main, "BEGIN")
+    execute_and_fetch_all(cursor_main, "CREATE USER erin")
+    execute_and_fetch_all(cursor_main, "DROP USER erin")
+    execute_and_fetch_all(cursor_main, "COMMIT")
+    check({("alice",), ("dave",)})
+
+    execute_and_fetch_all(cursor_main, "DROP USER dave")
     check({("alice",)})
 
     # Hotfix: Make sure the last connection is alice on main (connect caches the connection and uses it for cleanup)
