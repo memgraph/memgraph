@@ -212,10 +212,20 @@ auto MatchesIdentifier(Identifier *identifier) {
   };
 };
 
-/// Two OR groups are the same conjunct when they name the same labels, in any order. A group names each
-/// label once, so a permutation check is a set comparison here.
-bool SameLabelGroup(const std::vector<LabelIx> &lhs, const std::vector<LabelIx> &rhs) {
-  return std::ranges::is_permutation(lhs, rhs);
+/// Adds `group` as one more OR group of a node's label test. A group is implied by an AND label it names or by
+/// a group whose labels it contains. An implied group is not added, and the groups `group` implies are removed,
+/// so the filter tests no redundant group and index selection cannot pick one.
+void AddOrLabelGroup(std::vector<std::vector<LabelIx>> &or_labels, const std::vector<LabelIx> &and_labels,
+                     std::vector<LabelIx> group) {
+  auto contains_all = [](const std::vector<LabelIx> &super, const std::vector<LabelIx> &sub) {
+    return std::ranges::all_of(sub, [&](const auto &label) { return std::ranges::contains(super, label); });
+  };
+  if (std::ranges::any_of(group, [&](const auto &label) { return std::ranges::contains(and_labels, label); }) ||
+      std::ranges::any_of(or_labels, [&](const auto &existing) { return contains_all(group, existing); })) {
+    return;
+  }
+  std::erase_if(or_labels, [&](const auto &existing) { return contains_all(existing, group); });
+  or_labels.push_back(std::move(group));
 }
 
 }  // namespace
@@ -456,14 +466,10 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         // First cover OR expressions in LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
         // If it's an OR expression, it is one more OR group of the existing LabelsTest. Each group is a
-        // conjunct of its own, so it is kept whole; only an identical group is redundant.
+        // conjunct of its own, so it is kept whole.
         if (node->label_expression_) {
-          auto &existing_or_labels = existing_labels_test->or_labels_;
-          if (std::ranges::none_of(existing_or_labels,
-                                   [&](const auto &existing) { return SameLabelGroup(existing, labels); })) {
-            existing_or_labels.push_back(labels);
-          }
-          it->or_labels = existing_or_labels;
+          AddOrLabelGroup(existing_labels_test->or_labels_, existing_labels_test->labels_, labels);
+          it->or_labels = existing_labels_test->or_labels_;
         } else {
           // If it's an AND expression, we are adding to the AND labels of the existing LabelsTest
           auto &existing_labels = existing_labels_test->labels_;
@@ -1064,14 +1070,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         filter_info.or_labels = labels_test->or_labels_;
         all_filters_.emplace_back(std::move(filter_info));
       } else {
-        // One more OR group of the existing LabelsTest, kept whole, as in the pattern merge. A group
-        // equal to one it already has is redundant, and index selection expects no duplicate.
-        auto &existing_or_labels = dynamic_cast<LabelsTest *>(it->expression)->or_labels_;
-        if (std::ranges::none_of(existing_or_labels,
-                                 [&](const auto &existing) { return SameLabelGroup(existing, group); })) {
-          existing_or_labels.push_back(std::move(group));
-        }
-        it->or_labels = existing_or_labels;
+        // One more OR group of the existing LabelsTest, kept whole, as in the pattern merge.
+        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        AddOrLabelGroup(existing_labels_test->or_labels_, existing_labels_test->labels_, std::move(group));
+        it->or_labels = existing_labels_test->or_labels_;
       }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));

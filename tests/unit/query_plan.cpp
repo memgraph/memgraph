@@ -5453,9 +5453,9 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
   DeleteListContent(&right_subquery_part);
 }
 
-// Two disjunctions over one node are separate conjuncts: a label they share still has to be tested by
-// both, and one contained in the other still narrows it, so neither may be folded into the other.
-TYPED_TEST(TestPlanner, OverlappingDisjunctionsStaySeparateFilters) {
+// Each label disjunction over one node is a conjunct of its own, so a group is kept whole: a label two groups
+// share is tested by both. A group implied by an AND label or by a group it contains adds nothing and is dropped.
+TYPED_TEST(TestPlanner, LabelDisjunctionGroupsOverOneNode) {
   FakeDbAccessor dba;
   auto node_identifier = IDENT("n");
   auto match = [&](std::vector<std::string> labels) { return MATCH(PATTERN(NODE_WITH_LABELS("n", labels))); };
@@ -5471,10 +5471,24 @@ TYPED_TEST(TestPlanner, OverlappingDisjunctionsStaySeparateFilters) {
        Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
       // MATCH (n:Label1|Label2|Label3) MATCH (n:Label1|Label2)
       {QUERY(SINGLE_QUERY(match({"Label1", "Label2", "Label3"}), match({"Label1", "Label2"}), RETURN("n"))),
-       Groups{{"Label1", "Label2", "Label3"}, {"Label1", "Label2"}}},
+       Groups{{"Label1", "Label2"}}},
       // MATCH (n:Label1|Label2) MATCH (n:Label1|Label2|Label3)
       {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), match({"Label1", "Label2", "Label3"}), RETURN("n"))),
-       Groups{{"Label1", "Label2"}, {"Label1", "Label2", "Label3"}}},
+       Groups{{"Label1", "Label2"}}},
+      // A group is implied by one group it contains, not by the union of several.
+      // MATCH (n:Label1|Label2) MATCH (n:Label3|Label4) MATCH (n:Label1|Label2|Label3)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}),
+                          match({"Label3", "Label4"}),
+                          match({"Label1", "Label2", "Label3"}),
+                          RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label3", "Label4"}}},
+      // MATCH (n:Label1) MATCH (n:Label1|Label2)
+      {QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), match({"Label1", "Label2"}), RETURN("n"))), Groups{}},
+      // MATCH (n:Label1) WHERE n:Label1 OR n:Label2
+      {QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), where("Label1", "Label2"), RETURN("n"))), Groups{}},
+      // MATCH (n:Label1|Label2|Label3) WHERE n:Label1 OR n:Label2
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2", "Label3"}), where("Label1", "Label2"), RETURN("n"))),
+       Groups{{"Label1", "Label2"}}},
       // MATCH (n:Label1|Label2) WHERE n:Label2 OR n:Label3
       {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), where("Label2", "Label3"), RETURN("n"))),
        Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
