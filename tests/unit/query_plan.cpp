@@ -5608,6 +5608,29 @@ TYPED_TEST(TestPlanner, LabelDisjunctionNotOnOneVariableStaysGeneric) {
   }
 }
 
+// Whether two label tests are of one variable is decided by comparing the positions of the symbols their
+// identifiers were resolved to, and an unresolved identifier has no position. Such an identifier cannot reach
+// collection: every path asks the symbol table for its symbol first, and the table has no entry to return. Were
+// one to get through, two unresolved identifiers would compare equal and one variable's labels would be demanded
+// of another's.
+TYPED_TEST(TestPlanner, AnUnresolvedIdentifierCannotReachFilterCollection) {
+  auto *unresolved = IDENT("n");
+  auto *labels_test = LABELS_TEST(unresolved, std::vector{this->storage.GetLabelIx("Label1")});
+  ASSERT_EQ(unresolved->symbol_pos_, -1) << "an identifier not mapped to a symbol";
+  memgraph::query::SymbolTable empty_symbol_table;
+
+  EXPECT_THROW(memgraph::query::plan::Filters::FromExpression(labels_test, empty_symbol_table, this->storage),
+               std::out_of_range);
+  memgraph::query::plan::Filters filters;
+  EXPECT_THROW(filters.AddOperatorFilters(labels_test, empty_symbol_table, this->storage), std::out_of_range);
+
+  // The disjunction the comparison is for: two unresolved identifiers of different variables.
+  auto *over_two_variables = OR(LABELS_TEST(IDENT("n"), std::vector{this->storage.GetLabelIx("Label1")}),
+                                LABELS_TEST(IDENT("m"), std::vector{this->storage.GetLabelIx("Label2")}));
+  EXPECT_THROW(memgraph::query::plan::Filters::FromExpression(over_two_variables, empty_symbol_table, this->storage),
+               std::out_of_range);
+}
+
 // A query's AST outlives the plan made from it, so planning it again must give the same plan. A label
 // disjunction is the case that tells: it is the only filter whose collection rewrote the tests the parser built.
 TYPED_TEST(TestPlanner, PlanningOneAstTwiceGivesTheSamePlan) {
