@@ -51,6 +51,7 @@
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priority_thread_pool.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/variant_helpers.hpp"
 
 #include "flags/scheduler.hpp"
@@ -281,15 +282,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                     }));
   }
 
-  // Must run on strand_: the sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here),
-  // so honouring terminate_requested_ instead of arming the read keeps the socket single-owner.
+  // The sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here). MUST be called with
+  // arm_lock_ held: the "terminate_requested_? shut-down : arm" decision is thereby serialized against
+  // TerminateIfIdle_, so a terminate that races the arm is never lost and the socket stays single-owner
+  // even when DoRead arms it from an off-strand worker thread.
   template <typename OnReadFn>
   void ArmRead_(OnReadFn on_read) {
     if (!IsConnected()) {
       return;
     }
     if (terminate_requested_.load(std::memory_order_acquire)) {
-      DoShutdown();
+      DoShutdownLocked_();
       return;
     }
     read_armed_ = true;
@@ -301,20 +304,35 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoRead() {
-    // dispatch, not post: DoRead runs on a priority worker thread (after Execute()/Write()), so this
-    // moves async_read_some's arming onto the strand; the other two call sites are already on it.
-    boost::asio::dispatch(strand_,
-                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnRead, self)); });
+    // DoRead runs on a priority worker thread (after Execute()/Write()). For a plain-TCP socket the read
+    // can be armed right here under arm_lock_ — no strand hop — because async_read_some's initiation and
+    // TerminateIfIdle_'s close are the only concurrent socket touches and arm_lock_ serializes them. This
+    // removes one io-thread wake-up + handler per request (the #4577 point-query regression) on the
+    // single-io-thread priority scheduler. SSL/WebSocket async_read_some are composed ops (engine/BIO,
+    // beast idle timer) that must stay on their implicit strand, so those keep hopping onto strand_.
+    if (std::holds_alternative<TCPSocket>(socket_)) {
+      auto lock = std::lock_guard{arm_lock_};
+      ArmRead_(std::bind_front(&Session::OnRead, shared_from_this()));
+      return;
+    }
+    boost::asio::dispatch(strand_, [self = shared_from_this()] {
+      auto lock = std::lock_guard{self->arm_lock_};
+      self->ArmRead_(std::bind_front(&Session::OnRead, self));
+    });
   }
 
   void DoReadAsio() {
-    boost::asio::dispatch(strand_,
-                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnReadAsio, self)); });
+    boost::asio::dispatch(strand_, [self = shared_from_this()] {
+      auto lock = std::lock_guard{self->arm_lock_};
+      self->ArmRead_(std::bind_front(&Session::OnReadAsio, self));
+    });
   }
 
   void DoFirstRead() {
-    boost::asio::dispatch(
-        strand_, [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnFirstRead, self)); });
+    boost::asio::dispatch(strand_, [self = shared_from_this()] {
+      auto lock = std::lock_guard{self->arm_lock_};
+      self->ArmRead_(std::bind_front(&Session::OnFirstRead, self));
+    });
   }
 
   std::optional<boost::beast::http::request<boost::beast::http::string_body>> IsWebsocketUpgrade(uint8_t *data,
@@ -457,18 +475,27 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     DoShutdown();
   }
 
-  // Runs on strand_.
+  // Runs on strand_. Holds arm_lock_ so the read_armed_ check and the close cannot interleave with a
+  // worker arming the read (ArmRead_ under the same lock).
   void TerminateIfIdle_() {
+    auto lock = std::lock_guard{arm_lock_};
     // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
     // terminate_requested_ set and let ArmRead_ close it on the next read-arm instead of racing here.
     if (!read_armed_) {
       return;
     }
     read_armed_ = false;
-    DoShutdown();
+    DoShutdownLocked_();
   }
 
+  // Acquires arm_lock_; call from contexts that do NOT already hold it (OnError, DoAccept/SSL callbacks).
   void DoShutdown() {
+    auto lock = std::lock_guard{arm_lock_};
+    DoShutdownLocked_();
+  }
+
+  // Assumes arm_lock_ is held. Call from ArmRead_/TerminateIfIdle_ (which hold it) to avoid re-locking.
+  void DoShutdownLocked_() {
     if (!IsConnected()) {
       return;
     }
@@ -579,11 +606,19 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
-  // Set by any thread via RequestTermination; only ever set, never cleared. Checked on the strand
+  // Set by any thread via RequestTermination; only ever set, never cleared. Re-checked under arm_lock_
   // at every read-arm (ArmRead_), so a request made while a worker owns the socket can't be lost.
   std::atomic_bool terminate_requested_{false};
-  // STRAND-CONFINED. true: an async op (handshake/upgrade/read) is pending and the strand solely
-  // owns the socket; false: a worker may be inside Execute()/Write(), so don't touch it elsewhere.
-  bool read_armed_{false};
+  // Serializes the two contexts that can concurrently touch the socket's arm/close: the off-strand
+  // worker read-arm (plain-TCP fast path in DoRead) and TerminateIfIdle_ (strand). Every arm site
+  // funnels through ArmRead_ under this lock, and TerminateIfIdle_/DoShutdownLocked_ hold it too, so
+  // "check read_armed_/terminate_requested_ then arm-or-close" is atomic. Strand-confined setup paths
+  // (DoAccept/DoSSLHandshake) stay serialized by the strand and need no lock. Leaf lock: never taken
+  // with any other lock held; the reactor's per-descriptor mutex is always acquired *under* it.
+  utils::SpinLock arm_lock_;
+  // true: an async op (handshake/upgrade/read) is pending and whoever armed it owns the socket; false:
+  // a worker may be inside Execute()/Write(). Atomic (read by TerminateIfIdle_ off the arming context);
+  // the arm-vs-terminate decision that reads it is made under arm_lock_.
+  std::atomic_bool read_armed_{false};
 };
 }  // namespace memgraph::communication::v2
