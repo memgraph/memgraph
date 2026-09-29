@@ -19,6 +19,8 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -36,7 +38,23 @@ class Parser {
    *        the first step is to generate AST
    */
   explicit Parser(std::string query) : query_(std::move(query)) {
+    // Two-stage parsing. SLL prediction ignores the parser context, so an ambiguity is resolved without the
+    // full-context simulation LL runs for it, and it either returns the tree LL would or fails. Only a failure
+    // is parsed again with LL, which also words the syntax error.
     parser_.removeErrorListeners();
+    parser_.addErrorListener(&full_context_counter_);
+    parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::SLL);
+    parser_.setErrorHandler(std::make_shared<antlr4::BailErrorStrategy>());
+    try {
+      tree_ = parser_.cypher();
+      return;
+    } catch (const antlr4::ParseCancellationException &) {
+      // Retried below.
+    }
+    tokens_.seek(0);
+    parser_.reset();
+    parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::LL);
+    parser_.setErrorHandler(std::make_shared<antlr4::DefaultErrorStrategy>());
     parser_.addErrorListener(&error_listener_);
     tree_ = parser_.cypher();
     if (parser_.getNumberOfSyntaxErrors()) {
@@ -45,6 +63,9 @@ class Parser {
   }
 
   auto tree() { return tree_; }
+
+  /// How many decisions needed full-context prediction, the slow path two-stage parsing avoids.
+  size_t FullContextPredictions() const { return full_context_counter_.count_; }
 
  private:
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
@@ -77,8 +98,20 @@ class Parser {
     std::string_view query_;
   };
 
+  class FullContextCounter : public antlr4::BaseErrorListener {
+   public:
+    void reportAttemptingFullContext(antlr4::Parser * /* unused */, const antlr4::dfa::DFA & /* unused */,
+                                     size_t /* unused */, size_t /* unused */, const antlrcpp::BitSet & /* unused */,
+                                     antlr4::atn::ATNConfigSet * /* unused */) override {
+      ++count_;
+    }
+
+    size_t count_{0};
+  };
+
   std::string query_;
   FirstMessageErrorListener error_listener_{query_};
+  FullContextCounter full_context_counter_;
   antlr4::ANTLRInputStream input_{query_};
   antlropencypher::MemgraphCypherLexer lexer_{&input_};
   antlr4::CommonTokenStream tokens_{&lexer_};

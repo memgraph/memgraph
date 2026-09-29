@@ -9971,3 +9971,25 @@ TEST_P(CypherMainVisitorTest, KeywordsCanBeUsedAsLabels) {
     ASSERT_TRUE(query);
   }
 }
+
+// Two-stage parsing: SLL prediction parses a valid query alone, so a decision SLL finds ambiguous costs no
+// full-context prediction. Each query here has such a decision, and under LL prediction each pays for one.
+TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
+  for (const auto *query : {"WITH [1] AS xs RETURN [x IN xs WHERE x:A AND true | x] AS v",
+                            "WITH [1] AS xs RETURN reduce(s = 0, x IN xs | s + CASE WHEN x:A THEN 1 ELSE 0 END) AS v",
+                            "WITH [1] AS xs RETURN [x IN xs WHERE x:A | x AND true] AS v"}) {
+    ::frontend::opencypher::Parser parser(query);
+    ASSERT_TRUE(parser.tree()) << query;
+    EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;
+  }
+}
+
+// A query SLL rejects is parsed again with LL, which words the error.
+TEST(CypherParserTest, SyntaxErrorIsReportedByTheLLPass) {
+  try {
+    ::frontend::opencypher::Parser parser("MATCH (n RETURN n");
+    FAIL() << "expected a syntax error";
+  } catch (const SyntaxException &e) {
+    EXPECT_THAT(std::string{e.what()}, testing::HasSubstr("Error on line 1 position 10."));
+  }
+}
