@@ -1384,7 +1384,7 @@ struct LightEdgeLoader {
                     uint64_t total_edges, ProgressCallback const &on_progress = {},
                     VectorEdgeIndexRecovery::EdgeVectors *edge_vectors = nullptr) {
     std::mutex edge_capture_mutex;
-    EdgeVectorsCapture capture{edge_vectors, &edge_capture_mutex};
+    EdgeVectorsCapture capture{.map = edge_vectors, .mutex = &edge_capture_mutex};
     EdgeVectorsCapture *capture_ptr = edge_vectors ? &capture : nullptr;
     if (use_light_edges) {
       all_edges.reserve(total_edges);
