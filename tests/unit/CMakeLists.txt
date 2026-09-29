@@ -1208,9 +1208,13 @@ add_unit_test(rpc_in_progress
 )
 
 # Test rpc progress heartbeat (sends only on recorded progress)
+# The peer-gone test waits for the heartbeat to notice the client leave, with nothing bounding
+# that wait, so a heartbeat that never notices wedges rather than fails. TIMEOUT stops that from
+# running to the job's own cancellation with nothing naming this test.
 add_unit_test(rpc_progress_heartbeat
     SOURCES rpc_progress_heartbeat.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 # Test rpc file framing (receive-buffer duplicate-file bug)
