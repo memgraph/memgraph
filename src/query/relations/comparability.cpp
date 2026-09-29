@@ -16,23 +16,16 @@
 namespace memgraph::query::relations::comparability {
 
 std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b) {
-  // Pairwise from the start, settling on the first position the two differ at.
-  // Only the elements both lists have are read: where one runs out, the length
-  // decides, and a shorter list comes first whatever the longer one holds next.
-  // That is what leaves `[1] < [1, null]` decided while `[1, 2] >= [1, null]` is
-  // not, since the second reads an element against the null and the first does
-  // not reach it.
+  // Only the common prefix is compared; past it, the length decides. So
+  // `[1] < [1, null]` is true: the null is never read.
   auto const shared = std::min(a.size(), b.size());
   for (auto at = std::size_t{0}; at != shared; ++at) {
     auto const element = Compare(a[at], b[at]);
 
-    // An element pair this relation cannot decide leaves the two lists
-    // undecided: whether that position was the deciding one is itself unknown.
+    // Undecided element (Null, unlike types): the lists are undecided too.
     if (!element) return std::nullopt;
 
-    // An element pair it places nowhere, which is a NaN, leaves the two lists
-    // placed nowhere. That is a different answer from an undecided one: all four
-    // comparisons read it as false rather than as Null.
+    // NaN element: the lists are unordered, so all four comparisons are false, not Null.
     if (*element == std::partial_ordering::unordered) return std::partial_ordering::unordered;
 
     if (std::is_neq(*element)) return element;

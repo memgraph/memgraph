@@ -314,9 +314,7 @@ TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoes) {
 }
 
 TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoesForATrailingListBound) {
-  // A composite index fences its trailing property by a band as well, so a bound no band can
-  // separate has to be re-read there too. The equality on the leading property is what makes the
-  // trailing one the range, which is the only place this can go wrong.
+  // The list bound is on the trailing property; the leading equality makes the scan range over it.
   Run("MATCH (n) DETACH DELETE n;");
   for (auto const *trailing : {"[1]", "[1, 2]", "[1, 3]", "[1, null]", "[null, 1]"}) {
     Run("CREATE (:T {a: 1, b: " + std::string{trailing} + "});");
@@ -347,10 +345,8 @@ TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoesForATr
 }
 
 TEST_F(IndexDifferentialTest, AnIndexOnTwoPropertiesAnswersAsTheFilterDoesForATrailingSearchTerm) {
-  // A search term is read by the scan rather than fenced by the band, because no band separates the
-  // strings holding it from the strings that do not. A composite index fences its trailing property
-  // by a band as well, so the term on that property has to be read there too, and the equality on
-  // the leading property is what makes it the trailing one.
+  // A search term needs a per-entry predicate, as no index range matches it. Here it is on the
+  // trailing property, reached through the leading equality.
   Run("MATCH (n) DETACH DELETE n;");
   for (auto const *trailing : {"'alpha'", "'beta'", "'gamma'", "'alphabet'"}) {
     Run("CREATE (:S {a: 1, b: " + std::string{trailing} + "});");
@@ -395,10 +391,8 @@ TEST_F(IndexDifferentialTest, AnIndexWalksAMixedColumnInTheOrderASortReadsIt) {
 }
 
 TEST_F(IndexDifferentialTest, AnIndexOverAColumnOfListsAnswersAsTheFilterDoes) {
-  // A pair of lists reaching a null is undecided, so a filter drops the row. The stored order
-  // decides it anyway, putting a null element after every number, so `[1, null]` sits above
-  // `[1, 2]` there. A band drawn above `[1, 2]` therefore holds a row no filter keeps, and both
-  // the rows it should hand back and the row it should not lie on the same side of the bound.
+  // The index sorts `[1, null]` above `[1, 2]`, but `> [1, 2]` is Null for it, so the filter drops
+  // it. A plain index range above `[1, 2]` would return it.
   auto const values = std::vector<std::string>{
       "[1]",
       "[1, 2]",

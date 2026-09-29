@@ -9,26 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Guards that a scan reading a value predicate leaves a run of entries sharing the value the
-// predicate read in one seek, rather than reading them one by one.
+// Checks that a scan skips a run of entries its value predicate rejects with one seek, instead of
+// stepping through them.
 //
-// Both sweeps hold the column size fixed and vary how many rows share a value, so the count of
-// distinct values, and with it the count of entries a seeking scan reads, falls as the sweep
-// advances. Every point reads the same column, so the rate reported against it is comparable
-// across the sweep: a scan that reads every entry holds one rate throughout, and a scan that seeks
-// past a run raises it as the runs lengthen.
+// The column size is fixed; the argument is how many rows share each value. Items/s is per column
+// row, so it stays flat if the scan steps through every entry and rises as runs lengthen if it
+// seeks.
 //
-// The predicate keeps nothing, so every point of the sweep hands back an empty result and the only
-// work measured is rejecting. Keeping a value instead would hand back as many rows as share it,
-// which grows as the sweep advances and buries what is being measured under the cost of resolving
-// vertices.
+// The predicate rejects everything, so only rejection is measured, not vertex resolution.
 //
-// The first point of each sweep is the baseline to read the rest against. Every value there is
-// distinct, so no run exists and no seek can fire, leaving the cost of reading the whole column
-// entry by entry, with the one comparison the scan spends deciding not to seek. A point below that
-// baseline is a seek that paid for itself, and a point above it is one that did not. Short runs sit
-// above it: a seek descends the skip list, which buys nothing when the run it passes holds a
-// handful of entries that a step would have walked more cheaply.
+// Argument 1 is the baseline: all values distinct, so no seek fires. Short runs can be slower than
+// it, since a skip-list seek costs more than a few steps.
 
 #include <benchmark/benchmark.h>
 #include <spdlog/spdlog.h>
@@ -51,8 +42,7 @@ using memgraph::storage::PropertyValue;
 using memgraph::storage::PropertyValueRange;
 using memgraph::storage::View;
 
-// The column every sweep point fills. Held fixed so that the rows sharing a value is the only thing
-// that varies, and the scan has the same number of entries to get through each time.
+// Rows per column, the same at every sweep point.
 constexpr int64_t kColumn = 1 << 14;
 
 struct Indexed {
@@ -62,12 +52,9 @@ struct Indexed {
   PropertyId trailing;
 };
 
-/// Fills a column of kColumn vertices where every @p shared of them carry the same trailing value,
-/// under an index over @p properties.
-///
-/// The leading property holds one value throughout, so an equality bound on it admits the whole
-/// column and the trailing property is what the scan ranges over. A single-property index ignores
-/// the leading one and ranges over the trailing value directly.
+/// kColumn vertices; each run of @p shared vertices has one trailing value. @p properties is 2 for
+/// an index on (leading, trailing), 1 for an index on trailing only. The leading value is the
+/// same everywhere, so an equality on it matches the whole column.
 Indexed MakeColumn(int64_t shared, std::size_t properties) {
   auto indexed = Indexed{.storage = std::make_unique<InMemoryStorage>(Config{})};
 
@@ -113,8 +100,7 @@ void Measure(benchmark::State &state, Indexed const &indexed, std::span<Property
     benchmark::DoNotOptimize(found);
   }
 
-  // The whole column, so that the rate is per row offered to the scan rather than per row it chose
-  // to read, and points of the sweep can be read against one another.
+  // Per column row, not per entry read, so sweep points are comparable.
   state.SetItemsProcessed(state.iterations() * kColumn);
   state.counters["distinct"] = static_cast<double>(kColumn / state.range(0));
 }
@@ -131,8 +117,7 @@ void TrailingPredicate(benchmark::State &state) {
   Measure(state, indexed, props, ranges);
 }
 
-// The predicate the index has always seeked on, measured the same way, so that the trailing sweep
-// above has something to be read against rather than standing on its own.
+// The leading-property case, which seeked before this change: the reference for TrailingPredicate.
 // NOLINTNEXTLINE(google-runtime-references)
 void LeadingPredicate(benchmark::State &state) {
   auto const shared = state.range(0);

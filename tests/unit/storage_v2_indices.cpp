@@ -2163,8 +2163,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexPassesEveryEntrySharingARejecte
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  // Several vertices per trailing value, so that the entries the predicate rejects form runs rather
-  // than sitting alone. A run is what the scan can pass in one seek.
+  // Several vertices per trailing value, so rejected entries form runs the scan can seek past.
   constexpr auto kPerValue = 5;
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -2200,9 +2199,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexPassesEveryEntrySharingARejecte
   }
 
   EXPECT_EQ(found, kPerValue);
-  // One read per rejected value rather than one per rejected entry: the entries carrying 10 share
-  // every value the predicate reads, as do those carrying 30, so the first rejection settles the
-  // whole run and the scan seeks past it.
+  // One predicate call per rejected value (10, 30), not per entry, plus one per kept entry.
   EXPECT_EQ(reads, 2 + kPerValue);
 }
 

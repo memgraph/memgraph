@@ -139,16 +139,11 @@ ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &stora
 
 namespace {
 
-/// Reads a stored value against a bound the way the four ordered comparisons do, for a bound no
-/// band can fence.
-///
-/// The scan hands every row carrying the property to this, so it answers exactly what the filter
-/// the scan stands in for would: a pair comparability leaves undecided keeps no row, which is why
-/// nothing returned means the row is dropped rather than kept.
-///
-/// The candidate is read as a query value because comparability is stated over one, and stating it
-/// a second time over a stored value is the drift between the two layers this whole area exists to
-/// remove. The allocations that costs are the ones the filter would have made.
+/// Per-row predicate for a range the index cannot bound (see AnIndexCanFence).
+/// Evaluates the comparison exactly as the filter the scan replaces does and keeps
+/// only rows it answers true for.
+/// Converts each candidate to a TypedValue so the same Compare decides both
+/// paths, at the cost of one allocation per row, as in the filter.
 storage::PropertyValueRange::ValuePredicate MakeComparisonPredicate(std::optional<TypedValue> const &lower,
                                                                     std::optional<utils::BoundType> lower_type,
                                                                     std::optional<TypedValue> const &upper,
@@ -156,8 +151,8 @@ storage::PropertyValueRange::ValuePredicate MakeComparisonPredicate(std::optiona
                                                                     storage::NameIdMapper *mapper) {
   if (!lower && !upper) return nullptr;
 
-  // Held in a resource of its own rather than the query's: a chunked scan calls this from several
-  // threads at once, and the query's resource is not shared between them.
+  // Copy the bounds out of the query's memory resource: parallel scans call the
+  // predicate from several threads, and that resource is not thread-safe.
   auto const own = [](std::optional<TypedValue> const &value) -> std::optional<TypedValue> {
     if (!value) return std::nullopt;
     return TypedValue{*value, utils::NewDeleteResource()};
@@ -294,11 +289,8 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
         return storage::PropertyValueRange::Empty();
       }
 
-      // A bound it places but a band cannot fence is a different case: the filter keeps rows, and
-      // the scan has to reach all of them. The stored order decides pairs the filter leaves
-      // undecided, so a band would hold rows the filter drops and there is no fence between the
-      // two. The scan walks every row carrying the property and reads each one against the bound,
-      // which is the same work the filter it stands in for would have done.
+      // A list bound: no index range matches the filter, so scan every row with
+      // the property and evaluate the comparison per row. Same work as the filter.
       auto const fenceable = [](auto const &value) {
         return !value || relations::comparability::AnIndexCanFence(*value);
       };

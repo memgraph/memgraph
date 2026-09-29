@@ -250,26 +250,23 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
   });
 }
 
+enum class AdvanceOutcome : uint8_t { Found, AtEnd, Rejected };
+
+/// Why AdvanceUntilValid_ stopped. On Rejected, `rejected_at` is the position of
+/// the property whose predicate failed. Every entry with the same values at
+/// positions 0..rejected_at fails too, and the index keeps those entries
+/// adjacent, so a caller that can seek skips them all at once.
+struct Advance {
+  AdvanceOutcome outcome;
+  std::size_t rejected_at{0};
+};
+
 // Advances the index iterator to the next valid entry within [lower_bound, upper_bound].
 // Bounds always refer to *value* ordering (lower_bound <= upper_bound), regardless of
 // iteration direction. For DESC indices, the caller sets reverse_iteration=true which
 // flips the UNDER/OVER early-termination semantics: in ASC iteration values increase so
 // UNDER means "skip, will reach range" and OVER means "stop"; in DESC iteration values
 // decrease so UNDER means "stop, past range" and OVER means "skip, will reach range".
-enum class AdvanceOutcome : uint8_t { Found, AtEnd, Rejected };
-
-/// Why the walk stopped, so that a caller need not re-ask a question already answered.
-///
-/// A rejection names the property whose predicate raised it. Every entry sharing this one's values
-/// up to and including that property is rejected with it: the predicate read no value beyond it, and
-/// the index orders on those values first, so the entries carrying them are contiguous. A caller
-/// able to seek can pass that whole run at once. How far to move on is still the caller's to decide,
-/// since one of them can only step.
-struct Advance {
-  AdvanceOutcome outcome;
-  std::size_t rejected_at{0};
-};
-
 Advance AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                            auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
                            const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
@@ -359,14 +356,11 @@ Advance AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current
       break;
     }
 
-    // A predicate reads the entry, as the bounds above do, so it is asked here rather than after
-    // the vertex is resolved: an entry it rejects then costs one comparison instead of a visibility
-    // check and a property match. A vertex whose current value would pass carries its own entry,
-    // which is what makes rejecting on the stored value sound.
-    //
-    // One per property rather than one for the leading property: a composite index fences its
-    // trailing property by a band as well, so a bound no band can separate has to be re-read
-    // wherever it sits.
+    // Predicates run on the index entry, before the visibility check, so a rejection
+    // costs one call. Rejecting on the stored value is sound: a vertex whose current
+    // value passes has its own entry for that value.
+    // Any property can carry one, not only the leading one: a list bound needs a
+    // predicate wherever it sits in a composite index.
     auto const asked = std::min(predicates.size(), index_iterator->values.size());
     for (auto at = std::size_t{0}; at != asked; ++at) {
       if (predicates[at] && !(*predicates[at])(index_iterator->values[at])) {
@@ -1177,13 +1171,10 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
 
     if (advance.outcome != AdvanceOutcome::Rejected) break;
 
-    // The values the predicate read are what was rejected, so every entry carrying them is
-    // rejected too. They are held in one run, whichever property raised it, because the index
-    // orders on them ahead of everything beyond.
+    // Every entry sharing values 0..rejected_at is rejected too, and those entries are adjacent.
     auto const shared = index_iterator_->values.as_view().prefix(advance.rejected_at + 1);
 
-    // Only seek when the run turns out to hold more than the one entry: a seek costs more than the
-    // step that has already left a single-entry run behind.
+    // Seek only if the next entry is in the same run; for a one-entry run the step is cheaper.
     ++index_iterator_;
     if (index_iterator_ != self_->index_accessor_.end() && *index_iterator_ == shared) {
       index_iterator_ = self_->index_accessor_.find_greater(shared);

@@ -329,10 +329,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
-    /// One per indexed property, in the order the index holds them. A null entry is a property
-    /// whose bounds the band already settles; a set one is a bound the band cannot separate, which
-    /// every candidate is read against. A rejection passes the whole run of entries sharing the
-    /// values the predicate read, since the index orders on those ahead of everything beyond them.
+    /// One per indexed property, in index order; null where the range bounds suffice. Set for
+    /// a search term (CONTAINS, ENDS WITH, regex) or a list bound, and checked on every entry.
     std::vector<PropertyValueRange::ValuePredicate> predicates_;
     bool bounds_valid_{true};
     View view_;
@@ -405,11 +403,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     PropertiesPermutationHelper const *permutation_helper_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
-    /// Held as the serial iterable holds it, and read here for the same reason: a scan that leaves
-    /// a predicate to the filter hands it every value in the band, and the plans that ask for
-    /// chunks are the ones with the most to hand over. This iterator can only step over a rejected
-    /// entry, whichever property raised it, since a seek would pass a node another thread has
-    /// marked and knows nothing of the chunk end.
+    /// As in Iterable. A rejected entry is stepped over, never seeked past: a seek ignores the
+    /// chunk end and can land in another thread's chunk.
     std::vector<PropertyValueRange::ValuePredicate> predicates_;
     bool bounds_valid_{true};
     View view_;

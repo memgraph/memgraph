@@ -277,12 +277,10 @@ TEST(TypedValue, ComparabilityAnswersNullForAPairItCannotPlace) {
   EXPECT_PROP_ISNULL(TypedValue(1) < TypedValue("a"));
   EXPECT_PROP_ISNULL(TypedValue("a") < TypedValue(1));
 
-  // A map is placed by orderability alone, so a sort arranges two of them while
-  // all four comparisons answer Null.
+  // Maps: ORDER BY sorts them, but all four comparisons answer Null.
   EXPECT_PROP_ISNULL(Map({{"k", TypedValue(1)}}) < Map({{"k", TypedValue(2)}}));
 
-  // A list is placed by its elements, so a pair of them answers where the
-  // elements do and answers Null where they do not.
+  // Lists compare by their elements, and are Null where an element pair is.
   EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(2)}));
   EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
 }

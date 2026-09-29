@@ -200,13 +200,9 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
   return value;
 }
 
-/// Drops from @p gathered every vertex whose @p property the predicate turns down.
-///
-/// A band is all a disk scan fences by, so a predicate the range carries has to be read somewhere
-/// else. The in-memory scan reads it entry by entry as it walks; this reads it once the band has
-/// gathered what it found, which costs a second pass and answers the same. A scan that kept the
-/// band's rows alone would hand back rows the filter it stands in for drops, and that filter is no
-/// longer in the plan to catch them.
+/// Removes from @p gathered every vertex whose @p property the predicate rejects.
+/// The disk scan applies only the range bounds while gathering, so the predicate
+/// runs here as a second pass. The plan has no filter left to drop these rows.
 void DropWhatAPredicateTurnsDown(utils::SkipListDb<Vertex> &gathered, PropertyId property,
                                  PropertyValueRange::ValuePredicateFn const &keeps, Transaction *transaction,
                                  View view) {
@@ -654,7 +650,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<st
   auto const &range{property_ranges.front()};
   auto const &property = properties[0][0];
 
-  // What the band gathers is set aside here, so that a predicate can be read over it below.
+  // The scans below gather into a new index_storage_ entry; the predicate runs over it.
   auto const gathered_before = transaction_.index_storage_.size();
   auto found = range.type_ == PropertyRangeType::IS_NOT_NULL
                    ? Vertices(label, property, view)
@@ -663,9 +659,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<st
   auto const &keeps = range.GetValuePredicate();
   if (!keeps) return found;
 
-  // Edge import gathers into a cache of its own rather than into the index storage below, and
-  // nothing has taught this to read a predicate over that. Loud rather than silently answering with
-  // the band alone.
+  // Edge import mode reads from its own cache and adds no index_storage_ entry,
+  // so the predicate has nothing to run over.
   MG_ASSERT(transaction_.index_storage_.size() > gathered_before,
             "A range carrying a predicate reached a scan that gathers nowhere this can read it");
 

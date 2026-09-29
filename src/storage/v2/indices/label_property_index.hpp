@@ -127,8 +127,7 @@ class IndexOrderedValuesView {
 
   auto size() const -> std::size_t { return values_.size(); }
 
-  /// The first @p n values, which the index orders on ahead of the rest, so that a seek given them
-  /// lands past every entry sharing them.
+  /// The first @p n values. find_greater on them skips every entry sharing that prefix.
   auto prefix(std::size_t n) const -> std::span<PropertyValue const> { return values_.first(n); }
 
   auto begin() const { return values_.begin(); }

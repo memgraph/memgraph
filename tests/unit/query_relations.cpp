@@ -110,8 +110,7 @@ std::optional<OrderedPair> PairOf(Type type) {
                          TypedValue(Point3d{Cartesian_3d, 1.0, 1.0, 2.0})};
 
     case Type::List:
-      // The specification's own example of dictionary order: a shorter list comes first where the
-      // two agree up to its end.
+      // The spec's example: a prefix sorts first.
       return OrderedPair{TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1})}),
                          TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1}), TypedValue(int64_t{0})})};
 
@@ -276,20 +275,18 @@ TEST(Comparability, LeavesAPairHoldingANaNUnordered) {
   EXPECT_EQ(*comparability::Compare(nan, nan), std::partial_ordering::unordered);
 }
 
-// A list, which the specification compares in dictionary order
+// Lists: lexicographic order
 
 TEST(Comparability, ComparesTwoListsInDictionaryOrder) {
-  // Elements pairwise from the start, settling on the first that differs.
+  // The first unequal element decides.
   EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1), Int(2)}), ListOf({Int(1), Int(3)}))));
   EXPECT_TRUE(std::is_gt(*comparability::Compare(ListOf({Int(2)}), ListOf({Int(1), Int(9)}))));
   EXPECT_TRUE(std::is_eq(*comparability::Compare(ListOf({Int(1), Int(2)}), ListOf({Int(1), Int(2)}))));
 }
 
 TEST(Comparability, PlacesAShorterListFirstWhereTheTwoAgreeUpToItsEnd) {
-  // "Elements missing in a shorter list are considered to be less than any other value (including
-  // null values)." Both of the specification's examples, and the second is the one an
-  // implementation reading its null rule too eagerly gets wrong: no element is compared to the
-  // null, because the left list has already run out.
+  // Spec: "Elements missing in a shorter list are considered to be less than any other value
+  // (including null values)." In [1] < [1, null] the null is never compared, so the answer is true.
   EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1)}), ListOf({Int(1), Int(0)}))));
   EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1)}), ListOf({Int(1), TypedValue()}))));
   EXPECT_TRUE(std::is_gt(*comparability::Compare(ListOf({Int(1), TypedValue()}), ListOf({Int(1)}))));
@@ -299,25 +296,22 @@ TEST(Comparability, AnswersNothingWherePlacingTwoListsReachesANull) {
   // "If comparing two lists requires comparing at least a single null value to some other value,
   // these lists are incomparable."
   EXPECT_FALSE(comparability::Compare(ListOf({Int(1), Int(2)}), ListOf({Int(1), TypedValue()})).has_value());
-  // And a null against a null is no more decided than a null against a number, which is where this
-  // parts from the order a sort reads: a sort puts [null, 1] before [null, 2].
+  // null vs null is undecided too. ORDER BY differs: it sorts [null, 1] before [null, 2].
   EXPECT_FALSE(comparability::Compare(ListOf({TypedValue(), Int(1)}), ListOf({TypedValue(), Int(2)})).has_value());
 }
 
 TEST(Comparability, SettlesBeforeReachingANullThatWouldHaveDecidedNothing) {
-  // The first position decides, so the null further along is never read.
+  // Position 0 decides; the later null is never compared.
   EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1), Int(2)}), ListOf({Int(3), TypedValue()}))));
 }
 
 TEST(Comparability, AnswersNothingForTwoListsHoldingUnlikeTypesWhereTheyPart) {
-  // Values are only comparable within their own type, and an element pair it cannot place leaves
-  // the pair of lists undecided rather than unequal.
+  // Unlike element types are undecided, so the lists are undecided.
   EXPECT_FALSE(comparability::Compare(ListOf({Int(1), TypedValue("a")}), ListOf({Int(1), Int(2)})).has_value());
 }
 
 TEST(Comparability, LeavesTwoListsHoldingANaNUnordered) {
-  // A NaN is unordered rather than undecided, so the pair of lists holding one is unordered too,
-  // and all four comparisons answer false rather than Null.
+  // A NaN element makes the lists unordered: all four comparisons are false, not Null.
   auto const nan = TypedValue(std::nan(""));
   auto const order = comparability::Compare(ListOf({Int(1), nan}), ListOf({Int(1), TypedValue(2.0)}));
   ASSERT_TRUE(order.has_value());
@@ -336,7 +330,7 @@ TEST(Comparability, PlacesNoListAgainstAValueThatIsNotAList) {
 }
 
 TEST(Comparability, AgreesWithEqualityWhereverItDecidesAPairOfLists) {
-  // The specification states the two are aligned: a = b if and only if a >= b && a <= b.
+  // Spec: a = b if and only if a >= b && a <= b.
   auto const decided = std::vector<std::pair<TypedValue, TypedValue>>{
       {ListOf({Int(1)}), ListOf({Int(1)})},
       {ListOf({Int(1)}), ListOf({Int(1), Int(0)})},
@@ -351,7 +345,7 @@ TEST(Comparability, AgreesWithEqualityWhereverItDecidesAPairOfLists) {
 }
 
 TEST(Comparability, LeavesAPairOfListsUndecidedExactlyWhereEqualityDoes) {
-  // A null reached on both sides leaves both relations with nothing to say.
+  // A compared null makes both = and >= Null.
   auto const a = ListOf({Int(1), Int(2)});
   auto const b = ListOf({Int(1), TypedValue()});
   EXPECT_TRUE(equality::Equal(a, b).IsNull());
@@ -360,10 +354,8 @@ TEST(Comparability, LeavesAPairOfListsUndecidedExactlyWhereEqualityDoes) {
 }
 
 TEST(Comparability, PartsFromEqualityWhereTwoListsHoldUnlikeTypesWhereTheyMeet) {
-  // Equality reads two values of unlike types as unequal, and this relation leaves them undecided.
-  // A pair of lists parting at such an element inherits both answers, so the rule that a = b is
-  // a >= b && a <= b does not reach across types. The scalars part the same way already: 1 = 'a'
-  // is false while 1 >= 'a' is Null.
+  // Unlike types: = is false but >= is Null, so a = b iff a >= b && a <= b fails here.
+  // Scalars behave the same: 1 = 'a' is false, 1 >= 'a' is Null.
   auto const a = ListOf({Int(1), TypedValue("a")});
   auto const b = ListOf({Int(1), Int(2)});
   EXPECT_FALSE(equality::Equal(a, b).ValueBool());
@@ -372,9 +364,7 @@ TEST(Comparability, PartsFromEqualityWhereTwoListsHoldUnlikeTypesWhereTheyMeet) 
 }
 
 TEST(Comparability, LeavesAListBoundToTheFilterRatherThanFencingAnIndexByIt) {
-  // Placing a pair of lists is not enough to draw a band around one. The stored order decides
-  // pairs this relation leaves undecided, so a band above [1, 2] holds [1, null], which no filter
-  // keeps.
+  // An index range above [1, 2] would include [1, null], which the filter drops.
   EXPECT_TRUE(comparability::AnIndexCanFence(Int(1)));
   EXPECT_FALSE(comparability::AnIndexCanFence(ListOf({Int(1)})));
   EXPECT_FALSE(comparability::AnIndexCanFence(TypedValue(std::nan(""))));

@@ -19,11 +19,10 @@
 /// answer Null. No pair raises: incomparability is an answer the relation gives
 /// rather than a question it refuses.
 ///
-/// A list is placed by its elements, in the dictionary order the specification
-/// gives: pairwise from the start, and a shorter list first where the two agree
-/// up to its end. An element pair this relation leaves undecided leaves the two
-/// lists undecided, which is what makes `[1, 2] >= [1, null]` Null while
-/// `[1] < [1, null]` is true: the second compares no element to the null.
+/// Lists compare lexicographically: the first unequal element decides, and a
+/// shorter prefix sorts first. An undecided element pair makes the lists
+/// undecided, so `[1, 2] >= [1, null]` is Null, while `[1] < [1, null]` is true
+/// because the null is never compared.
 #pragma once
 
 #include <cmath>
@@ -38,9 +37,9 @@ namespace memgraph::query::relations::comparability {
 /**
  * Whether comparability places values of a type at all.
  *
- * This is the same set ComparePayload answers for. Neither switch names a
- * default, so a type added to the enumeration fails to compile in both rather
- * than silently gaining an answer in one.
+ * This is the same set Compare answers for: ComparePayload's, plus List. Neither
+ * switch names a default, so a type added to the enumeration fails to compile in
+ * both rather than silently gaining an answer in one.
  */
 constexpr bool ValidFor(TypedValue::Type type) {
   switch (type) {
@@ -54,9 +53,7 @@ constexpr bool ValidFor(TypedValue::Type type) {
     case LocalDateTime:
     case ZonedDateTime:
     case Duration:
-      return true;
-
-    case List:
+    case List:  // compared by CompareOfLists, not ComparePayload
       return true;
 
     case Null:
@@ -76,14 +73,10 @@ constexpr bool ValidFor(TypedValue::Type type) {
   }
 }
 
-/// Places two lists, in the dictionary order the specification gives.
-///
-/// Out of line so that Compare does not call itself. A compiler will not inline
-/// a function that recurses, and every filter reaches Compare through the
-/// caller.
-///
-/// Takes what it walks rather than the values holding it, so that it cannot be
-/// handed a pair of unlike things.
+/// Lexicographic order: the first unequal element decides; a shorter prefix sorts first.
+/// Out of line: Compare recurses through it for nested lists, and a self-recursive
+/// Compare would not be inlined into the comparison operators.
+/// Takes the vectors so both arguments are lists by type.
 std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
 /**
@@ -100,21 +93,15 @@ inline bool ValidFor(const TypedValue &value) {
 }
 
 /**
- * Whether a band drawn around this bound hands back the rows a filter reading it
- * would keep, and only those.
+ * Whether an index range bounded by this value returns exactly the rows the filter keeps.
  *
- * Being placed is not enough. The stored order decides every pair, including the
- * ones this relation leaves undecided, and a filter drops a row it cannot decide.
- * Where the two part, a band holds rows no filter keeps.
+ * False for a list. The index sorts `[1, null]` above `[1, 2]`, but the filter
+ * `> [1, 2]` answers Null for it and drops it. Rows kept and dropped interleave
+ * on the same side of the bound, so no range separates them; the scan must
+ * evaluate the comparison per row instead.
  *
- * A list is where they part. A null element is ordered after every number in the
- * store, so `[1, null]` sits above `[1, 2]` there, while a filter reading
- * `> [1, 2]` cannot decide it and drops it. Both the rows a band keeps and the
- * rows it drops lie on one side of the bound, so no fence separates them, and a
- * list bound is left to the filter until a scan can read the pairs a band cannot.
- *
- * A value the relation cannot place at all is refused for the older reason: a
- * band drawn around it holds whatever the stored order happens to put there.
+ * False for a value ValidFor rejects, such as NaN: every comparison against it
+ * fails, while the index still places it somewhere.
  */
 inline bool AnIndexCanFence(const TypedValue &bound) {
   return ValidFor(bound) && bound.type() != TypedValue::Type::List;
@@ -201,8 +188,7 @@ constexpr bool ValidFor() {
 inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const TypedValue &b) {
   // Two values of one admitted type are the common case and the whole answer.
   if (a.type() == b.type()) {
-    // The one type it places that carries no payload: a list is placed by what
-    // it holds rather than by anything read off the value itself.
+    // A list compares by its elements, which ComparePayload cannot do.
     if (a.type() == TypedValue::Type::List) return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
 
     if (auto const order = ComparePayload(a, b)) return order;
