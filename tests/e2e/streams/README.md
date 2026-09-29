@@ -30,18 +30,27 @@ accepts requests.
 
 ## Running against the mgbuild container
 
-With the build container running and Memgraph built, from the repository root:
+With the build container running and Memgraph built (see `release/package/mgbuild.sh`; the container is
+`mgbuild_<toolchain>_<os>`), start the stacks and run the streams workloads inside the container with the
+CI addresses:
 
 ```
-./run_streams_e2e.sh              # all streams workloads, sequential runner
-./run_streams_e2e.sh --list
-./run_streams_e2e.sh --workload "Kafka streams start, stop and show"
+(cd kafka && docker compose up -d --wait)
+(cd pulsar && docker compose up -d --wait)
+docker exec -u mg mgbuild_v8_ubuntu-24.04 bash -c '
+  source /opt/toolchain-v8/activate && source /home/mg/.cargo/env &&
+  cd /home/mg/memgraph/tests && source ve3/bin/activate && cd e2e &&
+  export KAFKA_BOOTSTRAP_SERVERS=kafka:9092 PULSAR_SERVICE_URL=pulsar://pulsar:6650 PULSAR_ADMIN_URL=http://pulsar:8080 &&
+  python3 runner.py --workloads-root-directory streams'
 ```
 
-The script syncs `tests/e2e` into the container, starts both stacks (waiting until the brokers accept
-requests), runs the workloads with the CI addresses, and copies the Memgraph logs to
-`build/e2e/streams-logs` on failure. Enterprise credentials are read from `$HOME/.env`; the SSO and
-stream-owner workloads need them.
+Append `--workload-name "Kafka streams start, stop and show"` to run a single workload, or
+`--workload-name-list` to list them. The SSO and stream-owner workloads also need
+`MEMGRAPH_ENTERPRISE_LICENSE` and `MEMGRAPH_ORGANIZATION_NAME` exported in that shell. Memgraph writes its
+logs under `/home/mg/memgraph/build/e2e/logs` in the container.
+
+`mgbuild.sh ... test-memgraph e2e` runs the whole e2e suite, these workloads included, with the same
+environment.
 
 ## Running on the host
 
