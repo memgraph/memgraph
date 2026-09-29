@@ -257,6 +257,18 @@ TEST_F(AuthLayerTest, ABatchToleratesADropThatNamesNothing) {
   EXPECT_TRUE(layer_->Lock()->HasUser("alice")) << "the rest of the batch must still apply";
 }
 
+// The same tolerance for a profile, which takes a different path: profiles are applied outside the overlay, and
+// the applier distinguishes a profile that was never there from a delete that failed. Only the second is a
+// failure.
+TEST_F(AuthLayerTest, ABatchToleratesAProfileDropThatNamesNothing) {
+  std::vector<memgraph::replication::AuthOp> ops;
+  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
+  ops.emplace_back(memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::PROFILE, "no_such_profile"});
+
+  EXPECT_TRUE(layer_->ApplyBatch(ops));
+  EXPECT_TRUE(layer_->Lock()->HasUser("alice")) << "the rest of the batch must still apply";
+}
+
 // The point of batching: an operation that throws part-way leaves the store exactly as it was, so a replica
 // never holds a prefix of a transaction. An empty username is rejected by User construction downstream.
 TEST_F(AuthLayerTest, AThrowingBatchLeavesTheStoreUntouched) {

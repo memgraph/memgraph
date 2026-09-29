@@ -507,7 +507,7 @@ class Auth final {
                              const std::unordered_set<std::string> &usernames = {},
                              system::Transaction *system_tx = nullptr);
 
-  bool DropProfile(const std::string &profile_name, system::Transaction *system_tx = nullptr);
+  UserProfiles::DropResult DropProfile(const std::string &profile_name, system::Transaction *system_tx = nullptr);
 
   std::optional<UserProfiles::Profile> GetProfile(std::string_view name) const;
   std::vector<UserProfiles::Profile> AllProfiles() const;

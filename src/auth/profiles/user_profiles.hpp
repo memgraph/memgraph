@@ -24,6 +24,10 @@ namespace memgraph::auth {
 class UserProfiles {
  public:
   enum class Limits : uint8_t { kSessions = 0, kTransactionsMemory };
+
+  /// Whether a drop removed anything. A profile that was never there is not a failure: a replica applying a
+  /// batch may be told to drop one the main created and dropped between snapshots.
+  enum class DropResult : uint8_t { kDropped, kAbsent, kFailed };
   static constexpr std::array<std::string_view, 2> kLimits = {"sessions", "transactions_memory"};
   static_assert(kLimits.size() == static_cast<int>(Limits::kTransactionsMemory) + 1, "kLimits size mismatch");
 
@@ -52,7 +56,7 @@ class UserProfiles {
 
   bool Create(std::string_view name, limits_t defined_limits, const std::unordered_set<std::string> &usernames = {});
   std::optional<Profile> Update(std::string_view name, const limits_t &updated_limits);
-  bool Drop(std::string_view name);
+  DropResult Drop(std::string_view name);
   std::optional<Profile> Get(std::string_view name) const;
   std::vector<Profile> GetAll() const;
 
