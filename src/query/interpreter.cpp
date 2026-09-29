@@ -921,7 +921,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
             "find out what happened!");
       case LOCAL_TIMEOUT:
-        throw QueryRuntimeException("Request for removing coordinator {} reached a timeout!", coordinator_id);
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} reached a timeout! The removal may still be in progress, retry the "
+            "query to finish it.",
+            coordinator_id);
       case RAFT_CANCELLED:
         throw QueryRuntimeException("Request for removing coordinator {} was cancelled!", coordinator_id);
       case RAFT_TIMEOUT:
@@ -1014,7 +1017,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
             "find out what happened!");
       case LOCAL_TIMEOUT:
-        throw QueryRuntimeException("Request for adding coordinator {} reached a timeout!", coordinator_id);
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} reached a timeout! The addition may still be in progress, check SHOW "
+            "INSTANCES before retrying.",
+            coordinator_id);
       case DIFF_NETWORK_CONFIG:
         throw QueryRuntimeException(
             "Request for adding coordinator {} failed because the coordinator was started with different network "
