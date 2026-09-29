@@ -597,6 +597,21 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByDifferentAggregatedItem) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWithParameter) {
+  auto &ast_generator = *GetParam();
+  auto const order_by = [&](auto const *text) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    return dynamic_cast<Return *>(query->single_query_->clauses_[1])->body_.order_by[0].expression;
+  };
+  auto *same = dynamic_cast<Identifier *>(order_by("MATCH (n) RETURN n.x + $p AS v, count(*) AS c ORDER BY n.x + $p"));
+  ASSERT_TRUE(same);
+  EXPECT_EQ(same->name_, "v");
+  for (auto const *text : {"MATCH (n) RETURN n.x + $p AS v, count(*) AS c ORDER BY n.x + $q",
+                           "MATCH (n) RETURN n.x + $p AS v, count(*) AS c ORDER BY n.x + 1"}) {
+    EXPECT_FALSE(dynamic_cast<Identifier *>(order_by(text))) << text;
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ReturnOrderByImpureAggregatedItem) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
