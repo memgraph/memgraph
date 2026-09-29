@@ -335,3 +335,35 @@ Feature: Indices
             | id |
             | 1  |
             | 2  |
+
+    # ORDER BY lets the parallel pass plan the parallel index scans.
+    Scenario Outline: A list bound keeps the same rows with and without an index
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND [[1], [1, 2], [1, 3], [1, null], [null, 1], [2], 5, 'a'] AS v
+            CREATE (:L {p: v, q: 1})-[:R {p: v}]->(:M)
+            """
+        And having executed:
+            """
+            <index>
+            """
+        When executing query:
+            """
+            <match> WITH <var>.p AS p ORDER BY p RETURN collect(p) AS ps
+            """
+        Then the result should be:
+            | ps     |
+            | <rows> |
+
+        Examples:
+            | index                            | match                                                | var | rows                  |
+            | RETURN 1                         | MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2]           | n   | [[1, 3], [2]]         |
+            | CREATE INDEX ON :L(p)            | MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2]           | n   | [[1, 3], [2]]         |
+            | CREATE INDEX ON :L(q, p)         | MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2]           | n   | [[1, 3], [2]]         |
+            | CREATE GLOBAL INDEX ON :(p)      | MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2]           | n   | [[1, 3], [2]]         |
+            | RETURN 1                         | MATCH (n) WHERE n.p <= [1, 3]                        | n   | [[1], [1, 2], [1, 3]] |
+            | CREATE GLOBAL INDEX ON :(p)      | MATCH (n) WHERE n.p <= [1, 3]                        | n   | [[1], [1, 2], [1, 3]] |
+            | RETURN 1                         | MATCH ()-[r:R]->() WHERE r.p > [1, 2]                | r   | [[1, 3], [2]]         |
+            | CREATE EDGE INDEX ON :R(p)       | MATCH ()-[r:R]->() WHERE r.p > [1, 2]                | r   | [[1, 3], [2]]         |
+            | CREATE GLOBAL EDGE INDEX ON :(p) | MATCH ()-[r:R]->() WHERE r.p > [1, 2]                | r   | [[1, 3], [2]]         |

@@ -545,3 +545,25 @@ Feature: List operators
         Then the result should be:
             | result |
             | true   |
+
+    Scenario: Lists compare lexicographically
+        When executing query:
+            """
+            RETURN [1, 2] < [1, 3] AS a, [2] > [1, 9] AS b, [1] < [1, 0] AS c, [1] < [1, null] AS d,
+                   [1, 2] >= [1, null] AS e, [null, 1] < [null, 2] AS f, [1, 'a'] < [1, 1] AS g,
+                   [1, 'a'] < [2, 1] AS h, [[1, 2], [3]] > [[1, 2], [2, 9]] AS i, [1] < 1 AS j,
+                   [] < [null] AS k, [1] <= [1.0] AS l
+            """
+        Then the result should be:
+            | a    | b    | c    | d    | e    | f    | g    | h    | i    | j    | k    | l    |
+            | true | true | true | true | null | null | null | true | true | null | true | true |
+
+    Scenario: A NaN element leaves two lists incomparable
+        When executing query:
+            """
+            RETURN [1] < [0.0 / 0.0] AS a, [0.0 / 0.0, 1] < [0.0 / 0.0, 2] AS b, [[0.0 / 0.0]] < [[1]] AS c,
+                   NOT ([1] < [0.0 / 0.0]) AS d, [1, 0.0 / 0.0] < [2] AS e, 1 < 0.0 / 0.0 AS f
+            """
+        Then the result should be:
+            | a    | b    | c    | d    | e    | f     |
+            | null | null | null | null | true | false |
