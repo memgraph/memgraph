@@ -198,7 +198,8 @@ TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
     auto guard_w_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::try_to_lock);
     return !guard_w_2.owns_lock();  // guard_w_1 is a compatible WRITE, so only ro_pending_count refuses
   };
-  const auto deadline = std::chrono::steady_clock::now() + 60s;
+  constexpr auto kRegistrationBound = 5s;
+  const auto deadline = std::chrono::steady_clock::now() + kRegistrationBound;
   bool gated = write_is_gated();
   while (!gated && std::chrono::steady_clock::now() < deadline) {
     std::this_thread::yield();
