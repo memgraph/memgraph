@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <atomic>
 #include <chrono>
+#include <latch>
 #include <thread>
 
 #include "gtest/gtest.h"
@@ -37,8 +37,16 @@ using namespace std::literals::chrono_literals;
 namespace {
 
 constexpr int port{8195};
-// Well under the client budgets below, so a working heartbeat gets several ticks in before the peer would give up.
+
+// The one wall-clock relation these tests rest on: a tick has to reach the peer inside its budget. The budget is an
+// order of magnitude above the interval, so a tick that a loaded runner delays still lands before the peer gives up.
 constexpr auto kHeartbeatInterval = 100ms;
+constexpr int kClientTimeoutMs{1000};
+constexpr auto kClientTimeout = std::chrono::milliseconds{kClientTimeoutMs};
+
+// For a test whose property has nothing to do with the peer's budget: no load makes this fire, and a handler that
+// never answers is reported by the ctest timeout on the target instead.
+constexpr int kLongerThanAnyDelay{60'000};
 
 }  // namespace
 
@@ -62,9 +70,11 @@ TEST(ProgressHeartbeatTest, ProgressKeepsCallAliveBeyondTimeout) {
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     ProgressHeartbeat heartbeat{res_builder, kHeartbeatInterval};
-    // Three times the client's 500ms budget, reporting progress throughout.
-    for (auto i = 0; i < 15; ++i) {
-      std::this_thread::sleep_for(100ms);
+    // Records progress until the call has outlived the client's budget twice over. A deadline rather than a count of
+    // sleeps: load stretches each sleep, and the property is how long the call lasted, not how many ticks it took.
+    auto const deadline = std::chrono::steady_clock::now() + 2 * kClientTimeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(kHeartbeatInterval);
       heartbeat.RecordProgress();
     }
     heartbeat.Stop();
@@ -76,7 +86,7 @@ TEST(ProgressHeartbeatTest, ProgressKeepsCallAliveBeyondTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 500)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kClientTimeoutMs)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -106,8 +116,9 @@ TEST(ProgressHeartbeatTest, StalledHandlerStillTimesOut) {
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     ProgressHeartbeat heartbeat{res_builder, kHeartbeatInterval};
-    // Heartbeat is running and ticking, but no work is ever recorded, so it must stay silent.
-    std::this_thread::sleep_for(2s);
+    // Heartbeat is running and ticking, but no work is ever recorded, so it must stay silent. The stall is a lower
+    // bound on how long the peer waits, and load only lengthens it.
+    std::this_thread::sleep_for(2 * kClientTimeout);
     heartbeat.Stop();
 
     SumRes const res{5};
@@ -117,7 +128,7 @@ TEST(ProgressHeartbeatTest, StalledHandlerStillTimesOut) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 500)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kClientTimeoutMs)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -146,11 +157,11 @@ TEST(ProgressHeartbeatTest, ProgressStoppingMidCallTimesOut) {
 
     ProgressHeartbeat heartbeat{res_builder, kHeartbeatInterval};
     for (auto i = 0; i < 5; ++i) {
-      std::this_thread::sleep_for(100ms);
+      std::this_thread::sleep_for(kHeartbeatInterval);
       heartbeat.RecordProgress();
     }
     // Work stops here; the remaining wait must not be covered by heartbeats.
-    std::this_thread::sleep_for(2s);
+    std::this_thread::sleep_for(2 * kClientTimeout);
     heartbeat.Stop();
 
     SumRes const res{5};
@@ -160,7 +171,7 @@ TEST(ProgressHeartbeatTest, ProgressStoppingMidCallTimesOut) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 500)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kClientTimeoutMs)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -180,45 +191,44 @@ TEST(ProgressHeartbeatTest, PeerGoneLatchesAfterClientDisconnects) {
     rpc_server.AwaitShutdown();
   }};
 
-  std::atomic<bool> observed_peer_gone{false};
-  std::atomic<bool> handler_finished{false};
+  auto handler_finished = std::latch{1};
 
-  rpc_server.Register<Sum>(
-      [&observed_peer_gone, &handler_finished](std::optional<memgraph::rpc::FileReplicationHandler> const & /*unused*/,
+  rpc_server.Register<Sum>([&handler_finished](std::optional<memgraph::rpc::FileReplicationHandler> const & /*unused*/,
                                                uint64_t const request_version,
                                                auto *req_reader,
                                                auto *res_builder) {
-        SumReq req;
-        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+    SumReq req;
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-        ProgressHeartbeat heartbeat{res_builder, kHeartbeatInterval};
-        // Stall with no progress first, so the heartbeat stays silent and the client's budget expires -- that is what
-        // makes it shut the socket. Recording progress here instead would (correctly) keep the call alive forever.
-        std::this_thread::sleep_for(800ms);
+    ProgressHeartbeat heartbeat{res_builder, kHeartbeatInterval};
+    // Stall with no progress first, so the heartbeat stays silent and the client's budget expires -- that is what
+    // makes it shut the socket. Recording progress here instead would (correctly) keep the call alive forever.
+    std::this_thread::sleep_for(2 * kClientTimeout);
 
-        // Now report progress. The first sends may still land in the kernel buffer, so poll until the write actually
-        // fails and PeerGone latches -- this is what a long index build would check to abandon its work.
-        for (auto i = 0; i < 100 && !heartbeat.PeerGone(); ++i) {
-          std::this_thread::sleep_for(50ms);
-          heartbeat.RecordProgress();
-        }
-        observed_peer_gone.store(heartbeat.PeerGone());
-        heartbeat.Stop();
-        handler_finished.store(true);
+    // Now report progress. The first sends may still land in the kernel buffer, so keep going until a write
+    // actually fails and PeerGone latches -- this is what a long index build would check to abandon its work.
+    // Leaving the loop is the assertion: a heartbeat that never notices the peer leave keeps this handler, and
+    // with it the server's shutdown, waiting, and the ctest timeout on the target reports that.
+    while (!heartbeat.PeerGone()) {
+      std::this_thread::sleep_for(kHeartbeatInterval / 2);
+      heartbeat.RecordProgress();
+    }
+    heartbeat.Stop();
+    handler_finished.count_down();
 
-        try {
-          SumRes const res{5};
-          memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-        } catch (std::exception const &) {
-          // Expected: the peer is gone, so the final response cannot be delivered either.
-        }
-      });
+    try {
+      SumRes const res{5};
+      memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+    } catch (std::exception const &) {
+      // Expected: the peer is gone, so the final response cannot be delivered either.
+    }
+  });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
   {
-    auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 300)};
+    auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kClientTimeoutMs)};
     ClientContext client_context;
     Client client{endpoint, &client_context, rpc_timeouts};
     auto stream = client.Stream<SumV1>(2, 3);
@@ -226,12 +236,7 @@ TEST(ProgressHeartbeatTest, PeerGoneLatchesAfterClientDisconnects) {
     EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
   }
 
-  // Give the handler room to notice the broken connection on its next tick.
-  for (auto i = 0; i < 100 && !handler_finished.load(); ++i) {
-    std::this_thread::sleep_for(50ms);
-  }
-  EXPECT_TRUE(handler_finished.load());
-  EXPECT_TRUE(observed_peer_gone.load()) << "heartbeat did not notice the peer going away";
+  handler_finished.wait();
 }
 
 // Stop() must be idempotent and safe without any prior progress -- handlers call it on early-return paths where no
@@ -270,7 +275,7 @@ TEST(ProgressHeartbeatTest, StopIsIdempotentAndSafeWithoutProgress) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 2000)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kLongerThanAnyDelay)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
