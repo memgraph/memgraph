@@ -144,6 +144,8 @@ void VectorIndex::RecoverAllVectorIndices(std::vector<VectorIndexRecoveryInfo> &
           auto maybe_vec = TryListToVector(stored_value);
           if (!maybe_vec) continue;
           vec = *maybe_vec;
+          // A plain [] stays plain and is never promoted to a tag.
+          if (vec.empty()) continue;
         }
 
         utils::small_vector<uint64_t> member_ids;
@@ -203,6 +205,8 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   }
   auto property = vertex.properties.GetProperty(spec.property, decoder);
   if (property.IsNull()) return;
+  // An empty plain list has nothing to index and stays a plain list — never promote it.
+  if (!property.IsVectorIndexId() && property.IsAnyList() && property.ListSize() == 0) return;
 
   auto vector = RegisterIndexId(property, index_id);
   vertex.properties.SetProperty(spec.property, property);
@@ -291,6 +295,9 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedP
 
       auto old_property_value = vertex->properties.GetProperty(property_id, decoder);
       if (old_property_value.IsNull()) continue;
+      // An empty plain list has nothing to index and stays a plain list — never promote it.
+      if (!old_property_value.IsVectorIndexId() && old_property_value.IsAnyList() && old_property_value.ListSize() == 0)
+        continue;
 
       auto ids = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexIds()
                                                       : utils::small_vector<uint64_t>{};
@@ -590,7 +597,7 @@ void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, A
       if (value.IsVectorIndexId()) {
         UpdateOnSetProperty(property, value, vertex);
       } else {
-        DMG_ASSERT(value.IsNull(), "Unexpected property value type in abort processor of vector index");
+        // Any non-tag before-image (null, plain list, scalar) means the vertex must not stay in the index.
         for (const auto &[index_id, _] : GetIndicesByProperty(property)) {
           RemoveVertexFromIndex(vertex, index_id);
         }
@@ -660,12 +667,15 @@ void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, con
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
                                               VertexVectors &vertex_vectors) {
+  // A tag with no vector is the legacy on-disk form of []; treat it as the plain empty list it stands for.
+  if (value.IsVectorIndexId() && value.ValueVectorIndexList().empty()) {
+    value = PropertyValue(std::vector<double>{});
+  }
+
   const bool has_spec = r::any_of(recovery_info_vec, [&](const auto &ri) { return ri.spec.property == property; });
 
   if (has_spec) {
     if (value.IsVectorIndexId()) {
-      // An empty vector is a valid `[]` user value; always keep the entry so the final build does
-      // not null it.
       auto vec = value.ValueVectorIndexList();
       vertex_vectors[property][vertex->gid] = std::move(vec);
     } else if (auto it = vertex_vectors.find(property); it != vertex_vectors.end()) {

@@ -52,6 +52,8 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
 std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
                                                              const PropertyValue &value) {
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
+  // An empty list has no vector to index; keep it as a plain list so the vertex leaves the index.
+  if (value.ListSize() == 0) return std::nullopt;
   auto vector_index_ids = storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property);
   if (vector_index_ids.empty()) return std::nullopt;
   return PropertyValue(
