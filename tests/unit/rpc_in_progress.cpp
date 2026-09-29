@@ -86,10 +86,10 @@ TEST(RpcInProgress, SingleProgress) {
 // so the call can only succeed if each heartbeat restarts the deadline. Each individual gap sits an order of magnitude
 // below the timeout, and sleep_for never returns early, so the total is a guaranteed lower bound rather than a race.
 TEST(RpcInProgress, MultipleProgresses) {
-  constexpr auto kHeartbeatGap = 50ms;
-  constexpr int kHeartbeats = 20;
-  constexpr int kTimeoutMs = 500;
-  constexpr auto kTotalServerTime = kHeartbeatGap * kHeartbeats;
+  static constexpr auto kHeartbeatGap = 50ms;
+  static constexpr int kHeartbeats = 20;
+  static constexpr int kTimeoutMs = 500;
+  static constexpr auto kTotalServerTime = kHeartbeatGap * kHeartbeats;
   static_assert(kTotalServerTime >= 2 * std::chrono::milliseconds{kTimeoutMs});
   static_assert(10 * kHeartbeatGap <= std::chrono::milliseconds{kTimeoutMs});
 
