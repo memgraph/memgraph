@@ -9,9 +9,6 @@ Both stacks join the external `package_default` network, which is the network Co
 mgbuild container (see `release/package/mgbuild.sh`). That is how the tests and Memgraph reach the brokers
 by service name when they run inside the build container, the way CI does.
 
-`redpanda.yml` is a legacy alternative to the Kafka stack; it is not used by CI and does not match the
-addresses below.
-
 ## Broker addresses
 
 | | Inside `package_default` (CI) | From the host (local default) |
