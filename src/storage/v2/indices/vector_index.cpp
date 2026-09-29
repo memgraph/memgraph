@@ -178,7 +178,11 @@ void VectorIndex::RecoverAllVectorIndices(std::vector<VectorIndexRecoveryInfo> &
     vertex_vectors.clear();
   } catch (const std::exception &) {
     for (auto &ri : recovery_infos) {
-      DropIndex(ri.spec.index_name, name_id_mapper);
+      try {
+        DropIndex(ri.spec.index_name, name_id_mapper);
+      } catch (const std::exception &e) {
+        spdlog::warn("Failed to drop vector index '{}' after recovery failure: {}", ri.spec.index_name, e.what());
+      }
     }
     throw;
   }
@@ -659,18 +663,13 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue
   const bool has_spec = r::any_of(recovery_info_vec, [&](const auto &ri) { return ri.spec.property == property; });
 
   if (has_spec) {
-    bool should_erase = true;
     if (value.IsVectorIndexId()) {
+      // An empty vector is a valid `[]` user value; always keep the entry so the final build does
+      // not null it.
       auto vec = value.ValueVectorIndexList();
-      if (!vec.empty()) {
-        vertex_vectors[property][vertex->gid] = std::move(vec);
-        should_erase = false;
-      }
-    }
-    if (should_erase) {
-      if (auto it = vertex_vectors.find(property); it != vertex_vectors.end()) {
-        it->second.erase(vertex->gid);
-      }
+      vertex_vectors[property][vertex->gid] = std::move(vec);
+    } else if (auto it = vertex_vectors.find(property); it != vertex_vectors.end()) {
+      it->second.erase(vertex->gid);
     }
   } else {
     // No active spec for this property. A tag value here is a stale artifact (its index was
@@ -713,8 +712,6 @@ void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name,
         continue;
       }
     }
-    // Tag present but no vector map entry — vector was lost before this drop
-    // (e.g. a tag with empty vector written during WAL replay).
     spdlog::error(
         "Recovery: vertex {} property {} carries a VectorIndexId tag for dropped index '{}' "
         "but has no vector entry — data was lost before this drop; setting to null.",

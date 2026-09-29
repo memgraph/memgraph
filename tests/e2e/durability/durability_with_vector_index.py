@@ -1153,3 +1153,54 @@ def test_durability_vector_index_membership_after_wal_replay(
     assert embedding[0][0] == expected_embedding
 
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
+
+
+@pytest.mark.parametrize("mode", ["wal", "snapshot"])
+def test_durability_vector_index_set_emb_to_empty_list(connection, test_name, mode):
+    # Goal: SET n.emb = [] on an already-indexed vertex must survive WAL and snapshot recovery.
+    # [] is not a valid embedding — the vertex is removed from the index (size 0), property stays [].
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--storage-wal-file-flush-every-n-tx=1",
+                "--storage-snapshot-on-exit=false",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(cursor, 'CREATE VECTOR INDEX idx ON :L(emb) WITH CONFIG {"dimension": 2, "capacity": 10};')
+    execute_and_fetch_all(cursor, "CREATE (:L {emb: [1.0, 2.0]});")
+    execute_and_fetch_all(cursor, "MATCH (n:L) SET n.emb = [];")
+
+    emb_before = execute_and_fetch_all(cursor, "MATCH (n:L) RETURN n.emb;")
+    assert len(emb_before) == 1
+    assert emb_before[0][0] == [], f"Expected [] before restart, got {emb_before[0][0]!r}"
+
+    if mode == "snapshot":
+        execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    emb_after = execute_and_fetch_all(cursor, "MATCH (n:L) RETURN n.emb;")
+    assert len(emb_after) == 1, f"[{mode}] Expected exactly one row, got {len(emb_after)}"
+    assert emb_after[0][0] == [], f"[{mode}] Expected [] after restart, got {emb_after[0][0]!r}"
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1, f"[{mode}] Expected 1 index after restart, got {len(index_info)}"
+    assert (
+        index_info[0][6] == 0
+    ), f"[{mode}] Expected index size 0 (empty list not a valid vector), got {index_info[0][6]}"
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)

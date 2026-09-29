@@ -1021,11 +1021,10 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListD
           auto prop_id = snapshot_id_map.GetProperty(*key);
           auto prop_value = ToPropertyValue(*value, name_id_mapper);
           // Before InitProperties discards the embedded vector, capture it.
+          // Capture even if vec is empty: [] is a real committed value.
           if (capture && prop_value.IsVectorIndexId()) {
             auto vec = prop_value.ValueVectorIndexList();
-            if (!vec.empty()) {
-              local_capture[prop_id].emplace(Gid::FromUint(*gid), std::move(vec));
-            }
+            local_capture[prop_id].emplace(Gid::FromUint(*gid), std::move(vec));
           }
           read_properties.emplace_back(prop_id, std::move(prop_value));
         }
@@ -9173,7 +9172,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        // Fallback for gids not captured by LoadPartialVertices above; an empty capture yields to the index's vector.
         {
           auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
           utils::small_vector<float> vec;
@@ -9186,7 +9185,8 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
               if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
               vec.push_back(static_cast<float>(*value));
             }
-            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            auto [entry_it, inserted] = prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            if (!inserted && entry_it->second.empty()) entry_it->second = vec;
             vec.clear();
           }
         }
@@ -10073,7 +10073,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        // Fallback for gids not captured by LoadPartialVertices above; an empty capture yields to the index's vector.
         {
           auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
           utils::small_vector<float> vec;
@@ -10086,7 +10086,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
               if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
               vec.push_back(static_cast<float>(*value));
             }
-            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            auto [entry_it, inserted] = prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            if (!inserted && entry_it->second.empty()) entry_it->second = vec;
             vec.clear();
           }
         }
@@ -10890,7 +10891,7 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        // Fallback for gids not captured by LoadPartialVertices above; an empty capture yields to the index's vector.
         {
           auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
           utils::small_vector<float> vec;
@@ -10903,7 +10904,8 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
               if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
               vec.push_back(static_cast<float>(*value));
             }
-            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            auto [entry_it, inserted] = prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            if (!inserted && entry_it->second.empty()) entry_it->second = vec;
             vec.clear();
           }
         }
@@ -11697,7 +11699,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        // Fallback for gids not captured by LoadPartialVertices above; an empty capture yields to the index's vector.
         {
           auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
           utils::small_vector<float> vec;
@@ -11710,7 +11712,8 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
               if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
               vec.push_back(static_cast<float>(*value));
             }
-            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            auto [entry_it, inserted] = prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            if (!inserted && entry_it->second.empty()) entry_it->second = vec;
             vec.clear();
           }
         }
@@ -12505,7 +12508,7 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        // Fallback: try_emplace skips gids already captured by LoadPartialVertices above.
+        // Fallback for gids not captured by LoadPartialVertices above; an empty capture yields to the index's vector.
         {
           auto &prop_map = indices_constraints.indices.vertex_vectors[spec.property];
           utils::small_vector<float> vec;
@@ -12518,7 +12521,8 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
               if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
               vec.push_back(static_cast<float>(*value));
             }
-            prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            auto [entry_it, inserted] = prop_map.try_emplace(Gid::FromUint(*gid), vec);
+            if (!inserted && entry_it->second.empty()) entry_it->second = vec;
             vec.clear();
           }
         }
