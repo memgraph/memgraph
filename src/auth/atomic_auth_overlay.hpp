@@ -80,6 +80,11 @@ class AtomicAuthOverlay {
 
     /// Keys this scan has yielded so far. Handed to the prefix's dependency if the scan reaches the end.
     std::set<std::string, std::less<>> seen_;
+
+    /// Base entries this scan walked past, with the values it saw. Held here rather than in the read set until the
+    /// scan reaches the end, because only then is it known to depend on them: a scan that stops early and is
+    /// narrowed to emptiness never read these values and must not conflict on them changing.
+    std::map<std::string, std::string, std::less<>> walked_;
   };
 
   iterator begin(std::string const &prefix) const;
@@ -99,9 +104,10 @@ class AtomicAuthOverlay {
   bool Flush();
 
  private:
-  /// Records a base key a scan walked past, so a scan's dependency on the keys it saw is conflict-checked the same
-  /// way a named read is. Without this a transaction can decide on which keys exist and leave no trace of it.
-  void RecordScanned(std::string const &key, std::string const &value) const;
+  /// Adopts the base entries an exhaustive scan walked past, so its dependency on their values is conflict-checked
+  /// the same way a named read is. Without this a transaction can decide on which keys exist and leave no trace of
+  /// it. Only an exhaustive scan calls this: one that stopped early depends on the prefix, not on what is under it.
+  void AdoptWalked(std::map<std::string, std::string, std::less<>> const &walked) const;
 
   kvstore::KVStore &base_;
 
