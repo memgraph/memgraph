@@ -168,16 +168,19 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
 
 ### Auth semantics on coordinators
 
-- **Basic auth is a passthrough**: `basic`/`none` schemes succeed on a coordinator with
-  credentials ignored (current behavior preserved), **except** when SSO is configured
+- **Everything but a listed SSO scheme is a passthrough**: `basic`/`none`, and any scheme
+  not present in `--auth-module-mappings`, succeed on a coordinator with credentials
+  ignored (current behavior preserved, including for clients that send a data-instance SSO
+  scheme to a coordinator without SSO), **except** when SSO is configured
   (`--auth-module-mappings` non-empty) and the enterprise license is valid, in which case
   they are denied. No license required. The deny condition deliberately mirrors the SSO
-  path's own license gate: basic/none is denied only while SSO can actually authenticate
-  someone, so there is always at least one working auth path on a coordinator.
+  path's own license gate: passthrough is denied only while SSO can actually authenticate
+  someone, so there is always at least one working auth path on a coordinator. A denied
+  unlisted scheme gets a message naming the scheme, distinct from the basic/none message.
 - **SSO authenticates**: for a scheme present in `--auth-module-mappings`, run the auth
   module for that scheme, then validate the returned roles. Authentication **succeeds only
-  if every returned role exists** in the coordinator's role list. Invalid token, any
-  missing role, or an unknown scheme (not in mappings) → **connection rejected**.
+  if every returned role exists** in the coordinator's role list. Invalid token or any
+  missing role → **connection rejected**.
 - **Privilege gating (supersedes the earlier no-gating decision)**: coordinators have
   exactly two privileges, **`COORDINATOR_READ`** and **`COORDINATOR_WRITE`**, where
   `COORDINATOR_WRITE` is a superset of `COORDINATOR_READ`. A READ-classified query requires
