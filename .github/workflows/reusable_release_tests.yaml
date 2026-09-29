@@ -1074,15 +1074,14 @@ jobs:
           cd tests/e2e/localstack
           docker compose --profile bridge up -d
 
-      # This step will be skipped because the e2e stream tests have been disabled
-      # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
-        if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker compose up -d
+          docker pull apache/kafka:3.9.0
+          docker compose up -d --wait --wait-timeout 120
           cd ../pulsar
-          docker compose up -d
+          docker pull apachepulsar/pulsar:2.8.1
+          docker compose up -d --wait --wait-timeout 120
 
       - name: Run e2e tests
         run: |
@@ -1103,9 +1102,7 @@ jobs:
           cd tests/e2e/localstack
           docker compose down
 
-      # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down
-        if: false
         run: |
           cd tests/e2e/streams/kafka
           docker compose down

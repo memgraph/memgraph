@@ -45,7 +45,8 @@ from pathlib import Path
 
 import interactive_mg_runner
 import yaml
-from memgraph import ENDPOINT_RE, PORT_KEYWORD_RE
+
+from memgraph import ENDPOINT_RE, EXTERNAL_SERVICE_PORTS, PORT_KEYWORD_RE
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -180,9 +181,6 @@ def load_entries(root_directory):
         search_path = Path(os.path.join(BUILD_E2E_DIR, root_directory))
 
     for file in sorted(search_path.rglob("workloads.yaml")):
-        # 8.03.2024. - Skip streams e2e tests.
-        if str(file).endswith("/streams/workloads.yaml"):
-            continue
         if str(file).endswith("/graphql/workloads.yaml") and DISABLE_NODE:
             continue
         yaml_group = os.path.relpath(str(file), BUILD_E2E_DIR)
@@ -372,7 +370,7 @@ def _build_port_map(workload, worker_slot, port_offset_step):
             if isinstance(validation, dict) and "query" in validation:
                 discovered_ports.update(_extract_ports_from_query(validation["query"]))
 
-    sorted_ports = sorted(discovered_ports)
+    sorted_ports = sorted(discovered_ports - EXTERNAL_SERVICE_PORTS)
     if len(sorted_ports) > port_offset_step:
         raise RuntimeError(
             f"Worker {worker_slot} needs {len(sorted_ports)} unique ports, "

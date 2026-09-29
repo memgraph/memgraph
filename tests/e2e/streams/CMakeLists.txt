@@ -8,6 +8,7 @@ copy_streams_e2e_python_files(kafka_streams_tests.py)
 copy_streams_e2e_python_files(streams_owner_tests.py)
 copy_streams_e2e_python_files(pulsar_streams_tests.py)
 copy_streams_e2e_python_files(sso_streams_tests.py)
+copy_streams_e2e_python_files(hot_cold_streams_tests.py)
 copy_streams_e2e_python_files(dummy_sso_module.py)
 
 add_subdirectory(transformations)
