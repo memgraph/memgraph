@@ -865,13 +865,13 @@ bool Auth::CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::
   return true;
 }
 
-bool Auth::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
+UserProfiles::DropResult Auth::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
   std::unordered_set<std::string> users;
   if (user_resources_) {
     users = UsersConnectedToProfile(*this, profile_name);
   }
   const auto res = user_profiles_.Drop(profile_name);
-  if (res) {
+  if (res == UserProfiles::DropResult::kDropped) {
     // Update user resources
     if (user_resources_) {
       for (const auto &user : users) {

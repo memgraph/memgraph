@@ -1609,7 +1609,7 @@ void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
 void AuthQueryHandler::DropProfile(const std::string &profile_name, memgraph::auth::AuthTransaction *auth_tx,
                                    system::Transaction *system_tx) {
   auto locked_auth = Lock(auth_tx);
-  if (!locked_auth->DropProfile(profile_name, system_tx)) {
+  if (locked_auth->DropProfile(profile_name, system_tx) != auth::UserProfiles::DropResult::kDropped) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
   }
 }

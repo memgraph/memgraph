@@ -134,20 +134,20 @@ std::optional<UserProfiles::Profile> UserProfiles::Update(std::string_view name,
   return *profile_it;  // Return updated profile
 }
 
-bool UserProfiles::Drop(std::string_view name) {
+UserProfiles::DropResult UserProfiles::Drop(std::string_view name) {
   auto l = std::unique_lock{mtx_};
   auto profile_it = profiles_.find(name);
   if (profile_it == profiles_.end()) {
-    return false;
+    return DropResult::kAbsent;
   }
   auto old_profile = *profile_it;  // copy
   profiles_.erase(profile_it);
   if (!durability_->Delete(Repository::ProfileKey(name))) {
     // Revert to old profile
     profiles_.emplace(std::move(old_profile));
-    return false;
+    return DropResult::kFailed;
   }
-  return true;
+  return DropResult::kDropped;
 }
 
 std::optional<UserProfiles::Profile> UserProfiles::Get(std::string_view name) const {
