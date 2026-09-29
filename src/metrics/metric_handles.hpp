@@ -15,26 +15,40 @@
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 
+#include <cstdint>
+
+#include "metrics/sharded_metrics.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::metrics {
 
 struct GaugeHandle {
   prometheus::Gauge *gauge{nullptr};
+  ShardedMetricSet *set{nullptr};
+  uint32_t idx{0};
 
   void Increment(double v = 1.0) const noexcept {
-    if (gauge) gauge->Increment(v);
+    if (set) {
+      set->Add(idx, v);
+    } else if (gauge) {
+      gauge->Increment(v);
+    }
   }
 
   void Decrement(double v = 1.0) const noexcept {
-    if (gauge) gauge->Decrement(v);
+    if (set) {
+      set->Add(idx, -v);
+    } else if (gauge) {
+      gauge->Decrement(v);
+    }
   }
 
   void Set(double v) const noexcept {
+    DMG_ASSERT(set == nullptr, "Set() on a sharded gauge");
     if (gauge) gauge->Set(v);
   }
 
-  double Value() const noexcept { return gauge ? gauge->Value() : 0.0; }
+  double Value() const noexcept { return (gauge ? gauge->Value() : 0.0) + (set ? set->Pending(idx) : 0.0); }
 
   prometheus::Gauge *get() const {
     DMG_ASSERT(gauge);
@@ -44,12 +58,18 @@ struct GaugeHandle {
 
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};
+  ShardedMetricSet *set{nullptr};
+  uint32_t idx{0};
 
   void Increment(double v = 1.0) const noexcept {
-    if (counter) counter->Increment(v);
+    if (set) {
+      set->Add(idx, v);
+    } else if (counter) {
+      counter->Increment(v);
+    }
   }
 
-  double Value() const noexcept { return counter ? counter->Value() : 0.0; }
+  double Value() const noexcept { return (counter ? counter->Value() : 0.0) + (set ? set->Pending(idx) : 0.0); }
 
   prometheus::Counter *get() const {
     DMG_ASSERT(counter);
@@ -59,9 +79,15 @@ struct CounterHandle {
 
 struct HistogramHandle {
   prometheus::Histogram *histogram{nullptr};
+  ShardedMetricSet *set{nullptr};
+  uint32_t idx{0};
 
   void Observe(double v) const {
-    if (histogram) histogram->Observe(v);
+    if (set) {
+      set->Observe(idx, v);
+    } else if (histogram) {
+      histogram->Observe(v);
+    }
   }
 
   auto Collect() const {

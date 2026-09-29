@@ -12,9 +12,12 @@
 #include "metrics/prometheus_metrics.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <string_view>
+#include <thread>
 #include <variant>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
@@ -54,6 +57,7 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
   reg.handles().vertex_count.Set(42.0);
   reg.handles().committed_transactions.Increment(5.0);
 
+  pm.FoldSharded();
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 42.0);
   EXPECT_EQ(FindSample(families, "memgraph_committed_transactions_total", "db1"), 5.0);
@@ -70,6 +74,49 @@ TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 10.0);
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db2"), 20.0);
+}
+
+// Hot-path handles accumulate per thread; a scrape (UpdateGauges, then Collect) must see every update.
+TEST(PrometheusMetrics, ScrapeSeesShardedUpdatesFromAllThreads) {
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::utils::UUID const uuid{};
+  auto reg = pm.AddDatabase(uuid, "db1");
+  auto const &handles = reg.handles();
+
+  constexpr int kThreads = 8;
+  constexpr int kIterations = 1000;
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(kThreads);
+    for (int t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&handles] {
+        for (int i = 0; i < kIterations; ++i) {
+          handles.committed_transactions.Increment();
+          handles.active_transactions.Increment();
+        }
+        // Leave one transaction active per thread.
+        for (int i = 0; i < kIterations - 1; ++i) {
+          handles.active_transactions.Decrement();
+        }
+      });
+    }
+  }
+
+  pm.UpdateGauges();
+
+  auto const families = pm.registry().Collect();
+  EXPECT_EQ(FindSample(families, "memgraph_committed_transactions_total", "db1"),
+            static_cast<double>(kThreads * kIterations));
+  EXPECT_EQ(FindSample(families, "memgraph_active_transactions", "db1"), static_cast<double>(kThreads));
+
+  // SHOW METRICS INFO path: no explicit fold, and includes updates made after the scrape above.
+  handles.committed_transactions.Increment(3.0);
+  auto const info = pm.GetDbMetricsInfo(uuid);
+  ASSERT_TRUE(info.has_value()) << info.error();
+  auto const it =
+      std::ranges::find(*info, std::string_view{"CommitedTransactions"}, &memgraph::metrics::MetricInfo::name);
+  ASSERT_NE(it, info->end());
+  EXPECT_EQ(std::get<int64_t>(it->value), int64_t{(kThreads * kIterations) + 3});
 }
 
 TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {

@@ -1310,6 +1310,11 @@ add_unit_test(prometheus_metrics
     LINK_TARGETS mg-metrics mg-dbms disk_test_utils
 )
 
+add_unit_test(sharded_metrics
+    SOURCES sharded_metrics.cpp
+    LINK_TARGETS mg-metrics
+)
+
 # Test coordination
 if (MG_ENTERPRISE)
     add_unit_test(coordinator_utils

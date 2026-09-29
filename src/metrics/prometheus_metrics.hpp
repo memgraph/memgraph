@@ -15,6 +15,7 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -90,6 +91,8 @@ struct GlobalMetricHandles {
   prometheus::Gauge *active_ssl_sessions;
   prometheus::Gauge *active_websocket_sessions;
   prometheus::Counter *bolt_messages;
+  // Hot-path writer for `bolt_messages`; readers must FoldSharded() before reading the raw counter.
+  CounterHandle bolt_messages_h;
 
   // Memory
   prometheus::Gauge *memory_res_bytes;
@@ -223,6 +226,11 @@ class PrometheusMetrics {
   void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
   void UpdateGauges();
 
+  /// Pushes all pending sharded increments (every CounterHandle, active_transactions, query latency and
+  /// bolt_messages) into their prometheus objects. Call before reading those objects directly. Takes a
+  /// shared lock on the database list, so it must not be called while holding it.
+  void FoldSharded() const;
+
   /// Thread-safe update of the global peak_memory_res_bytes gauge.
   /// Sets the gauge to max(current, previous) and returns the new peak.
   uint64_t UpdateAndGetPeakMemoryRes(uint64_t current) const;
@@ -265,6 +273,8 @@ class PrometheusMetrics {
     utils::UUID uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
+    // Backs the sharded handles above; destroyed together with the entry's prometheus series.
+    std::unique_ptr<ShardedMetricSet> sharded;
     // Registrations of one database share every handle, because a family returns the metric it
     // already holds for a label set. The metrics go when the last registration does.
     std::size_t registrations{1};
@@ -278,6 +288,9 @@ class PrometheusMetrics {
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
   prometheus::Registry registry_;
+
+  // Backs `global.bolt_messages_h`.
+  std::unique_ptr<ShardedMetricSet> global_sharded_{std::make_unique<ShardedMetricSet>()};
 
   struct {
     mutable std::shared_mutex mutex;

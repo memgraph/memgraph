@@ -135,10 +135,10 @@ State StateExecutingRun(TSession &session, State state) {
 
   switch (session.version_.major) {
     case 1:
-      memgraph::metrics::Metrics().global.bolt_messages->Increment();
+      memgraph::metrics::Metrics().global.bolt_messages_h.Increment();
       return RunHandlerV1(signature, session, state, marker);
     case 4: {
-      memgraph::metrics::Metrics().global.bolt_messages->Increment();
+      memgraph::metrics::Metrics().global.bolt_messages_h.Increment();
       if (session.version_.minor == 4) {
         return RunHandlerV4<TSession, 4>(signature, session, state, marker);
       }
@@ -151,7 +151,7 @@ State StateExecutingRun(TSession &session, State state) {
       return RunHandlerV4<TSession>(signature, session, state, marker);
     }
     case 5:
-      memgraph::metrics::Metrics().global.bolt_messages->Increment();
+      memgraph::metrics::Metrics().global.bolt_messages_h.Increment();
       return RunHandlerV5<TSession>(signature, session, state, marker);
     default:
       spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);

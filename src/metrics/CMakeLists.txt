@@ -3,6 +3,7 @@ add_library(mg-metrics STATIC)
 target_sources(mg-metrics
     PRIVATE
     prometheus_metrics.cpp
+    sharded_metrics.cpp
 )
 
 target_link_libraries(mg-metrics PUBLIC prometheus-cpp::core mg-utils mg-flags)

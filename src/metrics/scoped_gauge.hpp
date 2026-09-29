@@ -13,38 +13,39 @@
 
 #include <prometheus/gauge.h>
 
+#include <utility>
+
+#include "metrics/metric_handles.hpp"
+
 namespace memgraph::metrics {
 
-/// Non-owning RAII wrapper over a prometheus::Gauge. The gauge is incremented
-/// on construction and decremented when the wrapper is destructed.
+/// Non-owning RAII wrapper over a gauge. The gauge is incremented on construction and decremented when the
+/// wrapper is destructed. A handle bound to a ShardedMetricSet goes through the set.
 class ScopedGauge {
  public:
   ScopedGauge() = default;
 
-  explicit ScopedGauge(prometheus::Gauge *gauge) : gauge_(gauge) {
-    if (gauge_) gauge_->Increment();
-  }
+  explicit ScopedGauge(prometheus::Gauge *gauge) : ScopedGauge(GaugeHandle{.gauge = gauge}) {}
 
-  ~ScopedGauge() {
-    if (gauge_) gauge_->Decrement();
-  }
+  explicit ScopedGauge(GaugeHandle handle) : handle_(handle) { handle_.Increment(); }
+
+  ~ScopedGauge() { handle_.Decrement(); }
 
   ScopedGauge(ScopedGauge const &) = delete;
   ScopedGauge &operator=(ScopedGauge const &) = delete;
 
-  ScopedGauge(ScopedGauge &&other) noexcept : gauge_(other.gauge_) { other.gauge_ = nullptr; }
+  ScopedGauge(ScopedGauge &&other) noexcept : handle_(std::exchange(other.handle_, {})) {}
 
   ScopedGauge &operator=(ScopedGauge &&other) noexcept {
     if (this != &other) {
-      if (gauge_) gauge_->Decrement();
-      gauge_ = other.gauge_;
-      other.gauge_ = nullptr;
+      handle_.Decrement();
+      handle_ = std::exchange(other.handle_, {});
     }
     return *this;
   }
 
  private:
-  prometheus::Gauge *gauge_{nullptr};
+  GaugeHandle handle_{};
 };
 
 }  // namespace memgraph::metrics

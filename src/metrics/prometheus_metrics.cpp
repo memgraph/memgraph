@@ -77,6 +77,16 @@ prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
 
 inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
 
+// AddDatabase shards every CounterHandle of DatabaseMetricHandles and checks it bound exactly this many. The
+// static_assert pins the member count, so adding a handle fails to compile until these are revisited.
+constexpr std::size_t kDbCounterHandles = 70;
+constexpr std::size_t kDbGaugeHandles = 24;
+constexpr std::size_t kDbHistogramHandles = 5;
+static_assert(sizeof(DatabaseMetricHandles) == (kDbCounterHandles * sizeof(CounterHandle)) +
+                                                   (kDbGaugeHandles * sizeof(GaugeHandle)) +
+                                                   (kDbHistogramHandles * sizeof(HistogramHandle)),
+              "DatabaseMetricHandles changed: update the handle counts and the sharded bindings in AddDatabase");
+
 void RemoveDurabilityThroughput(std::string_view instance_name,
                                 prometheus::Family<prometheus::Histogram> &throughput_family,
                                 DurabilityThroughput &throughput) {
@@ -814,6 +824,10 @@ PrometheusMetrics::PrometheusMetrics()
   global.active_ssl_sessions = &active_ssl_sessions_family_.Add(no_labels);
   global.active_websocket_sessions = &active_websocket_sessions_family_.Add(no_labels);
   global.bolt_messages = &bolt_messages_family_.Add(no_labels);
+  global.bolt_messages_h = {.counter = global.bolt_messages,
+                            .set = global_sharded_.get(),
+                            .idx = global_sharded_->BindCounter(global.bolt_messages)};
+  global_sharded_->Finalize();
 
   global.memory_res_bytes = &memory_res_family_.Add(no_labels);
   global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
@@ -928,120 +942,137 @@ PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const
   }
 
   prometheus::Labels const labels{{"database", std::string(name)}, {"uuid", std::string(uuid)}};
+  auto sharded = std::make_unique<ShardedMetricSet>();
+  std::size_t sharded_counters = 0;
+  auto const sharded_counter = [&](prometheus::Family<prometheus::Counter> &family) {
+    auto *const counter = &family.Add(labels);
+    ++sharded_counters;
+    return CounterHandle{.counter = counter, .set = sharded.get(), .idx = sharded->BindCounter(counter)};
+  };
+  auto const sharded_gauge = [&](prometheus::Family<prometheus::Gauge> &family) {
+    auto *const gauge = &family.Add(labels);
+    return GaugeHandle{.gauge = gauge, .set = sharded.get(), .idx = sharded->BindGauge(gauge)};
+  };
+  auto const sharded_histogram = [&](prometheus::Family<prometheus::Histogram> &family,
+                                     prometheus::Histogram::BucketBoundaries const &buckets) {
+    auto *const histogram = &family.Add(labels, buckets);
+    return HistogramHandle{
+        .histogram = histogram, .set = sharded.get(), .idx = sharded->BindHistogram(histogram, buckets)};
+  };
+
+  DatabaseMetricHandles const handles{
+      .vertex_count = {&vertex_count_family_.Add(labels)},
+      .edge_count = {&edge_count_family_.Add(labels)},
+      .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
+      .db_memory_tracked_bytes = {&db_memory_tracked_family_.Add(labels)},
+      .db_peak_memory_tracked_bytes = {&db_peak_memory_tracked_family_.Add(labels)},
+      .db_storage_memory_tracked_bytes = {&db_storage_memory_tracked_family_.Add(labels)},
+      .db_embedding_memory_tracked_bytes = {&db_embedding_memory_tracked_family_.Add(labels)},
+      .db_query_memory_tracked_bytes = {&db_query_memory_tracked_family_.Add(labels)},
+      .once_operator = sharded_counter(once_operator_family_),
+      .create_node_operator = sharded_counter(create_node_operator_family_),
+      .create_expand_operator = sharded_counter(create_expand_operator_family_),
+      .scan_all_operator = sharded_counter(scan_all_operator_family_),
+      .scan_all_by_label_operator = sharded_counter(scan_all_by_label_operator_family_),
+      .scan_all_by_label_properties_operator = sharded_counter(scan_all_by_label_properties_operator_family_),
+      .scan_all_by_id_operator = sharded_counter(scan_all_by_id_operator_family_),
+      .scan_all_by_edge_operator = sharded_counter(scan_all_by_edge_operator_family_),
+      .scan_all_by_edge_type_operator = sharded_counter(scan_all_by_edge_type_operator_family_),
+      .scan_all_by_edge_type_property_operator = sharded_counter(scan_all_by_edge_type_property_operator_family_),
+      .scan_all_by_edge_property_operator = sharded_counter(scan_all_by_edge_property_operator_family_),
+      .scan_all_by_edge_id_operator = sharded_counter(scan_all_by_edge_id_operator_family_),
+      .scan_all_by_vertex_property_operator = sharded_counter(scan_all_by_vertex_property_operator_family_),
+      .scan_all_by_point_distance_operator = sharded_counter(scan_all_by_point_distance_operator_family_),
+      .scan_all_by_point_withinbbox_operator = sharded_counter(scan_all_by_point_withinbbox_operator_family_),
+      .expand_operator = sharded_counter(expand_operator_family_),
+      .expand_variable_operator = sharded_counter(expand_variable_operator_family_),
+      .construct_named_path_operator = sharded_counter(construct_named_path_operator_family_),
+      .filter_operator = sharded_counter(filter_operator_family_),
+      .produce_operator = sharded_counter(produce_operator_family_),
+      .delete_operator = sharded_counter(delete_operator_family_),
+      .set_property_operator = sharded_counter(set_property_operator_family_),
+      .set_properties_operator = sharded_counter(set_properties_operator_family_),
+      .set_labels_operator = sharded_counter(set_labels_operator_family_),
+      .remove_property_operator = sharded_counter(remove_property_operator_family_),
+      .remove_labels_operator = sharded_counter(remove_labels_operator_family_),
+      .edge_uniqueness_filter_operator = sharded_counter(edge_uniqueness_filter_operator_family_),
+      .empty_result_operator = sharded_counter(empty_result_operator_family_),
+      .accumulate_operator = sharded_counter(accumulate_operator_family_),
+      .aggregate_operator = sharded_counter(aggregate_operator_family_),
+      .skip_operator = sharded_counter(skip_operator_family_),
+      .limit_operator = sharded_counter(limit_operator_family_),
+      .order_by_operator = sharded_counter(order_by_operator_family_),
+      .merge_operator = sharded_counter(merge_operator_family_),
+      .optional_operator = sharded_counter(optional_operator_family_),
+      .unwind_operator = sharded_counter(unwind_operator_family_),
+      .distinct_operator = sharded_counter(distinct_operator_family_),
+      .union_operator = sharded_counter(union_operator_family_),
+      .cartesian_operator = sharded_counter(cartesian_operator_family_),
+      .call_procedure_operator = sharded_counter(call_procedure_operator_family_),
+      .foreach_operator = sharded_counter(foreach_operator_family_),
+      .evaluate_pattern_filter_operator = sharded_counter(evaluate_pattern_filter_operator_family_),
+      .apply_operator = sharded_counter(apply_operator_family_),
+      .indexed_join_operator = sharded_counter(indexed_join_operator_family_),
+      .hash_join_operator = sharded_counter(hash_join_operator_family_),
+      .roll_up_apply_operator = sharded_counter(roll_up_apply_operator_family_),
+      .periodic_commit_operator = sharded_counter(periodic_commit_operator_family_),
+      .periodic_subquery_operator = sharded_counter(periodic_subquery_operator_family_),
+      .set_nested_property_operator = sharded_counter(set_nested_property_operator_family_),
+      .remove_nested_property_operator = sharded_counter(remove_nested_property_operator_family_),
+      .active_label_indices = {&active_label_indices_family_.Add(labels)},
+      .active_label_property_indices = {&active_label_property_indices_family_.Add(labels)},
+      .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
+      .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
+      .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
+      .active_vertex_property_indices = {&active_vertex_property_indices_family_.Add(labels)},
+      .active_point_indices = {&active_point_indices_family_.Add(labels)},
+      .active_text_indices = {&active_text_indices_family_.Add(labels)},
+      .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
+      .active_vector_indices = {&active_vector_indices_family_.Add(labels)},
+      .active_vector_edge_indices = {&active_vector_edge_indices_family_.Add(labels)},
+      .active_existence_constraints = {&active_existence_constraints_family_.Add(labels)},
+      .active_unique_constraints = {&active_unique_constraints_family_.Add(labels)},
+      .active_type_constraints = {&active_type_constraints_family_.Add(labels)},
+      .streams_created = sharded_counter(streams_created_family_),
+      .messages_consumed = sharded_counter(messages_consumed_family_),
+      .triggers_created = sharded_counter(triggers_created_family_),
+      .triggers_executed = sharded_counter(triggers_executed_family_),
+      .active_transactions = sharded_gauge(active_transactions_family_),
+      .committed_transactions = sharded_counter(committed_transactions_family_),
+      .rolled_back_transactions = sharded_counter(rolled_back_transactions_family_),
+      .failed_query = sharded_counter(failed_query_family_),
+      .failed_prepare = sharded_counter(failed_prepare_family_),
+      .failed_pull = sharded_counter(failed_pull_family_),
+      .successful_query = sharded_counter(successful_query_family_),
+      .write_write_conflicts = sharded_counter(write_write_conflicts_family_),
+      .transient_errors = sharded_counter(transient_errors_family_),
+      .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
+      .read_query = sharded_counter(read_query_family_),
+      .write_query = sharded_counter(write_query_family_),
+      .read_write_query = sharded_counter(read_write_query_family_),
+      .deleted_nodes = sharded_counter(deleted_nodes_family_),
+      .deleted_edges = sharded_counter(deleted_edges_family_),
+      .show_schema = sharded_counter(show_schema_family_),
+      .show_storage_info = sharded_counter(show_storage_info_family_),
+      .query_execution_latency_seconds = sharded_histogram(query_execution_latency_family_, kLatencyBuckets),
+      .snapshot_creation_latency_seconds = {&snapshot_creation_latency_family_.Add(labels, kLatencyBuckets)},
+      .snapshot_recovery_latency_seconds = {&snapshot_recovery_latency_family_.Add(labels, kLatencyBuckets)},
+      .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
+      .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels, kLatencyBuckets)},
+      .gc_index_sweeps = sharded_counter(gc_index_sweeps_family_),
+  };
+  MG_ASSERT(sharded_counters == kDbCounterHandles, "Every DatabaseMetricHandles counter must be sharded");
+  sharded->Finalize();
+
   auto const entry_id = databases_.next_entry_id++;
-  databases_.entries.push_back(
-      {
-          .id = entry_id,
-          .uuid = uuid,
-          .db_name = std::string(name),
-          .handles =
-              DatabaseMetricHandles{
-                  .vertex_count = {&vertex_count_family_.Add(labels)},
-                  .edge_count = {&edge_count_family_.Add(labels)},
-                  .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
-                  .db_memory_tracked_bytes = {&db_memory_tracked_family_.Add(labels)},
-                  .db_peak_memory_tracked_bytes = {&db_peak_memory_tracked_family_.Add(labels)},
-                  .db_storage_memory_tracked_bytes = {&db_storage_memory_tracked_family_.Add(labels)},
-                  .db_embedding_memory_tracked_bytes = {&db_embedding_memory_tracked_family_.Add(labels)},
-                  .db_query_memory_tracked_bytes = {&db_query_memory_tracked_family_.Add(labels)},
-                  .once_operator = {&once_operator_family_.Add(labels)},
-                  .create_node_operator = {&create_node_operator_family_.Add(labels)},
-                  .create_expand_operator = {&create_expand_operator_family_.Add(labels)},
-                  .scan_all_operator = {&scan_all_operator_family_.Add(labels)},
-                  .scan_all_by_label_operator = {&scan_all_by_label_operator_family_.Add(labels)},
-                  .scan_all_by_label_properties_operator = {&scan_all_by_label_properties_operator_family_.Add(labels)},
-                  .scan_all_by_id_operator = {&scan_all_by_id_operator_family_.Add(labels)},
-                  .scan_all_by_edge_operator = {&scan_all_by_edge_operator_family_.Add(labels)},
-                  .scan_all_by_edge_type_operator = {&scan_all_by_edge_type_operator_family_.Add(labels)},
-                  .scan_all_by_edge_type_property_operator = {&scan_all_by_edge_type_property_operator_family_.Add(
-                      labels)},
-                  .scan_all_by_edge_property_operator = {&scan_all_by_edge_property_operator_family_.Add(labels)},
-                  .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
-                  .scan_all_by_vertex_property_operator = {&scan_all_by_vertex_property_operator_family_.Add(labels)},
-                  .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
-                  .scan_all_by_point_withinbbox_operator = {&scan_all_by_point_withinbbox_operator_family_.Add(labels)},
-                  .expand_operator = {&expand_operator_family_.Add(labels)},
-                  .expand_variable_operator = {&expand_variable_operator_family_.Add(labels)},
-                  .construct_named_path_operator = {&construct_named_path_operator_family_.Add(labels)},
-                  .filter_operator = {&filter_operator_family_.Add(labels)},
-                  .produce_operator = {&produce_operator_family_.Add(labels)},
-                  .delete_operator = {&delete_operator_family_.Add(labels)},
-                  .set_property_operator = {&set_property_operator_family_.Add(labels)},
-                  .set_properties_operator = {&set_properties_operator_family_.Add(labels)},
-                  .set_labels_operator = {&set_labels_operator_family_.Add(labels)},
-                  .remove_property_operator = {&remove_property_operator_family_.Add(labels)},
-                  .remove_labels_operator = {&remove_labels_operator_family_.Add(labels)},
-                  .edge_uniqueness_filter_operator = {&edge_uniqueness_filter_operator_family_.Add(labels)},
-                  .empty_result_operator = {&empty_result_operator_family_.Add(labels)},
-                  .accumulate_operator = {&accumulate_operator_family_.Add(labels)},
-                  .aggregate_operator = {&aggregate_operator_family_.Add(labels)},
-                  .skip_operator = {&skip_operator_family_.Add(labels)},
-                  .limit_operator = {&limit_operator_family_.Add(labels)},
-                  .order_by_operator = {&order_by_operator_family_.Add(labels)},
-                  .merge_operator = {&merge_operator_family_.Add(labels)},
-                  .optional_operator = {&optional_operator_family_.Add(labels)},
-                  .unwind_operator = {&unwind_operator_family_.Add(labels)},
-                  .distinct_operator = {&distinct_operator_family_.Add(labels)},
-                  .union_operator = {&union_operator_family_.Add(labels)},
-                  .cartesian_operator = {&cartesian_operator_family_.Add(labels)},
-                  .call_procedure_operator = {&call_procedure_operator_family_.Add(labels)},
-                  .foreach_operator = {&foreach_operator_family_.Add(labels)},
-                  .evaluate_pattern_filter_operator = {&evaluate_pattern_filter_operator_family_.Add(labels)},
-                  .apply_operator = {&apply_operator_family_.Add(labels)},
-                  .indexed_join_operator = {&indexed_join_operator_family_.Add(labels)},
-                  .hash_join_operator = {&hash_join_operator_family_.Add(labels)},
-                  .roll_up_apply_operator = {&roll_up_apply_operator_family_.Add(labels)},
-                  .periodic_commit_operator = {&periodic_commit_operator_family_.Add(labels)},
-                  .periodic_subquery_operator = {&periodic_subquery_operator_family_.Add(labels)},
-                  .set_nested_property_operator = {&set_nested_property_operator_family_.Add(labels)},
-                  .remove_nested_property_operator = {&remove_nested_property_operator_family_.Add(labels)},
-                  .active_label_indices = {&active_label_indices_family_.Add(labels)},
-                  .active_label_property_indices = {&active_label_property_indices_family_.Add(labels)},
-                  .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
-                  .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
-                  .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
-                  .active_vertex_property_indices = {&active_vertex_property_indices_family_.Add(labels)},
-                  .active_point_indices = {&active_point_indices_family_.Add(labels)},
-                  .active_text_indices = {&active_text_indices_family_.Add(labels)},
-                  .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
-                  .active_vector_indices = {&active_vector_indices_family_.Add(labels)},
-                  .active_vector_edge_indices = {&active_vector_edge_indices_family_.Add(labels)},
-                  .active_existence_constraints = {&active_existence_constraints_family_.Add(labels)},
-                  .active_unique_constraints = {&active_unique_constraints_family_.Add(labels)},
-                  .active_type_constraints = {&active_type_constraints_family_.Add(labels)},
-                  .streams_created = {&streams_created_family_.Add(labels)},
-                  .messages_consumed = {&messages_consumed_family_.Add(labels)},
-                  .triggers_created = {&triggers_created_family_.Add(labels)},
-                  .triggers_executed = {&triggers_executed_family_.Add(labels)},
-                  .active_transactions = {&active_transactions_family_.Add(labels)},
-                  .committed_transactions = {&committed_transactions_family_.Add(labels)},
-                  .rolled_back_transactions = {&rolled_back_transactions_family_.Add(labels)},
-                  .failed_query = {&failed_query_family_.Add(labels)},
-                  .failed_prepare = {&failed_prepare_family_.Add(labels)},
-                  .failed_pull = {&failed_pull_family_.Add(labels)},
-                  .successful_query = {&successful_query_family_.Add(labels)},
-                  .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
-                  .transient_errors = {&transient_errors_family_.Add(labels)},
-                  .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
-                  .read_query = {&read_query_family_.Add(labels)},
-                  .write_query = {&write_query_family_.Add(labels)},
-                  .read_write_query = {&read_write_query_family_.Add(labels)},
-                  .deleted_nodes = {&deleted_nodes_family_.Add(labels)},
-                  .deleted_edges = {&deleted_edges_family_.Add(labels)},
-                  .show_schema = {&show_schema_family_.Add(labels)},
-                  .show_storage_info = {&show_storage_info_family_.Add(labels)},
-                  .query_execution_latency_seconds = {&query_execution_latency_family_.Add(labels, kLatencyBuckets)},
-                  .snapshot_creation_latency_seconds = {&snapshot_creation_latency_family_.Add(labels,
-                                                                                               kLatencyBuckets)},
-                  .snapshot_recovery_latency_seconds = {&snapshot_recovery_latency_family_.Add(labels,
-                                                                                               kLatencyBuckets)},
-                  .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
-                  .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels,
-                                                                                                   kLatencyBuckets)},
-                  .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
-              },
-      });
-  return Registration{this, entry_id, databases_.entries.back().handles};
+  databases_.entries.push_back({
+      .id = entry_id,
+      .uuid = uuid,
+      .db_name = std::string(name),
+      .handles = handles,
+      .sharded = std::move(sharded),
+  });
+  return Registration{this, entry_id, handles};
 }
 
 PrometheusMetrics::Registration::~Registration() { Release(); }
@@ -1202,7 +1233,16 @@ void PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
   default_db_uuid_ = new_uuid;
 }
 
+void PrometheusMetrics::FoldSharded() const {
+  global_sharded_->Fold();
+  std::shared_lock const lock{databases_.mutex};
+  for (auto const &entry : databases_.entries) {
+    entry.sharded->Fold();
+  }
+}
+
 void PrometheusMetrics::UpdateGauges() {
+  FoldSharded();
   std::vector<utils::UUID> db_uuids;
   {
     std::shared_lock const lock{databases_.mutex};
@@ -1401,6 +1441,7 @@ void AppendThroughputPercentiles(std::vector<MetricInfo> &out, std::string const
 }  // namespace
 
 std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetricsInfo(utils::UUID const &uuid) const {
+  FoldSharded();
   {
     std::shared_lock const lock{databases_.mutex};
     auto const it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
@@ -1629,6 +1670,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 }
 
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
+  FoldSharded();
   auto const default_db_uuid = [&] {
     std::shared_lock const lock{databases_.mutex};
     return default_db_uuid_;
@@ -2005,6 +2047,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
 }
 
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
+  FoldSharded();
   std::vector<MetricInfo> out;
 
   // Memory (global only)
@@ -2182,6 +2225,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
 }
 
 nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
+  FoldSharded();
   // Aggregate per-db counters
   int64_t read_query = 0;
   int64_t write_query = 0;
