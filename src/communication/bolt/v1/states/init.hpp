@@ -200,11 +200,10 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
       // The full (non-cached) check, matching the gate the SSO path uses: the cached flag is only refreshed every
       // few minutes, so a license that expired by date would keep passthrough denied while SSO already rejects every
       // login, locking every Bolt scheme out of the coordinator until the next refresh.
-      bool deny_passthrough = license::global_license_checker.IsEnterpriseValid().has_value();
-      if (deny_passthrough) {
-        // nullopt (leader unreachable / no coordinator state) => keep passthrough denied (fail-closed).
-        deny_passthrough = session.CoordinatorHasWritableRole().value_or(true);
-      }
+      // The role lookup is a leader read, so it runs only when the license check already denies; nullopt (leader
+      // unreachable / no coordinator state) keeps passthrough denied (fail-closed).
+      const bool deny_passthrough = license::global_license_checker.IsEnterpriseValid().has_value() &&
+                                    session.CoordinatorHasWritableRole().value_or(true);
       if (deny_passthrough) {
         // The message tells basic/none apart from a scheme the mappings don't list, since the remedy differs: the
         // former needs an SSO login, the latter is usually a misspelled or unconfigured scheme.
