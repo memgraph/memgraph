@@ -137,7 +137,10 @@ class Memgraph(ConanFile):
         # OpenSSL >=3 and <4. Sanitizer builds use static OpenSSL to avoid ASAN-instrumented
         # libcrypto.so leaking into LD_LIBRARY_PATH and breaking autotools configure scripts
         # of other dependencies during the Conan build.
-        self.requires("openssl/3.0.18", options={"shared": openssl_shared})
+        #
+        # Do not remove `override=True` - this is needed otherwise dependencies which also link
+        # to OpenSSL will pull it in statically and ignore our preference for a shared link.
+        self.requires("openssl/3.0.18", override=True, options={"shared": openssl_shared})
         self.requires("protobuf/3.21.12")
         self.requires("pulsar-client-cpp/4.0.0-memgraph")
         self.requires("range-v3/0.12.0")
