@@ -2875,6 +2875,11 @@ TYPED_TEST(FunctionTest, ValueType) {
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Enum{EnumTypeId{0}, EnumValueId{0}})).ValueString(), "ENUM");
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Point2d(Cartesian_2d, 1, 2))).ValueString(), "POINT");
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Point3d(Cartesian_3d, 1, 2, 3))).ValueString(), "POINT");
+  auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L1"}, {}));
+  auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L2"}, {}));
+  ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(*vn1)).ValueString(), "VIRTUAL_NODE");
+  ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(memgraph::query::VirtualEdge(vn1, vn2, "ET"))).ValueString(),
+            "VIRTUAL_RELATIONSHIP");
   ASSERT_EQ(
       this->EvaluateFunction("VALUETYPE", TypedValue(VirtualGraph(memgraph::utils::NewDeleteResource()))).ValueString(),
       "VIRTUAL_GRAPH");
