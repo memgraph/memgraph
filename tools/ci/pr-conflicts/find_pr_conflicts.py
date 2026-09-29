@@ -17,6 +17,7 @@ import argparse
 import json
 
 MARKER = "<!-- pr-conflicts -->"
+REPO = "memgraph/memgraph"
 
 
 def load_pr_files(json_path: str) -> dict[int, set[str]]:
@@ -51,6 +52,10 @@ def find_conflicts(pr_files: dict[int, set[str]], pr_number: int) -> list[tuple[
 def build_message(conflicts: list[tuple[int, int]]) -> str:
     """
     Build the PR comment listing the conflicting PRs.
+
+    PRs are linked through redirect.github.com rather than as `#1234` or a
+    github.com URL, so GitHub doesn't add a "mentioned this" backlink to, or
+    notify, every PR listed.
     """
     lines = [
         MARKER,
@@ -58,7 +63,8 @@ def build_message(conflicts: list[tuple[int, int]]) -> str:
         "",
     ]
     for other, shared in conflicts:
-        lines.append(f"- #{other}: {shared} file{'s' if shared != 1 else ''}")
+        link = f"[#{other}](https://redirect.github.com/{REPO}/pull/{other})"
+        lines.append(f"- {link}: {shared} file{'s' if shared != 1 else ''}")
 
     return "\n".join(lines) + "\n"
 
