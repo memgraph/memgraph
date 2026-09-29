@@ -1225,7 +1225,8 @@ struct LabelCnf {
 class LabelsTest;
 
 /// The test `subject:term` stands for. A conjunction of labels fills `LabelCnf::labels`, a disjunction of
-/// labels one `LabelCnf::or_labels` group, and anything else is kept whole as a `LabelTerm`.
+/// labels one `LabelCnf::or_labels` group (or `labels`, when it names one label), and anything else is kept
+/// whole as a `LabelTerm`.
 LabelsTest *MakeLabelsTest(AstStorage &storage, Expression *subject, LabelTerm term);
 
 /// The tests a whole-term test over an identifier stands for once `!!` is dropped and `&` flattened, so that index

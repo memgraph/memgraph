@@ -5370,6 +5370,21 @@ TYPED_TEST(TestPlanner, RepeatedDisjunctionLabelIsScannedOnce) {
   }
 }
 
+// A choice that names one label demands that label outright, so it merges into the node's labels, not a group.
+TYPED_TEST(TestPlanner, OneLabelChoiceIsAPlainLabel) {
+  FakeDbAccessor dba;
+  // MATCH (n:(Label1|Label1)&Label2) RETURN n
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE_WITH_TERM("n",
+                                   LABEL_TERM_AND(LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label1")),
+                                                  LABEL_TERM_LEAF("Label2"))))),
+      RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterLabels({"Label1", "Label2"}), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterOrLabels({}), ExpectProduce());
+}
+
 // A mixed term still hands index selection the disjunction it can use, and keeps the rest as a filter. The same
 // expression in pattern position and in WHERE has to reach the planner the same way.
 TYPED_TEST(TestPlanner, MixedTermExtractsTheDisjunction) {

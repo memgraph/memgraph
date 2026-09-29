@@ -10189,7 +10189,7 @@ TEST_P(CypherMainVisitorTest, LabelExpressionInExpressionPosition) {
       {"n:A:B", "A:B"},
       {"n:A&B", "A:B"},
       {"n:A|B", "(A|B)"},
-      {"n:A|A", "(A)"},
+      {"n:A|A", "A"},
       {"n:!A", "{!A}"},
       {"n:%", "{%}"},
       {"n:!%", "{!%}"},

@@ -648,7 +648,9 @@ LabelsTest *MakeLabelsTest(AstStorage &storage, Expression *subject, LabelTerm t
       const auto &label = operand.As<LabelTerm::Label>()->label;
       if (!std::ranges::contains(labels, label)) labels.push_back(label);
     }
-    return storage.Create<LabelsTest>(subject, std::move(labels), /*or_group=*/true);
+    // A choice of one label is that label, which the node must then carry outright.
+    const bool or_group = labels.size() > 1U;
+    return storage.Create<LabelsTest>(subject, std::move(labels), or_group);
   }
   return storage.Create<LabelsTest>(subject, std::move(term));
 }
