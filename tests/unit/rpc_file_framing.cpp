@@ -21,6 +21,8 @@
 //   INV-5 (inter-message independence): consecutive messages on one connection
 //          parse independently (SequentialMessagesOnOneConnection).
 
+#include <unistd.h>
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -154,6 +156,13 @@ std::vector<size_t> SplitsToTest(const Wire &w) {
   return out;
 }
 
+// A working directory of this process's own. Each fixture empties its root, so a second copy of
+// this binary sharing one would delete files the first is still using, and two checkouts on one
+// machine run exactly that way.
+fs::path TempRoot(std::string_view name) {
+  return fs::temp_directory_path() / (std::string{name} + "_" + std::to_string(::getpid()));
+}
+
 const Scenario kScenarios[] = {
     {"empty_file", {0}},
     {"one_byte", {1}},
@@ -170,7 +179,7 @@ const Scenario kScenarios[] = {
 class RpcFileFraming : public ::testing::Test {
  protected:
   void SetUp() override {
-    root_ = fs::temp_directory_path() / "mg_rpc_file_framing";
+    root_ = TempRoot("mg_rpc_file_framing");
     fs::remove_all(root_);
     fs::create_directories(root_ / "wal");
     // OpenFile() saves received files under FLAGS_data_directory/<gp>/tmp/<type>.
@@ -331,7 +340,7 @@ TEST_F(RpcFileFraming, SequentialMessagesOnOneConnection) {
 class ReplicationEncoderPageCache : public ::testing::Test {
  protected:
   void SetUp() override {
-    root_ = fs::temp_directory_path() / "mg_repl_page_cache";
+    root_ = TempRoot("mg_repl_page_cache");
     fs::remove_all(root_);
     fs::create_directories(root_ / "wal");
   }

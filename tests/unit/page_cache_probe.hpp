@@ -73,6 +73,10 @@ struct Cachestat {
 
 /// `path`'s state in the page cache, via cachestat(2). std::nullopt when the file is empty, or when
 /// this kernel cannot answer, in which case a release and a reclaim cannot be told apart.
+///
+/// Every count is in pages of the kernel's own page size, including a large folio, which counts as
+/// the pages it spans. `pages` is derived the same way, so the two are comparable exactly on any
+/// page size.
 inline std::optional<CacheState> CacheStateOf(const std::filesystem::path &path) {
   if constexpr (detail::kCachestat < 0) return std::nullopt;
 
