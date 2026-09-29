@@ -12,7 +12,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <optional>
+#include <thread>
 
 #include "rpc/client.hpp"
 #include "rpc/file_replication_handler.hpp"
@@ -149,7 +153,18 @@ class MockedSnapshotObserver final {
   MOCK_METHOD(void, Update, ());
 };
 
-constexpr int port{8184};
+namespace {
+
+// Bound to an ephemeral port so consecutive tests can't collide on a socket still in TIME_WAIT.
+Endpoint const kAnyPort{"127.0.0.1", 0};
+
+// Only stops a hang; reaching it means a step never happened, which fails the test's assertion.
+constexpr auto kStepTimeout = 30s;
+
+// A timeout no test in this file can cross: the property under test is the protocol, not the clock.
+constexpr int kGenerousTimeoutMs = 10'000;
+
+}  // namespace
 
 TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedNoVertices) {
   InMemoryLabelIndex label_idx;
@@ -341,11 +356,10 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
                                         on_progress));
 }
 
+// A handler that answers immediately never trips a configured timeout.
 TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
-  Endpoint endpoint{"localhost", port};
-
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
@@ -363,21 +377,28 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
       });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, 150)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, kGenerousTimeoutMs)};
   ClientContext client_context;
-  Client client{endpoint, &client_context, rpc_timeouts};
+  Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
   EXPECT_NO_THROW(stream.SendAndWaitProgress());
 }
 
+// The per-message timeout restarts on every InProgressRes. The handler is silent for well over the timeout in total,
+// so the call can only succeed if each heartbeat restarts the deadline. Each individual gap sits an order of magnitude
+// below the timeout, and sleep_for never returns early, so the total is a guaranteed lower bound rather than a race.
 TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
-  Endpoint endpoint{"localhost", port};
+  static constexpr auto kHeartbeatGap = 50ms;
+  static constexpr int kHeartbeats = 20;
+  static constexpr int kTimeoutMs = 500;
+  static constexpr auto kTotalServerTime = kHeartbeatGap * kHeartbeats;
+  static_assert(kTotalServerTime >= 2 * std::chrono::milliseconds{kTimeoutMs});
+  static_assert(10 * kHeartbeatGap <= std::chrono::milliseconds{kTimeoutMs});
 
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
@@ -390,59 +411,77 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
          auto *res_builder) {
         SnapshotReq req;
         Load(&req, req_reader);
-        std::this_thread::sleep_for(10ms);
-        memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(10ms);
-        memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(10ms);
+        for (int i = 0; i < kHeartbeats; ++i) {
+          std::this_thread::sleep_for(kHeartbeatGap);
+          memgraph::rpc::SendInProgressMsg(res_builder);
+        }
         SnapshotRes res{1, 1};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, 150)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, kTimeoutMs)};
   ClientContext client_context;
-  Client client{endpoint, &client_context, rpc_timeouts};
+  Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
+  auto const start = std::chrono::steady_clock::now();
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
   EXPECT_NO_THROW(stream.SendAndWaitProgress());
+  auto const elapsed = std::chrono::steady_clock::now() - start;
+
+  // Documents that the call really outlived the timeout, which is what makes the success meaningful.
+  EXPECT_GE(elapsed, kTotalServerTime);
 }
 
+// Once the handler goes quiet after an InProgressRes, the client times out. The handler is held on a condition variable
+// the test only releases after the throw has been observed, so the client can't receive anything before the deadline
+// no matter how the threads are scheduled.
 TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
-  Endpoint endpoint{"localhost", port};
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool response_released = false;
 
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
-  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    ASSERT_TRUE(rpc_server.Shutdown());
-    rpc_server.AwaitShutdown();
-  }};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
 
   rpc_server.Register<SnapshotRpc>(
-      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version,
-         auto *req_reader,
-         auto *res_builder) {
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         SnapshotReq req;
         Load(&req, req_reader);
-        std::this_thread::sleep_for(75ms);
         memgraph::rpc::SendInProgressMsg(res_builder);
-        std::this_thread::sleep_for(10ms);
-        SnapshotRes res{1, 1};
-        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+        {
+          std::unique_lock lock{mutex};
+          cv.wait_for(lock, kStepTimeout, [&] { return response_released; });
+        }
+        try {
+          SnapshotRes res{1, 1};
+          memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+        } catch (...) {
+          // The client has already timed out and closed the socket.
+        }
       });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, 25)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, 100)};
   ClientContext client_context;
-  Client client{endpoint, &client_context, rpc_timeouts};
+  Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
   EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
+
+  {
+    std::lock_guard const lock{mutex};
+    response_released = true;
+  }
+  cv.notify_all();
+
+  ASSERT_TRUE(rpc_server.Shutdown());
+  rpc_server.AwaitShutdown();
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {
