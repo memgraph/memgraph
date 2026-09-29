@@ -933,10 +933,13 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge>
           if (!value) throw RecoveryFailure("Couldn't read edge property value!");
           auto prop_id = snapshot_id_map.GetProperty(*key);
           auto prop_value = ToPropertyValue(*value, name_id_mapper);
-          // Before InitProperties discards the embedded vector, capture it.
           if (capture && prop_value.IsVectorIndexId()) {
             auto vec = prop_value.ValueVectorIndexList();
-            if (!vec.empty()) {
+            if (vec.empty()) {
+              // Legacy on-disk form of []: there is nothing to index, so store the plain empty list.
+              prop_value = PropertyValue(std::vector<double>{});
+            } else {
+              // Before InitProperties discards the embedded vector, capture it.
               local_capture[prop_id].emplace(Gid::FromUint(*gid), std::move(vec));
             }
           }

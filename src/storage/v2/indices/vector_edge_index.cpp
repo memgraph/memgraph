@@ -13,6 +13,7 @@
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <shared_mutex>
+#include <string>
 #include <unordered_set>
 #include <utility>
 
@@ -192,13 +193,16 @@ void VectorEdgeIndex::RecoverAllVectorEdgeIndices(std::vector<VectorEdgeIndexRec
           if (!maybe_vec) continue;
           vec = *maybe_vec;
         }
+        // A plain [] is a legitimate value with nothing to index; it stays a plain list and is never
+        // promoted to a tag (a tag with no usearch entry would read as lost on the next recovery).
+        if (vec.empty()) continue;
 
         utils::small_vector<uint64_t> member_ids;
         for (auto &[index_id, item_ptr] : item_list) {
           if (!item_ptr->spec.edge_type_filter.Matches(endpoints.edge_type)) continue;
-          if (!vec.empty()) {
-            // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
-            UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, edge, vec, thread_id);
+          // The usearch mutex inside UpdateVectorIndex is released before edge_endpoints_mutex_ is taken.
+          UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, edge, vec, thread_id);
+          {
             auto lock = std::unique_lock{edge_endpoints_mutex_};
             edge_endpoints_[edge] = endpoints;
           }
@@ -209,6 +213,7 @@ void VectorEdgeIndex::RecoverAllVectorEdgeIndices(std::vector<VectorEdgeIndexRec
           const bool already_correct =
               stored_as_tag && std::ranges::is_permutation(stored_value.ValueVectorIndexIds(), member_ids);
           if (!already_correct) {
+            // The property store persists only the ids; the vector already lives in usearch.
             edge->properties.SetProperty(
                 property, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(member_ids), .vector = {}}));
           }
@@ -653,21 +658,18 @@ void VectorEdgeIndex::SerializeAllVectorEdgeIndices(durability::BaseEncoder *enc
 void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, PropertyValue &value, const Edge *edge,
                                                       std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
                                                       EdgeVectors &edge_vectors) {
+  // A tag with no vector is the legacy on-disk form of []; treat it as the plain empty list it stands for.
+  if (value.IsVectorIndexId() && value.ValueVectorIndexList().empty()) {
+    value = PropertyValue(std::vector<double>{});
+  }
+
   const bool has_spec = r::any_of(recovery_info_vec, [&](const auto &ri) { return ri.spec.property == property; });
 
   if (has_spec) {
-    bool should_erase = true;
     if (value.IsVectorIndexId()) {
-      auto vec = value.ValueVectorIndexList();
-      if (!vec.empty()) {
-        edge_vectors[property][edge->gid] = std::move(vec);
-        should_erase = false;
-      }
-    }
-    if (should_erase) {
-      if (auto it = edge_vectors.find(property); it != edge_vectors.end()) {
-        it->second.erase(edge->gid);
-      }
+      edge_vectors[property][edge->gid] = value.ValueVectorIndexList();
+    } else if (auto it = edge_vectors.find(property); it != edge_vectors.end()) {
+      it->second.erase(edge->gid);
     }
   } else {
     // No active spec for this property. A tag value here is a stale artifact (its index was
@@ -679,10 +681,12 @@ void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, Prope
   }
 }
 
-void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name,
+void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name_view,
                                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
                                                 EdgeVectors &edge_vectors,
                                                 utils::SkipListDb<Vertex>::Accessor &vertices) {
+  // The view may alias the spec erased below; keep an owning copy for everything after the erase.
+  const std::string index_name{index_name_view};
   auto it = r::find_if(recovery_info_vec, [&](const auto &ri) { return ri.spec.index_name == index_name; });
   if (it == recovery_info_vec.end()) return;
   const PropertyId property = it->spec.property;

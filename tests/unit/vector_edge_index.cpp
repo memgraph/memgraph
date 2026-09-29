@@ -271,6 +271,35 @@ TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
   }
 }
 
+TEST_F(VectorEdgeIndexTest, SetEmptyListKeepsPlainListAndLeavesIndex) {
+  this->CreateEdgeIndex(2, 10);
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue initial_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, initial_value, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto property = acc->NameToProperty(test_property);
+    MG_ASSERT(edge.SetProperty(property, PropertyValue(std::vector<PropertyValue>{})).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto stored = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_FALSE(stored->IsVectorIndexId());
+    EXPECT_TRUE(stored->IsAnyList());
+    EXPECT_EQ(stored->ListSize(), 0u);
+  }
+}
+
 TEST_F(VectorEdgeIndexTest, DeleteEdgeTest) {
   this->CreateEdgeIndex(2, 10);
   Gid edge_gid;
@@ -992,6 +1021,56 @@ TEST_F(VectorEdgeIndexRecoveryTest, DropThenRecreateOnSamePropertyRecoversFromEd
     ASSERT_TRUE(prop.IsVectorIndexId());
     EXPECT_EQ(prop.ValueVectorIndexIds(), (memgraph::utils::small_vector<uint64_t>{new_id}));
   }
+}
+
+// A plain [] under a matching spec has nothing to index. It must stay a plain list rather than be
+// promoted to a tag, since a tag with no usearch entry would read as lost data on the next recovery.
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverAllVectorEdgeIndicesLeavesEmptyListUntouched) {
+  FLAGS_storage_parallel_schema_recovery = false;
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  {
+    auto acc = edges_.access();
+    auto e0 = acc.find(Gid::FromUint(0));
+    ASSERT_NE(e0, acc.end());
+    e0->properties.SetProperty(kProp, PropertyValue(std::vector<double>{}));
+  }
+
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec()}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  EXPECT_NO_THROW(RecoverAll(infos, ev));
+
+  const auto info = vector_edge_index_.ListVectorIndicesInfo();
+  ASSERT_EQ(info.size(), 1);
+  EXPECT_EQ(info[0].size, kNumEdges - 1);
+
+  auto acc = edges_.access();
+  auto e0 = acc.find(Gid::FromUint(0));
+  ASSERT_NE(e0, acc.end());
+  const auto stored = e0->properties.GetProperty(kProp);
+  EXPECT_FALSE(stored.IsVectorIndexId());
+  EXPECT_TRUE(stored.IsAnyList());
+  EXPECT_EQ(stored.ListSize(), 0u);
+}
+
+// UpdateOnSetEdgeProperty: a tag with no vector is the legacy on-disk form of [] and becomes a plain
+// empty list, dropping any earlier captured vector for the edge.
+TEST_F(VectorEdgeIndexRecoveryTest, UpdateOnSetEdgePropertyEmptyTagBecomesEmptyList) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec()}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  Edge edge(Gid::FromUint(77), nullptr);
+  ev[kProp].emplace(edge.gid, memgraph::utils::small_vector<float>{1.0F, 2.0F});
+
+  PropertyValue empty_tag(
+      PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{42}, .vector = {}});
+  VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(kProp, empty_tag, &edge, infos, ev);
+
+  EXPECT_FALSE(empty_tag.IsVectorIndexId());
+  EXPECT_TRUE(empty_tag.IsAnyList());
+  EXPECT_EQ(empty_tag.ListSize(), 0u);
+  EXPECT_FALSE(ev[kProp].contains(edge.gid));
 }
 
 // UpdateOnSetEdgeProperty: with a spec on the property, a tag carrying its vector is captured into

@@ -42,6 +42,8 @@ namespace {
 std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, EdgeTypeId edge_type,
                                                                  PropertyId property, const PropertyValue &value) {
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
+  // An empty list has no vector to index; keep it as a plain list so the edge leaves the index.
+  if (value.ListSize() == 0) return std::nullopt;
   if (storage->indices_.vector_edge_index_.Empty()) return std::nullopt;
   auto index_ids = storage->indices_.vector_edge_index_.GetIndexIdsForEdgeTypeProperty(edge_type, property);
   if (index_ids.empty()) return std::nullopt;

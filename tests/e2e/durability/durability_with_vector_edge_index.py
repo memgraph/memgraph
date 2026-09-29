@@ -439,6 +439,17 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
             [5.0, 6.0],
         ),
         (
+            "member_set_to_empty_list",
+            [
+                EDGE_INDEX.format(name="idx", types=":REL"),
+                "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
+                "MATCH ()-[r:REL]->() SET r.emb = [];",
+            ],
+            None,
+            {"idx": 0},
+            [],
+        ),
+        (
             "index_dropped_restores_plain_list",
             [
                 EDGE_INDEX.format(name="idx", types=":REL"),
@@ -580,7 +591,9 @@ def test_durability_vector_edge_index_membership_after_replay(
     assert len(embedding) == 1
     assert embedding[0][0] == expected_embedding
 
-    for name in expected_indexes:
+    for name, size in expected_indexes.items():
+        if size == 0:
+            continue
         search_results = vector_edge_search(cursor, name, 1, expected_embedding)
         assert len(search_results) == 1
         assert search_results[0][0] == 0.0
