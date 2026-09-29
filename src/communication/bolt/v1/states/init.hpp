@@ -229,6 +229,12 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
           "Allowing auth passthrough on this coordinator as a break-glass path: SSO can't currently grant a "
           "privileged session (invalid enterprise license, or no COORDINATOR_WRITE role in the committed role "
           "set).");
+    } else if (schema != "basic" && schema != "none") {
+      spdlog::warn(
+          "Client connected to this coordinator with the \"{}\" authentication scheme, but no SSO module is configured "
+          "(the auth-module-mappings flag is empty): the credentials were ignored and the session was admitted as a "
+          "passthrough.",
+          schema);
     }
     session.CoordinatorPassthroughAuthenticate();
     return std::nullopt;
