@@ -11,3 +11,9 @@ tools.build:cflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sa
 tools.build:cxxflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ ubsan_ignore_path }}"]
 tools.build:exelinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]
 tools.build:sharedlinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]
+
+[options]
+# Static OpenSSL under sanitizers: an instrumented libcrypto.so on
+# LD_LIBRARY_PATH breaks the autotools configure scripts of other conan
+# dependencies during the build. Overrides "openssl/*:shared" in conanfile.py.
+openssl/*:shared=False
