@@ -374,25 +374,25 @@ TEST_F(ReplicationEncoderPageCache, DroppingLeavesTheSentFileEvicted) {
   auto const kept_path = WriteSyncedFile("kept.bin");
   auto const dropped_path = WriteSyncedFile("dropped.bin");
 
-  // Both files are sent before either is measured, and the kept one is sent first and measured
-  // last, so it is exposed to reclaim for at least as long as the dropped one. Residency on its
-  // own cannot tell a drop from the kernel reclaiming clean pages under memory pressure; what
-  // distinguishes them is a file that went through the same window and survived it.
   Send(kept_path, memgraph::utils::PageCachePolicy::kKeep);
   Send(dropped_path, memgraph::utils::PageCachePolicy::kDrop);
 
-  auto const dropped = memgraph::test::ResidentFraction(dropped_path);
-  auto const kept = memgraph::test::ResidentFraction(kept_path);
-  ASSERT_TRUE(dropped.has_value());
-  ASSERT_TRUE(kept.has_value());
-
-  // Sending reads the whole file, so an untouched page cache holds all of it. Where the machine
-  // took the pages back anyway there is no evidence either way, and a comparison against a file
-  // the kernel also emptied would pass for the wrong reason.
-  if (*kept <= 0.9) {
-    GTEST_SKIP() << "the machine reclaimed " << ((1 - *kept) * 100) << "% of a file that was kept, so nothing here "
-                 << "distinguishes dropping from reclaiming";
+  auto const dropped = memgraph::test::CacheStateOf(dropped_path);
+  auto const kept = memgraph::test::CacheStateOf(kept_path);
+  if (!dropped || !kept) {
+    GTEST_SKIP() << "this kernel cannot report what became of a file's pages, so a release and a "
+                 << "reclaim are indistinguishable here";
   }
-  EXPECT_LT(*dropped, 0.05) << "kDrop left " << (*dropped * 100) << "% of the sent file resident, against "
-                            << (*kept * 100) << "% for kKeep";
+
+  // Memory pressure takes clean pages at any time, and a file the machine emptied looks exactly
+  // like one that was released. It does not look the same to the kernel, which remembers the pages
+  // it took, so the two can be told apart rather than guessed at from how many are left.
+  if (dropped->reclaimed != 0 || kept->reclaimed != 0) {
+    GTEST_SKIP() << "the machine reclaimed " << (dropped->reclaimed + kept->reclaimed)
+                 << " page(s) of these files under memory pressure, which is the same absence a release leaves";
+  }
+
+  EXPECT_EQ(dropped->cached, 0U) << "kDrop left " << dropped->cached << " of " << dropped->pages
+                                 << " pages of the sent file cached";
+  EXPECT_EQ(kept->cached, kept->pages) << "kKeep dropped pages of the sent file";
 }
