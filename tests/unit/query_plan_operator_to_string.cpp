@@ -446,7 +446,7 @@ TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels2) {
   auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
 
   std::vector<LabelIx> labels2{this->storage.GetLabelIx("Label3"), this->storage.GetLabelIx("Label4")};
-  labels_test->or_labels_.push_back(labels2);
+  labels_test->Cnf()->or_labels.push_back(labels2);
   label_filter_info.or_labels.push_back(labels2);
 
   Filters filters;
@@ -469,7 +469,7 @@ TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels3) {
   auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
 
   std::vector<LabelIx> labels2{this->storage.GetLabelIx("Label3"), this->storage.GetLabelIx("Label4")};
-  labels_test->or_labels_.push_back(labels2);
+  labels_test->Cnf()->or_labels.push_back(labels2);
   label_filter_info.or_labels.push_back(labels2);
 
   Filters filters;

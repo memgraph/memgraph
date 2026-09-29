@@ -634,16 +634,15 @@ LabelsTest *MakeLabelsTest(AstStorage &storage, Expression *subject, LabelTerm t
     }
     return storage.Create<LabelsTest>(subject, std::move(labels), /*or_group=*/true);
   }
-  auto *test = storage.Create<LabelsTest>(subject, std::vector<LabelIx>{});
-  test->term_ = std::move(term);
-  return test;
+  return storage.Create<LabelsTest>(subject, std::move(term));
 }
 
 std::vector<LabelsTest *> SplitLabelsTest(AstStorage &storage, const LabelsTest &test) {
   // Only an identifier may be copied per piece: any other subject would be evaluated once per piece.
-  if (!test.term_ || !utils::Downcast<Identifier>(test.expression_)) return {};
+  const auto *whole = test.Term();
+  if (!whole || !utils::Downcast<Identifier>(test.expression_)) return {};
   bool changed = false;
-  auto term = Normalise(*test.term_, changed);
+  auto term = Normalise(*whole, changed);
   if (term.kind != LabelTerm::Kind::And || r::none_of(term.children, IsLabelChoice)) {
     // Normalising alone can still leave a label, as of `!!A`, or fewer operators to test.
     if (!changed) return {};

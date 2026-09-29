@@ -6175,9 +6175,9 @@ TYPED_TEST(TestPlanner, ALabelFilterAgreesWithItsTest) {
           auto *test = dynamic_cast<memgraph::query::LabelsTest *>(filter.expression);
           ASSERT_NE(test, nullptr);
           EXPECT_EQ(std::set(filter.labels.begin(), filter.labels.end()),
-                    std::set(test->labels_.begin(), test->labels_.end()))
+                    std::set(test->Cnf()->labels.begin(), test->Cnf()->labels.end()))
               << "AND labels disagree with the test";
-          EXPECT_EQ(filter.or_labels, test->or_labels_) << "OR groups disagree with the test";
+          EXPECT_EQ(filter.or_labels, test->Cnf()->or_labels) << "OR groups disagree with the test";
         }
       }
     }
@@ -6205,10 +6205,10 @@ TYPED_TEST(TestPlanner, FiltersOfTwoOperatorsAreKeptApart) {
   for (const auto &label : filters.FilteredLabels(symbol)) offered.insert(label.name);
   EXPECT_EQ(offered, (std::set<std::string>{"Label1", "Label2"}));
   // Neither test was rewritten to stand for both.
-  ASSERT_EQ(first->labels_.size(), 1U);
-  ASSERT_EQ(second->labels_.size(), 1U);
-  EXPECT_EQ(first->labels_.front().name, "Label1");
-  EXPECT_EQ(second->labels_.front().name, "Label2");
+  ASSERT_EQ(first->Cnf()->labels.size(), 1U);
+  ASSERT_EQ(second->Cnf()->labels.size(), 1U);
+  EXPECT_EQ(first->Cnf()->labels.front().name, "Label1");
+  EXPECT_EQ(second->Cnf()->labels.front().name, "Label2");
 }
 
 // One expression's label tests over one symbol apply to the same rows, so they are collected as one filter.
@@ -6346,10 +6346,10 @@ TYPED_TEST(TestPlanner, PlanningALabelExpressionTwiceGivesTheSamePlan) {
     auto *single = LABELS_TEST(IDENT("n"), std::vector{label("Label3")});
     plan_twice(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(OR(group, single)), RETURN("n"))),
                Groups{{"Label1", "Label2", "Label3"}});
-    EXPECT_TRUE(group->labels_.empty());
-    EXPECT_THAT(group->or_labels_, testing::ElementsAre(testing::ElementsAre(label("Label1"), label("Label2"))));
-    EXPECT_THAT(single->labels_, testing::ElementsAre(label("Label3")));
-    EXPECT_TRUE(single->or_labels_.empty());
+    EXPECT_TRUE(group->Cnf()->labels.empty());
+    EXPECT_THAT(group->Cnf()->or_labels, testing::ElementsAre(testing::ElementsAre(label("Label1"), label("Label2"))));
+    EXPECT_THAT(single->Cnf()->labels, testing::ElementsAre(label("Label3")));
+    EXPECT_TRUE(single->Cnf()->or_labels.empty());
   }
   {
     // MATCH (n:(Label1|Label2)&Label3) RETURN n

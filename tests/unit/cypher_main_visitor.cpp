@@ -403,7 +403,7 @@ TEST_P(CypherMainVisitorTest, LabelsTest) {
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
-  ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label("x"), ast_generator.Label("y")));
+  ASSERT_THAT(labels_test->Cnf()->labels, ElementsAre(ast_generator.Label("x"), ast_generator.Label("y")));
   CheckRWType(query, kRead);
 }
 
@@ -418,7 +418,7 @@ TEST_P(CypherMainVisitorTest, EscapedLabel) {
   auto *labels_test = dynamic_cast<LabelsTest *>(return_clause->body_.named_expressions[0]->expression_);
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   ASSERT_EQ(identifier->name_, "n");
-  ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label("l-$\"'ab`e``l")));
+  ASSERT_THAT(labels_test->Cnf()->labels, ElementsAre(ast_generator.Label("l-$\"'ab`e``l")));
   CheckRWType(query, kRead);
 }
 
@@ -434,7 +434,7 @@ TEST_P(CypherMainVisitorTest, KeywordLabel) {
     auto *labels_test = dynamic_cast<LabelsTest *>(return_clause->body_.named_expressions[0]->expression_);
     auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
     ASSERT_EQ(identifier->name_, "n");
-    ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label(label)));
+    ASSERT_THAT(labels_test->Cnf()->labels, ElementsAre(ast_generator.Label(label)));
     CheckRWType(query, kRead);
   }
 }
@@ -450,7 +450,7 @@ TEST_P(CypherMainVisitorTest, HexLetterLabel) {
   auto *labels_test = dynamic_cast<LabelsTest *>(return_clause->body_.named_expressions[0]->expression_);
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   EXPECT_EQ(identifier->name_, "n");
-  ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label("a")));
+  ASSERT_THAT(labels_test->Cnf()->labels, ElementsAre(ast_generator.Label("a")));
   CheckRWType(query, kRead);
 }
 
@@ -10008,8 +10008,9 @@ std::string TermToString(const LabelTerm &term) {
 std::string LabelsToString(Expression *expression) {
   if (auto *test = dynamic_cast<LabelsTest *>(expression)) {
     std::vector<std::string> parts;
-    for (const auto &label : test->labels_) parts.push_back(label.name);
-    for (const auto &group : test->or_labels_) {
+    if (const auto *term = test->Term()) return "{" + TermToString(*term) + "}";
+    for (const auto &label : test->Cnf()->labels) parts.push_back(label.name);
+    for (const auto &group : test->Cnf()->or_labels) {
       std::string names;
       for (const auto &label : group) {
         if (!names.empty()) names += "|";
@@ -10017,7 +10018,6 @@ std::string LabelsToString(Expression *expression) {
       }
       parts.push_back("(" + names + ")");
     }
-    if (test->term_) parts.push_back("{" + TermToString(*test->term_) + "}");
     std::string out;
     for (const auto &part : parts) {
       if (!out.empty()) out += ":";

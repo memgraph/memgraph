@@ -691,19 +691,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           return !read_labels([&](storage::View view) { return vertex.Labels(view); }).empty();
         };
 
-        for (const auto &label : labels_test.labels_) {
+        if (const auto *term = labels_test.Term()) {
+          return TypedValue(EvalLabelTerm(*term, has_label, has_any_label), ctx_->memory);
+        }
+        const auto &cnf = *labels_test.Cnf();
+        for (const auto &label : cnf.labels) {
           if (!has_label(label)) {
             return TypedValue(false, ctx_->memory);
           }
         }
-        for (const auto &or_labels_pattern : labels_test.or_labels_) {
+        for (const auto &or_labels_pattern : cnf.or_labels) {
           if (!std::ranges::any_of(or_labels_pattern, has_label)) {
             return TypedValue(false, ctx_->memory);
           }
-        }
-
-        if (labels_test.term_ && !EvalLabelTerm(*labels_test.term_, has_label, has_any_label)) {
-          return TypedValue(false, ctx_->memory);
         }
         return TypedValue(true, ctx_->memory);
       }

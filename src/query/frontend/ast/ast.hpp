@@ -1172,13 +1172,19 @@ struct LabelTerm {
   std::optional<std::vector<QueryLabelType>> Conjunction() const;
 };
 
+/// What a node must carry for a test of plain labels: each of `labels`, and one of each group in `or_labels`.
+struct LabelCnf {
+  std::vector<LabelIx> labels;
+  std::vector<std::vector<LabelIx>> or_labels;
+};
+
 class LabelsTest;
 
-/// The test `subject:term` stands for. A conjunction of labels fills `labels_`, a disjunction of labels one
-/// `or_labels_` group, and anything else is kept whole in `term_`.
+/// The test `subject:term` stands for. A conjunction of labels fills `LabelCnf::labels`, a disjunction of
+/// labels one `LabelCnf::or_labels` group, and anything else is kept whole as a `LabelTerm`.
 LabelsTest *MakeLabelsTest(AstStorage &storage, Expression *subject, LabelTerm term);
 
-/// The tests a `term_` test over an identifier stands for once `!!` is dropped and `&` flattened, so that index
+/// The tests a whole-term test over an identifier stands for once `!!` is dropped and `&` flattened, so that index
 /// selection sees its labels: one test per conjunct that is a label or a disjunction of labels, in the order
 /// written, then one test with all other conjuncts. Empty when that leaves the test as it is.
 std::vector<LabelsTest *> SplitLabelsTest(AstStorage &storage, const LabelsTest &test);
@@ -1205,53 +1211,66 @@ class LabelsTest : public Expression {
 
   /// Whether this asks only that the value is a node. Such a test yields null for a null, true for a vertex,
   /// and raises for any other type.
-  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty() && !term_; }
+  bool IsNodeTest() const {
+    const auto *cnf = Cnf();
+    return cnf && cnf->labels.empty() && cnf->or_labels.empty();
+  }
+
+  /// The plain labels and label disjunctions this tests, or nullptr for a term held whole.
+  LabelCnf *Cnf() { return std::get_if<LabelCnf>(&test_); }
+
+  const LabelCnf *Cnf() const { return std::get_if<LabelCnf>(&test_); }
+
+  /// The label expression this tests whole, or nullptr for plain labels.
+  const LabelTerm *Term() const { return std::get_if<LabelTerm>(&test_); }
 
   Expression *expression_{nullptr};
-  std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
-  std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
-                                                 // one of the labels in "inner" vector
-  /// A label expression the fields above cannot express, held whole so the subject is evaluated once. Never
-  /// set together with them; see `MakeLabelsTest`.
-  std::optional<LabelTerm> term_;
+  /// Plain labels, which index selection reads and filter collection merges into, or a label expression they
+  /// cannot express, held whole so the subject is evaluated once. See `MakeLabelsTest`.
+  std::variant<LabelCnf, LabelTerm> test_;
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-    object->labels_.resize(labels_.size());
-    for (auto i = 0; i < object->labels_.size(); ++i) {
-      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+    if (const auto *term = Term()) {
+      object->test_ = term->Clone(storage);
+      return object;
     }
-    object->or_labels_.resize(or_labels_.size());
-    for (auto i = 0; i < object->or_labels_.size(); ++i) {
-      object->or_labels_[i].resize(or_labels_[i].size());
-      for (auto j = 0; j < object->or_labels_[i].size(); ++j) {
-        object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
-      }
-    }
-    if (term_) object->term_ = term_->Clone(storage);
+    auto relabel = [&](const std::vector<LabelIx> &labels) {
+      std::vector<LabelIx> relabelled;
+      relabelled.reserve(labels.size());
+      for (const auto &label : labels) relabelled.push_back(storage->GetLabelIx(label.name));
+      return relabelled;
+    };
+    auto &cnf = std::get<LabelCnf>(object->test_);
+    cnf.labels = relabel(Cnf()->labels);
+    for (const auto &group : Cnf()->or_labels) cnf.or_labels.push_back(relabel(group));
     return object;
   }
 
  protected:
   LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool or_group = false) : expression_(expression) {
+    auto &cnf = std::get<LabelCnf>(test_);
     if (!or_group) {
-      labels_ = std::move(labels);
+      cnf.labels = std::move(labels);
     } else {
-      or_labels_.push_back(std::move(labels));
+      cnf.or_labels.push_back(std::move(labels));
     }
   }
 
   LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
-    labels_.reserve(labels.size());
+    auto &cnf = std::get<LabelCnf>(test_);
+    cnf.labels.reserve(labels.size());
     for (const auto &label : labels) {
       if (const auto *label_ix = std::get_if<LabelIx>(&label)) {
-        labels_.push_back(*label_ix);
+        cnf.labels.push_back(*label_ix);
       } else {
         throw SemanticException("You can't use labels in filter expressions.");
       }
     }
   }
+
+  LabelsTest(Expression *expression, LabelTerm term) : expression_(expression), test_(std::move(term)) {}
 
  private:
   friend class AstStorage;

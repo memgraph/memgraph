@@ -244,43 +244,50 @@ void AddAndLabels(std::vector<LabelIx> &and_labels, std::vector<std::vector<Labe
 /// The labels a test contributes to a disjunction over one variable -- a single label, or a single OR group as
 /// `n:A|B` has -- or nothing if it demands anything else of the variable.
 auto DisjunctLabels(const LabelsTest &labels_test) -> const std::vector<LabelIx> * {
-  if (labels_test.labels_.size() == 1 && labels_test.or_labels_.empty()) return &labels_test.labels_;
-  if (labels_test.labels_.empty() && labels_test.or_labels_.size() == 1) return &labels_test.or_labels_.front();
+  const auto *cnf = labels_test.Cnf();
+  if (!cnf) return nullptr;
+  if (cnf->labels.size() == 1 && cnf->or_labels.empty()) return &cnf->labels;
+  if (cnf->labels.empty() && cnf->or_labels.size() == 1) return &cnf->or_labels.front();
   return nullptr;
 }
 
 /// `n:x` for `NOT n:!x` over an identifier, or nullptr for any other negation.
 LabelsTest *UnnegatedLabelTerm(const NotOperator &negation, AstStorage &storage) {
   auto *labels_test = utils::Downcast<LabelsTest>(negation.expression_);
-  if (!labels_test || !labels_test->term_ || labels_test->term_->kind != LabelTerm::Kind::Not ||
-      !utils::Downcast<Identifier>(labels_test->expression_)) {
+  const auto *term = labels_test ? labels_test->Term() : nullptr;
+  if (!term || term->kind != LabelTerm::Kind::Not || !utils::Downcast<Identifier>(labels_test->expression_)) {
     return nullptr;
   }
-  return MakeLabelsTest(storage, labels_test->expression_->Clone(&storage), labels_test->term_->children.front());
+  return MakeLabelsTest(storage, labels_test->expression_->Clone(&storage), term->children.front());
+}
+
+/// The plain labels a label filter's test holds. A whole term is always a generic filter, so a label filter
+/// never holds one.
+LabelCnf &FilterLabels(const FilterInfo &filter) {
+  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
+  MG_ASSERT(labels_test && labels_test->Cnf(), "A label filter tests plain labels");
+  return *labels_test->Cnf();
 }
 
 /// Records what index selection may use of a label filter: whatever its test demands. The two part company
 /// only where a scan absorbs a label, which every collection then re-derives from the test.
 void DeriveLabelView(FilterInfo &filter) {
-  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
-  MG_ASSERT(labels_test, "A label filter tests labels");
-  filter.labels = labels_test->labels_;
-  filter.or_labels = labels_test->or_labels_;
+  const auto &cnf = FilterLabels(filter);
+  filter.labels = cnf.labels;
+  filter.or_labels = cnf.or_labels;
 }
 
 /// Adds `group` as one more OR group of the filter's label test.
 void AddOrLabelGroup(FilterInfo &filter, std::vector<LabelIx> group) {
-  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
-  MG_ASSERT(labels_test, "A label filter tests labels");
-  AddOrLabelGroup(labels_test->or_labels_, labels_test->labels_, std::move(group));
+  auto &cnf = FilterLabels(filter);
+  AddOrLabelGroup(cnf.or_labels, cnf.labels, std::move(group));
   DeriveLabelView(filter);
 }
 
 /// Adds `labels` to the AND labels of the filter's label test.
 void AddAndLabels(FilterInfo &filter, const std::vector<LabelIx> &labels) {
-  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
-  MG_ASSERT(labels_test, "A label filter tests labels");
-  AddAndLabels(labels_test->labels_, labels_test->or_labels_, labels);
+  auto &cnf = FilterLabels(filter);
+  AddAndLabels(cnf.labels, cnf.or_labels, labels);
   DeriveLabelView(filter);
 }
 
@@ -942,7 +949,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       }
       // Index selection reads only the labels a test demands outright. A whole term demands none: an index scan
       // must never absorb it, `%` included, which a node scan implies but an edge scan does not.
-      if (labels_test->term_) {
+      const auto *cnf = labels_test->Cnf();
+      if (!cnf) {
         all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
         return;
       }
@@ -956,10 +964,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       } else {
         // Each disjunction this test names is a conjunct of its own, so it is kept whole; the labels it
         // requires outright are added to those the test already requires.
-        for (const auto &group : labels_test->or_labels_) {
+        for (const auto &group : cnf->or_labels) {
           AddOrLabelGroup(*it, group);
         }
-        AddAndLabels(*it, labels_test->labels_);
+        AddAndLabels(*it, cnf->labels);
       }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));

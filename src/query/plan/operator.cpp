@@ -4988,20 +4988,22 @@ namespace {
 
 /// `(n :A:B)`, `(n :A|B)`, `(n :A:(B|C))` -- how a labels test reads in a plan.
 std::string LabelsTestName(LabelsTest const *filter_expression) {
+  MG_ASSERT(filter_expression->Cnf(), "A label filter tests plain labels");
+  const auto &cnf = *filter_expression->Cnf();
   std::set<std::string, std::less<>> AND_label_names;
-  for (const auto &label : filter_expression->labels_) {
+  for (const auto &label : cnf.labels) {
     AND_label_names.insert(label.name);
   }
 
   std::string OR_label_string;
-  if (!filter_expression->or_labels_.empty()) {
+  if (!cnf.or_labels.empty()) {
     auto group = [](const auto &label_vec) {
       return utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; });
     };
     // Only a lone OR group with no AND labels goes without parentheses.
-    OR_label_string = AND_label_names.empty() && filter_expression->or_labels_.size() == 1
-                          ? group(filter_expression->or_labels_[0])
-                          : utils::IterableToString(filter_expression->or_labels_, ":", [&](const auto &label_vec) {
+    OR_label_string = AND_label_names.empty() && cnf.or_labels.size() == 1
+                          ? group(cnf.or_labels[0])
+                          : utils::IterableToString(cnf.or_labels, ":", [&](const auto &label_vec) {
                               return fmt::format("({})", group(label_vec));
                             });
     OR_label_string = fmt::format(":{}", OR_label_string);
@@ -5072,10 +5074,11 @@ std::optional<std::string> LabelTermName(const LabelTerm &term, std::string_view
 /// Anything else has no such name.
 std::optional<std::string> LabelTermTestName(Expression *expression) {
   auto *labels_test = utils::Downcast<LabelsTest>(expression);
-  if (!labels_test || !labels_test->term_) return std::nullopt;
+  const auto *term = labels_test ? labels_test->Term() : nullptr;
+  if (!term) return std::nullopt;
   auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
   if (!identifier) return std::nullopt;
-  return LabelTermName(*labels_test->term_, identifier->name_);
+  return LabelTermName(*term, identifier->name_);
 }
 
 }  // namespace
