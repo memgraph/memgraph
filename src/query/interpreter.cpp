@@ -10361,6 +10361,24 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
   return txn->deltas.empty() && txn->md_deltas.empty();
 }
 
+void Interpreter::ResetInterpreter() {
+  query_executions_.clear();
+  system_transaction_.reset();
+  transaction_queries_->clear();
+  commit_notification_.reset();
+  // A session whose current database was FORCE-dropped releases it here and is closed, as the drain hook closes idle
+  // ones. RequestTermination only posts to the session's strand, so the current message still completes first.
+  [[maybe_unused]] auto const released = current_db_.ReleaseDbIfMarked();
+#ifdef MG_ENTERPRISE
+  if (released) {
+    auto const session = foreign_session_view_.load(std::memory_order_acquire);
+    if (session && !session->uuid.empty()) {
+      if (auto s = communication::v2::SessionRegistry::Instance().Find(session->uuid)) s->RequestTermination();
+    }
+  }
+#endif
+}
+
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
