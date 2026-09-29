@@ -534,18 +534,31 @@ class Filters final {
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectWhereFilter(Where &, const SymbolTable &);
+  void CollectWhereFilter(Where &, const SymbolTable &, AstStorage &);
 
-  /// Collects filtering information from an expression.
+  /// Collects one expression into a collection of its own.
   ///
-  /// Takes the where expression and stores it, then analyzes the expression for
-  /// additional information. The additional information is used to populate
-  /// label filters and property filters, so that indexed scanning can use it.
-  void CollectFilterExpression(Expression *, const SymbolTable &);
+  /// Every label test of one expression applies to the same rows, so tests of one symbol are collected as one,
+  /// and that one is what the plan evaluates.
+  static auto FromExpression(Expression *, const SymbolTable &, AstStorage &) -> Filters;
+
+  /// Adds what one plan operator's expression requires, to a collection that may already hold the filters of
+  /// other operators.
+  ///
+  /// A label test is kept as a filter of its own. The test already collected can belong to an operator over
+  /// other rows, such as a pattern filter under a negation, and merging the two would change what each of them
+  /// demands of the rows it passes on.
+  void AddOperatorFilters(Expression *, const SymbolTable &, AstStorage &);
 
  private:
+  /// Whether a label test may be merged into a label test already collected. Sound only for two tests over the
+  /// same rows, which is why no caller chooses it: each entry point above knows which of the two it is.
+  enum class LabelTestMerging : uint8_t { kAllowed, kForbidden };
+
+  void CollectFilterExpression(Expression *, const SymbolTable &, AstStorage &, LabelTestMerging);
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &, AstStorage &, LabelTestMerging);
+
   std::vector<FilterInfo> all_filters_;
-  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
 };
 
 /// Normalized representation of a single or multiple Match clauses.

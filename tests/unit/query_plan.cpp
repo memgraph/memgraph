@@ -18,11 +18,14 @@
 #include <optional>
 #include <set>
 #include <sstream>
+#include <string>
 #include <tuple>
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -5448,6 +5451,467 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
 
   DeleteListContent(&left_subquery_part);
   DeleteListContent(&right_subquery_part);
+}
+
+// Each label disjunction over one node is a conjunct of its own, so a group is kept whole: a label two groups
+// share is tested by both. A group implied by an AND label or by a group it contains adds nothing and is dropped.
+TYPED_TEST(TestPlanner, LabelDisjunctionGroupsOverOneNode) {
+  FakeDbAccessor dba;
+  auto node_identifier = IDENT("n");
+  auto match = [&](std::vector<std::string> labels) { return MATCH(PATTERN(NODE_WITH_LABELS("n", labels))); };
+  auto where = [&](const char *lhs, const char *rhs) {
+    return WHERE(OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx(lhs)}),
+                    LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx(rhs)})));
+  };
+
+  using Groups = std::vector<std::set<std::string>>;
+  std::vector<std::pair<memgraph::query::CypherQuery *, Groups>> cases{
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), match({"Label2", "Label3"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // MATCH (n:Label1|Label2|Label3) MATCH (n:Label1|Label2)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2", "Label3"}), match({"Label1", "Label2"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}}},
+      // MATCH (n:Label1|Label2) MATCH (n:Label1|Label2|Label3)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), match({"Label1", "Label2", "Label3"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}}},
+      // A group is implied by one group it contains, not by the union of several.
+      // MATCH (n:Label1|Label2) MATCH (n:Label3|Label4) MATCH (n:Label1|Label2|Label3)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}),
+                          match({"Label3", "Label4"}),
+                          match({"Label1", "Label2", "Label3"}),
+                          RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label3", "Label4"}}},
+      // MATCH (n:Label1) MATCH (n:Label1|Label2)
+      {QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), match({"Label1", "Label2"}), RETURN("n"))), Groups{}},
+      // MATCH (n:Label1) WHERE n:Label1 OR n:Label2
+      {QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), where("Label1", "Label2"), RETURN("n"))), Groups{}},
+      // MATCH (n:Label1|Label2|Label3) WHERE n:Label1 OR n:Label2
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2", "Label3"}), where("Label1", "Label2"), RETURN("n"))),
+       Groups{{"Label1", "Label2"}}},
+      // MATCH (n:Label1|Label2) WHERE n:Label2 OR n:Label3
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), where("Label2", "Label3"), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // A repeat of the first or of the last of two groups is dropped, so every earlier group is compared.
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3) MATCH (n:Label2|Label1)
+      {QUERY(SINGLE_QUERY(
+           match({"Label1", "Label2"}), match({"Label2", "Label3"}), match({"Label2", "Label1"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3) MATCH (n:Label3|Label2)
+      {QUERY(SINGLE_QUERY(
+           match({"Label1", "Label2"}), match({"Label2", "Label3"}), match({"Label3", "Label2"}), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3) WHERE n:Label2 OR n:Label1
+      {QUERY(SINGLE_QUERY(
+           match({"Label1", "Label2"}), match({"Label2", "Label3"}), where("Label2", "Label1"), RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+  };
+
+  for (auto &[query, groups] : cases) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    // With no index there is nothing to scan by, so all groups land in one Filter as separate conjuncts.
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterOrLabels(groups), ExpectProduce());
+  }
+}
+
+// An AND label implies every group that names it, in whichever order the two reach the node's filter. A group
+// that arrives first is removed when the label arrives, so no residual filter tests it per row.
+TYPED_TEST(TestPlanner, AndLabelRemovesTheGroupsItImplies) {
+  FakeDbAccessor dba;
+  auto match = [&](std::vector<std::string> labels) { return MATCH(PATTERN(NODE_WITH_LABELS("n", labels))); };
+  using Groups = std::vector<std::set<std::string>>;
+  std::vector<std::pair<memgraph::query::CypherQuery *, Groups>> cases{
+      // MATCH (n:Label1|Label2) MATCH (n:Label1)
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), MATCH(PATTERN(NODE("n", "Label1"))), RETURN("n"))), Groups{}},
+      // MATCH (n:Label1|Label2) WHERE n:Label1
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}),
+                          WHERE(LABELS_TEST(IDENT("n"), std::vector{this->storage.GetLabelIx("Label1")})),
+                          RETURN("n"))),
+       Groups{}},
+      // MATCH (n:Label1|Label2) MATCH (n:Label3): a label the group does not name leaves it.
+      {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), MATCH(PATTERN(NODE("n", "Label3"))), RETURN("n"))),
+       Groups{{"Label1", "Label2"}}},
+  };
+  for (auto &[query, groups] : cases) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterOrLabels(groups), ExpectProduce());
+  }
+}
+
+// A disjunction stated twice is one conjunct, so an index scan over its labels leaves no filter behind.
+TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+  dba.SetIndexCount(dba.Label("Label2"), 1);
+  auto node_identifier = IDENT("n");
+  auto match = [&](std::vector<std::string> labels) { return MATCH(PATTERN(NODE_WITH_LABELS("n", labels))); };
+  auto disjunction = [&] {
+    return OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+              LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label2")}));
+  };
+
+  std::vector<memgraph::query::CypherQuery *> cases{
+      // MATCH (n:Label2|Label1) WHERE n:Label1 OR n:Label2
+      QUERY(SINGLE_QUERY(match({"Label2", "Label1"}), WHERE(disjunction()), RETURN("n"))),
+      // MATCH (n) WHERE (n:Label1 OR n:Label2) AND (n:Label1 OR n:Label2)
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(AND(disjunction(), disjunction())), RETURN("n"))),
+      // MATCH (n:Label2|Label1) WHERE n:Label1 OR n:Label2 OR n:Label1: a label stated twice is named once.
+      QUERY(SINGLE_QUERY(
+          match({"Label2", "Label1"}),
+          WHERE(OR(disjunction(), LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label1")}))),
+          RETURN("n"))),
+  };
+
+  for (auto *query : cases) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectUnion(left_subquery_part, right_subquery_part),
+              ExpectDistinct(),
+              ExpectProduce());
+
+    DeleteListContent(&left_subquery_part);
+    DeleteListContent(&right_subquery_part);
+  }
+}
+
+// Only an OR of label tests on one variable is an OR group of that variable. `n:Label1 OR m:Label2` holds when
+// either test holds, and `head([n])` is not a variable, so each OR stays one generic filter over the whole OR.
+TYPED_TEST(TestPlanner, LabelDisjunctionNotOnOneVariableStaysGeneric) {
+  FakeDbAccessor dba;
+  auto label1 = this->storage.GetLabelIx("Label1");
+  auto label2 = this->storage.GetLabelIx("Label2");
+  using NoGroups = std::vector<std::set<std::string>>;
+  {
+    // MATCH (n)-[r]->(m) WHERE n:Label1 OR m:Label2 RETURN n
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+        WHERE(OR(LABELS_TEST(IDENT("n"), std::vector{label1}), LABELS_TEST(IDENT("m"), std::vector{label2}))),
+        RETURN("n")));
+    CheckPlan<TypeParam>(
+        query, this->storage, ExpectScanAll(), ExpectExpand(), ExpectFilterOrLabels(NoGroups{}), ExpectProduce());
+  }
+  {
+    // MATCH (n) WHERE head([n]):Label1 OR head([n]):Label2 RETURN n
+    auto head = [&] { return FN("head", LIST(IDENT("n"))); };
+    auto *query = QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     WHERE(OR(LABELS_TEST(head(), std::vector{label1}), LABELS_TEST(head(), std::vector{label2}))),
+                     RETURN("n")));
+    CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectFilterOrLabels(NoGroups{}), ExpectProduce());
+  }
+}
+
+// Whether two label tests are of one variable is decided by comparing the positions of the symbols their
+// identifiers were resolved to, and an unresolved identifier has no position. Such an identifier cannot reach
+// collection: every path asks the symbol table for its symbol first, and the table has no entry to return. Were
+// one to get through, two unresolved identifiers would compare equal and one variable's labels would be demanded
+// of another's.
+TYPED_TEST(TestPlanner, AnUnresolvedIdentifierCannotReachFilterCollection) {
+  auto *unresolved = IDENT("n");
+  auto *labels_test = LABELS_TEST(unresolved, std::vector{this->storage.GetLabelIx("Label1")});
+  ASSERT_EQ(unresolved->symbol_pos_, -1) << "an identifier not mapped to a symbol";
+  memgraph::query::SymbolTable empty_symbol_table;
+
+  EXPECT_THROW(memgraph::query::plan::Filters::FromExpression(labels_test, empty_symbol_table, this->storage),
+               std::out_of_range);
+  memgraph::query::plan::Filters filters;
+  EXPECT_THROW(filters.AddOperatorFilters(labels_test, empty_symbol_table, this->storage), std::out_of_range);
+
+  // The disjunction the comparison is for: two unresolved identifiers of different variables.
+  auto *over_two_variables = OR(LABELS_TEST(IDENT("n"), std::vector{this->storage.GetLabelIx("Label1")}),
+                                LABELS_TEST(IDENT("m"), std::vector{this->storage.GetLabelIx("Label2")}));
+  EXPECT_THROW(memgraph::query::plan::Filters::FromExpression(over_two_variables, empty_symbol_table, this->storage),
+               std::out_of_range);
+}
+
+// A query's AST outlives the plan made from it, so planning it again must give the same plan. A label
+// disjunction is the case that tells: it is the only filter whose collection rewrote the tests the parser built.
+TYPED_TEST(TestPlanner, PlanningOneAstTwiceGivesTheSamePlan) {
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+  dba.SetIndexCount(dba.Label("Label2"), 1);
+  auto *node_identifier = IDENT("n");
+  // MATCH (n) WHERE n:Label1 OR n:Label2 RETURN n
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         WHERE(OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+                                  LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label2")}))),
+                         RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+
+  for (int planning = 1; planning <= 2; ++planning) {
+    SCOPED_TRACE("planning number " + std::to_string(planning));
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(), symbol_table, ExpectUnion(left, right), ExpectDistinct(), ExpectProduce());
+    DeleteListContent(&left);
+    DeleteListContent(&right);
+  }
+
+  // The same two conjuncts the other way round in the query. Which of them the collection reaches first decides
+  // which test it writes into, so both orders have to give the same plan twice over.
+  auto *reversed_identifier = IDENT("n");
+  // MATCH (n) WHERE n:Label3 AND (n:Label1 OR n:Label2) RETURN n
+  auto *reversed = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   WHERE(AND(LABELS_TEST(reversed_identifier, std::vector{this->storage.GetLabelIx("Label3")}),
+                             OR(LABELS_TEST(reversed_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+                                LABELS_TEST(reversed_identifier, std::vector{this->storage.GetLabelIx("Label2")})))),
+                   RETURN("n")));
+  auto reversed_symbol_table = memgraph::query::MakeSymbolTable(reversed);
+  for (int planning = 1; planning <= 2; ++planning) {
+    SCOPED_TRACE("reversed-conjunct planning number " + std::to_string(planning));
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, reversed_symbol_table, reversed);
+    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              reversed_symbol_table,
+              ExpectUnion(left, right),
+              ExpectDistinct(),
+              ExpectFilter(),
+              ExpectProduce());
+    DeleteListContent(&left);
+    DeleteListContent(&right);
+  }
+
+  // A disjunction beside another conjunct over the same variable. Both reach the same filter, so a collection
+  // that wrote its findings into the query's own tests would leave the second collection reading neither.
+  auto *conjunct_identifier = IDENT("n");
+  // MATCH (n) WHERE (n:Label1 OR n:Label2) AND n:Label3 RETURN n
+  auto *beside_conjunct = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   WHERE(AND(OR(LABELS_TEST(conjunct_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+                                LABELS_TEST(conjunct_identifier, std::vector{this->storage.GetLabelIx("Label2")})),
+                             LABELS_TEST(conjunct_identifier, std::vector{this->storage.GetLabelIx("Label3")}))),
+                   RETURN("n")));
+  auto conjunct_symbol_table = memgraph::query::MakeSymbolTable(beside_conjunct);
+  for (int planning = 1; planning <= 2; ++planning) {
+    SCOPED_TRACE("beside-conjunct planning number " + std::to_string(planning));
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, conjunct_symbol_table, beside_conjunct);
+    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              conjunct_symbol_table,
+              ExpectUnion(left, right),
+              ExpectDistinct(),
+              ExpectFilter(),
+              ExpectProduce());
+    DeleteListContent(&left);
+    DeleteListContent(&right);
+  }
+
+  // The same disjunction where the node's pattern already states a label: the group is merged into the test
+  // that pattern built, which is a new test for each planning, so this plan never depended on the fold.
+  auto *pattern_identifier = IDENT("n");
+  // MATCH (n:Label3) WHERE n:Label1 OR n:Label2 RETURN n
+  auto *with_pattern_label =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label3"))),
+                         WHERE(OR(LABELS_TEST(pattern_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+                                  LABELS_TEST(pattern_identifier, std::vector{this->storage.GetLabelIx("Label2")}))),
+                         RETURN("n")));
+  auto pattern_symbol_table = memgraph::query::MakeSymbolTable(with_pattern_label);
+  for (int planning = 1; planning <= 2; ++planning) {
+    SCOPED_TRACE("pattern-label planning number " + std::to_string(planning));
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, pattern_symbol_table, with_pattern_label);
+    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              pattern_symbol_table,
+              ExpectUnion(left, right),
+              ExpectDistinct(),
+              ExpectFilter(),
+              ExpectProduce());
+    DeleteListContent(&left);
+    DeleteListContent(&right);
+  }
+}
+
+// What index selection may use of a label filter is what its label test demands, on every path that collects
+// one. The two part company only where a scan absorbs a label, which is not collection.
+TYPED_TEST(TestPlanner, ALabelFilterAgreesWithItsTest) {
+  auto label_test_on = [&](const char *name, const char *label) {
+    return LABELS_TEST(IDENT(name), std::vector{this->storage.GetLabelIx(label)});
+  };
+  auto disjunction = [&](std::vector<std::string> labels) { return NODE_WITH_LABELS("n", std::move(labels)); };
+  std::vector<memgraph::query::CypherQuery *> cases{
+      // MATCH (n:Label1:Label2)
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", std::vector<std::string>{"Label1", "Label2"}, false))),
+                         RETURN("n"))),
+      // MATCH (n:Label1|Label2)
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(disjunction({"Label1", "Label2"}))), RETURN("n"))),
+      // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3)
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(disjunction({"Label1", "Label2"}))),
+                         MATCH(PATTERN(disjunction({"Label2", "Label3"}))),
+                         RETURN("n"))),
+      // MATCH (n:Label1|Label2) MATCH (n:Label3)
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(disjunction({"Label1", "Label2"}))), MATCH(PATTERN(NODE("n", "Label3"))), RETURN("n"))),
+      // MATCH (n:Label1|Label2) MATCH (n:Label1)
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(disjunction({"Label1", "Label2"}))), MATCH(PATTERN(NODE("n", "Label1"))), RETURN("n"))),
+      // MATCH (n:Label1) WHERE n:Label2
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), WHERE(label_test_on("n", "Label2")), RETURN("n"))),
+      // MATCH (n) WHERE n:Label1 OR n:Label2
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         WHERE(OR(label_test_on("n", "Label1"), label_test_on("n", "Label2"))),
+                         RETURN("n"))),
+      // MATCH (n:Label1|Label2) WHERE n:Label2 OR n:Label3
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(disjunction({"Label1", "Label2"}))),
+                         WHERE(OR(label_test_on("n", "Label2"), label_test_on("n", "Label3"))),
+                         RETURN("n"))),
+      // MATCH (n:Label1|Label2) WHERE n:Label1
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(disjunction({"Label1", "Label2"}))), WHERE(label_test_on("n", "Label1")), RETURN("n"))),
+      // MATCH (n:Label1), (m:Label2|Label3)
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1")),
+                               PATTERN(NODE_WITH_LABELS("m", std::vector<std::string>{"Label2", "Label3"}))),
+                         RETURN("n"))),
+  };
+
+  for (auto *query : cases) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+    for (const auto &query_part : query_parts.query_parts) {
+      for (const auto &single : query_part.single_query_parts) {
+        for (const auto &filter : single.matching.filters) {
+          if (filter.type != memgraph::query::plan::FilterInfo::Type::Label) continue;
+          auto *test = dynamic_cast<memgraph::query::LabelsTest *>(filter.expression);
+          ASSERT_NE(test, nullptr);
+          EXPECT_EQ(std::set(filter.labels.begin(), filter.labels.end()),
+                    std::set(test->labels_.begin(), test->labels_.end()))
+              << "AND labels disagree with the test";
+          EXPECT_EQ(filter.or_labels, test->or_labels_) << "OR groups disagree with the test";
+        }
+      }
+    }
+  }
+}
+
+// What one operator's expression requires is added to a collection that may already hold another operator's,
+// so each label test stays a filter of its own and neither test is rewritten. Both are still offered to index
+// selection, which reads the labels of every filter of a symbol.
+TYPED_TEST(TestPlanner, FiltersOfTwoOperatorsAreKeptApart) {
+  auto label1 = this->storage.GetLabelIx("Label1");
+  auto label2 = this->storage.GetLabelIx("Label2");
+  auto *first = LABELS_TEST(IDENT("n"), std::vector{label1});
+  auto *second = LABELS_TEST(IDENT("n"), std::vector{label2});
+  // Two operators over `n`, each testing one label.
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(AND(first, second)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+
+  memgraph::query::plan::Filters filters;
+  filters.AddOperatorFilters(first, symbol_table, this->storage);
+  filters.AddOperatorFilters(second, symbol_table, this->storage);
+
+  const auto &symbol = symbol_table.at(*dynamic_cast<memgraph::query::Identifier *>(first->expression_));
+  std::set<std::string> offered;
+  for (const auto &label : filters.FilteredLabels(symbol)) offered.insert(label.name);
+  EXPECT_EQ(offered, (std::set<std::string>{"Label1", "Label2"}));
+  // Neither test was rewritten to stand for both.
+  ASSERT_EQ(first->labels_.size(), 1U);
+  ASSERT_EQ(second->labels_.size(), 1U);
+  EXPECT_EQ(first->labels_.front().name, "Label1");
+  EXPECT_EQ(second->labels_.front().name, "Label2");
+}
+
+// One expression's label tests over one symbol apply to the same rows, so they are collected as one filter.
+TYPED_TEST(TestPlanner, FiltersOfOneExpressionAreCollectedTogether) {
+  auto label1 = this->storage.GetLabelIx("Label1");
+  auto label2 = this->storage.GetLabelIx("Label2");
+  auto *conjunction = AND(LABELS_TEST(IDENT("n"), std::vector{label1}), LABELS_TEST(IDENT("n"), std::vector{label2}));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(conjunction), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+
+  auto filters = memgraph::query::plan::Filters::FromExpression(conjunction, symbol_table, this->storage);
+
+  auto count = std::count_if(filters.begin(), filters.end(), [](const auto &filter) {
+    return filter.type == memgraph::query::plan::FilterInfo::Type::Label;
+  });
+  EXPECT_EQ(count, 1);
+}
+
+// A node written with a label disjunction must carry one of its labels, so the collected filter names them as a
+// group and demands no label of its own. Naming them as AND labels would make a reader of the matching demand
+// every one of them.
+TYPED_TEST(TestPlanner, ADisjunctionInAPatternIsCollectedAsAGroup) {
+  auto *node = NODE_WITH_LABELS("n", std::vector<std::string>{"Label1", "Label2"});
+  // MATCH (n:Label1|Label2) RETURN n
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+  ASSERT_EQ(query_parts.query_parts.size(), 1U);
+  ASSERT_EQ(query_parts.query_parts.front().single_query_parts.size(), 1U);
+  const auto &filters = query_parts.query_parts.front().single_query_parts.front().matching.filters;
+  const auto &symbol = symbol_table.at(*node->identifier_);
+
+  EXPECT_TRUE(filters.FilteredLabels(symbol).empty());
+  auto groups = filters.FilteredOrLabels(symbol);
+  ASSERT_EQ(groups.size(), 1U);
+  std::set<std::string> names;
+  for (const auto &label : groups.front()) names.insert(label.name);
+  EXPECT_EQ(names, (std::set<std::string>{"Label1", "Label2"}));
+}
+
+// Each Filter tests the labels its own clause stated. A pattern filter over the same variable is a test of its
+// own, so it may neither narrow nor widen what the Filter it hangs off tests.
+TYPED_TEST(TestPlanner, LabelDisjunctionInAPatternFilterStaysThere) {
+  FakeDbAccessor dba;
+  using Groups = std::vector<std::set<std::string>>;
+  // MATCH (n:Label1|Label2) WHERE exists((n:Label2|Label3)-[]-()) RETURN n
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", std::vector<std::string>{"Label1", "Label2"}))),
+                         WHERE(EXISTS(PATTERN(NODE_WITH_LABELS("n", std::vector<std::string>{"Label2", "Label3"}),
+                                              EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                              NODE("node", std::nullopt, false)))),
+                         RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectFilterOrLabels(Groups{{"Label1", "Label2"}}),
+            ExpectProduce());
+}
+
+// A label a pattern filter states is a test of that pattern, not of the row the Filter it hangs off passes on.
+// Under a negation the row need not carry it at all.
+TYPED_TEST(TestPlanner, LabelInAPatternFilterStaysThere) {
+  FakeDbAccessor dba;
+  auto exists_label2 = [&] {
+    return EXISTS(PATTERN(NODE("n", "Label2"),
+                          EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                          NODE("node", std::nullopt, false)));
+  };
+  // MATCH (n:Label1) WHERE exists((n:Label2)-[]-()) RETURN n
+  {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), WHERE(exists_label2()), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAll(),
+              ExpectFilterLabels(std::set<std::string>{"Label1"}),
+              ExpectProduce());
+  }
+  // MATCH (n:Label1) WHERE NOT exists((n:Label2)-[]-()) RETURN n
+  {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label1"))), WHERE(NOT(exists_label2())), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAll(),
+              ExpectFilterLabels(std::set<std::string>{"Label1"}),
+              ExpectProduce());
+  }
 }
 
 TYPED_TEST(TestPlanner, BasicExistsSubquery) {
