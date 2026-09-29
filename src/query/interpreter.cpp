@@ -163,6 +163,7 @@ struct InstanceStorageInfo {
   uint64_t memory_res;
   uint64_t peak_memory_res;
   uint64_t disk_usage;
+  std::optional<uint64_t> disk_available;
   int64_t vm_max_map_count;
 };
 
@@ -172,9 +173,11 @@ InstanceStorageInfo GetInstanceStorageInfo() {
   const int64_t vm_max_map_count =
       memgraph::utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
   const auto disk_usage = memgraph::utils::GetDirDiskUsage(FLAGS_data_directory);
+  const auto disk_available = memgraph::utils::GetDiskAvailable(FLAGS_data_directory);
   return {.memory_res = memory_res,
           .peak_memory_res = peak_memory_res,
           .disk_usage = disk_usage,
+          .disk_available = disk_available,
           .vm_max_map_count = vm_max_map_count};
 }
 
@@ -8275,6 +8278,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.peak_memory_res)))},
               {TypedValue("disk_usage"),
                TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.disk_usage)))},
+              {TypedValue("disk_available"),
+               TypedValue(instance_info.disk_available
+                              ? utils::GetReadableSize(static_cast<double>(*instance_info.disk_available))
+                              : std::string("unknown"))},
               {TypedValue("memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
               {TypedValue("memory_limit"),

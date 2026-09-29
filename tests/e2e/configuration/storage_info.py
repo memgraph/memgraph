@@ -20,6 +20,7 @@ default_storage_info_dict = {
     "memory_res": "",  # machine dependent
     "peak_memory_res": "",  # machine dependent
     "disk_usage": "",  # machine dependent
+    "disk_available": "",  # machine dependent
     "memory_tracked": "",  # machine dependent
     "memory_limit": "",  # machine dependent
     "license_memory_limit": "",  # license dependent
@@ -45,6 +46,7 @@ def test_does_default_config_match():
         "memory_res",
         "peak_memory_res",
         "disk_usage",
+        "disk_available",
         "memory_tracked",
         "memory_limit",
         "license_memory_limit",
@@ -164,6 +166,7 @@ def test_show_storage_info_bare_vs_on_current_database():
     assert "memory_tracked" in bare
     assert "vm_max_map_count" in bare
     assert "query+graph_memory_tracked" in bare
+    assert "disk_available" in bare
 
     # ON CURRENT DATABASE variant must contain DB-level fields
     assert "name" in current
@@ -177,6 +180,7 @@ def test_show_storage_info_bare_vs_on_current_database():
     assert "name" not in bare
     assert "memory_tracked" not in current
     assert "vm_max_map_count" not in current
+    assert "disk_available" not in current
 
 
 if __name__ == "__main__":
