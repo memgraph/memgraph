@@ -171,7 +171,11 @@ void Save(const memgraph::replication::AuthDropOp &self, memgraph::slk::Builder 
 void Load(memgraph::replication::AuthDropOp *self, memgraph::slk::Reader *reader) {
   uint8_t type{};
   memgraph::slk::Load(&type, reader);
-  self->type = static_cast<memgraph::replication::AuthDataType>(type);
+  // Refuse a kind this build has no enumerator for. Casting it through would produce a value the drop switch
+  // matches no case for, so the removal would be skipped and the batch still reported as applied.
+  if (!utils::NumToEnum(type, self->type)) {
+    throw SlkReaderException("Auth drop of unknown kind {} in a replicated batch", type);
+  }
   memgraph::slk::Load(&self->name, reader);
 }
 

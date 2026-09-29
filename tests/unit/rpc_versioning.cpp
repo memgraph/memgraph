@@ -743,4 +743,26 @@ TEST(RpcVersioning, UpdateAuthDataRpc_UnknownOperationKindIsRefused) {
   EXPECT_THROW(memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader), memgraph::slk::SlkDecodeException);
 }
 
+// The kind byte inside a drop names what to remove. A value this build has no enumerator for must be refused
+// rather than cast through: the drop switch matches no case for it, so it would skip the removal and still
+// report the batch applied, leaving the replica holding a record the main dropped.
+TEST(RpcVersioning, UpdateAuthDataRpc_UnknownDropTypeIsRefused) {
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+
+  memgraph::slk::Save(memgraph::utils::UUID{}, &builder);
+  memgraph::slk::Save(uint64_t{0}, &builder);
+  memgraph::slk::Save(uint64_t{1}, &builder);
+  memgraph::slk::Save(uint64_t{1}, &builder);     // one operation
+  memgraph::slk::Save(std::size_t{1}, &builder);  // a drop, which this build does know
+  memgraph::slk::Save(uint8_t{4}, &builder);      // naming a kind it does not
+  memgraph::slk::Save(std::string{"victim"}, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::replication::UpdateAuthDataReq loaded;
+  EXPECT_THROW(memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader), memgraph::slk::SlkReaderException);
+}
+
 #endif  // MG_ENTERPRISE
