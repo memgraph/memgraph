@@ -212,13 +212,18 @@ class DbmsHandler {
 
     spdlog::debug("Different UUIDs");
 
+    // TODO: Fix this hack
     // The default DB cannot be deleted and recreated (its storage directory is the root data
-    // directory), so we mutate the UUID in place. This only runs during SystemRecovery on a
-    // replica; DemoteMainToReplica has already executed, so no new write transactions can
-    // start, and the DBMS write lock (held by Update) serializes against other DBMS operations.
+    // directory), so we mutate the UUID in place. By the time this runs the instance is a replica, so
+    // no new write transactions can start, and the DBMS write lock (held by Update) serializes against
+    // other DBMS operations. A transaction prepared before the demotion can still be in flight: the
+    // check below only refuses a default DB that has already committed.
     if (*name_view == kDefaultDB) {
       const memory::DbArenaScope db_arena_scope{db.get()};
       auto *storage = db->storage();
+      spdlog::debug("Last commit timestamp for DB {} is {}",
+                    kDefaultDB,
+                    storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
       if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
           storage::kTimestampInitialId) [[unlikely]] {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
@@ -237,6 +242,7 @@ class DbmsHandler {
         metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
       }
       NotifyUuidRetired_(old_uuid, kDefaultDB);
+      spdlog::debug("Updated default db's UUID");
 
       return db;
     }
