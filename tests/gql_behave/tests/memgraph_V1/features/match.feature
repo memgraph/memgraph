@@ -1809,3 +1809,32 @@ Feature: Match
             WITH 1 AS x RETURN x:!A AS v;
             """
         Then an error should be raised
+
+    Scenario: NOT over a negated label expression tests the expression itself
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE NOT n:!(A|B) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v     |
+            | 'a'   |
+            | 'ab'  |
+            | 'abc' |
+            | 'b'   |
+
+    Scenario: A label wildcard on a deleted node is an error
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})
+            """
+        When executing query:
+            """
+            MATCH (n) DETACH DELETE n RETURN n:% AS v;
+            """
+        Then an error should be raised

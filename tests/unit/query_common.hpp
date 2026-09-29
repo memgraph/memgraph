@@ -294,8 +294,15 @@ auto GetNodeWithMultipleLabels(AstStorage &storage, const std::string &name, std
   for (const auto &label : labels) {
     leaves.push_back(LabelTerm{LabelTerm::Label{storage.GetLabelIx(label)}});
   }
-  node->label_term_ =
-      disjunction ? LabelTerm{LabelTerm::Or{std::move(leaves)}} : LabelTerm{LabelTerm::And{std::move(leaves)}};
+  // As the parser builds them: no label leaves the term unset, and one label is a bare leaf.
+  if (leaves.empty()) return node;
+  if (leaves.size() == 1U) {
+    node->label_term_ = std::move(leaves.front());
+  } else if (disjunction) {
+    node->label_term_ = LabelTerm{LabelTerm::Or{std::move(leaves)}};
+  } else {
+    node->label_term_ = LabelTerm{LabelTerm::And{std::move(leaves)}};
+  }
   return node;
 }
 
