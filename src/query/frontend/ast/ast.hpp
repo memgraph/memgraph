@@ -41,6 +41,7 @@
 #include "storage/v2/indices/vector_match_mode.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/indirect.hpp"
 #include "utils/string.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
@@ -1155,37 +1156,6 @@ class AllPropertiesLookup : public Expression {
 
 using QueryLabelType = std::variant<LabelIx, Expression *>;
 
-/// Owns one `T` and copies it when copied: a recursive member by value, which `std::optional` cannot hold
-/// while `T` is incomplete.
-template <typename T>
-class ValueBox {
- public:
-  explicit ValueBox(T value) : value_(std::make_unique<T>(std::move(value))) {}
-
-  ValueBox(const ValueBox &other) : value_(std::make_unique<T>(*other.value_)) {}
-
-  ValueBox(ValueBox &&) noexcept = default;
-
-  ValueBox &operator=(const ValueBox &other) {
-    if (this != &other) value_ = std::make_unique<T>(*other.value_);
-    return *this;
-  }
-
-  ValueBox &operator=(ValueBox &&) noexcept = default;
-  ~ValueBox() = default;
-
-  const T &operator*() const { return *value_; }
-
-  T &operator*() { return *value_; }
-
-  const T *operator->() const { return value_.get(); }
-
-  T *operator->() { return value_.get(); }
-
- private:
-  std::unique_ptr<T> value_;
-};
-
 /// A node label expression: `&`, `|`, `!`, `%` and parentheses over label leaves, or a plain conjunction
 /// such as `:A:B`. Not a `Tree`; `MakeLabelsTest` holds it in a `LabelsTest`.
 struct LabelTerm {
@@ -1211,7 +1181,7 @@ struct LabelTerm {
 
   struct Not {
     explicit Not(LabelTerm operand);
-    ValueBox<LabelTerm> operand;
+    utils::indirect<LabelTerm> operand;
   };
 
   std::variant<Label, Dynamic, Wildcard, And, Or, Not> node;
