@@ -13,6 +13,7 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -277,13 +278,17 @@ TEST(TypedValue, ComparabilityAnswersNullForAPairItCannotPlace) {
   EXPECT_PROP_ISNULL(TypedValue(1) < TypedValue("a"));
   EXPECT_PROP_ISNULL(TypedValue("a") < TypedValue(1));
 
-  // A list and a map are placed by orderability alone, so a sort arranges two
-  // of them while all four comparisons answer Null. Placing a list here means
-  // ordering it by its elements, which is not the order the store keeps one in,
-  // and a scan reading that order stands in for this comparison.
-  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < List({TypedValue(2)}));
-  EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
+  // Maps: ORDER BY sorts them, but all four comparisons answer Null.
   EXPECT_PROP_ISNULL(Map({{"k", TypedValue(1)}}) < Map({{"k", TypedValue(2)}}));
+
+  // Lists compare by their elements, and are Null where an element pair is.
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(2)}));
+  EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
+
+  // A NaN element makes the pair Null, although a NaN scalar compares false.
+  EXPECT_PROP_ISNULL(List({TypedValue(std::nan(""))}) < List({TypedValue(1)}));
+  EXPECT_PROP_ISNULL(List({TypedValue(std::nan(""))}) >= List({TypedValue(1)}));
+  EXPECT_PROP_FALSE(TypedValue(std::nan("")) < TypedValue(1));
 }
 
 TEST(TypedValue, EqualityOfAContainerHoldingNullIsUndecided) {

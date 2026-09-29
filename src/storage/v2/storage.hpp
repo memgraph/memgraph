@@ -613,6 +613,12 @@ class Accessor {
   virtual VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
                                     std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) = 0;
 
+  /// As the bounds overload, and also applies the range's value predicate to every entry.
+  virtual VerticesIterable Vertices(PropertyId property, PropertyValueRange const &range, View view) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property, PropertyValueRange const &range, View view,
+                                                  size_t num_chunks) = 0;
+
   virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
   virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;

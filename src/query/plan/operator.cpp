@@ -137,6 +137,49 @@ ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &stora
                  : std::nullopt},
       membership_list_{other.membership_list_ ? other.membership_list_->Clone(&storage) : nullptr} {}
 
+namespace {
+
+/// Per-row predicate for a range the index cannot bound (see AnIndexCanFence).
+/// Evaluates the comparison exactly as the filter the scan replaces does and keeps
+/// only rows it answers true for.
+/// Converts each candidate to a TypedValue so the same Compare decides both
+/// paths, at the cost of one allocation per row, as in the filter.
+storage::PropertyValueRange::ValuePredicate MakeComparisonPredicate(std::optional<TypedValue> const &lower,
+                                                                    std::optional<utils::BoundType> lower_type,
+                                                                    std::optional<TypedValue> const &upper,
+                                                                    std::optional<utils::BoundType> upper_type,
+                                                                    storage::NameIdMapper *mapper) {
+  if (!lower && !upper) return nullptr;
+
+  // Copy the bounds into a resource of their own: the predicate outlives this
+  // evaluation's memory resource and runs on the scan's threads.
+  auto const own = [](std::optional<TypedValue> const &value) -> std::optional<TypedValue> {
+    if (!value) return std::nullopt;
+    return TypedValue{*value, utils::NewDeleteResource()};
+  };
+
+  return std::make_shared<storage::PropertyValueRange::ValuePredicateFn>(
+      [lower = own(lower), lower_type, upper = own(upper), upper_type, mapper](
+          storage::PropertyValue const &candidate) {
+        auto const value = TypedValue{candidate, mapper, utils::NewDeleteResource()};
+
+        auto const satisfies = [&](TypedValue const &bound, utils::BoundType type, bool from_below) {
+          auto const order = relations::comparability::Compare(value, bound);
+          if (!order) return false;
+          if (from_below) {
+            return type == utils::BoundType::INCLUSIVE ? std::is_gteq(*order) : std::is_gt(*order);
+          }
+          return type == utils::BoundType::INCLUSIVE ? std::is_lteq(*order) : std::is_lt(*order);
+        };
+
+        if (lower && !satisfies(*lower, *lower_type, true)) return false;
+        if (upper && !satisfies(*upper, *upper_type, false)) return false;
+        return true;
+      });
+}
+
+}  // namespace
+
 auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
   // Only store lower bound, Evaluate will only use the lower bound
   return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
@@ -241,11 +284,24 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       // for every row, so the filter this scan stands in for keeps none of them. The stored order
       // places such a value all the same, by where its type sits or by where a NaN is put, and a
       // band drawn around it would hand back rows no filter would pass.
-      auto const placed_by_comparability = [](auto const &value) {
-        return !value || relations::comparability::ValidFor(*value);
-      };
-      if (!placed_by_comparability(lower_value) || !placed_by_comparability(upper_value)) {
+      auto const placed = [](auto const &value) { return !value || relations::comparability::ValidFor(*value); };
+      if (!placed(lower_value) || !placed(upper_value)) {
         return storage::PropertyValueRange::Empty();
+      }
+
+      // A list bound: no index range matches the filter, so scan every row with
+      // the property and evaluate the comparison per row. Same work as the filter.
+      auto const fenceable = [](auto const &value) {
+        return !value || relations::comparability::AnIndexCanFence(*value);
+      };
+      if (!fenceable(lower_value) || !fenceable(upper_value)) {
+        auto unfenced = storage::PropertyValueRange::IsNotNull();
+        unfenced.SetValuePredicate(MakeComparisonPredicate(lower_value,
+                                                           lower_ ? std::optional{lower_->type()} : std::nullopt,
+                                                           upper_value,
+                                                           upper_ ? std::optional{upper_->type()} : std::nullopt,
+                                                           evaluator.GetNameIdMapper()));
+        return unfenced;
       }
 
       auto const to_bound = [&](std::optional<TypedValue> const &value,
@@ -1411,7 +1467,7 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    if (auto term = value_predicate.Get(expression_range_, evaluator)) range.SetValuePredicate(std::move(term));
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range));
   };
 
@@ -1493,7 +1549,7 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return std::nullopt;
     }
-    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    if (auto term = value_predicate.Get(expression_range_, evaluator)) range.SetValuePredicate(std::move(term));
     return std::make_optional(db->Edges(view_, property_, range));
   };
 
@@ -1542,6 +1598,10 @@ UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
       return std::nullopt;
     }
 
+    // A list bound comes back as IS_NOT_NULL with a value predicate, and the planner has erased
+    // its filter, so the predicate must reach the index.
+    if (range.GetValuePredicate()) return std::make_optional(db->Vertices(view_, property_, range));
+
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
       return std::make_optional(db->Vertices(view_, property_));
     }
@@ -1550,6 +1610,7 @@ UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
       return std::nullopt;
     }
 
+    // Search terms (CONTAINS, ENDS WITH, regex) set no predicate here: their filter stays in the plan.
     return std::make_optional(db->Vertices(view_, property_, range.lower_, range.upper_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(get_vertices)>>(mem,
@@ -1607,7 +1668,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
 
     for (auto &&[range, expression_range, value_predicate] :
          rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
-      range.SetValuePredicate(value_predicate.Get(expression_range, evaluator));
+      if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
@@ -10743,7 +10804,7 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
     // band is handed to the filter above, which is most of the column for a search term.
     for (auto &&[range, expression_range, value_predicate] :
          rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
-      range.SetValuePredicate(value_predicate.Get(expression_range, evaluator));
+      if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
     }
 
     return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_, index_order_);
@@ -10812,15 +10873,16 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
       return db->ChunkedEdges(view_, edge_type_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
+    // Pass the range: a list bound is IS_NOT_NULL with a value predicate.
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
-      return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
+      return db->ChunkedEdges(view_, edge_type_, property_, range, num_threads_);
     }
 
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return db->ChunkedEdges(view_, edge_type_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
-    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    if (auto term = value_predicate.Get(expression_range_, evaluator)) range.SetValuePredicate(std::move(term));
     return db->ChunkedEdges(view_, edge_type_, property_, range, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
@@ -10870,15 +10932,16 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
       return db->ChunkedEdges(view_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
+    // Pass the range: a list bound is IS_NOT_NULL with a value predicate.
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
-      return db->ChunkedEdges(view_, property_, num_threads_);
+      return db->ChunkedEdges(view_, property_, range, num_threads_);
     }
 
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
       return db->ChunkedEdges(view_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
-    range.SetValuePredicate(value_predicate.Get(expression_range_, evaluator));
+    if (auto term = value_predicate.Get(expression_range_, evaluator)) range.SetValuePredicate(std::move(term));
     return db->ChunkedEdges(view_, property_, range, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
@@ -10927,6 +10990,9 @@ UniqueCursorPtr ScanParallelByVertexProperty::MakeCursor(utils::MemoryResource *
     if (range.type_ == storage::PropertyRangeType::INVALID) {
       return db->ChunkedVertices(view_, property_, std::nullopt, std::nullopt, 0);
     }
+
+    // As in ScanAllByVertexProperty: a list bound carries a predicate the index must apply.
+    if (range.GetValuePredicate()) return db->ChunkedVertices(view_, property_, range, num_threads_);
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
       return db->ChunkedVertices(view_, property_, num_threads_);

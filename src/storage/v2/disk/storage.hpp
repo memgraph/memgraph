@@ -124,6 +124,15 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("Global vertex property index is not implemented for DiskStorage.");
     }
 
+    VerticesIterable Vertices(PropertyId /*property*/, PropertyValueRange const & /*range*/, View /*view*/) override {
+      throw utils::NotYetImplemented("Global vertex property index is not implemented for DiskStorage.");
+    }
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId /*property*/, PropertyValueRange const & /*range*/,
+                                            View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
