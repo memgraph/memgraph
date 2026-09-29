@@ -1,7 +1,7 @@
 version: '3'
 services:
   zookeeper:
-    image: 'bitnami/zookeeper:3.9.1'
+    image: 'soldevelo/zookeeper:3.9.5'
     ports:
       - '2181:2181'
     environment:
