@@ -135,11 +135,17 @@ test_fips_no_bundled_openssl() {
   # Restricted to ELF-ish paths: licence and doc files mention OpenSSL in prose
   # and would otherwise all come back as candidates.
   local candidates
+  # The trailing `exit 0` is load-bearing: the suite runs under `set -e`
+  # (test_single.bash is `#!/bin/bash -e`), and without it the last grep in the
+  # loop decides the exit status. The final file scanned almost never carries a
+  # banner, so the command substitution returns non-zero, the assignment trips
+  # set -e, and the whole suite dies here having printed no verdict at all.
   candidates="$($MEMGRAPH_EXEC bash -c '
     find / -xdev -type f \( -name "*.so" -o -name "*.so.*" -o -path "/usr/lib/memgraph/*" \) 2>/dev/null |
     while read -r f; do
       grep -aqE "OpenSSL [0-9]+\.[0-9]+\.[0-9]+" "$f" 2>/dev/null && echo "$f"
-    done' 2>/dev/null)"
+    done
+    exit 0' 2>/dev/null)"
 
   # libcrypto itself always carries a banner, so an empty result means the scan
   # broke rather than that the image is clean. That is how this test used to
@@ -158,8 +164,9 @@ test_fips_no_bundled_openssl() {
       */libcrypto.so.*|*/libssl.so.*|*/ossl-modules/*) continue ;;
     esac
     needed="$(container_dt_needed "$file")" || continue   # not an ELF object
-    printf '%s\n' "$needed" | grep -qE '^lib(ssl|crypto)\.so' && continue
-    found="$found  $file"$'\n'
+    if ! printf '%s\n' "$needed" | grep -qE '^lib(ssl|crypto)\.so'; then
+      found="$found  $file"$'\n'
+    fi
   done <<< "$candidates"
 
   if [ -n "$found" ]; then
