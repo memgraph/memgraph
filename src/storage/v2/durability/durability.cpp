@@ -343,6 +343,20 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Label+property indices statistics are recreated.");
   }
 
+  // Vector idx on edges — must run before edge-type+property and global edge property rebuilds so
+  // they see the final VectorIndexIdData form, not the intermediate plain-list.
+  {
+    spdlog::info("Recreating {} vector edge indices.", indices_metadata.vector_edge_indices.size());
+    auto vertices_acc = vertices->access();
+    indices->vector_edge_index_.RecoverAllVectorEdgeIndices(indices_metadata.vector_edge_indices,
+                                                            indices_metadata.edge_vectors,
+                                                            vertices_acc,
+                                                            name_id_mapper,
+                                                            updater,
+                                                            on_progress);
+    spdlog::info("Vector edge indices are recreated.");
+  }
+
   // Recover edge-type indices.
   {
     spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
@@ -450,17 +464,6 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     }
     spdlog::info("Point indices are recreated.");
   }
-  // Vector idx on edges
-  {
-    spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
-    auto vertices_acc = vertices->access();
-    for (auto &recovery_info : indices_metadata.vector_edge_indices) {
-      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, updater, on_progress);
-      spdlog::info("Vector edge index {} is recreated from metadata", recovery_info.spec.index_name);
-    }
-    spdlog::info("Vector edge indices are recreated.");
-  }
-
   spdlog::info("Indices are recreated.");
 }
 
