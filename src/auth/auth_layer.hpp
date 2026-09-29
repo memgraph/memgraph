@@ -21,6 +21,7 @@
 
 #include "auth/atomic_auth_overlay.hpp"
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "auth/repository.hpp"
 #include "auth/rpc.hpp"
 #include "system/transaction.hpp"
@@ -184,7 +185,12 @@ class AuthLayer {
             }
           } else if (auto const *drop = std::get_if<replication::AuthDropOp>(&op);
                      drop && drop->type == replication::AuthDataType::PROFILE) {
-            locked->DropProfile(drop->name);
+            // A profile that is not there was already dropped, which is the state the main asked for. A delete
+            // that failed is not: the store still holds a profile the main removed, so refuse the batch and let
+            // the main send a snapshot rather than acking a replica that has diverged.
+            if (locked->DropProfile(drop->name) == UserProfiles::DropResult::kFailed) {
+              throw AuthException("Couldn't drop profile '{}'", drop->name);
+            }
           }
         }
       }

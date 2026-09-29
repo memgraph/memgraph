@@ -3856,9 +3856,9 @@ TEST_F(AuthWithStorage, DropProfile) {
   ASSERT_TRUE(auth->UpdateProfile(
       "other_profile",
       {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
-  ASSERT_TRUE(auth->DropProfile("profile"));
-  ASSERT_TRUE(auth->DropProfile("other_profile"));
-  ASSERT_FALSE(auth->DropProfile("non_profile"));
+  ASSERT_EQ(auth->DropProfile("profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
+  ASSERT_EQ(auth->DropProfile("other_profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
+  ASSERT_EQ(auth->DropProfile("non_profile"), memgraph::auth::UserProfiles::DropResult::kAbsent);
 }
 
 TEST_F(AuthWithStorage, GetProfile) {
@@ -3879,9 +3879,9 @@ TEST_F(AuthWithStorage, GetProfile) {
     ASSERT_EQ(profile->name, "other_profile");
     ASSERT_EQ(profile->limits.size(), 1);
   }
-  ASSERT_TRUE(auth->DropProfile("profile"));
+  ASSERT_EQ(auth->DropProfile("profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   ASSERT_FALSE(auth->GetProfile("profile"));
-  ASSERT_TRUE(auth->DropProfile("other_profile"));
+  ASSERT_EQ(auth->DropProfile("other_profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   ASSERT_FALSE(auth->GetProfile("other_profile"));
   ASSERT_FALSE(auth->GetProfile("non_profile"));
 }
@@ -3905,7 +3905,7 @@ TEST_F(AuthWithStorage, AllProfiles) {
       }
     }
   }
-  ASSERT_TRUE(auth->DropProfile("profile"));
+  ASSERT_EQ(auth->DropProfile("profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   {
     const auto profiles = auth->AllProfiles();
     ASSERT_EQ(profiles.size(), 1);
@@ -3917,7 +3917,7 @@ TEST_F(AuthWithStorage, AllProfiles) {
       }
     }
   }
-  ASSERT_TRUE(auth->DropProfile("other_profile"));
+  ASSERT_EQ(auth->DropProfile("other_profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   ASSERT_EQ(auth->AllProfiles().size(), 0);
 }
 
@@ -4026,7 +4026,7 @@ TEST_F(AuthWithStorage, RevokeProfile) {
   ASSERT_NO_THROW(auth->RevokeProfile("non_user"));
 
   ASSERT_NO_THROW(auth->SetProfile("profile", "user"));
-  ASSERT_TRUE(auth->DropProfile("profile"));
+  ASSERT_EQ(auth->DropProfile("profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   ASSERT_FALSE(auth->GetProfileForUsername("user"));
 }
 
@@ -4127,7 +4127,7 @@ TEST_F(AuthWithStorage, GetUsersForProfile) {
       ASSERT_TRUE(user == "user1" || user == "user2");
     }
   }
-  ASSERT_TRUE(auth->DropProfile("profile"));
+  ASSERT_EQ(auth->DropProfile("profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   ASSERT_THROW(auth->GetUsernamesForProfile("profile"), memgraph::auth::AuthException);
 
   ASSERT_EQ(auth->GetUsernamesForProfile("other_profile").size(), 0);

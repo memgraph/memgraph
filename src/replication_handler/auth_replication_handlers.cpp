@@ -152,7 +152,7 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
       }
       // Delete all the leftover profiles
       for (const auto &profile : old_profiles) {
-        if (!locked_auth.DropProfile(profile.name)) {
+        if (locked_auth.DropProfile(profile.name) != auth::UserProfiles::DropResult::kDropped) {
           spdlog::debug("SystemRecoveryHandler: Failed to remove profile \"{}\".", profile.name);
           return false;
         }
