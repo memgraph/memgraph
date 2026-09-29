@@ -310,12 +310,20 @@ TEST(Comparability, AnswersNothingForTwoListsHoldingUnlikeTypesWhereTheyPart) {
   EXPECT_FALSE(comparability::Compare(ListOf({Int(1), TypedValue("a")}), ListOf({Int(1), Int(2)})).has_value());
 }
 
-TEST(Comparability, LeavesTwoListsHoldingANaNUnordered) {
-  // A NaN element makes the lists unordered: all four comparisons are false, not Null.
+TEST(Comparability, AnswersNothingWherePlacingTwoListsReachesANaN) {
+  // Spec: NaN is incomparable, so a list pair that compares one is Null, not false as for scalars.
   auto const nan = TypedValue(std::nan(""));
-  auto const order = comparability::Compare(ListOf({Int(1), nan}), ListOf({Int(1), TypedValue(2.0)}));
-  ASSERT_TRUE(order.has_value());
-  EXPECT_EQ(*order, std::partial_ordering::unordered);
+  EXPECT_FALSE(comparability::Compare(ListOf({Int(1), nan}), ListOf({Int(1), TypedValue(2.0)})).has_value());
+  EXPECT_FALSE(comparability::Compare(ListOf({nan, Int(1)}), ListOf({nan, Int(2)})).has_value());
+  EXPECT_FALSE(comparability::Compare(ListOf({ListOf({nan})}), ListOf({ListOf({Int(1)})})).has_value());
+  // The scalar pair stays unordered.
+  EXPECT_EQ(*comparability::Compare(Int(1), nan), std::partial_ordering::unordered);
+}
+
+TEST(Comparability, SettlesBeforeReachingANaN) {
+  // Position 0 decides; the later NaN is never compared.
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1), nan}), ListOf({Int(2)}))));
 }
 
 TEST(Comparability, ReadsAListNestedInsideAList) {

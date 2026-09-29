@@ -22,11 +22,10 @@ std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a
   for (auto at = std::size_t{0}; at != shared; ++at) {
     auto const element = Compare(a[at], b[at]);
 
-    // Undecided element (Null, unlike types): the lists are undecided too.
-    if (!element) return std::nullopt;
-
-    // NaN element: the lists are unordered, so all four comparisons are false, not Null.
-    if (*element == std::partial_ordering::unordered) return std::partial_ordering::unordered;
+    // Undecided element (Null, unlike types, NaN): the lists are undecided too.
+    // A NaN is unordered as a scalar, but the specification counts it incomparable,
+    // and inside a list that makes the pair Null.
+    if (!element || *element == std::partial_ordering::unordered) return std::nullopt;
 
     if (std::is_neq(*element)) return element;
   }

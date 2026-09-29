@@ -13,6 +13,7 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -283,6 +284,11 @@ TEST(TypedValue, ComparabilityAnswersNullForAPairItCannotPlace) {
   // Lists compare by their elements, and are Null where an element pair is.
   EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(2)}));
   EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
+
+  // A NaN element makes the pair Null, although a NaN scalar compares false.
+  EXPECT_PROP_ISNULL(List({TypedValue(std::nan(""))}) < List({TypedValue(1)}));
+  EXPECT_PROP_ISNULL(List({TypedValue(std::nan(""))}) >= List({TypedValue(1)}));
+  EXPECT_PROP_FALSE(TypedValue(std::nan("")) < TypedValue(1));
 }
 
 TEST(TypedValue, EqualityOfAContainerHoldingNullIsUndecided) {

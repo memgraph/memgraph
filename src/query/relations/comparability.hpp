@@ -22,7 +22,8 @@
 /// Lists compare lexicographically: the first unequal element decides, and a
 /// shorter prefix sorts first. An undecided element pair makes the lists
 /// undecided, so `[1, 2] >= [1, null]` is Null, while `[1] < [1, null]` is true
-/// because the null is never compared.
+/// because the null is never compared. A NaN element also makes them undecided:
+/// `[1] < [NaN]` is Null, although `1 < NaN` is false.
 #pragma once
 
 #include <cmath>
@@ -74,6 +75,7 @@ constexpr bool ValidFor(TypedValue::Type type) {
 }
 
 /// Lexicographic order: the first unequal element decides; a shorter prefix sorts first.
+/// Never answers `unordered`: a NaN element leaves the lists undecided.
 /// Out of line: Compare recurses through it for nested lists, and a self-recursive
 /// Compare would not be inlined into the comparison operators.
 /// Takes the vectors so both arguments are lists by type.
