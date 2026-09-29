@@ -28,7 +28,22 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Validate PR
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          state=$(gh pr view "$PR_NUMBER" --json state -q .state)
+          if [[ "$state" != "OPEN" ]]; then
+            echo "::error::#$PR_NUMBER is $state, not an open PR."
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
