@@ -492,7 +492,7 @@ auto RaftState::WaitForServerConfig(int32_t coordinator_id, bool present) const 
   auto const params = raft_server_->get_current_params();
   // A membership message parked behind a busy peer goes out on the next heartbeat, then needs a round trip and a
   // config commit. Three heartbeats plus the client timeout leave room for that without racing the heartbeat.
-  auto const max_wait = std::chrono::milliseconds{3 * params.heart_beat_interval_ + params.client_req_timeout_};
+  auto const max_wait = std::chrono::milliseconds{(3 * params.heart_beat_interval_) + params.client_req_timeout_};
   constexpr std::chrono::milliseconds waiting_period{200};
 
   auto const deadline = std::chrono::steady_clock::now() + max_wait;
