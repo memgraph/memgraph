@@ -1034,3 +1034,38 @@ Feature: Aggregations
         Then the result should be:
             | found | c |
             | true  | 1 |
+
+    Scenario: Order by a returned item that contains a parameter
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        And parameters are:
+            | x | 1 |
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.value + $x AS v, COUNT(*) AS c ORDER BY n.value + $x
+            """
+        Then the result should be, in order:
+            | v    | c |
+            | 2    | 1 |
+            | 3    | 1 |
+            | 4    | 1 |
+            | 6    | 1 |
+            | null | 2 |
+
+    Scenario: Order by a returned item that contains a different parameter
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {type: 'a', value: null}), (:Node {type: 'a', value: 1}), (:Node {type: 'b', value: null}), (:Node {type: 'c', value: 2}), (:Node {type: 'c', value: 3}), (:Node {type: 'c', value: 5})
+            """
+        And parameters are:
+            | x | 1 |
+            | y | 1 |
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.value + $x AS v, COUNT(*) AS c ORDER BY n.value + $y
+            """
+        Then an error should be raised
