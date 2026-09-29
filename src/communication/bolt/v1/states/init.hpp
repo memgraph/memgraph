@@ -158,7 +158,9 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   }
 
   auto scheme_in_module_mappings = [](std::string_view auth_scheme) {
-    if (auth_scheme == "basic") {  // "Basic" refers to username + password auth, as opposed to SSO
+    // "basic" (username + password) and "none" (no credentials) are built-in schemes, never SSO, even if an entry in
+    // the mappings flag happens to use one of those names.
+    if (auth_scheme == "basic" || auth_scheme == "none") {
       return false;
     }
     for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {

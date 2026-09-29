@@ -172,11 +172,14 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
   not present in `--auth-module-mappings`, succeed on a coordinator with credentials
   ignored (current behavior preserved, including for clients that send a data-instance SSO
   scheme to a coordinator without SSO), **except** when SSO is configured
-  (`--auth-module-mappings` non-empty) and the enterprise license is valid, in which case
-  they are denied. No license required. The deny condition deliberately mirrors the SSO
-  path's own license gate: passthrough is denied only while SSO can actually authenticate
-  someone, so there is always at least one working auth path on a coordinator. A denied
-  unlisted scheme gets a message naming the scheme, distinct from the basic/none message.
+  (`--auth-module-mappings` non-empty), the enterprise license is valid, and a
+  `COORDINATOR_WRITE` role exists in the committed role set, in which case they are denied.
+  No license required. The deny condition deliberately mirrors what the SSO path needs to
+  admit an administrator: passthrough is denied only while SSO can actually authenticate
+  someone with write privileges, so there is always at least one working auth path on a
+  coordinator (an unreachable leader leaves the role set unknown and is fail-closed). A
+  denied unlisted scheme gets a message naming the scheme, distinct from the basic/none
+  message.
 - **SSO authenticates**: for a scheme present in `--auth-module-mappings`, run the auth
   module for that scheme, then validate the returned roles. Authentication **succeeds only
   if every returned role exists** in the coordinator's role list. Invalid token or any
