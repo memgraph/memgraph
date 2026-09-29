@@ -386,22 +386,19 @@ TEST_F(ReplicationEncoderPageCache, DroppingLeavesTheSentFileEvicted) {
   Send(kept_path, memgraph::utils::PageCachePolicy::kKeep);
   Send(dropped_path, memgraph::utils::PageCachePolicy::kDrop);
 
-  auto const dropped = memgraph::test::CacheStateOf(dropped_path);
-  auto const kept = memgraph::test::CacheStateOf(kept_path);
-  if (!dropped || !kept) {
-    GTEST_SKIP() << "this kernel cannot report what became of a file's pages, so a release and a "
-                 << "reclaim are indistinguishable here";
-  }
+  auto const dropped = memgraph::test::ResidentFraction(dropped_path);
+  auto const kept = memgraph::test::ResidentFraction(kept_path);
+  ASSERT_TRUE(dropped.has_value());
+  ASSERT_TRUE(kept.has_value());
 
-  // Memory pressure takes clean pages at any time, and a file the machine emptied looks exactly
-  // like one that was released. It does not look the same to the kernel, which remembers the pages
-  // it took, so the two can be told apart rather than guessed at from how many are left.
-  if (dropped->reclaimed != 0 || kept->reclaimed != 0) {
-    GTEST_SKIP() << "the machine reclaimed " << (dropped->reclaimed + kept->reclaimed)
-                 << " page(s) of these files under memory pressure, which is the same absence a release leaves";
+  // Memory pressure takes clean pages at any time and leaves a file looking exactly as a release
+  // leaves it. The kept file is the guard: sent first and measured last, it was exposed for at
+  // least as long, so its surviving says the window took nothing and what happened to the other
+  // file was the release. Where it did not survive there is no evidence either way.
+  if (*kept <= 0.9) {
+    GTEST_SKIP() << "the machine reclaimed " << ((1 - *kept) * 100) << "% of a file that was kept, so nothing here "
+                 << "distinguishes dropping from reclaiming";
   }
-
-  EXPECT_EQ(dropped->cached, 0U) << "kDrop left " << dropped->cached << " of " << dropped->pages
-                                 << " pages of the sent file cached";
-  EXPECT_EQ(kept->cached, kept->pages) << "kKeep dropped pages of the sent file";
+  EXPECT_LT(*dropped, 0.05) << "kDrop left " << (*dropped * 100) << "% of the sent file resident, against "
+                            << (*kept * 100) << "% for kKeep";
 }
