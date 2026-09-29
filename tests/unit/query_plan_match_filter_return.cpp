@@ -4022,7 +4022,7 @@ class ExistsFixture : public testing::Test {
 
       if (destination_label.has_value()) {
         auto labelIx = storage.GetLabelIx(destination_label.value());
-        destination_node->label_term_ = LabelTerm{.kind = LabelTerm::Kind::Label, .label = labelIx};
+        destination_node->label_term_ = LabelTerm{LabelTerm::Label{labelIx}};
 
         auto label_expr = static_cast<Expression *>(
             storage.Create<LabelsTest>(destination_node->identifier_, std::vector<memgraph::query::LabelIx>{labelIx}));

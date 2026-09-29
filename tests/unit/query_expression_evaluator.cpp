@@ -1240,7 +1240,7 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
   auto eval_on = [&](const TypedValue &value) {
     auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
     frame_writer.Write(node_symbol, value);
-    return this->Eval(MakeLabelsTest(this->storage, identifier, LabelTerm{.kind = LabelTerm::Kind::Wildcard}));
+    return this->Eval(MakeLabelsTest(this->storage, identifier, LabelTerm{LabelTerm::Wildcard{}}));
   };
   EXPECT_TRUE(eval_on(TypedValue(labelled)).ValueBool());
   EXPECT_FALSE(eval_on(TypedValue(bare)).ValueBool());
@@ -1270,16 +1270,13 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
 
-  auto leaf = [](LabelIx label) { return LabelTerm{.kind = LabelTerm::Kind::Label, .label = label}; };
+  auto leaf = [](LabelIx label) { return LabelTerm{LabelTerm::Label{label}}; };
   auto test_of = [&](LabelTerm term) { return MakeLabelsTest(this->storage, identifier, std::move(term)); };
   // (ANIMAL|%)&!PLANT
-  auto term =
-      LabelTerm{.kind = LabelTerm::Kind::And,
-                .children = {LabelTerm{.kind = LabelTerm::Kind::Or,
-                                       .children = {leaf(animal_ix), LabelTerm{.kind = LabelTerm::Kind::Wildcard}}},
-                             LabelTerm{.kind = LabelTerm::Kind::Not, .children = {leaf(plant_ix)}}}};
+  auto term = LabelTerm{LabelTerm::And{{LabelTerm{LabelTerm::Or{{leaf(animal_ix), LabelTerm{LabelTerm::Wildcard{}}}}},
+                                        LabelTerm{LabelTerm::Not{leaf(plant_ix)}}}}};
   // An empty `$p` under an operator: an `And` of nothing.
-  auto empty_conjunction = LabelTerm{.kind = LabelTerm::Kind::And};
+  auto empty_conjunction = LabelTerm{LabelTerm::And{}};
 
   auto eval_on = [&](const TypedValue &value, LabelsTest *op) {
     auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);

@@ -3216,72 +3216,74 @@ MemgraphCypher::LabelLeafContext *PlainLabelLeaf(MemgraphCypher::LabelTermContex
 }
 
 /// `A|(B|C)` and `A|B|C` name the same disjunction, so the tree is kept flat. Nothing else is folded:
-/// the tree stays as written so that EXPLAIN does too.
-void AppendFlattened(LabelTerm::Kind kind, LabelTerm child, std::vector<LabelTerm> &out) {
-  if (child.kind != kind) {
-    out.push_back(std::move(child));
+/// the tree stays as written so that EXPLAIN does too. `Op` is `LabelTerm::And` or `LabelTerm::Or`.
+template <typename Op>
+void AppendFlattened(LabelTerm operand, std::vector<LabelTerm> &out) {
+  auto *same = operand.As<Op>();
+  if (!same) {
+    out.push_back(std::move(operand));
     return;
   }
-  for (auto &grandchild : child.children) {
-    out.push_back(std::move(grandchild));
-  }
+  std::ranges::move(same->operands, std::back_inserter(out));
 }
 
-LabelTerm Combine(LabelTerm::Kind kind, std::vector<LabelTerm> children) {
-  if (children.size() == 1U) return std::move(children.front());
-  return LabelTerm{.kind = kind, .children = std::move(children)};
+template <typename Op>
+LabelTerm Combine(std::vector<LabelTerm> operands) {
+  if (operands.size() == 1U) return std::move(operands.front());
+  return LabelTerm{Op{std::move(operands)}};
 }
 
 /// A conjunction that repeats a label asks nothing more, and index selection expects each label once.
 LabelTerm WithoutRepeatedLabels(LabelTerm term) {
-  if (term.kind != LabelTerm::Kind::And || !term.Conjunction()) return term;
-  std::vector<LabelTerm> children;
-  children.reserve(term.children.size());
-  for (auto &child : term.children) {
-    const bool repeated = child.kind == LabelTerm::Kind::Label && std::ranges::any_of(children, [&](const auto &kept) {
-                            return kept.kind == LabelTerm::Kind::Label && kept.label == child.label;
+  auto *conjunction = term.As<LabelTerm::And>();
+  if (!conjunction || !term.Conjunction()) return term;
+  std::vector<LabelTerm> operands;
+  operands.reserve(conjunction->operands.size());
+  for (auto &operand : conjunction->operands) {
+    const auto *label = operand.As<LabelTerm::Label>();
+    const bool repeated = label && std::ranges::any_of(operands, [&](const LabelTerm &kept) {
+                            const auto *kept_label = kept.As<LabelTerm::Label>();
+                            return kept_label && kept_label->label == label->label;
                           });
-    if (!repeated) children.push_back(std::move(child));
+    if (!repeated) operands.push_back(std::move(operand));
   }
-  return Combine(LabelTerm::Kind::And, std::move(children));
+  return Combine<LabelTerm::And>(std::move(operands));
 }
 
 }  // namespace
 
 LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermContext *ctx) {
-  std::vector<LabelTerm> children;
+  std::vector<LabelTerm> operands;
   for (auto *conjunction : ctx->labelTermAnd()) {
-    AppendFlattened(LabelTerm::Kind::Or, LabelTermFrom(conjunction), children);
+    AppendFlattened<LabelTerm::Or>(LabelTermFrom(conjunction), operands);
   }
-  return Combine(LabelTerm::Kind::Or, std::move(children));
+  return Combine<LabelTerm::Or>(std::move(operands));
 }
 
 LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermAndContext *ctx) {
-  std::vector<LabelTerm> children;
+  std::vector<LabelTerm> operands;
   for (auto *negation : ctx->labelTermNot()) {
-    AppendFlattened(LabelTerm::Kind::And, LabelTermFrom(negation), children);
+    AppendFlattened<LabelTerm::And>(LabelTermFrom(negation), operands);
   }
-  return Combine(LabelTerm::Kind::And, std::move(children));
+  return Combine<LabelTerm::And>(std::move(operands));
 }
 
 LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermNotContext *ctx) {
   if (ctx->labelTermNot() == nullptr) return LabelTermFrom(ctx->labelTermAtom());
-  std::vector<LabelTerm> child;
-  child.push_back(LabelTermFrom(ctx->labelTermNot()));
-  return LabelTerm{.kind = LabelTerm::Kind::Not, .children = std::move(child)};
+  return LabelTerm{LabelTerm::Not{LabelTermFrom(ctx->labelTermNot())}};
 }
 
 LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermAtomContext *ctx) {
   if (ctx->labelTerm() != nullptr) return LabelTermFrom(ctx->labelTerm());
-  if (ctx->labelLeaf() == nullptr) return LabelTerm{.kind = LabelTerm::Kind::Wildcard};
+  if (ctx->labelLeaf() == nullptr) return LabelTerm{LabelTerm::Wildcard{}};
 
   std::vector<LabelTerm> leaves;
   for (const auto &label : LabelsFromLabelLeaf(ctx->labelLeaf())) {
-    leaves.push_back(LabelTerm{.kind = LabelTerm::Kind::Label, .label = label});
+    leaves.push_back(LabelTerm{LabelTerm::Label{label}});
   }
   // A `$param` bound to a list names several labels at once, which is a conjunction here just as it is
   // in a colon chain.
-  return Combine(LabelTerm::Kind::And, std::move(leaves));
+  return Combine<LabelTerm::And>(std::move(leaves));
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodeLabelExpression(MemgraphCypher::NodeLabelExpressionContext *ctx) {
@@ -3297,7 +3299,7 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabelExpression(MemgraphCypher::NodeLa
   std::vector<LabelTerm> leaves;
   for (auto *segment : segments) {
     if (auto *dynamic = segment->dynamicLabel()) {
-      leaves.push_back(LabelTerm{.kind = LabelTerm::Kind::Dynamic, .expression = DynamicLabelFrom(dynamic)});
+      leaves.push_back(LabelTerm{LabelTerm::Dynamic{DynamicLabelFrom(dynamic)}});
       continue;
     }
     auto *leaf = PlainLabelLeaf(segment->labelTerm());
@@ -3307,10 +3309,10 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabelExpression(MemgraphCypher::NodeLa
           "':A&B'.");
     }
     for (const auto &label : LabelsFromLabelLeaf(leaf)) {
-      leaves.push_back(LabelTerm{.kind = LabelTerm::Kind::Label, .label = label});
+      leaves.push_back(LabelTerm{LabelTerm::Label{label}});
     }
   }
-  return WithoutRepeatedLabels(Combine(LabelTerm::Kind::And, std::move(leaves)));
+  return WithoutRepeatedLabels(Combine<LabelTerm::And>(std::move(leaves)));
 }
 
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {

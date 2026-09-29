@@ -279,7 +279,7 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
 auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt,
              const bool user_declared = true) {
   auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
-  if (label) node->label_term_ = LabelTerm{.kind = LabelTerm::Kind::Label, .label = storage.GetLabelIx(*label)};
+  if (label) node->label_term_ = LabelTerm{LabelTerm::Label{storage.GetLabelIx(*label)}};
   return node;
 }
 
@@ -290,11 +290,12 @@ auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::st
 auto GetNodeWithMultipleLabels(AstStorage &storage, const std::string &name, std::vector<std::string> labels,
                                bool disjunction = true, const bool user_declared = true) {
   auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
-  auto term = LabelTerm{.kind = disjunction ? LabelTerm::Kind::Or : LabelTerm::Kind::And};
+  std::vector<LabelTerm> leaves;
   for (const auto &label : labels) {
-    term.children.push_back(LabelTerm{.kind = LabelTerm::Kind::Label, .label = storage.GetLabelIx(label)});
+    leaves.push_back(LabelTerm{LabelTerm::Label{storage.GetLabelIx(label)}});
   }
-  node->label_term_ = std::move(term);
+  node->label_term_ =
+      disjunction ? LabelTerm{LabelTerm::Or{std::move(leaves)}} : LabelTerm{LabelTerm::And{std::move(leaves)}};
   return node;
 }
 
@@ -308,24 +309,18 @@ auto GetNodeWithLabelTerm(AstStorage &storage, const std::string &name, LabelTer
 
 /// Leaf/operator builders for LabelTerm, so a test states the shape it means.
 inline LabelTerm LabelTermLeaf(AstStorage &storage, const std::string &label) {
-  return LabelTerm{.kind = LabelTerm::Kind::Label, .label = storage.GetLabelIx(label)};
+  return LabelTerm{LabelTerm::Label{storage.GetLabelIx(label)}};
 }
 
-inline LabelTerm LabelTermWildcard() { return LabelTerm{.kind = LabelTerm::Kind::Wildcard}; }
+inline LabelTerm LabelTermWildcard() { return LabelTerm{LabelTerm::Wildcard{}}; }
 
-inline LabelTerm LabelTermNot(LabelTerm child) {
-  auto term = LabelTerm{.kind = LabelTerm::Kind::Not};
-  term.children.push_back(std::move(child));
-  return term;
+inline LabelTerm LabelTermNot(LabelTerm operand) { return LabelTerm{LabelTerm::Not{std::move(operand)}}; }
+
+inline LabelTerm LabelTermAnd(std::vector<LabelTerm> operands) {
+  return LabelTerm{LabelTerm::And{std::move(operands)}};
 }
 
-inline LabelTerm LabelTermAnd(std::vector<LabelTerm> children) {
-  return LabelTerm{.kind = LabelTerm::Kind::And, .children = std::move(children)};
-}
-
-inline LabelTerm LabelTermOr(std::vector<LabelTerm> children) {
-  return LabelTerm{.kind = LabelTerm::Kind::Or, .children = std::move(children)};
-}
+inline LabelTerm LabelTermOr(std::vector<LabelTerm> operands) { return LabelTerm{LabelTerm::Or{std::move(operands)}}; }
 
 /// Create a Pattern with given atoms.
 auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {

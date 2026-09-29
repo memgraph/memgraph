@@ -48,22 +48,19 @@ namespace memgraph::query {
 /// An `And` with no operands comes from a `$param` bound to an empty list and holds.
 template <typename HasLabel, typename HasAnyLabel>
 bool EvalLabelTerm(const LabelTerm &term, const HasLabel &has_label, const HasAnyLabel &has_any_label) {
-  auto holds = [&](const LabelTerm &child) { return EvalLabelTerm(child, has_label, has_any_label); };
-  switch (term.kind) {
-    case LabelTerm::Kind::Label:
-      return has_label(term.label);
-    case LabelTerm::Kind::Dynamic:
-      throw QueryRuntimeException("You can't use labels in filter expressions.");
-    case LabelTerm::Kind::Wildcard:
-      return has_any_label();
-    case LabelTerm::Kind::Not:
-      return !holds(term.children.front());
-    case LabelTerm::Kind::And:
-      return std::ranges::all_of(term.children, holds);
-    case LabelTerm::Kind::Or:
-      return std::ranges::any_of(term.children, holds);
-  }
-  LOG_FATAL("Unexpected LabelTerm::Kind");
+  auto holds = [&](const LabelTerm &operand) { return EvalLabelTerm(operand, has_label, has_any_label); };
+  return std::visit(
+      utils::Overloaded{
+          [&](const LabelTerm::Label &leaf) -> bool { return has_label(leaf.label); },
+          [](const LabelTerm::Dynamic &) -> bool {
+            throw QueryRuntimeException("You can't use labels in filter expressions.");
+          },
+          [&](const LabelTerm::Wildcard &) -> bool { return has_any_label(); },
+          [&](const LabelTerm::Not &negation) -> bool { return !holds(*negation.operand); },
+          [&](const LabelTerm::And &conjunction) -> bool { return std::ranges::all_of(conjunction.operands, holds); },
+          [&](const LabelTerm::Or &disjunction) -> bool { return std::ranges::any_of(disjunction.operands, holds); },
+      },
+      term.node);
 }
 
 /// Throws the query error for a vertex whose labels could not be read. Kept out of line: the per-row label

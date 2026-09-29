@@ -90,6 +90,7 @@
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "utils/timer.hpp"
+#include "utils/variant_helpers.hpp"
 #include "vertex_accessor.hpp"
 
 import memgraph.csv.parsing;
@@ -5029,45 +5030,44 @@ std::optional<std::string> LabelTermName(const LabelTerm &term, std::string_view
   auto test = [&](std::string_view labels) {
     return labels.empty() ? fmt::format("({})", subject) : fmt::format("({} :{})", subject, labels);
   };
-  auto fold = [&](std::string_view word) -> std::optional<std::string> {
-    if (term.children.empty()) return test("");
+  auto fold = [&](const std::vector<LabelTerm> &operands, std::string_view word) -> std::optional<std::string> {
+    if (operands.empty()) return test("");
     std::vector<std::string> names;
-    names.reserve(term.children.size());
-    for (const auto &child : term.children) {
-      auto name = LabelTermName(child, subject);
+    names.reserve(operands.size());
+    for (const auto &operand : operands) {
+      auto name = LabelTermName(operand, subject);
       if (!name) return std::nullopt;
       names.push_back(*std::move(name));
     }
     if (names.size() == 1U) return std::move(names.front());
     return fmt::format("({})", utils::Join(names, fmt::format(" {} ", word)));
   };
-  switch (term.kind) {
-    case LabelTerm::Kind::Label:
-      return test(term.label.name);
-    case LabelTerm::Kind::Dynamic:
-      return std::nullopt;
-    case LabelTerm::Kind::Wildcard:
-      return test("%");
-    case LabelTerm::Kind::Not: {
-      auto inner = LabelTermName(term.children.front(), subject);
-      if (!inner) return std::nullopt;
-      return fmt::format("NOT {}", *inner);
-    }
-    case LabelTerm::Kind::Or:
-      if (!term.children.empty() && std::ranges::all_of(term.children, [](const LabelTerm &child) {
-            return child.kind == LabelTerm::Kind::Label;
-          })) {
-        std::vector<std::string_view> names;
-        for (const auto &child : term.children) {
-          if (!std::ranges::contains(names, std::string_view{child.label.name})) names.emplace_back(child.label.name);
-        }
-        return test(utils::Join(names, "|"));
-      }
-      return fold("OR");
-    case LabelTerm::Kind::And:
-      return fold("AND");
-  }
-  return std::nullopt;
+  return std::visit(
+      utils::Overloaded{
+          [&](const LabelTerm::Label &leaf) -> std::optional<std::string> { return test(leaf.label.name); },
+          [](const LabelTerm::Dynamic &) -> std::optional<std::string> { return std::nullopt; },
+          [&](const LabelTerm::Wildcard &) -> std::optional<std::string> { return test("%"); },
+          [&](const LabelTerm::Not &negation) -> std::optional<std::string> {
+            auto inner = LabelTermName(*negation.operand, subject);
+            if (!inner) return std::nullopt;
+            return fmt::format("NOT {}", *inner);
+          },
+          [&](const LabelTerm::Or &disjunction) -> std::optional<std::string> {
+            const auto &operands = disjunction.operands;
+            auto label_of = [](const LabelTerm &operand) { return operand.As<LabelTerm::Label>(); };
+            if (operands.empty() || !std::ranges::all_of(operands, label_of)) return fold(operands, "OR");
+            std::vector<std::string_view> names;
+            for (const auto &operand : operands) {
+              std::string_view name = label_of(operand)->label.name;
+              if (!std::ranges::contains(names, name)) names.emplace_back(name);
+            }
+            return test(utils::Join(names, "|"));
+          },
+          [&](const LabelTerm::And &conjunction) -> std::optional<std::string> {
+            return fold(conjunction.operands, "AND");
+          },
+      },
+      term.node);
 }
 
 /// A label expression over an identifier reads as the labels it tests: `NOT (n :C)`, `((n :A) OR NOT (n :B))`.

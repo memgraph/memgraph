@@ -9982,25 +9982,22 @@ namespace {
 /// A parsed label term as text, so a test states the whole shape in one string: `A`, `%`, `!A`,
 /// `&(A,B)`, `|(A,&(B,C))`.
 std::string TermToString(const LabelTerm &term) {
-  switch (term.kind) {
-    case LabelTerm::Kind::Label:
-      return term.label.name;
-    case LabelTerm::Kind::Dynamic:
-      return "<dynamic>";
-    case LabelTerm::Kind::Wildcard:
-      return "%";
-    case LabelTerm::Kind::Not:
-      return "!" + TermToString(term.children.front());
-    case LabelTerm::Kind::And:
-    case LabelTerm::Kind::Or: {
-      std::string out = term.kind == LabelTerm::Kind::And ? "&(" : "|(";
-      for (size_t i = 0; i < term.children.size(); ++i) {
-        if (i != 0U) out += ",";
-        out += TermToString(term.children[i]);
-      }
-      return out + ")";
+  auto join = [](std::string out, const std::vector<LabelTerm> &operands) {
+    for (size_t i = 0; i < operands.size(); ++i) {
+      if (i != 0U) out += ",";
+      out += TermToString(operands[i]);
     }
-  }
+    return out + ")";
+  };
+  return std::visit(memgraph::utils::Overloaded{
+                        [](const LabelTerm::Label &leaf) { return leaf.label.name; },
+                        [](const LabelTerm::Dynamic &) { return std::string{"<dynamic>"}; },
+                        [](const LabelTerm::Wildcard &) { return std::string{"%"}; },
+                        [](const LabelTerm::Not &negation) { return "!" + TermToString(*negation.operand); },
+                        [&](const LabelTerm::And &conjunction) { return join("&(", conjunction.operands); },
+                        [&](const LabelTerm::Or &disjunction) { return join("|(", disjunction.operands); },
+                    },
+                    term.node);
 }
 
 /// A label expression as text, in the same notation, with one labels test reading as `A`, `A:B`

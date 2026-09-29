@@ -502,8 +502,6 @@ TYPED_TEST(OperatorToStringTest, FilterWildcardLabel) {
 // A term held whole is one filter, and reads as one.
 TYPED_TEST(OperatorToStringTest, FilterLabelTerm) {
   auto node = this->GetSymbol("person");
-  auto leaf = [&](const char *label) { return LABEL_TERM_LEAF(label); };
-  auto negation = [](LabelTerm child) { return LABEL_TERM_NOT(std::move(child)); };
   auto filter_of = [&](LabelTerm term) {
     auto *labels_test = MakeLabelsTest(this->storage, IDENT("person"), std::move(term));
     Filters filters;
@@ -514,18 +512,17 @@ TYPED_TEST(OperatorToStringTest, FilterLabelTerm) {
   };
 
   // !Label2&!Label1
-  EXPECT_EQ(filter_of(LabelTerm{.kind = LabelTerm::Kind::And,
-                                .children = {negation(leaf("Label2")), negation(leaf("Label1"))}}),
-            "Filter (NOT (person :Label2) AND NOT (person :Label1))");
+  EXPECT_EQ(
+      filter_of(LABEL_TERM_AND(LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2")), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")))),
+      "Filter (NOT (person :Label2) AND NOT (person :Label1))");
   // Label1|(Label2&!Label3)
-  EXPECT_EQ(filter_of(LabelTerm{.kind = LabelTerm::Kind::Or,
-                                .children = {leaf("Label1"),
-                                             LabelTerm{.kind = LabelTerm::Kind::And,
-                                                       .children = {leaf("Label2"), negation(leaf("Label3"))}}}}),
-            "Filter ((person :Label1) OR ((person :Label2) AND NOT (person :Label3)))");
+  EXPECT_EQ(
+      filter_of(LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"),
+                              LABEL_TERM_AND(LABEL_TERM_LEAF("Label2"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label3"))))),
+      "Filter ((person :Label1) OR ((person :Label2) AND NOT (person :Label3)))");
   // !(Label1|Label2|Label1)
-  EXPECT_EQ(filter_of(negation(
-                LabelTerm{.kind = LabelTerm::Kind::Or, .children = {leaf("Label1"), leaf("Label2"), leaf("Label1")}})),
+  EXPECT_EQ(filter_of(LABEL_TERM_NOT(
+                LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label2"), LABEL_TERM_LEAF("Label1")))),
             "Filter NOT (person :Label1|Label2)");
 }
 

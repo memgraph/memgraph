@@ -255,10 +255,9 @@ auto DisjunctLabels(const LabelsTest &labels_test) -> const std::vector<LabelIx>
 LabelsTest *UnnegatedLabelTerm(const NotOperator &negation, AstStorage &storage) {
   auto *labels_test = utils::Downcast<LabelsTest>(negation.expression_);
   const auto *term = labels_test ? labels_test->Term() : nullptr;
-  if (!term || term->kind != LabelTerm::Kind::Not || !utils::Downcast<Identifier>(labels_test->expression_)) {
-    return nullptr;
-  }
-  return MakeLabelsTest(storage, labels_test->expression_->Clone(&storage), term->children.front());
+  const auto *negated_term = term ? term->As<LabelTerm::Not>() : nullptr;
+  if (!negated_term || !utils::Downcast<Identifier>(labels_test->expression_)) return nullptr;
+  return MakeLabelsTest(storage, labels_test->expression_->Clone(&storage), *negated_term->operand);
 }
 
 /// The plain labels a label filter's test holds. A whole term is always a generic filter, so a label filter

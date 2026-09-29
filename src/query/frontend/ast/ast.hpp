@@ -1155,15 +1155,76 @@ class AllPropertiesLookup : public Expression {
 
 using QueryLabelType = std::variant<LabelIx, Expression *>;
 
+/// Owns one `T` and copies it when copied: a recursive member by value, which `std::optional` cannot hold
+/// while `T` is incomplete.
+template <typename T>
+class ValueBox {
+ public:
+  explicit ValueBox(T value) : value_(std::make_unique<T>(std::move(value))) {}
+
+  ValueBox(const ValueBox &other) : value_(std::make_unique<T>(*other.value_)) {}
+
+  ValueBox(ValueBox &&) noexcept = default;
+
+  ValueBox &operator=(const ValueBox &other) {
+    if (this != &other) value_ = std::make_unique<T>(*other.value_);
+    return *this;
+  }
+
+  ValueBox &operator=(ValueBox &&) noexcept = default;
+  ~ValueBox() = default;
+
+  const T &operator*() const { return *value_; }
+
+  T &operator*() { return *value_; }
+
+  const T *operator->() const { return value_.get(); }
+
+  T *operator->() { return value_.get(); }
+
+ private:
+  std::unique_ptr<T> value_;
+};
+
 /// A node label expression: `&`, `|`, `!`, `%` and parentheses over label leaves, or a plain conjunction
 /// such as `:A:B`. Not a `Tree`; `MakeLabelsTest` holds it in a `LabelsTest`.
 struct LabelTerm {
-  enum class Kind : uint8_t { Label, Dynamic, Wildcard, And, Or, Not };
+  struct Label {
+    LabelIx label;
+  };
 
-  Kind kind{Kind::Label};
-  LabelIx label{};                  ///< `Kind::Label` only.
-  Expression *expression{nullptr};  ///< `Kind::Dynamic` only: the `variable.prop` that names the label.
-  std::vector<LabelTerm> children;  ///< `And`/`Or`: the operands. `Not`: exactly one.
+  /// The `variable.prop` that names a label, which only CREATE reads.
+  struct Dynamic {
+    Expression *expression{nullptr};
+  };
+
+  /// `%`: the node carries any label.
+  struct Wildcard {};
+
+  struct And {
+    std::vector<LabelTerm> operands;
+  };
+
+  struct Or {
+    std::vector<LabelTerm> operands;
+  };
+
+  struct Not {
+    explicit Not(LabelTerm operand);
+    ValueBox<LabelTerm> operand;
+  };
+
+  std::variant<Label, Dynamic, Wildcard, And, Or, Not> node;
+
+  template <typename T>
+  const T *As() const {
+    return std::get_if<T>(&node);
+  }
+
+  template <typename T>
+  T *As() {
+    return std::get_if<T>(&node);
+  }
 
   LabelTerm Clone(AstStorage *storage) const;
 
@@ -1171,6 +1232,8 @@ struct LabelTerm {
   /// Only a conjunction holds a `Dynamic` leaf: the grammar keeps it away from the operators.
   std::optional<std::vector<QueryLabelType>> Conjunction() const;
 };
+
+inline LabelTerm::Not::Not(LabelTerm operand) : operand(std::move(operand)) {}
 
 /// What a node must carry for a test of plain labels: each of `labels`, and one of each group in `or_labels`.
 struct LabelCnf {
