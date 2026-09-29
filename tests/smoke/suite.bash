@@ -29,6 +29,11 @@ run_feature_tests() {
   # NOTE: test_auth_roles runs in run_auth_feature_tests, once the users exist.
   test_basic_auth
   test_query
+  if [ "$__deployment" == "docker" ]; then
+    test_binary_linkage
+  else
+    echo "SKIP FEATURE: binary linkage (needs a throwaway docker container)"
+  fi
   # The expected procedure/function count comes from scanning the repo, which
   # includes the Python modules; a Python-less image legitimately has fewer.
   if [ "$__mode" != "fips" ]; then

@@ -116,22 +116,58 @@ test_fips_non_approved_algorithms_unavailable() {
 # Obligation C: no second crypto implementation anywhere in the image. The
 # Python auth-module wheels are the ones that would carry one, and a
 # Python-less build should not have brought them in.
+# A second OpenSSL anywhere in the image is disqualifying: approved mode is a
+# property of the validated module, and crypto done by some other copy is
+# outside it regardless of how the image is configured.
+#
+# Candidates are found with `grep -a` rather than `strings`, because the image
+# ships no binutils - the previous version of this test shelled out to `strings`
+# and so quietly found nothing on every run, passing whatever it was given. The
+# verdict then comes from DT_NEEDED, read on the host: an object that links the
+# system libcrypto is fine, and the banner alone means nothing, because a
+# dynamically linked extension still carries the version string it was compiled
+# against (cryptography's _rust.abi3.so is exactly that case).
 test_fips_no_bundled_openssl() {
   echo "FEATURE: FIPS - no second OpenSSL in the image"
-  local found
-  found="$($MEMGRAPH_EXEC bash -c '
-    for f in $(find / -name "*.so" -o -name "*.so.*" 2>/dev/null); do
-      if strings -a "$f" 2>/dev/null | grep -qE "^OpenSSL [0-9]+\.[0-9]+\.[0-9]+" \
-         && ! ldd "$f" 2>/dev/null | grep -q libcrypto; then
-        echo "$f"
-      fi
-    done' 2>/dev/null || true)"
-  if [ -n "$found" ]; then
-    echo "FAIL: these libraries embed their own OpenSSL:"
-    echo "$found"
+  command -v readelf >/dev/null \
+    || { echo "FAIL: readelf not found on the host (apt install binutils)"; return 1; }
+
+  # Restricted to ELF-ish paths: licence and doc files mention OpenSSL in prose
+  # and would otherwise all come back as candidates.
+  local candidates
+  candidates="$($MEMGRAPH_EXEC bash -c '
+    find / -xdev -type f \( -name "*.so" -o -name "*.so.*" -o -path "/usr/lib/memgraph/*" \) 2>/dev/null |
+    while read -r f; do
+      grep -aqE "OpenSSL [0-9]+\.[0-9]+\.[0-9]+" "$f" 2>/dev/null && echo "$f"
+    done' 2>/dev/null)"
+
+  # libcrypto itself always carries a banner, so an empty result means the scan
+  # broke rather than that the image is clean. That is how this test used to
+  # pass while checking nothing at all.
+  if [ -z "$candidates" ]; then
+    echo "FAIL: nothing in the image carries an OpenSSL banner, not even libcrypto."
+    echo "      The scan is broken, not the image."
     return 1
   fi
-  echo "  no statically linked OpenSSL found"
+
+  local found="" file needed
+  while read -r file; do
+    [ -n "$file" ] || continue
+    case "$file" in
+      # The validated module and its provider modules are the boundary itself.
+      */libcrypto.so.*|*/libssl.so.*|*/ossl-modules/*) continue ;;
+    esac
+    needed="$(container_dt_needed "$file")" || continue   # not an ELF object
+    printf '%s\n' "$needed" | grep -qE '^lib(ssl|crypto)\.so' && continue
+    found="$found  $file"$'\n'
+  done <<< "$candidates"
+
+  if [ -n "$found" ]; then
+    echo "FAIL: these carry their own OpenSSL instead of linking the validated one:"
+    printf '%s' "$found"
+    return 1
+  fi
+  echo "  every OpenSSL user in the image links the validated libcrypto"
 }
 
 # Passwords hashed under approved mode must actually use the approved KDF, and
