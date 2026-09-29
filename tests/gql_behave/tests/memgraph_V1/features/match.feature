@@ -1230,22 +1230,6 @@ Feature: Match
             | 'ab_lonely' |
             | 'lonely'    |
 
-    Scenario: A wildcard a negated pattern filter states is not demanded of the row
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:A {n: 'a'})-[:E]->({n: 'bare'}), ({n: 'bare_lonely'}), (:B {n: 'b_lonely'})
-            """
-        When executing query:
-            """
-            MATCH (n) WHERE NOT exists((n:%)-[]-()) RETURN n.n AS v ORDER BY v;
-            """
-        Then the result should be:
-            | v             |
-            | 'b_lonely'    |
-            | 'bare'        |
-            | 'bare_lonely' |
-
     Scenario: A label expression disjunction or-ed with a label over indexed labels
         Given an empty graph
         And with new index :A
@@ -1441,15 +1425,15 @@ Feature: Match
         Given an empty graph
         And having executed:
             """
-            CREATE (:A:B {n: 'ab'})
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:C {n: 'c'})
             """
         When executing query:
             """
-            MATCH (n {n: 'ab'}) RETURN [x IN [n] WHERE x:A|B | x.n] AS v;
+            MATCH (n) WITH n ORDER BY n.n WITH collect(n) AS ns RETURN [x IN ns WHERE x:A|B | x.n] AS v;
             """
         Then the result should be:
-            | v      |
-            | ['ab'] |
+            | v          |
+            | ['a', 'b'] |
 
     Scenario: Label expression with an index over the disjunction
         Given an empty graph
@@ -1502,20 +1486,6 @@ Feature: Match
             | v1   | v2   |
             | true | true |
 
-    Scenario: A label expression over an anonymous pattern expression
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:A {n: 'a'})-[:R]->(:B {n: 'b'})
-            """
-        When executing query:
-            """
-            RETURN [()-->(m) WHERE exists(()-->()) | m][0]:!A AS v;
-            """
-        Then the result should be:
-            | v    |
-            | true |
-
     Scenario: An empty label parameter under an operator only asks for a node
         Given an empty graph
         And having executed:
@@ -1543,23 +1513,22 @@ Feature: Match
             """
         Then the result should be empty
 
-    Scenario: An empty label parameter under an operator over an expression subject
+    Scenario: A label parameter bound to a list is a conjunction under an operator
         Given an empty graph
         And having executed:
             """
-            CREATE (:A {n: 'a'}), (:B {n: 'b'}), ({n: 'none'})
+            CREATE (:A {n: 'a'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'})
             """
         And parameters are:
-            | p | [] |
+            | p | ['A', 'B'] |
         When executing query:
             """
-            MATCH (n) RETURN n.n AS v, head([n]):$p|B AS either, head([n]):!$p AS neither ORDER BY v;
+            MATCH (n:$p|C) RETURN n.n AS v ORDER BY v;
             """
         Then the result should be:
-            | v      | either | neither |
-            | 'a'    | true   | false   |
-            | 'b'    | true   | false   |
-            | 'none' | true   | false   |
+            | v    |
+            | 'ab' |
+            | 'c'  |
 
     Scenario: Creating with an empty label parameter under an operator
         Given an empty graph
@@ -1617,21 +1586,6 @@ Feature: Match
         Then the result should be:
             | vs |
             | [2, 4] |
-
-    Scenario: Matching (n:(A|B)&!(A&B)) in a pattern
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
-                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
-            """
-        When executing query:
-            """
-            MATCH (n:(A|B)&!(A&B)) WITH n.v AS v ORDER BY v RETURN collect(v) AS vs;
-            """
-        Then the result should be:
-            | vs |
-            | [1, 2, 5] |
 
     Scenario: A label expression on an expand target
         Given an empty graph

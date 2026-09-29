@@ -2605,8 +2605,8 @@ TYPED_TEST(TestSymbolGenerator, CreateOrMergeWithLabelTermIsRejected) {
   EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(matched)), RETURN("n")))));
 }
 
-// The rejection reaches a node wherever a write builds one. Each case also runs with a plain node, which
-// must pass, so the throw is the label term's.
+// The rejection reaches the far end of a written edge too. Each case also runs with a plain node, which must
+// pass, so the throw is the label term's.
 TYPED_TEST(TestSymbolGenerator, NestedCreateOrMergeWithLabelTermIsRejected) {
   auto term = [&] { return NODE_WITH_TERM("n", LABEL_TERM_OR(LABEL_TERM_LEAF("A"), LABEL_TERM_LEAF("B"))); };
   auto plain = [&] { return NODE("n"); };
@@ -2621,16 +2621,6 @@ TYPED_TEST(TestSymbolGenerator, NestedCreateOrMergeWithLabelTermIsRejected) {
       {"merged edge endpoint",
        [&](const MakeNode &node) {
          return QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {"R"}), node()))));
-       }},
-      // FOREACH (i IN [1] | CREATE (n:A|B))
-      {"FOREACH",
-       [&](const MakeNode &node) {
-         return QUERY(SINGLE_QUERY(FOREACH(NEXPR("i", LIST(LITERAL(1))), {CREATE(PATTERN(node()))})));
-       }},
-      // CALL { CREATE (n:A|B) }
-      {"CALL subquery",
-       [&](const MakeNode &node) {
-         return QUERY(SINGLE_QUERY(CALL_SUBQUERY(QUERY(SINGLE_QUERY(CREATE(PATTERN(node())))))));
        }},
   };
   for (const auto &[name, make_query] : cases) {

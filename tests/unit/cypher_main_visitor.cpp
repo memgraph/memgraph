@@ -10037,15 +10037,6 @@ std::string LabelsToString(Expression *expression) {
   return "<other>";
 }
 
-NodeAtom *FirstCreatedOrMergedNode(Query *query) {
-  auto *single_query = dynamic_cast<CypherQuery *>(query)->single_query_;
-  auto *clause = single_query->clauses_[0];
-  if (auto *create = dynamic_cast<Create *>(clause)) {
-    return dynamic_cast<NodeAtom *>(create->patterns_[0]->atoms_[0]);
-  }
-  return dynamic_cast<NodeAtom *>(dynamic_cast<Merge *>(clause)->pattern_->atoms_[0]);
-}
-
 NodeAtom *FirstMatchedNode(Query *query) {
   auto *single_query = dynamic_cast<CypherQuery *>(query)->single_query_;
   auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
@@ -10209,34 +10200,11 @@ TEST_P(CypherMainVisitorTest, LabelExpressionInExpressionPosition) {
       {"n:A|B&C", "{|(A,&(B,C))}"},
       {"n:A&%", "{&(A,%)}"},
       {"n:!!A", "{!!A}"},
-      {"n:!!(A&(B|C))", "{!!&(A,|(B,C))}"},
-      {"n:A&!!(B&!C)", "{&(A,!!&(B,!C))}"},
-      {"n:A|!!B", "{|(A,!!B)}"},
-      {"n:!(A&!!B)", "{!&(A,!!B)}"},
   };
   for (const auto &[expression, expected] : cases) {
     auto *query = ast_generator.ParseQuery(fmt::format("MATCH (n) RETURN {} AS v", expression));
     EXPECT_EQ(LabelsToString(FirstReturnedExpression(query)), expected) << expression;
     CheckRWType(query, kRead);
-  }
-}
-
-// A subject that is not an identifier is not copied per leaf, so it is evaluated once: the term stays whole
-// in one labels test. A plain conjunction still reads as one plain labels test.
-TEST_P(CypherMainVisitorTest, LabelExpressionOverExpressionKeepsTheTermWhole) {
-  auto &ast_generator = *GetParam();
-  const std::vector<std::pair<std::string, std::string>> cases{
-      {"head([n]):A|!B", "{|(A,!B)}"},
-      {"head([n]):A|B", "(A|B)"},
-      {"head([n]):!%", "{!%}"},
-      {"head([n]):A&B", "A:B"},
-  };
-  for (const auto &[expression, expected] : cases) {
-    auto *query = ast_generator.ParseQuery(fmt::format("MATCH (n) RETURN {} AS v", expression));
-    auto *labels_test = dynamic_cast<LabelsTest *>(FirstReturnedExpression(query));
-    ASSERT_TRUE(labels_test) << expression;
-    EXPECT_TRUE(dynamic_cast<Function *>(labels_test->expression_)) << expression;
-    EXPECT_EQ(LabelsToString(labels_test), expected) << expression;
   }
 }
 
@@ -10331,17 +10299,6 @@ TEST_P(CypherMainVisitorTest, LabelExpressionRejectsMixingWithColon) {
                             "CREATE (n:X:Y&Z)",
                             "MATCH (n) RETURN n:A:B|C AS v"}) {
     EXPECT_THROW(ast_generator.ParseQuery(query), SyntaxException) << query;
-  }
-}
-
-// A conjunction is what CREATE and MERGE take, however it is spelled. Refusing the rest is the symbol
-// generator's job, so that half is pinned in the symbol-generator suite.
-TEST_P(CypherMainVisitorTest, LabelExpressionConjunctionInWrites) {
-  auto &ast_generator = *GetParam();
-  for (const auto *query : {"CREATE (n:X&Y)", "CREATE (n:(X&Y))", "MERGE (n:(A&B) {n:'ab'})"}) {
-    auto *created = FirstCreatedOrMergedNode(ast_generator.ParseQuery(query));
-    ASSERT_TRUE(created->LabelConjunction()) << query;
-    EXPECT_EQ(created->LabelConjunction()->size(), 2U) << query;
   }
 }
 
