@@ -165,7 +165,8 @@ class AuthLayer {
   /// tells the caller to refuse the request so the main re-sends a full snapshot.
   ///
   /// A drop naming nothing is not a failure. The main may have created and dropped a record between snapshots,
-  /// and the remove calls report that by returning false.
+  /// so a removal that finds nothing is the state the main asked for. A removal that fails is a different
+  /// matter and refuses the batch.
   [[nodiscard]] bool ApplyBatch(std::vector<replication::AuthOp> const &ops) {
     // Users and roles go through the overlay and land in one flush, so a replica holds all of them or none.
     //
@@ -232,6 +233,13 @@ class AuthLayer {
       return Commit(tx, nullptr);
     } catch (AuthException const &e) {
       spdlog::warn("Applying an auth batch of {} operation(s) failed: {}", ops.size(), e.what());
+      return false;
+    } catch (...) {
+      // A refused batch is an expected outcome and says so above. Anything else reaching here is not, so it is
+      // reported at a level that says so. Returning false either way is what makes the docstring's promise
+      // true: the overlay is already discarded and the lock released by the time this runs, so the main is
+      // told to re-send rather than left waiting on a response this replica will never produce.
+      spdlog::error("Applying an auth batch of {} operation(s) failed unexpectedly", ops.size());
       return false;
     }
   }
