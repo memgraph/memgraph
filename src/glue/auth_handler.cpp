@@ -590,7 +590,8 @@ void AuthQueryHandler::SetPassword(const std::string &username, const std::optio
 void AuthQueryHandler::ChangePassword(const std::string &username, const std::optional<std::string> &oldPassword,
                                       const std::optional<std::string> &newPassword, system::Transaction *system_tx) {
   try {
-    // Old-password bcrypt and new-password bcrypt both run with no auth lock held.
+    // bcrypt runs without the auth lock; if the stored hash changed meanwhile, the old password is re-verified under
+    // the lock.
     std::optional<auth::User> user_snap;
     std::optional<auth::HashedPassword> hash_before;
     {
@@ -612,7 +613,10 @@ void AuthQueryHandler::ChangePassword(const std::string &username, const std::op
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
     if (user->password_hash() != hash_before) {
-      throw memgraph::query::QueryRuntimeException("Old password is not correct.");
+      // Rare: hash upgraded concurrently (e.g. legacy→salted); re-verify before rejecting.
+      if (!user->CheckPasswordExplicit(*oldPassword)) {
+        throw memgraph::query::QueryRuntimeException("Old password is not correct.");
+      }
     }
     if (!user_defined) locked_auth->ValidatePassword(newPassword);
     user->SetPasswordHash(std::move(hash));
