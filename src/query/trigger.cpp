@@ -189,8 +189,8 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
 Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
     : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
 
-std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name,
-                                                       std::shared_ptr<QueryUserOrRole> triggering_user) const {
+Trigger::PlanResult Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name,
+                                     std::shared_ptr<QueryUserOrRole> triggering_user) const {
   std::lock_guard plan_guard{plan_lock_};
   if (!parsed_statements_.is_cacheable || !trigger_plan_) {
     auto identifiers = GetPredefinedIdentifiers(event_type_);
@@ -224,12 +224,15 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
 
   // GenQueryUser always returns a non-null shared_ptr and
   // both creator_ and triggering_user come from GenQueryUser
+  std::shared_ptr<QueryUserOrRole> effective_principal;
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     DMG_ASSERT(creator_, "Creator is null");
     if (!creator_->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
       throw utils::BasicException(
           fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
     }
+    // Clone under plan_lock_ so concurrent executions cannot race on creator_'s mutable auth cache.
+    effective_principal = creator_->clone();
   } else {
     // no users
     DMG_ASSERT(triggering_user, "Triggering user is null");
@@ -237,8 +240,9 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
       throw utils::BasicException(
           fmt::format("The user who invoked the trigger '{}' is not authorized to execute the query!", name_));
     }
+    effective_principal = triggering_user;
   }
-  return trigger_plan_;
+  return {trigger_plan_, std::move(effective_principal)};
 }
 
 void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
@@ -251,7 +255,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   }
 
   spdlog::debug("Executing trigger '{}'", name_);
-  auto trigger_plan = GetPlan(dba, db_acc->name(), triggering_user);
+  auto [trigger_plan, effective_principal] = GetPlan(dba, db_acc->name(), triggering_user);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
@@ -280,7 +284,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.is_main = is_main;
   ctx.metric_handles = db_acc->metric_handles();
   // used for authorization checks
-  ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
+  ctx.user_or_role = std::move(effective_principal);
   // used for username() and roles() functions
   ctx.triggering_user = triggering_user;
 
