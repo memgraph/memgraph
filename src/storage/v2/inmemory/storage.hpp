@@ -241,6 +241,11 @@ class InMemoryStorage final : public Storage {
     VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
                               std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) override;
 
+    VerticesIterable Vertices(PropertyId property, PropertyValueRange const &range, View view) override;
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId property, PropertyValueRange const &range, View view,
+                                            size_t num_chunks) override;
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;

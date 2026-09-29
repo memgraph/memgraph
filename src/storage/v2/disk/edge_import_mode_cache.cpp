@@ -30,19 +30,12 @@ InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View v
 }
 
 InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<1>> EdgeImportModeCache::Vertices(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    LabelId label, PropertyId property, PropertyValueRange const &range, View view, Storage *storage,
     Transaction *transaction) const {
   auto index = in_memory_indices_.label_property_index_->GetActiveIndices();
   return static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(index.get())
       ->Vertices<InMemoryLabelPropertyIndex::Entry<1>>(
-          label,
-          std::array{PropertyPath{property}},
-          std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
-          vertices_.access(),
-          view,
-          storage,
-          transaction);
+          label, std::array{PropertyPath{property}}, std::array{range}, vertices_.access(), view, storage, transaction);
 }
 
 bool EdgeImportModeCache::CreateIndex(

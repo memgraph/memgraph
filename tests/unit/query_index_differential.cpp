@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include "interpreter_faker.hpp"
@@ -470,4 +471,50 @@ TEST_F(IndexDifferentialTest, TheStringPredicatesAnswerAsTheFilterDoes) {
   EXPECT_EQ(with_index, without_index) << "an index changed the answer for a string predicate:"
                                        << Report(probes, without_index, with_index);
   EXPECT_TRUE(std::ranges::any_of(without_index, [](auto count) { return count > 0; }));
+}
+
+TEST_F(IndexDifferentialTest, AGlobalIndexAnswersAsTheFilterDoesForAListBound) {
+  // A list bound reaches the scan as a per-row predicate; a global index that dropped it returned
+  // every row carrying the property.
+  Run("MATCH (n) DETACH DELETE n;");
+  for (auto const *value : {"[1]", "[1, 2]", "[1, 3]", "[1, null]", "[2]", "[]", "1", "'a'", "['a']"}) {
+    Run("CREATE (:G {p: " + std::string{value} + "});");
+    Run("CREATE (:From)-[:G {p: " + std::string{value} + "}]->(:To);");
+  }
+
+  auto queries = std::vector<std::string>{};
+  for (auto const *bound : {"[1]", "[1, 2]", "[]", "['a']", "[1, null]"}) {
+    for (auto const *op : {"<", "<=", ">", ">="}) {
+      queries.push_back(fmt::format("MATCH (n) WHERE n.p {} {} RETURN count(n) AS c;", op, bound));
+      queries.push_back(fmt::format("MATCH ()-[r]->() WHERE r.p {} {} RETURN count(r) AS c;", op, bound));
+    }
+  }
+  queries.emplace_back("MATCH (n) WHERE n.p > [1] AND n.p < [2] RETURN count(n) AS c;");
+  queries.emplace_back("MATCH (n) WHERE n.p > [1] AND n.p < 5 RETURN count(n) AS c;");
+  queries.emplace_back("UNWIND [[1], 5, [1, 2]] AS b MATCH (n) WHERE n.p > b RETURN count(n) AS c;");
+
+  auto const counts = [&] {
+    auto answers = std::vector<int64_t>{};
+    for (auto const &query : queries) answers.push_back(CountOf(query));
+    return answers;
+  };
+  auto const reads = [&](std::string const &query, std::string_view op) {
+    auto stream = interpreter.Interpret("EXPLAIN " + query);
+    return std::ranges::any_of(
+        stream.GetResults(), [&](auto const &row) { return row.front().ValueString().find(op) != std::string::npos; });
+  };
+
+  auto const without_index = counts();
+  Run("CREATE GLOBAL INDEX ON :(p);");
+  Run("CREATE GLOBAL EDGE INDEX ON :(p);");
+
+  EXPECT_TRUE(reads(queries[0], "ScanAllByVertexProperty"));
+  EXPECT_TRUE(reads(queries[1], "ScanAllByEdgeProperty"));
+  EXPECT_EQ(counts(), without_index) << "a global index changed the answer for a list bound";
+
+  Run("DROP GLOBAL INDEX ON :(p);");
+  Run("DROP GLOBAL EDGE INDEX ON :(p);");
+
+  EXPECT_TRUE(std::ranges::any_of(without_index, [](auto count) { return count > 0 && count < 9; }))
+      << "no list bound kept some rows and dropped others";
 }

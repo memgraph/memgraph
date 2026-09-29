@@ -1598,6 +1598,10 @@ UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
       return std::nullopt;
     }
 
+    // A list bound comes back as IS_NOT_NULL with a value predicate, and the planner has erased
+    // its filter, so the predicate must reach the index.
+    if (range.GetValuePredicate()) return std::make_optional(db->Vertices(view_, property_, range));
+
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
       return std::make_optional(db->Vertices(view_, property_));
     }
@@ -1606,6 +1610,7 @@ UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
       return std::nullopt;
     }
 
+    // Search terms (CONTAINS, ENDS WITH, regex) set no predicate here: their filter stays in the plan.
     return std::make_optional(db->Vertices(view_, property_, range.lower_, range.upper_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(get_vertices)>>(mem,
@@ -10868,8 +10873,9 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
       return db->ChunkedEdges(view_, edge_type_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
+    // Pass the range: a list bound is IS_NOT_NULL with a value predicate.
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
-      return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
+      return db->ChunkedEdges(view_, edge_type_, property_, range, num_threads_);
     }
 
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
@@ -10926,8 +10932,9 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
       return db->ChunkedEdges(view_, property_, storage::PropertyValueRange::Empty(), 0);
     }
 
+    // Pass the range: a list bound is IS_NOT_NULL with a value predicate.
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
-      return db->ChunkedEdges(view_, property_, num_threads_);
+      return db->ChunkedEdges(view_, property_, range, num_threads_);
     }
 
     if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
@@ -10983,6 +10990,9 @@ UniqueCursorPtr ScanParallelByVertexProperty::MakeCursor(utils::MemoryResource *
     if (range.type_ == storage::PropertyRangeType::INVALID) {
       return db->ChunkedVertices(view_, property_, std::nullopt, std::nullopt, 0);
     }
+
+    // As in ScanAllByVertexProperty: a list bound carries a predicate the index must apply.
+    if (range.GetValuePredicate()) return db->ChunkedVertices(view_, property_, range, num_threads_);
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
       return db->ChunkedVertices(view_, property_, num_threads_);

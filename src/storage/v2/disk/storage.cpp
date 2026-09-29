@@ -573,7 +573,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
     return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
+        label, property, PropertyValueRange::Bounded(std::nullopt, std::nullopt), view, storage_, &transaction_));
   }
 
   transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
@@ -610,13 +610,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(label,
-                                                                            property,
-                                                                            utils::MakeBoundInclusive(value),
-                                                                            utils::MakeBoundInclusive(value),
-                                                                            view,
-                                                                            storage_,
-                                                                            &transaction_));
+    auto const range = PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value));
+    return VerticesIterable(
+        disk_storage->edge_import_mode_cache_->Vertices(label, property, range, view, storage_, &transaction_));
   }
 
   transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
@@ -650,6 +646,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<st
   auto const &range{property_ranges.front()};
   auto const &property = properties[0][0];
 
+  // Edge import mode reads from its own cache, an in-memory index that applies the predicate itself.
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
+    disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
+    return VerticesIterable(
+        disk_storage->edge_import_mode_cache_->Vertices(label, property, range, view, storage_, &transaction_));
+  }
+
   // The scans below gather into a new index_storage_ entry; the predicate runs over it.
   auto const gathered_before = transaction_.index_storage_.size();
   auto found = range.type_ == PropertyRangeType::IS_NOT_NULL
@@ -659,11 +663,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<st
   auto const &keeps = range.GetValuePredicate();
   if (!keeps) return found;
 
-  // Edge import mode reads from its own cache and adds no index_storage_ entry,
-  // so the predicate has nothing to run over.
-  MG_ASSERT(transaction_.index_storage_.size() > gathered_before,
-            "A range carrying a predicate reached a scan that gathers nowhere this can read it");
-
+  MG_ASSERT(transaction_.index_storage_.size() > gathered_before, "The scan above gathered into no index_storage_");
   DropWhatAPredicateTurnsDown(*transaction_.index_storage_.back(), property, *keeps, &transaction_, view);
   return found;
 }
@@ -677,7 +677,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
     return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, lower_bound, upper_bound, view, storage_, &transaction_));
+        label, property, PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage_, &transaction_));
   }
 
   transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
