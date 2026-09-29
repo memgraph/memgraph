@@ -113,5 +113,9 @@ def pulsar_topics(request):
     try:
         yield topics
     finally:
+        # As with Kafka: a failed delete must not turn the test result into a teardown error
         for topic in topics:
-            delete_pulsar_topic(topic)
+            try:
+                delete_pulsar_topic(topic)
+            except requests.RequestException:
+                pass
