@@ -65,28 +65,8 @@ class ShardedMetricSet {
   uint32_t BindHistogram(prometheus::Histogram *histogram, std::vector<double> bucket_boundaries);
   void Finalize();
 
-  void Add(uint32_t idx, double v) noexcept {
-    if (!lines_) [[unlikely]] {
-      return;
-    }
-    DMG_ASSERT(idx < num_slots_, "Sharded metric slot out of range");
-    Slot(ThisThreadMetricShard(), idx).fetch_add(v, std::memory_order_relaxed);
-  }
-
-  void Observe(uint32_t base, double v) noexcept {
-    if (!lines_) [[unlikely]] {
-      return;
-    }
-    DMG_ASSERT(base < num_slots_ && slot_histogram_[base] != kNoHistogram, "Not a sharded histogram base slot");
-    auto const &boundaries = histograms_[slot_histogram_[base]].boundaries;
-    // Same bucket selection as prometheus::Histogram::Observe (upper-inclusive `le`; NaN lands in bucket 0).
-    auto const bucket =
-        static_cast<uint32_t>(std::lower_bound(boundaries.begin(), boundaries.end(), v) - boundaries.begin());
-    auto const sum_slot = base + static_cast<uint32_t>(boundaries.size()) + 1;
-    auto const shard = ThisThreadMetricShard();
-    Slot(shard, base + bucket).fetch_add(1.0, std::memory_order_relaxed);
-    Slot(shard, sum_slot).fetch_add(v, std::memory_order_relaxed);
-  }
+  void Add(uint32_t idx, double v) noexcept;
+  void Observe(uint32_t base, double v) noexcept;
 
   // Pushes everything accumulated since the previous Fold() into the bound prometheus objects. Serialized
   // against other folders; safe concurrently with Add/Observe (a racing update is picked up by the next fold).
