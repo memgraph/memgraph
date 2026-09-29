@@ -961,7 +961,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge>
   spdlog::info("Process of recovering {} edges is finished.", edges_count);
 
   if (capture && !local_capture.empty()) {
-    auto lock = std::lock_guard{*capture->mutex};
+    auto lock = std::scoped_lock{*capture->mutex};
     for (auto &[prop_id, gid_map] : local_capture) {
       auto &shared_gid_map = (*capture->map)[prop_id];
       for (auto &[gid, vec] : gid_map) {
