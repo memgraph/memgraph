@@ -72,24 +72,33 @@ TEST_F(DiskStorageTest, EdgeImportModeAppliesTheRangeValuePredicate) {
   bounded.SetValuePredicate(keeps_two);
 
   auto const props = std::array{PropertyPath{property}};
-  auto const count = [&](PropertyValueRange const &range) {
-    auto acc = storage->Access(memgraph::storage::READ);
+  auto const count = [&](auto &acc, PropertyValueRange const &range) {
     auto const ranges = std::array{range};
     auto found = 0;
-    for (auto const &vertex : acc->Vertices(label, props, ranges, memgraph::storage::View::OLD)) {
+    for (auto const &vertex : acc.Vertices(label, props, ranges, memgraph::storage::View::OLD)) {
       (void)vertex;
       ++found;
     }
     return found;
   };
 
-  EXPECT_EQ(count(not_null), 2);
-  EXPECT_EQ(count(bounded), 2);
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(count(*acc, not_null), 2);
+    EXPECT_EQ(count(*acc, bounded), 2);
+  }
 
   static_cast<memgraph::storage::DiskStorage *>(storage.get())
       ->SetEdgeImportMode(memgraph::storage::EdgeImportMode::ACTIVE);
-  EXPECT_EQ(count(not_null), 2) << "edge import mode ignored the predicate on an IS NOT NULL range";
-  EXPECT_EQ(count(bounded), 2) << "edge import mode ignored the predicate on a bounded range";
+  {
+    // Both scans share one transaction. The edge import cache keeps the vertices the first scan
+    // loads, but their deltas are allocated in the loading transaction, and only a transaction
+    // that commits is handed to the cache to outlive its accessor. A scan from a later
+    // transaction would read deltas the loading one has already released.
+    auto acc = storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(count(*acc, not_null), 2) << "edge import mode ignored the predicate on an IS NOT NULL range";
+    EXPECT_EQ(count(*acc, bounded), 2) << "edge import mode ignored the predicate on a bounded range";
+  }
   static_cast<memgraph::storage::DiskStorage *>(storage.get())
       ->SetEdgeImportMode(memgraph::storage::EdgeImportMode::INACTIVE);
 
