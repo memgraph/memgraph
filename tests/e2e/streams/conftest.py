@@ -51,36 +51,37 @@ def kafka_topics(request):
 
     # build 3 new topics, one request each so one leftover topic doesn't fail the whole batch
     topics = unique_topics(request, 3)
-    deadline = time.time() + 30
-    for topic in topics:
-        while True:
-            try:
-                admin.create_topics(
-                    new_topics=[NewTopic(name=topic, num_partitions=1, replication_factor=1)], timeout_ms=5000
-                )
-                break
-            except TopicAlreadyExistsError:
-                # Left behind by an aborted run, or still pending deletion: (re)issue the delete and wait for it
-                if time.time() > deadline:
-                    pytest.fail(f"Could not create topic (still marked for deletion): {topic}")
-                try:
-                    admin.delete_topics([topic], timeout_ms=5000)
-                except KafkaError:
-                    pass
-                time.sleep(1)
-
-    # The broker applies new topics to its metadata asynchronously (noticeably late under CI load), and
-    # CREATE KAFKA STREAM rejects topics missing from the metadata, so wait until they are visible.
-    deadline = time.time() + 30
-    while not set(topics) <= set(admin.list_topics()):
-        if time.time() > deadline:
-            pytest.fail(f"Topics not visible in broker metadata: {topics}")
-        time.sleep(0.2)
-
+    # Everything after this point runs inside the `try` so the client is closed even when setup fails
     try:
+        deadline = time.time() + 30
+        for topic in topics:
+            while True:
+                try:
+                    admin.create_topics(
+                        new_topics=[NewTopic(name=topic, num_partitions=1, replication_factor=1)], timeout_ms=5000
+                    )
+                    break
+                except TopicAlreadyExistsError:
+                    # Left behind by an aborted run, or still pending deletion: (re)issue the delete and wait for it
+                    if time.time() > deadline:
+                        pytest.fail(f"Could not create topic (still marked for deletion): {topic}")
+                    try:
+                        admin.delete_topics([topic], timeout_ms=5000)
+                    except KafkaError:
+                        pass
+                    time.sleep(1)
+
+        # The broker applies new topics to its metadata asynchronously (noticeably late under CI load), and
+        # CREATE KAFKA STREAM rejects topics missing from the metadata, so wait until they are visible.
+        deadline = time.time() + 30
+        while not set(topics) <= set(admin.list_topics()):
+            if time.time() > deadline:
+                pytest.fail(f"Topics not visible in broker metadata: {topics}")
+            time.sleep(0.2)
+
         yield topics
     finally:
-        # A failed delete must not turn the test result into a teardown error; the next run copes with leftovers
+        # A failed delete (or a topic never created because setup failed) must not turn into a teardown error
         try:
             admin.delete_topics(topics, timeout_ms=5000)
         except KafkaError:
