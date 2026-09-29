@@ -65,7 +65,7 @@ jobs:
       matrix:
         # The packages are distro-agnostic: one deb and one rpm per arch.
         # Each entry promotes one S3 dir, key-for-key with the RC:
-        #   <arch>-{deb,rpm} plus -malloc and -no-python (used for FIPS) variants
+        #   <arch>-{deb,rpm} plus -malloc and -fips variants
         #   docker-<arch> plus -relwithdebinfo, -malloc-relwithdebinfo, -fips
         # 10 dirs per arch, 20 jobs.
         target: [deb, rpm, docker]
@@ -114,8 +114,8 @@ jobs:
             malloc: true
             build_type: Release
             fips: false
-          # FIPS packages. The deb/rpm are named for what makes them different
-          # as packages (no embedded Python); only the image is -fips.
+          # FIPS packages. The deb/rpm are built with -DMG_FIPS=ON, which omits
+          # the components whose crypto cannot come from the validated OpenSSL.
           - target: deb
             arch: amd
             malloc: false
@@ -198,11 +198,7 @@ jobs:
             dir="${dir}-relwithdebinfo"
           fi
           if [[ "${{ matrix.fips }}" == "true" ]]; then
-            if [[ "${{ matrix.target }}" == "docker" ]]; then
-              dir="${dir}-fips"
-            else
-              dir="${dir}-no-python"
-            fi
+            dir="${dir}-fips"
           fi
           echo "package_path=${dir}/${package_name}" >> $GITHUB_ENV
 
