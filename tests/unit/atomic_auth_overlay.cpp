@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "auth/atomic_auth_overlay.hpp"
+#include "auth/repository.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 
@@ -307,6 +308,37 @@ TEST_F(AtomicAuthOverlayTest, FlushDetectsKeyAppearingUnderScannedPrefix) {
 
   EXPECT_FALSE(overlay.Flush());
   EXPECT_FALSE(store_->Get("role:admin").has_value());
+}
+
+// Asking only whether a prefix is inhabited reads no values, so a concurrent change to one must not fail the
+// commit. The scan stops at the first key, which is why it must not adopt that key's value on the way past.
+TEST_F(AtomicAuthOverlayTest, AnEmptinessOnlyScanToleratesAValueChange) {
+  store_->Put("user:alice", "alice_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  memgraph::auth::Repository repo{overlay};
+  EXPECT_TRUE(repo.HasAnyUser());
+  overlay.Put("role:admin", "admin_data");
+
+  store_->Put("user:alice", "alice_modified");
+
+  EXPECT_TRUE(overlay.Flush()) << "a scan that only asked whether the prefix was inhabited never read the value";
+  EXPECT_EQ(store_->Get("role:admin"), "admin_data");
+}
+
+// The narrowing goes no further than the values: what the scan did conclude is still enforced, so the prefix
+// becoming empty underneath it is a conflict.
+TEST_F(AtomicAuthOverlayTest, AnEmptinessOnlyScanStillConflictsOnThePrefixEmptying) {
+  store_->Put("user:alice", "alice_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  memgraph::auth::Repository repo{overlay};
+  EXPECT_TRUE(repo.HasAnyUser());
+  overlay.Put("role:admin", "admin_data");
+
+  store_->Delete("user:alice");
+
+  EXPECT_FALSE(overlay.Flush()) << "the prefix was inhabited when scanned and is not now";
 }
 
 TEST_F(AtomicAuthOverlayTest, FlushDetectsModificationOfScannedKey) {
