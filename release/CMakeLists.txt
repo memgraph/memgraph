@@ -34,6 +34,18 @@ else()
     set(CPACK_MG_PYTHON_SUPPORT "OFF")
 endif()
 
+# Likewise for MG_FIPS. A FIPS package must not pip-install its python deps: the
+# PyPI wheels for cryptography and xmlsec bundle their own statically linked
+# OpenSSL, which is exactly the unvalidated second crypto module the FIPS image
+# exists to avoid. They are supplied instead by wheels rebuilt against the
+# system OpenSSL (tools/ci/fips/), so the package neither runs pip nor depends
+# on it.
+if(MG_FIPS)
+    set(CPACK_MG_FIPS "ON")
+else()
+    set(CPACK_MG_FIPS "OFF")
+endif()
+
 # DEB specific
 # Instead of using "name <email>" format, we use "email (name)" to prevent
 # errors due to full stop, '.' at the end of "Ltd". (See: RFC 822)
@@ -87,6 +99,9 @@ endif()
 #   python3 (>= 3.5.0)        — interpreter for tooling around query modules;
 #                                does NOT pull libpython3.X on Debian/Ubuntu.
 #   python3-pip               — postinst pip-installs the query-module deps.
+#                                Omitted under MG_FIPS: that build runs no pip
+#                                phase, and requiring pip breaks the install in
+#                                the prod-fips image, which does not ship it.
 #   ca-certificates           — TLS trust for pip (PyPI over https).
 #   libxmlsec1|libxmlsec1-1   — system lib for the pip xmlsec wheel (SAML SSO);
 #                                t64 name Provides libxmlsec1 on Ubuntu 24.04,
@@ -94,6 +109,8 @@ endif()
 #                                1.3 soname bump, no Provides).
 #   libkrb5-3                 — GSSAPI runtime for the gssapi wheel (Kerberos
 #                                SSO; the wheel itself is best-effort/offline).
+#                                Omitted under MG_FIPS, which drops the Kerberos
+#                                auth module and its gssapi dependency.
 #   libpython3.10 | ... |3.14 — the binary links the unversioned abi3 SONAME
 #                                libpython3.so (needs >= 3.10); only versioned
 #                                runtime libs exist as packages, so pull one
@@ -112,7 +129,10 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS
     "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0)")
 if(MG_PYTHON_SUPPORT)
     string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
-        ", python3 (>= 3.5.0), python3-pip, ca-certificates, libxmlsec1 | libxmlsec1-1, libkrb5-3, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
+        ", python3 (>= 3.5.0), ca-certificates, libxmlsec1 | libxmlsec1-1, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
+    if(NOT MG_FIPS)
+        string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", python3-pip, libkrb5-3")
+    endif()
 endif()
 
 # Setting architecture extension for rpm packages
@@ -163,8 +183,14 @@ set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logro
 # line, so it can be dropped entirely for Python-less builds.
 set(CPACK_MG_RPM_PYTHON_REQUIRES "")
 if(MG_PYTHON_SUPPORT)
-    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3 >= 3.5.0, python3-pip, util-linux, xmlsec1, krb5-libs")
-    set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)")
+    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3 >= 3.5.0, xmlsec1")
+    if(MG_FIPS)
+        # No %post pip phase, so no pip and no runuser; krb5 goes with gssapi.
+        set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       (python3.12 if system-release(releasever) = 9)")
+    else()
+        string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3-pip, util-linux, krb5-libs")
+        set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)")
+    endif()
 endif()
 
 # When memgraph is built against an explicit Python (currently CentOS Stream 9,
@@ -175,7 +201,10 @@ endif()
 # serialized into CPackConfig.cmake and substituted into the spec template.
 set(CPACK_MG_PYTHON_VERSION "${MG_PYTHON_VERSION}")
 if(MG_PYTHON_SUPPORT AND NOT "${MG_PYTHON_VERSION}" STREQUAL "")
-    set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}, python${MG_PYTHON_VERSION}-pip")
+    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python${MG_PYTHON_VERSION}")
+    if(NOT MG_FIPS)
+        string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python${MG_PYTHON_VERSION}-pip")
+    endif()
 endif()
 
 # Configure CPack to build mgconsole using the unified install script.
