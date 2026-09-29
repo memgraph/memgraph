@@ -118,17 +118,35 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             std::vector<auth::UserProfiles::Profile>{},
                                                             params_snapshot);
       }
-      return auth.WithLock([&](auto &locked_auth) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
-                                                            db_info.last_committed_timestamp,
-                                                            std::move(db_info.configs),
-                                                            locked_auth.GetConfig(),
-                                                            locked_auth.AllUsers(),
-                                                            locked_auth.AllRoles(),
-                                                            locked_auth.AllProfiles(),
-                                                            params_snapshot,
-                                                            std::move(db_info.cold_databases));
+      // conn guard before auth read lock — no auth delta can slip between snapshot and recovery send.
+      auto conn_guard = client.rpc_client_.LockConnection();
+      auth::Auth::Config auth_config;
+      std::vector<auth::User> auth_users;
+      std::vector<auth::Role> auth_roles;
+      std::vector<auth::UserProfiles::Profile> auth_profiles;
+      auth.WithReadLock([&](const auto &locked_auth) {
+        auth_config = locked_auth.GetConfig();
+        auth_users = locked_auth.AllUsers();
+        auth_roles = locked_auth.AllRoles();
+        auth_profiles = locked_auth.AllProfiles();
       });
+      return client.rpc_client_.StreamWithLoad<SystemRecoveryRpc>(
+          [](auto *reader) {
+            SystemRecoveryRes response;
+            SystemRecoveryRes::Load(&response, reader);
+            return response;
+          },
+          /*try_lock_timeout*/ std::nullopt,
+          /*guard*/ std::move(conn_guard),
+          main_uuid,
+          db_info.last_committed_timestamp,
+          std::move(db_info.configs),
+          std::move(auth_config),
+          std::move(auth_users),
+          std::move(auth_roles),
+          std::move(auth_profiles),
+          params_snapshot,
+          std::move(db_info.cold_databases));
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,

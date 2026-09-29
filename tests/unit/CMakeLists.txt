@@ -1103,6 +1103,11 @@ add_unit_test(auth_handler
     LINK_TARGETS mg-glue mg-auth mg-query
 )
 
+add_unit_test(auth_lock_contention
+    SOURCES auth_lock_contention.cpp
+    LINK_TARGETS mg-glue mg-auth mg-query
+)
+
 if (MG_ENTERPRISE)
     add_unit_test(auth_models
         SOURCES auth_models.cpp

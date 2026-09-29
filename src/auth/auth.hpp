@@ -58,6 +58,13 @@ struct SSOIdentity {
   std::vector<std::string> roles;
 };
 
+// Free functions: take the auth lock internally; run the module/bcrypt with no lock held.
+std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &username, const std::string &password);
+std::optional<UserOrRole> SSOAuthenticate(SynchedAuth &auth, const std::string &scheme,
+                                          const std::string &identity_provider_response);
+std::optional<SSOIdentity> SSOGetIdentity(SynchedAuth &auth, const std::string &scheme,
+                                          const std::string &identity_provider_response);
+
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles, Permissions and FineGrainedAccessPermissions.
@@ -182,6 +189,13 @@ class Auth final {
    */
   std::optional<SSOIdentity> SSOGetIdentity(const std::string &scheme, const std::string &identity_provider_response);
 
+  /// Returns the Module for `scheme`; nullptr if prerequisites fail. Callable under MutableSharedLock().
+  Module *GetAuthModule(const std::string &scheme);
+
+  /// Validates a module response and resolves roles/user against the kvstore; callable under ReadLock().
+  std::optional<UserOrRole> ResolveModuleResponse(const nlohmann::json &ret,
+                                                  std::optional<std::string> provided_username) const;
+
   /**
    * Gets a user from the storage.
    *
@@ -238,6 +252,22 @@ class Auth final {
    * @param password
    */
   void UpdatePassword(auth::User &user, const std::optional<std::string> &password);
+
+  /// Validates plaintext password against current policy; throws AuthException on violation.
+  void ValidatePassword(const std::optional<std::string> &password) const;
+
+  /// Validates a name against the configured regex; throws AuthException on mismatch.
+  void ValidateName(const std::string &name) const;
+
+  /// Returns true when password is a recognised pre-hashed encoding; never blocks on bcrypt.
+  static bool IsUserDefinedHash(const std::optional<std::string> &password);
+
+  /// Hashes password with no auth-state access; safe to call with no lock held.
+  static std::optional<HashedPassword> ComputePasswordHash(const std::optional<std::string> &password);
+
+  /// Creates a user with a precomputed hash; does NOT validate password policy — caller's responsibility.
+  std::optional<User> AddUserWithHash(const std::string &username, std::optional<HashedPassword> precomputed_hash,
+                                      system::Transaction *system_tx = nullptr);
 
   /**
    * Gets all users from the storage.
