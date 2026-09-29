@@ -217,7 +217,7 @@ dynamicLabel : variable ( propertyLookup )+
              | '(' dynamicLabel ')'
              ;
 
-// Non-greedy, so '[x IN xs WHERE x:A | x.v]' keeps '| x.v' as the projection.
+// Non-greedy, so '[x IN xs WHERE x:A | x]' keeps '| x' as the projection, as before label expressions.
 labelTerm : labelTermAnd ( '|' labelTermAnd )*? ;
 
 labelTermAnd : labelTermNot ( '&' labelTermNot )* ;
