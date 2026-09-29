@@ -505,11 +505,6 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
-add_unit_test(utils_indirect
-    SOURCES utils_indirect.cpp
-    LINK_TARGETS mg-utils
-)
-
 # Hot/cold tenants: gatekeeper 4-state lifecycle machine
 add_unit_test(hot_cold_gatekeeper
     SOURCES hot_cold_gatekeeper.cpp

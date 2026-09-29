@@ -41,7 +41,6 @@
 #include "storage/v2/indices/vector_match_mode.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/indirect.hpp"
 #include "utils/string.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
@@ -1179,9 +1178,17 @@ struct LabelTerm {
     std::vector<LabelTerm> operands;
   };
 
+  /// Holds its one operand on the heap and copies it when copied, as `LabelTerm` is copied by value. C++26
+  /// `std::indirect<LabelTerm>` is this member; use it once the project builds as C++26.
   struct Not {
     explicit Not(LabelTerm operand);
-    utils::indirect<LabelTerm> operand;
+    Not(const Not &other);
+    Not &operator=(const Not &other);
+    Not(Not &&) noexcept = default;
+    Not &operator=(Not &&) noexcept = default;
+    ~Not();
+
+    std::unique_ptr<LabelTerm> operand;
   };
 
   std::variant<Label, Dynamic, Wildcard, And, Or, Not> node;
@@ -1203,7 +1210,16 @@ struct LabelTerm {
   std::optional<std::vector<QueryLabelType>> Conjunction() const;
 };
 
-inline LabelTerm::Not::Not(LabelTerm operand) : operand(std::move(operand)) {}
+inline LabelTerm::Not::Not(LabelTerm operand) : operand(std::make_unique<LabelTerm>(std::move(operand))) {}
+
+inline LabelTerm::Not::Not(const Not &other) : operand(std::make_unique<LabelTerm>(*other.operand)) {}
+
+inline LabelTerm::Not &LabelTerm::Not::operator=(const Not &other) {
+  if (this != &other) operand = std::make_unique<LabelTerm>(*other.operand);
+  return *this;
+}
+
+inline LabelTerm::Not::~Not() = default;
 
 /// What a node must carry for a test of plain labels: each of `labels`, and one of each group in `or_labels`.
 struct LabelCnf {
