@@ -249,6 +249,16 @@ auto DisjunctLabels(const LabelsTest &labels_test) -> const std::vector<LabelIx>
   return nullptr;
 }
 
+/// `n:x` for `NOT n:!x` over an identifier, or nullptr for any other negation.
+LabelsTest *UnnegatedLabelTerm(const NotOperator &negation, AstStorage &storage) {
+  auto *labels_test = utils::Downcast<LabelsTest>(negation.expression_);
+  if (!labels_test || !labels_test->term_ || labels_test->term_->kind != LabelTerm::Kind::Not ||
+      !utils::Downcast<Identifier>(labels_test->expression_)) {
+    return nullptr;
+  }
+  return MakeLabelsTest(storage, labels_test->expression_->Clone(&storage), labels_test->term_->children.front());
+}
+
 /// Records what index selection may use of a label filter: whatever its test demands. The two part company
 /// only where a scan absorbs a label, which every collection then re-derives from the test.
 void DeriveLabelView(FilterInfo &filter) {
@@ -1049,12 +1059,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       return;
     }
     // The same pair, with the inner negation the `!` of a label expression: `NOT n:!A`.
-    if (auto *labels_test = utils::Downcast<LabelsTest>(is_not->expression_);
-        labels_test && labels_test->term_ && labels_test->term_->kind == LabelTerm::Kind::Not &&
-        utils::Downcast<Identifier>(labels_test->expression_)) {
-      auto *negated =
-          MakeLabelsTest(storage, labels_test->expression_->Clone(&storage), labels_test->term_->children.front());
-      AnalyzeAndStoreFilter(negated, symbol_table, storage, merging);
+    if (auto *positive = UnnegatedLabelTerm(*is_not, storage)) {
+      AnalyzeAndStoreFilter(positive, symbol_table, storage, merging);
       return;
     }
     // WHERE NOT point.withinbbox()
@@ -1460,12 +1466,14 @@ Expression *SplitLabelsTests(Expression *expression, AstStorage &storage) {
     return storage.Create<AndOperator>(lhs, rhs);
   }
   if (auto *outer = utils::Downcast<NotOperator>(expression)) {
-    // Filter collection looks through a double negation, so this does too.
-    auto *inner = utils::Downcast<NotOperator>(outer->expression_);
-    if (!inner) return expression;
-    auto *operand = SplitLabelsTests(inner->expression_, storage);
-    if (operand == inner->expression_) return expression;
-    return storage.Create<NotOperator>(storage.Create<NotOperator>(operand));
+    // Filter collection reads `NOT NOT x` as `x` and `NOT n:!x` as `n:x`, so the result holds what it collects.
+    // The negations go: an index scan removes only a test among the AND operands.
+    if (auto *inner = utils::Downcast<NotOperator>(outer->expression_)) {
+      auto *operand = SplitLabelsTests(inner->expression_, storage);
+      return operand == inner->expression_ ? expression : operand;
+    }
+    if (auto *positive = UnnegatedLabelTerm(*outer, storage)) return SplitLabelsTests(positive, storage);
+    return expression;
   }
   auto *labels_test = utils::Downcast<LabelsTest>(expression);
   if (!labels_test) return expression;

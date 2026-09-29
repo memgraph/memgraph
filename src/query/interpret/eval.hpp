@@ -66,13 +66,6 @@ bool EvalLabelTerm(const LabelTerm &term, const HasLabel &has_label, const HasAn
   LOG_FATAL("Unexpected LabelTerm::Kind");
 }
 
-/// Whether the leftmost operand of `term` is an `And` of nothing, which a `$param` bound to an empty list leaves.
-inline bool FirstOperandNamesNoLabel(const LabelTerm &term) {
-  const auto *first = &term;
-  while (!first->children.empty()) first = &first->children.front();
-  return first->kind == LabelTerm::Kind::And;
-}
-
 class VirtualNode;
 class VirtualEdge;
 
@@ -715,17 +708,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue(true, ctx_->memory);
       }
       default:
-        // Labels are not what the reader got wrong when the test names none, or, over an identifier, when the
-        // first operand of its term names none.
-        if (labels_test.IsNodeTest() || (labels_test.term_ && utils::Downcast<Identifier>(labels_test.expression_) &&
-                                         FirstOperandNamesNoLabel(*labels_test.term_))) {
+        // Labels are not what the reader got wrong when the test names none.
+        if (labels_test.IsNodeTest()) {
           if (const auto *identifier = utils::Downcast<Identifier>(labels_test.expression_)) {
             throw QueryRuntimeException(
                 "Expected a node for '{}', but got {}.", identifier->name_, expression_result.type());
           }
           throw QueryRuntimeException("Expected a node, but got {}.", expression_result.type());
         }
-        throw QueryRuntimeException("Only nodes have labels, got {}.", expression_result.type());
+        throw QueryRuntimeException("Only nodes have labels.");
     }
   }
 

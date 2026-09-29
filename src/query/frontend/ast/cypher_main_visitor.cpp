@@ -3890,10 +3890,8 @@ antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(MemgraphCypher::List
 antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aContext *ctx) {
   auto *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
   if (ctx->nodeLabelExpression()) {
-    auto term = std::any_cast<LabelTerm>(ctx->nodeLabelExpression()->accept(this));
-    auto labels = term.Conjunction();
-    expression = labels ? storage_->Create<LabelsTest>(expression, *labels)
-                        : MakeLabelsTest(*storage_, expression, std::move(term));
+    expression =
+        MakeLabelsTest(*storage_, expression, std::any_cast<LabelTerm>(ctx->nodeLabelExpression()->accept(this)));
   }
   return expression;
 }

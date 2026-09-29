@@ -5029,13 +5029,15 @@ std::optional<std::string> LabelTermName(const LabelTerm &term, std::string_view
   };
   auto fold = [&](std::string_view word) -> std::optional<std::string> {
     if (term.children.empty()) return test("");
-    auto folded = LabelTermName(term.children.front(), subject);
-    for (const auto &child : term.children | std::views::drop(1)) {
+    std::vector<std::string> names;
+    names.reserve(term.children.size());
+    for (const auto &child : term.children) {
       auto name = LabelTermName(child, subject);
-      if (!folded || !name) return std::nullopt;
-      folded = fmt::format("({} {} {})", *folded, word, *name);
+      if (!name) return std::nullopt;
+      names.push_back(*std::move(name));
     }
-    return folded;
+    if (names.size() == 1U) return std::move(names.front());
+    return fmt::format("({})", utils::Join(names, fmt::format(" {} ", word)));
   };
   switch (term.kind) {
     case LabelTerm::Kind::Label:
@@ -5066,46 +5068,14 @@ std::optional<std::string> LabelTermName(const LabelTerm &term, std::string_view
   return std::nullopt;
 }
 
-/// A label expression reads as the labels it tests rather than as the symbols it touches: `NOT (n :C)`,
-/// `((n :A) OR NOT (n :B))`. Anything else has no such name.
-std::optional<std::string> LoweredLabelExpressionName(Expression *expression) {
-  if (auto *labels_test = utils::Downcast<LabelsTest>(expression)) {
-    auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
-    if (!identifier) return std::nullopt;
-    if (labels_test->term_) return LabelTermName(*labels_test->term_, identifier->name_);
-    return LabelsTestName(labels_test);
-  }
-  if (auto *negation = utils::Downcast<NotOperator>(expression)) {
-    auto inner = LoweredLabelExpressionName(negation->expression_);
-    if (!inner) return std::nullopt;
-    return fmt::format("NOT {}", *inner);
-  }
-  auto binary = [](BinaryOperator const *op, std::string_view word) -> std::optional<std::string> {
-    auto lhs = LoweredLabelExpressionName(op->expression1_);
-    auto rhs = LoweredLabelExpressionName(op->expression2_);
-    if (!lhs || !rhs) return std::nullopt;
-    return fmt::format("({} {} {})", *lhs, word, *rhs);
-  };
-  if (auto *disjunction = utils::Downcast<OrOperator>(expression)) return binary(disjunction, "OR");
-  // Only a conjunction nested under `OR` or `NOT` gets here; a top-level one is already split apart.
-  if (auto *conjunction = utils::Downcast<AndOperator>(expression)) return binary(conjunction, "AND");
-  return std::nullopt;
-}
-
-/// The name of each conjunct of a label expression that a filter holds as one test.
-std::optional<std::vector<std::string>> LabelConjunctNames(FilterInfo const &filter) {
-  if (filter.type != FilterInfo::Type::Generic) return std::nullopt;
-  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
-  if (!labels_test || !labels_test->term_ || labels_test->term_->kind != LabelTerm::Kind::And) return std::nullopt;
+/// A label expression over an identifier reads as the labels it tests: `NOT (n :C)`, `((n :A) OR NOT (n :B))`.
+/// Anything else has no such name.
+std::optional<std::string> LabelTermTestName(Expression *expression) {
+  auto *labels_test = utils::Downcast<LabelsTest>(expression);
+  if (!labels_test || !labels_test->term_) return std::nullopt;
   auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
-  if (!identifier || labels_test->term_->children.empty()) return std::nullopt;
-  std::vector<std::string> names;
-  for (const auto &conjunct : labels_test->term_->children) {
-    auto name = LabelTermName(conjunct, identifier->name_);
-    if (!name) return std::nullopt;
-    names.push_back(*std::move(name));
-  }
-  return names;
+  if (!identifier) return std::nullopt;
+  return LabelTermName(*labels_test->term_, identifier->name_);
 }
 
 }  // namespace
@@ -5114,7 +5084,7 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
   using Type = query::plan::FilterInfo::Type;
   switch (single_filter.type) {
     case Type::Generic: {
-      if (auto name = LoweredLabelExpressionName(single_filter.expression)) {
+      if (auto name = LabelTermTestName(single_filter.expression)) {
         return *name;
       }
       std::set<std::string, std::less<>> symbol_names;
@@ -5183,11 +5153,6 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
 std::string Filter::ToString(const DbAccessor * /*dba*/) const {
   std::set<std::string, std::less<>> filter_names;
   for (const auto &filter : all_filters_) {
-    // The conjuncts of a label expression read as the filters they would be one by one.
-    if (auto names = LabelConjunctNames(filter)) {
-      filter_names.insert(std::make_move_iterator(names->begin()), std::make_move_iterator(names->end()));
-      continue;
-    }
     filter_names.insert(SingleFilterName(filter));
   }
   return fmt::format("Filter {}", utils::IterableToString(filter_names, ", ", [](const auto &name) { return name; }));

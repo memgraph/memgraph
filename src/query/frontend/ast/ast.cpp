@@ -12,6 +12,7 @@
 #include "query/frontend/ast/ast.hpp"
 
 #include <algorithm>
+#include <iterator>
 
 #include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
@@ -597,8 +598,8 @@ bool IsLabelChoice(const LabelTerm &term) {
          (term.kind == LabelTerm::Kind::Or && !term.children.empty() && r::all_of(term.children, IsLabel));
 }
 
-/// `term` with `!!` dropped and nested `&` flattened along its conjunction, each label kept once there. Nothing
-/// under a single `!` or a `|` changes, as filter collection never looked there. Sets `changed` if anything did.
+/// `term` with `!!` dropped and nested `&` flattened along its conjunction. Nothing under a single `!` or a `|`
+/// changes, as filter collection never looked there. Sets `changed` if anything did.
 LabelTerm Normalise(LabelTerm term, bool &changed) {
   while (term.kind == LabelTerm::Kind::Not && term.children.front().kind == LabelTerm::Kind::Not) {
     auto inner = std::move(term.children.front().children.front());
@@ -608,30 +609,14 @@ LabelTerm Normalise(LabelTerm term, bool &changed) {
   if (term.kind != LabelTerm::Kind::And) return term;
 
   std::vector<LabelTerm> conjuncts;
-  auto append = [&](LabelTerm conjunct) {
-    const bool repeated = IsLabel(conjunct) && r::any_of(conjuncts, [&](const LabelTerm &kept) {
-                            return IsLabel(kept) && kept.label == conjunct.label;
-                          });
-    if (repeated) {
-      changed = true;
-      return;
-    }
-    conjuncts.push_back(std::move(conjunct));
-  };
   for (auto &child : term.children) {
     auto normal = Normalise(std::move(child), changed);
     if (normal.kind != LabelTerm::Kind::And) {
-      append(std::move(normal));
+      conjuncts.push_back(std::move(normal));
       continue;
     }
     changed = true;
-    for (auto &grandchild : normal.children) {
-      append(std::move(grandchild));
-    }
-  }
-  if (conjuncts.size() == 1U) {
-    changed = true;
-    return std::move(conjuncts.front());
+    std::ranges::move(normal.children, std::back_inserter(conjuncts));
   }
   return LabelTerm{.kind = LabelTerm::Kind::And, .children = std::move(conjuncts)};
 }

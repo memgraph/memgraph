@@ -1237,35 +1237,22 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
 
-  auto wildcard = [&] {
-    auto *op = this->storage.template Create<LabelsTest>(identifier, std::vector<LabelIx>{});
-    op->term_ = LabelTerm{.kind = LabelTerm::Kind::Wildcard};
-    return op;
+  auto eval_on = [&](const TypedValue &value) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, value);
+    return this->Eval(MakeLabelsTest(this->storage, identifier, LabelTerm{.kind = LabelTerm::Kind::Wildcard}));
   };
+  EXPECT_TRUE(eval_on(TypedValue(labelled)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(bare)).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue()).IsNull());
 
-  {
-    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
-    frame_writer.Write(node_symbol, TypedValue(labelled));
-    EXPECT_EQ(this->Eval(wildcard()).ValueBool(), true);
-  }
-  {
-    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
-    frame_writer.Write(node_symbol, TypedValue(bare));
-    EXPECT_EQ(this->Eval(wildcard()).ValueBool(), false);
-    // The wildcard is what such a test asks, so it is not the "is this a node" test.
-    EXPECT_FALSE(wildcard()->IsNodeTest());
-  }
-  {
-    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
-    frame_writer.Write(node_symbol, TypedValue());
-    EXPECT_TRUE(this->Eval(wildcard()).IsNull());
-    // Null in, null out, through a negation on top.
-    auto *negated = this->storage.template Create<NotOperator>(wildcard());
-    EXPECT_TRUE(this->Eval(negated).IsNull());
-  }
+  // A vertex of this command does not exist under the OLD view the evaluator reads, so `%` reads it under NEW.
+  auto fresh = this->dba.InsertVertex();
+  ASSERT_TRUE(fresh.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  EXPECT_TRUE(eval_on(TypedValue(fresh)).ValueBool());
 }
 
-// A term kept whole, as a subject that is no identifier gets it, is evaluated against the one vertex.
+// A term held whole is evaluated against the one vertex its subject gives.
 TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
   auto animal_ix = this->storage.GetLabelIx("ANIMAL");
   auto plant_ix = this->storage.GetLabelIx("PLANT");
@@ -1284,11 +1271,7 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
   identifier->MapTo(node_symbol);
 
   auto leaf = [](LabelIx label) { return LabelTerm{.kind = LabelTerm::Kind::Label, .label = label}; };
-  auto test_of = [&](LabelTerm term) {
-    auto *op = this->storage.template Create<LabelsTest>(identifier, std::vector<LabelIx>{});
-    op->term_ = std::move(term);
-    return op;
-  };
+  auto test_of = [&](LabelTerm term) { return MakeLabelsTest(this->storage, identifier, std::move(term)); };
   // (ANIMAL|%)&!PLANT
   auto term =
       LabelTerm{.kind = LabelTerm::Kind::And,
@@ -1310,62 +1293,6 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
   EXPECT_TRUE(eval_on(TypedValue(bare), test_of(empty_conjunction)).ValueBool());
   EXPECT_TRUE(eval_on(TypedValue(), test_of(term)).IsNull());
   EXPECT_THROW(eval_on(TypedValue(1), test_of(term)), QueryRuntimeException);
-}
-
-// A `$param` bound to an empty list leaves an `And` of nothing, which holds, under `|` and `!` (under `&` it is
-// flattened away). On a value that is no node, an identifier's test blames the node when its first operand
-// names no label, and the labels otherwise.
-TYPED_TEST(ExpressionEvaluatorTest, LabelsTestEmptyConjunctionOperand) {
-  auto plant_ix = this->storage.GetLabelIx("PLANT");
-  auto bare = this->dba.InsertVertex();
-  this->dba.AdvanceCommand();
-
-  auto *identifier = this->storage.template Create<Identifier>("n");
-  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
-  identifier->MapTo(node_symbol);
-
-  auto nothing = [] { return LabelTerm{.kind = LabelTerm::Kind::And}; };
-  auto plant = [&] { return LabelTerm{.kind = LabelTerm::Kind::Label, .label = plant_ix}; };
-  auto test_of = [&](Expression *subject, LabelTerm term) {
-    auto *op = this->storage.template Create<LabelsTest>(subject, std::vector<LabelIx>{});
-    op->term_ = std::move(term);
-    return op;
-  };
-  auto eval_on = [&](const TypedValue &value, LabelTerm term) {
-    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
-    frame_writer.Write(node_symbol, value);
-    return this->Eval(test_of(identifier, std::move(term)));
-  };
-  auto error_of = [&](Expression *subject, LabelTerm term) -> std::string {
-    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
-    frame_writer.Write(node_symbol, TypedValue(1));
-    try {
-      this->Eval(test_of(subject, std::move(term)));
-    } catch (const QueryRuntimeException &e) {
-      return e.what();
-    }
-    return "no error";
-  };
-  auto negation = [](LabelTerm child) {
-    return LabelTerm{.kind = LabelTerm::Kind::Not, .children = {std::move(child)}};
-  };
-  auto either = [](LabelTerm lhs, LabelTerm rhs) {
-    return LabelTerm{.kind = LabelTerm::Kind::Or, .children = {std::move(lhs), std::move(rhs)}};
-  };
-
-  // n:!$p, n:PLANT|$p, n:$p|PLANT
-  EXPECT_FALSE(eval_on(TypedValue(bare), negation(nothing())).ValueBool());
-  EXPECT_TRUE(eval_on(TypedValue(bare), either(plant(), nothing())).ValueBool());
-  EXPECT_TRUE(eval_on(TypedValue(bare), either(nothing(), plant())).ValueBool());
-  EXPECT_TRUE(eval_on(TypedValue(), negation(nothing())).IsNull());
-  EXPECT_TRUE(eval_on(TypedValue(), either(plant(), nothing())).IsNull());
-
-  EXPECT_EQ(error_of(identifier, negation(nothing())), "Expected a node for 'n', but got int.");
-  EXPECT_EQ(error_of(identifier, either(nothing(), plant())), "Expected a node for 'n', but got int.");
-  EXPECT_EQ(error_of(identifier, either(plant(), nothing())), "Only nodes have labels, got int.");
-  // A subject that is no identifier always blames the labels.
-  auto *literal = this->storage.template Create<PrimitiveLiteral>(1);
-  EXPECT_EQ(error_of(literal, negation(nothing())), "Only nodes have labels, got int.");
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {

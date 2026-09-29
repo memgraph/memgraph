@@ -487,8 +487,7 @@ TYPED_TEST(OperatorToStringTest, FilterWildcardLabel) {
   auto node = this->GetSymbol("person");
   auto node_ident = IDENT("person");
 
-  auto *labels_test = LABELS_TEST(node_ident, std::vector<LabelIx>{});
-  labels_test->term_ = LabelTerm{.kind = LabelTerm::Kind::Wildcard};
+  auto *labels_test = MakeLabelsTest(this->storage, node_ident, LABEL_TERM_WILDCARD());
   auto label_filter_info = FilterInfo{FilterInfo::Type::Generic, labels_test, {node}};
 
   Filters filters;
@@ -500,91 +499,13 @@ TYPED_TEST(OperatorToStringTest, FilterWildcardLabel) {
   EXPECT_EQ(last_op->ToString(&this->dba), "Filter (person :%)");
 }
 
-TYPED_TEST(OperatorToStringTest, FilterNegatedLabel) {
-  auto node = this->GetSymbol("person");
-  auto node_ident = IDENT("person");
-
-  auto *negated = this->storage.template Create<NotOperator>(
-      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label1")}));
-  auto filter_info = FilterInfo{FilterInfo::Type::Generic, negated, {node}};
-
-  Filters filters;
-  filters.SetFilters({filter_info});
-
-  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
-  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, negated, filters);
-
-  EXPECT_EQ(last_op->ToString(&this->dba), "Filter NOT (person :Label1)");
-}
-
-TYPED_TEST(OperatorToStringTest, FilterDisjunctionOfLabelTests) {
-  auto node = this->GetSymbol("person");
-  auto node_ident = IDENT("person");
-
-  auto *disjunction = this->storage.template Create<OrOperator>(
-      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label1")}),
-      this->storage.template Create<NotOperator>(
-          LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label2")})));
-  auto filter_info = FilterInfo{FilterInfo::Type::Generic, disjunction, {node}};
-
-  Filters filters;
-  filters.SetFilters({filter_info});
-
-  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
-  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, disjunction, filters);
-
-  EXPECT_EQ(last_op->ToString(&this->dba), "Filter ((person :Label1) OR NOT (person :Label2))");
-}
-
-// A `$param` bound to an empty list leaves a bare node test under the operator.
-TYPED_TEST(OperatorToStringTest, FilterDisjunctionWithNodeTest) {
-  auto node = this->GetSymbol("person");
-  auto node_ident = IDENT("person");
-
-  auto *disjunction = this->storage.template Create<OrOperator>(
-      LABELS_TEST(node_ident, std::vector<LabelIx>{}),
-      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label1")}));
-  auto filter_info = FilterInfo{FilterInfo::Type::Generic, disjunction, {node}};
-
-  Filters filters;
-  filters.SetFilters({filter_info});
-
-  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
-  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, disjunction, filters);
-
-  EXPECT_EQ(last_op->ToString(&this->dba), "Filter ((person) OR (person :Label1))");
-}
-
-TYPED_TEST(OperatorToStringTest, FilterNegatedConjunctionOfLabelTests) {
-  auto node = this->GetSymbol("person");
-  auto node_ident = IDENT("person");
-
-  auto *negated = this->storage.template Create<NotOperator>(this->storage.template Create<AndOperator>(
-      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label1")}),
-      LABELS_TEST(node_ident, std::vector<LabelIx>{this->storage.GetLabelIx("Label2")})));
-  auto filter_info = FilterInfo{FilterInfo::Type::Generic, negated, {node}};
-
-  Filters filters;
-  filters.SetFilters({filter_info});
-
-  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
-  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, negated, filters);
-
-  EXPECT_EQ(last_op->ToString(&this->dba), "Filter NOT ((person :Label1) AND (person :Label2))");
-}
-
-// A term's conjuncts read as the filters they would be one by one; anything under an operator reads whole.
+// A term held whole is one filter, and reads as one.
 TYPED_TEST(OperatorToStringTest, FilterLabelTerm) {
   auto node = this->GetSymbol("person");
-  auto leaf = [&](const char *label) {
-    return LabelTerm{.kind = LabelTerm::Kind::Label, .label = this->storage.GetLabelIx(label)};
-  };
-  auto negation = [](LabelTerm child) {
-    return LabelTerm{.kind = LabelTerm::Kind::Not, .children = {std::move(child)}};
-  };
+  auto leaf = [&](const char *label) { return LABEL_TERM_LEAF(label); };
+  auto negation = [](LabelTerm child) { return LABEL_TERM_NOT(std::move(child)); };
   auto filter_of = [&](LabelTerm term) {
-    auto *labels_test = LABELS_TEST(IDENT("person"), std::vector<LabelIx>{});
-    labels_test->term_ = std::move(term);
+    auto *labels_test = MakeLabelsTest(this->storage, IDENT("person"), std::move(term));
     Filters filters;
     filters.SetFilters({FilterInfo{FilterInfo::Type::Generic, labels_test, {node}}});
     std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
@@ -595,7 +516,7 @@ TYPED_TEST(OperatorToStringTest, FilterLabelTerm) {
   // !Label2&!Label1
   EXPECT_EQ(filter_of(LabelTerm{.kind = LabelTerm::Kind::And,
                                 .children = {negation(leaf("Label2")), negation(leaf("Label1"))}}),
-            "Filter NOT (person :Label1), NOT (person :Label2)");
+            "Filter (NOT (person :Label2) AND NOT (person :Label1))");
   // Label1|(Label2&!Label3)
   EXPECT_EQ(filter_of(LabelTerm{.kind = LabelTerm::Kind::Or,
                                 .children = {leaf("Label1"),
