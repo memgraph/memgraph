@@ -5058,7 +5058,7 @@ std::optional<std::string> LabelTermName(const LabelTerm &term, std::string_view
             if (operands.empty() || !std::ranges::all_of(operands, label_of)) return fold(operands, "OR");
             std::vector<std::string_view> names;
             for (const auto &operand : operands) {
-              std::string_view name = label_of(operand)->label.name;
+              const std::string_view name = label_of(operand)->label.name;
               if (!std::ranges::contains(names, name)) names.emplace_back(name);
             }
             return test(utils::Join(names, "|"));
