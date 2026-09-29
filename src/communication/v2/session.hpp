@@ -258,9 +258,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     ws.binary(true);
 
     // Accept the websocket handshake
-    read_armed_ = true;
+    read_armed_.store(true, std::memory_order_relaxed);
     ws.async_accept(req, boost::asio::bind_executor(strand_, [self = shared_from_this()](boost::beast::error_code ec) {
-                      self->read_armed_ = false;
+                      self->read_armed_.store(false, std::memory_order_relaxed);
                       if (self->terminate_requested_.load(std::memory_order_acquire)) {
                         self->DoShutdown();
                         return;
@@ -282,20 +282,21 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                     }));
   }
 
-  // The sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here). MUST be called with
-  // arm_lock_ held: the "terminate_requested_? shut-down : arm" decision is thereby serialized against
-  // TerminateIfIdle_, so a terminate that races the arm is never lost and the socket stays single-owner
-  // even when DoRead arms it from an off-strand worker thread.
+  using ArmGuard = std::lock_guard<utils::SpinLock>;
+
+  // Acquires arm_lock_ itself; must NOT be called with it held. arm_lock_ serializes this
+  // "terminate_requested_? close : arm" decision against TerminateIfIdle_'s check-and-close.
   template <typename OnReadFn>
   void ArmRead_(OnReadFn on_read) {
+    ArmGuard guard{arm_lock_};
     if (!IsConnected()) {
       return;
     }
     if (terminate_requested_.load(std::memory_order_acquire)) {
-      DoShutdownLocked_();
+      CloseSocket_(guard);
       return;
     }
-    read_armed_ = true;
+    read_armed_.store(true, std::memory_order_relaxed);
     ExecuteForSocket([&](auto &socket) {
       auto buffer = input_buffer_.write_end()->GetBuffer();
       socket.async_read_some(boost::asio::buffer(buffer.data, buffer.len),
@@ -311,28 +312,21 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     // single-io-thread priority scheduler. SSL/WebSocket async_read_some are composed ops (engine/BIO,
     // beast idle timer) that must stay on their implicit strand, so those keep hopping onto strand_.
     if (std::holds_alternative<TCPSocket>(socket_)) {
-      auto lock = std::lock_guard{arm_lock_};
       ArmRead_(std::bind_front(&Session::OnRead, shared_from_this()));
       return;
     }
-    boost::asio::dispatch(strand_, [self = shared_from_this()] {
-      auto lock = std::lock_guard{self->arm_lock_};
-      self->ArmRead_(std::bind_front(&Session::OnRead, self));
-    });
+    boost::asio::dispatch(strand_,
+                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnRead, self)); });
   }
 
   void DoReadAsio() {
-    boost::asio::dispatch(strand_, [self = shared_from_this()] {
-      auto lock = std::lock_guard{self->arm_lock_};
-      self->ArmRead_(std::bind_front(&Session::OnReadAsio, self));
-    });
+    boost::asio::dispatch(strand_,
+                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnReadAsio, self)); });
   }
 
   void DoFirstRead() {
-    boost::asio::dispatch(strand_, [self = shared_from_this()] {
-      auto lock = std::lock_guard{self->arm_lock_};
-      self->ArmRead_(std::bind_front(&Session::OnFirstRead, self));
-    });
+    boost::asio::dispatch(
+        strand_, [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnFirstRead, self)); });
   }
 
   std::optional<boost::beast::http::request<boost::beast::http::string_body>> IsWebsocketUpgrade(uint8_t *data,
@@ -349,7 +343,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnFirstRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
-    read_armed_ = false;
+    read_armed_.store(false, std::memory_order_relaxed);
     if (ec) {
       session_.HandleError();
       return OnError(ec);
@@ -399,7 +393,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
-    read_armed_ = false;
+    read_armed_.store(false, std::memory_order_relaxed);
     if (ec) {
       spdlog::trace("OnRead error: {}", ec.message());
       session_.HandleError();
@@ -411,7 +405,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnReadAsio(const boost::system::error_code &ec, const size_t bytes_transferred) {
-    read_armed_ = false;
+    read_armed_.store(false, std::memory_order_relaxed);
     if (ec) {
       spdlog::trace("OnRead error: {}", ec.message());
       session_.HandleError();
@@ -478,24 +472,24 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // Runs on strand_. Holds arm_lock_ so the read_armed_ check and the close cannot interleave with a
   // worker arming the read (ArmRead_ under the same lock).
   void TerminateIfIdle_() {
-    auto lock = std::lock_guard{arm_lock_};
+    ArmGuard guard{arm_lock_};
     // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
     // terminate_requested_ set and let ArmRead_ close it on the next read-arm instead of racing here.
-    if (!read_armed_) {
+    if (!read_armed_.load(std::memory_order_relaxed)) {
       return;
     }
-    read_armed_ = false;
-    DoShutdownLocked_();
+    read_armed_.store(false, std::memory_order_relaxed);
+    CloseSocket_(guard);
   }
 
   // Acquires arm_lock_; call from contexts that do NOT already hold it (OnError, DoAccept/SSL callbacks).
   void DoShutdown() {
-    auto lock = std::lock_guard{arm_lock_};
-    DoShutdownLocked_();
+    ArmGuard guard{arm_lock_};
+    CloseSocket_(guard);
   }
 
-  // Assumes arm_lock_ is held. Call from ArmRead_/TerminateIfIdle_ (which hold it) to avoid re-locking.
-  void DoShutdownLocked_() {
+  // Called with arm_lock_ held; the ArmGuard parameter is proof-of-lock, not used at runtime.
+  void CloseSocket_(const ArmGuard & /*arm_lock_held*/) {
     if (!IsConnected()) {
       return;
     }
@@ -547,7 +541,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         DoShutdown();
         return;
       }
-      read_armed_ = true;
+      read_armed_.store(true, std::memory_order_relaxed);
       socket->async_handshake(
           boost::asio::ssl::stream_base::server,
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnSSLHandshake, shared_from_this())));
@@ -555,7 +549,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnSSLHandshake(const boost::system::error_code &ec) {
-    read_armed_ = false;
+    read_armed_.store(false, std::memory_order_relaxed);
     if (terminate_requested_.load(std::memory_order_acquire)) {
       DoShutdown();
       return;
@@ -611,14 +605,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::atomic_bool terminate_requested_{false};
   // Serializes the two contexts that can concurrently touch the socket's arm/close: the off-strand
   // worker read-arm (plain-TCP fast path in DoRead) and TerminateIfIdle_ (strand). Every arm site
-  // funnels through ArmRead_ under this lock, and TerminateIfIdle_/DoShutdownLocked_ hold it too, so
+  // funnels through ArmRead_ under this lock, and TerminateIfIdle_/CloseSocket_ hold it too, so
   // "check read_armed_/terminate_requested_ then arm-or-close" is atomic. Strand-confined setup paths
   // (DoAccept/DoSSLHandshake) stay serialized by the strand and need no lock. Leaf lock: never taken
   // with any other lock held; the reactor's per-descriptor mutex is always acquired *under* it.
   utils::SpinLock arm_lock_;
-  // true: an async op (handshake/upgrade/read) is pending and whoever armed it owns the socket; false:
-  // a worker may be inside Execute()/Write(). Atomic (read by TerminateIfIdle_ off the arming context);
-  // the arm-vs-terminate decision that reads it is made under arm_lock_.
+  // Relaxed ordering is sufficient: cross-context access (worker arm vs TerminateIfIdle_) is ordered by
+  // arm_lock_; strand_ serializes OnRead/handshake writers vs TerminateIfIdle_. Atomic only removes data race.
   std::atomic_bool read_armed_{false};
 };
 }  // namespace memgraph::communication::v2
