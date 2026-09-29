@@ -629,6 +629,9 @@ class Client {
   /// connection is the one that destroys it. Teardown therefore never waits on an in-flight RPC.
   void Shutdown();
 
+  /// Acquire the connection lock; pass the returned guard to StreamWithLoad to span an out-of-stream auth snapshot.
+  std::unique_lock<utils::ResourceLock> LockConnection() { return std::unique_lock{conn_->mutex_}; }
+
   auto Endpoint() const -> io::network::Endpoint const & { return conn_->endpoint(); }
 
  private:

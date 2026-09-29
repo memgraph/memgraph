@@ -481,6 +481,51 @@ std::optional<std::vector<std::string>> ExtractAuthenticatedRoleNames(const nloh
   return role_names;
 }
 
+// Verifies a local user's password with no lock held (bcrypt may be expensive).
+std::optional<auth::User> VerifyLocalPassword(std::optional<auth::User> user, const std::string &username,
+                                              const std::string &password) {
+  if (!user) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate user '{}' because the user doesn't exist.", username, "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+  if (!user->CheckPassword(password)) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate user '{}' because the password is not correct.", username, "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+  return user;
+}
+
+std::optional<auth::SSOIdentity> ExtractSSOIdentity(const std::string &scheme, const nlohmann::json &ret) {
+  auto role_names = ExtractAuthenticatedRoleNames(ret);
+  if (!role_names) {
+    spdlog::warn("Coordinator SSO login failed for scheme '{}'.", scheme);
+    return std::nullopt;
+  }
+
+  // The principal is recorded, not validated: a module that omits it still logs in (the coordinator authorizes by
+  // role), but its queries can't be attributed to anybody, so say so once at login instead of silently.
+  auto username = std::invoke([&ret]() -> std::string {
+    if (!ret.contains("username") || !ret.at("username").is_string()) {
+      return {};
+    }
+    return ret.at("username").get<std::string>();
+  });
+  if (username.empty()) {
+    spdlog::warn(utils::MessageWithLink(
+        "The coordinator SSO module returned no username; queries from this session will be recorded without a "
+        "principal.",
+        "https://memgr.ph/sso"));
+  }
+
+  spdlog::info("Coordinator SSO login succeeded for scheme '{}' as user '{}' with roles: {}.",
+               scheme,
+               username,
+               utils::JoinVector(*role_names, ", "));
+  return auth::SSOIdentity{.username = std::move(username), .roles = std::move(*role_names)};
+}
+
 };  // namespace
 
 Auth::Auth(std::string storage_directory, Config config
@@ -517,8 +562,12 @@ Auth::Auth(std::string storage_directory, Config config
 std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nlohmann::json module_params,
                                                    std::optional<std::string> provided_username) {
   spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
-  auto ret = modules_.at(scheme).Call(std::move(module_params), FLAGS_auth_module_timeout_ms);
+  return ResolveModuleResponse(modules_.at(scheme).Call(std::move(module_params), FLAGS_auth_module_timeout_ms),
+                               std::move(provided_username));
+}
 
+std::optional<UserOrRole> Auth::ResolveModuleResponse(const nlohmann::json &ret,
+                                                      std::optional<std::string> provided_username) const {
   auto get_string_field = [&ret](const auto &name) -> std::optional<std::string> {
     if (!ret.contains(name)) {
       spdlog::warn(utils::MessageWithLink(
@@ -587,21 +636,11 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
     /*
      * LOCAL AUTH STORAGE
      */
-    auto user = GetUser(username);
-    if (!user) {
-      spdlog::warn(utils::MessageWithLink(
-          "Couldn't authenticate user '{}' because the user doesn't exist.", username, "https://memgr.ph/auth"));
-      return std::nullopt;
-    }
-    if (!user->CheckPassword(password)) {
-      spdlog::warn(utils::MessageWithLink(
-          "Couldn't authenticate user '{}' because the password is not correct.", username, "https://memgr.ph/auth"));
-      return std::nullopt;
-    }
+    auto user = VerifyLocalPassword(GetUser(username), username, password);
+    if (!user) return std::nullopt;
     if (user->UpgradeHash(password)) {
       SaveUser(*user);
     }
-
     return user;
   }
 
@@ -657,32 +696,12 @@ std::optional<SSOIdentity> Auth::SSOGetIdentity(const std::string &scheme,
   // caller against the Raft-replicated coordinator role set.
   spdlog::trace("Calling external auth module for coordinator SSO scheme '{}'.", scheme);
   auto ret = modules_.at(scheme).Call(std::move(params), FLAGS_auth_module_timeout_ms);
-  auto role_names = ExtractAuthenticatedRoleNames(ret);
-  if (!role_names) {
-    spdlog::warn("Coordinator SSO login failed for scheme '{}'.", scheme);
-    return std::nullopt;
-  }
+  return ExtractSSOIdentity(scheme, ret);
+}
 
-  // The principal is recorded, not validated: a module that omits it still logs in (the coordinator authorizes by
-  // role), but its queries can't be attributed to anybody, so say so once at login instead of silently.
-  auto username = std::invoke([&ret]() -> std::string {
-    if (!ret.contains("username") || !ret.at("username").is_string()) {
-      return {};
-    }
-    return ret.at("username").get<std::string>();
-  });
-  if (username.empty()) {
-    spdlog::warn(utils::MessageWithLink(
-        "The coordinator SSO module returned no username; queries from this session will be recorded without a "
-        "principal.",
-        "https://memgr.ph/sso"));
-  }
-
-  spdlog::info("Coordinator SSO login succeeded for scheme '{}' as user '{}' with roles: {}.",
-               scheme,
-               username,
-               utils::JoinVector(*role_names, ", "));
-  return SSOIdentity{.username = std::move(username), .roles = std::move(*role_names)};
+Module *Auth::GetAuthModule(const std::string &scheme) {
+  if (!HasAuthModulePrerequisites(scheme)) return nullptr;
+  return &modules_.at(scheme);
 }
 
 void Auth::LinkUser(User &user) const {
@@ -835,55 +854,68 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   }
 }
 
-void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
-  // Check if user passed in an already hashed string
-  if (password) {
-    const auto already_hashed = UserDefinedHash(*password);
-    if (already_hashed) {
-      user.UpdateHash(*already_hashed);
-      return;
-    }
-  }
-
-  // Check if null
+void Auth::ValidatePassword(const std::optional<std::string> &password) const {
   if (!password) {
     if (!config_.password_permit_null) {
       throw AuthException("Null passwords aren't permitted!");
     }
-  } else {
-    // Check if compliant with our filter
-    if (config_.custom_password_regex) {
-      if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
-          !license_check_result.has_value()) {
-        throw AuthException(
-            "Custom password regex is a Memgraph Enterprise feature. Please set the config "
-            "(\"--auth-password-strength-regex\") to its default value (\"{}\") or remove the flag.\n{}",
-            glue::kDefaultPasswordRegex,
-            license::LicenseCheckErrorToString(license_check_result.error(), "password regex"));
-      }
-    }
-    if (!std::regex_match(*password, config_.password_regex)) {
+    return;
+  }
+  if (config_.custom_password_regex) {
+    if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
+        !license_check_result.has_value()) {
       throw AuthException(
-          "The user password doesn't conform to the required strength! Regex: "
-          "\"{}\"",
-          config_.password_regex_str);
+          "Custom password regex is a Memgraph Enterprise feature. Please set the config "
+          "(\"--auth-password-strength-regex\") to its default value (\"{}\") or remove the flag.\n{}",
+          glue::kDefaultPasswordRegex,
+          license::LicenseCheckErrorToString(license_check_result.error(), "password regex"));
     }
   }
+  if (!std::regex_match(*password, config_.password_regex)) {
+    throw AuthException(
+        "The user password doesn't conform to the required strength! Regex: "
+        "\"{}\"",
+        config_.password_regex_str);
+  }
+}
 
-  // All checks passed; update
-  user.UpdatePassword(password);
+bool Auth::IsUserDefinedHash(const std::optional<std::string> &password) {
+  return password.has_value() && UserDefinedHash(*password).has_value();
+}
+
+std::optional<HashedPassword> Auth::ComputePasswordHash(const std::optional<std::string> &password) {
+  if (!password) return std::nullopt;
+  if (auto already_hashed = UserDefinedHash(*password)) {
+    return std::move(*already_hashed);
+  }
+  return HashPassword(*password);
+}
+
+void Auth::ValidateName(const std::string &name) const {
+  if (!NameRegexMatch(name)) throw AuthException("Invalid user name.");
+}
+
+void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
+  if (!IsUserDefinedHash(password)) ValidatePassword(password);
+  user.SetPasswordHash(ComputePasswordHash(password));
+}
+
+std::optional<User> Auth::AddUserWithHash(const std::string &username, std::optional<HashedPassword> precomputed_hash,
+                                          system::Transaction *system_tx) {
+  ValidateName(username);
+  if (GetUser(username)) return std::nullopt;
+  auto new_user = User(username);
+  new_user.SetPasswordHash(std::move(precomputed_hash));
+  SaveUser(new_user, system_tx);
+  return new_user;
 }
 
 std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password,
                                   system::Transaction *system_tx) {
-  if (!NameRegexMatch(username)) {
-    throw AuthException("Invalid user name.");
-  }
+  ValidateName(username);
   if (GetUser(username)) return std::nullopt;
-  auto new_user = User(username);
-  UpdatePassword(new_user, password);
-  SaveUser(new_user, system_tx);
-  return new_user;
+  if (!IsUserDefinedHash(password)) ValidatePassword(password);
+  return AddUserWithHash(username, ComputePasswordHash(password), system_tx);
 }
 
 void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
@@ -1422,6 +1454,11 @@ Auth::Result DispatchUserOrRole(Auth &auth, const std::string &name, UserOrRoleT
   }
   return NO_USER_ROLE;
 }
+
+// Returns true iff Databases::Revoke(db) would mutate at least one field.
+bool RevokeChanges(const Databases &dbs, const std::string &db) {
+  return dbs.GetDenies().contains(db) || (!dbs.GetAllowAll() && dbs.GetGrants().contains(db)) || dbs.GetMain() == db;
+}
 }  // namespace
 
 Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
@@ -1513,6 +1550,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     auto username = it->first.substr(kUserPrefix.size());
     try {
       User user = auth::User::Deserialize(ParseAndMigrateJson(it->second));
+      if (!RevokeChanges(user.db_access(), db)) continue;
       LinkUser(user);
       user.db_access().Revoke(db);
       SaveUser(user, system_tx);
@@ -1524,6 +1562,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     auto rolename = it->first.substr(kRolePrefix.size());
     try {
       auto role = memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));
+      if (!RevokeChanges(role.db_access(), db)) continue;
       role.db_access().Revoke(db);
       LinkRole(role);
       SaveRole(role, system_tx);
@@ -1580,6 +1619,78 @@ bool Auth::HasUser(std::string_view name) const {
 bool Auth::HasRole(std::string_view name) const {
   auto rolename = utils::ToLowerCase(name);
   return storage_.Get(kRolePrefix + rolename).has_value();
+}
+
+namespace {
+// Acquires the module pointer under a shared lock, then calls the module with no auth lock held.
+std::optional<nlohmann::json> CallModuleUnlocked(SynchedAuth &auth, const std::string &scheme, nlohmann::json params) {
+  Module *module = auth.MutableSharedLock()->GetAuthModule(scheme);
+  if (!module) return std::nullopt;
+  spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
+  return module->Call(std::move(params), FLAGS_auth_module_timeout_ms);
+}
+}  // namespace
+
+std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &username, const std::string &password) {
+  bool const basic = auth.ReadLock()->UsingBasicAuth();
+  if (basic) {
+    nlohmann::json params = nlohmann::json::object();
+    params["username"] = username;
+    params["password"] = password;
+    auto ret = CallModuleUnlocked(auth, "basic", std::move(params));
+    if (!ret) return std::nullopt;
+    return auth.ReadLock()->ResolveModuleResponse(*ret, username);
+  }
+  // Local password auth: GetUser under a read lock, then bcrypt runs with no lock held.
+  auto user_opt = auth.ReadLock()->GetUser(username);  // lock released at end of statement
+  auto user = VerifyLocalPassword(std::move(user_opt), username, password);
+  if (!user) return std::nullopt;
+  // Hash upgrade: capture the pre-upgrade hash to detect a concurrent SET PASSWORD or replica recovery.
+  auto const hash_before_upgrade = user->password_hash();
+  if (user->UpgradeHash(password)) {
+    // UpgradeHash computed a new salted hash on the local copy; reuse it to avoid a second bcrypt run.
+    auto locked = auth.Lock();
+    auto current = locked->GetUser(username);
+    if (current && current->password_hash() == hash_before_upgrade) {
+      current->UpdateHash(*user->password_hash());
+      locked->SaveUser(*current);
+    }
+  }
+  return user;
+}
+
+std::optional<UserOrRole> SSOAuthenticate(SynchedAuth &auth, const std::string &scheme,
+                                          const std::string &identity_provider_response) {
+  spdlog::info("SSO login attempt using scheme '{}'.", scheme);
+  nlohmann::json params = nlohmann::json::object();
+  params["scheme"] = scheme;
+  params["response"] = identity_provider_response;
+  auto ret = CallModuleUnlocked(auth, scheme, std::move(params));
+  if (!ret) {
+    spdlog::warn("SSO login failed for scheme '{}'.", scheme);
+    return std::nullopt;
+  }
+  auto user_or_role = auth.ReadLock()->ResolveModuleResponse(*ret, std::nullopt);
+  if (!user_or_role) {
+    spdlog::warn("SSO login failed for scheme '{}'.", scheme);
+    return std::nullopt;
+  }
+  spdlog::info("SSO login succeeded for scheme '{}'.", scheme);
+  return user_or_role;
+}
+
+std::optional<SSOIdentity> SSOGetIdentity(SynchedAuth &auth, const std::string &scheme,
+                                          const std::string &identity_provider_response) {
+  spdlog::info("Coordinator SSO login attempt using scheme '{}'.", scheme);
+  nlohmann::json params = nlohmann::json::object();
+  params["scheme"] = scheme;
+  params["response"] = identity_provider_response;
+  auto ret = CallModuleUnlocked(auth, scheme, std::move(params));
+  if (!ret) {
+    spdlog::warn("Coordinator SSO login failed for scheme '{}'.", scheme);
+    return std::nullopt;
+  }
+  return ExtractSSOIdentity(scheme, *ret);
 }
 
 }  // namespace memgraph::auth

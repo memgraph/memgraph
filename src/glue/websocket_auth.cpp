@@ -19,7 +19,7 @@
 namespace memgraph::glue {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
-  user_or_role_ = auth_->Lock()->Authenticate(username, password);
+  user_or_role_ = auth::Authenticate(*auth_, username, password);
   return user_or_role_.has_value();
 }
 

@@ -961,10 +961,16 @@ class User final {
     return password_hash_->HashAlgo();
   }
 
+  /// Returns the stored password hash; nullopt if no password is set.
+  const std::optional<HashedPassword> &password_hash() const { return password_hash_; }
+
   /// @throw AuthException if unable to set the password.
   void UpdatePassword(const std::optional<std::string> &password = {},
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
   void UpdateHash(HashedPassword hashed_password);
+
+  /// Directly replaces the stored hash; nullopt clears the password.
+  void SetPasswordHash(std::optional<HashedPassword> hash) { password_hash_ = std::move(hash); }
 
   void ClearAllRoles();
 
