@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <initializer_list>
 #include <iterator>
@@ -11477,20 +11478,23 @@ void Interpreter::Commit() {
     if (auth_transaction_) {
       // Covers every exit of this block, a throw included.
       //
-      // The claim is given back here only when nothing is left to replicate. With a system transaction the
-      // commit is not over at this brace -- replication runs below -- and letting go here would put the status
-      // back to ACTIVE for that whole window, which is the false kill the claim exists to prevent. In that case
-      // `clean_status` releases instead, after replication. Without one, `FinishAutocommitNothing` retires the
-      // transaction immediately below and it only knows how to start from ACTIVE.
+      // On the way out normally, the claim is given back here only when nothing is left to replicate. With a
+      // system transaction the commit is not over at this brace -- replication runs below -- and letting go here
+      // would put the status back to ACTIVE for that whole window, which is the false kill the claim exists to
+      // prevent. In that case `clean_status` releases instead, after replication. Without one,
+      // `FinishAutocommitNothing` retires the transaction immediately below and it only knows how to start from
+      // ACTIVE.
       //
       // The status half is a no-op until the claim below lands, since only STARTED_COMMITTING is ours to give
       // back.
-      utils::OnScopeExit const clear_auth_tx([this]() {
+      utils::OnScopeExit const clear_auth_tx([this, entry_exceptions = std::uncaught_exceptions()]() {
         auth_transaction_.reset();
-        // Both throws below reach here with no system transaction -- the first because failing to take one is
-        // what it reports, the second because it resets before throwing -- so a failed commit always releases
-        // here and only a continuing one defers to `clean_status`.
-        if (system_transaction_) return;
+        // Deferring to `clean_status` is only safe when the commit reaches it. It is installed below an early
+        // return, so an exception leaving this block skips it and the claim would be stranded: nothing else
+        // gives it back, `TERMINATE TRANSACTIONS` cannot mark a status that is not ACTIVE, and `KillAll` leaves
+        // STARTED_COMMITTING to the committing thread that has already gone. Unwinding therefore always
+        // releases here, whether or not a system transaction was taken.
+        if (system_transaction_ && std::uncaught_exceptions() == entry_exceptions) return;
         auto expected = TransactionStatus::STARTED_COMMITTING;
         while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
           if (expected == TransactionStatus::VERIFYING) {
