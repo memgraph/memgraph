@@ -1620,6 +1620,7 @@ def test_basic_auth_break_glass_when_no_writable_role(test_name):
     assert show_roles(break_glass_cursor) == []
     # A scheme the mappings don't list takes the same passthrough path, so it is admitted as break-glass too.
     assert sso_connects(leader_port, "not-a-configured-scheme", ADMIN_TOKEN)
+    assert sorted(name for (name,) in sso_run(leader_port, "not-a-configured-scheme", ADMIN_TOKEN, "SHOW ROLES")) == []
 
     # Bootstrap the first administrator through the break-glass session.
     create_role_with_privilege(break_glass_cursor, ADMIN_TOKEN, grant="COORDINATOR_WRITE")
