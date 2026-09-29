@@ -3944,6 +3944,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
 
         expect_rollback_ = false;
         in_explicit_transaction_ = false;
+        tx_mode_.reset();
         metadata_ = std::nullopt;
         current_timeout_deadline_.reset();
       };
