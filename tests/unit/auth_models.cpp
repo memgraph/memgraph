@@ -18,6 +18,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "auth/repository.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
@@ -1358,7 +1359,7 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_EQ(profile->limits.size(), 1);
 
   // Test profile deletion
-  ASSERT_TRUE(user_profiles.Drop("profile"));
+  ASSERT_EQ(user_profiles.Drop("profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   profile = user_profiles.Get("profile");
   ASSERT_FALSE(profile.has_value());
 
