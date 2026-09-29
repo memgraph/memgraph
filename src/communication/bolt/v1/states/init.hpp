@@ -216,14 +216,12 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
                             "Basic authentication is disabled on this coordinator because SSO is configured; connect "
                             "with an SSO scheme listed in the auth-module-mappings flag.");
         } else {
-          spdlog::warn(
-              "The \"{}\" authentication scheme isn't supported on coordinators: connect with an SSO scheme listed "
-              "in the auth-module-mappings flag.",
+          auto const message = fmt::format(
+              "The \"{}\" authentication scheme isn't supported on this coordinator; connect with an SSO "
+              "scheme listed in the auth-module-mappings flag.",
               schema);
-          HandleAuthFailure(session,
-                            fmt::format("The \"{}\" authentication scheme isn't supported on this coordinator; connect "
-                                        "with an SSO scheme listed in the auth-module-mappings flag.",
-                                        schema));
+          spdlog::warn(message);
+          HandleAuthFailure(session, message);
         }
         return State::Close;
       }
