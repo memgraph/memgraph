@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <any>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <iterator>
@@ -3081,8 +3082,9 @@ bool ProjectsAggregation(ReturnBody &body) {
   return finder.found_;
 }
 
-// The child slots of the expression kinds that can match a projected item. Any other kind never matches, including
-// `ParameterLookup`: the parser strips literals into parameters, and the AST is cached by the stripped text.
+using ParameterNames = std::unordered_map<int32_t, std::string>;
+
+// The child slots of the expression kinds that can match a projected item. Any other kind never matches.
 std::optional<std::vector<Expression **>> MatchableChildren(Expression *expr) {
   auto addresses = [](std::vector<Expression *> &exprs) {
     return exprs | std::views::transform([](auto &child) { return &child; }) | std::ranges::to<std::vector>();
@@ -3100,14 +3102,16 @@ std::optional<std::vector<Expression **>> MatchableChildren(Expression *expr) {
   if (auto *function = utils::Downcast<Function>(expr)) return addresses(function->arguments_);
   if (auto *coalesce = utils::Downcast<Coalesce>(expr)) return addresses(coalesce->expressions_);
   if (auto *list = utils::Downcast<ListLiteral>(expr)) return addresses(list->elements_);
-  if (utils::IsSubtype(*expr, Identifier::kType) || utils::IsSubtype(*expr, PrimitiveLiteral::kType)) {
+  if (utils::IsSubtype(*expr, Identifier::kType) || utils::IsSubtype(*expr, PrimitiveLiteral::kType) ||
+      utils::IsSubtype(*expr, ParameterLookup::kType)) {
     return std::vector<Expression **>{};
   }
   return std::nullopt;
 }
 
-// Compares the fields of two expressions of the same type, other than their children.
-bool SameOwnFields(Expression &lhs, Expression &rhs) {
+// Compares the fields of two expressions of the same type, other than their children. Parameters match by name, and a
+// stripped literal never matches: the AST is cached by the stripped text, which does not hold literal values.
+bool SameOwnFields(Expression &lhs, Expression &rhs, ParameterNames const &parameter_names) {
   if (auto *l = utils::Downcast<Aggregation>(&lhs)) {
     auto const &r = static_cast<Aggregation &>(rhs);
     return l->op_ == r.op_ && l->distinct_ == r.distinct_;
@@ -3127,6 +3131,12 @@ bool SameOwnFields(Expression &lhs, Expression &rhs) {
   if (auto *l = utils::Downcast<Function>(&lhs)) {
     return l->function_name_ == static_cast<Function &>(rhs).function_name_ && IsFunctionPure(l->function_name_);
   }
+  if (auto *l = utils::Downcast<ParameterLookup>(&lhs)) {
+    auto const lhs_name = parameter_names.find(l->token_position_);
+    auto const rhs_name = parameter_names.find(static_cast<ParameterLookup &>(rhs).token_position_);
+    return lhs_name != parameter_names.end() && rhs_name != parameter_names.end() &&
+           lhs_name->second == rhs_name->second;
+  }
   return true;
 }
 
@@ -3136,37 +3146,42 @@ bool IsShadowed(Expression *expr, std::vector<NamedExpression *> const &items) {
   return identifier && std::ranges::contains(items, identifier->name_, &NamedExpression::name_);
 }
 
-bool AreEquivalent(Expression *lhs, Expression *rhs, std::vector<NamedExpression *> const &items) {
+bool AreEquivalent(Expression *lhs, Expression *rhs, std::vector<NamedExpression *> const &items,
+                   ParameterNames const &parameter_names) {
   if (!lhs || !rhs) return lhs == rhs;
-  if (lhs->GetTypeInfo() != rhs->GetTypeInfo() || !SameOwnFields(*lhs, *rhs) || IsShadowed(lhs, items)) return false;
+  if (lhs->GetTypeInfo() != rhs->GetTypeInfo() || !SameOwnFields(*lhs, *rhs, parameter_names) ||
+      IsShadowed(lhs, items)) {
+    return false;
+  }
   auto const lhs_children = MatchableChildren(lhs);
   auto const rhs_children = MatchableChildren(rhs);
   return lhs_children && std::ranges::equal(*lhs_children, *rhs_children, [&](auto *l, auto *r) {
-           return AreEquivalent(*l, *r, items);
+           return AreEquivalent(*l, *r, items, parameter_names);
          });
 }
 
-void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> const &items, AstStorage &storage) {
+void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> const &items,
+                           ParameterNames const &parameter_names, AstStorage &storage) {
   if (!expr) return;
-  auto const item =
-      std::ranges::find_if(items, [&](auto *item) { return AreEquivalent(item->expression_, expr, items); });
+  auto const item = std::ranges::find_if(
+      items, [&](auto *item) { return AreEquivalent(item->expression_, expr, items, parameter_names); });
   if (item != items.end()) {
     expr = storage.Create<Identifier>((*item)->name_);
     return;
   }
   for (auto *child : MatchableChildren(expr).value_or(std::vector<Expression **>{})) {
-    ReferToProjectedItems(*child, items, storage);
+    ReferToProjectedItems(*child, items, parameter_names, storage);
   }
 }
 
 // When a projection aggregates, ORDER BY and WHERE only see the projected items, so any part of them that repeats a
 // projected item's expression is replaced with a reference to that item.
-void ReferToProjectedItems(ReturnBody &body, Where *where, AstStorage &storage) {
+void ReferToProjectedItems(ReturnBody &body, Where *where, ParameterNames const &parameter_names, AstStorage &storage) {
   if ((body.order_by.empty() && !where) || !ProjectsAggregation(body)) return;
   for (auto &sort_item : body.order_by) {
-    ReferToProjectedItems(sort_item.expression, body.named_expressions, storage);
+    ReferToProjectedItems(sort_item.expression, body.named_expressions, parameter_names, storage);
   }
-  if (where) ReferToProjectedItems(where->expression_, body.named_expressions, storage);
+  if (where) ReferToProjectedItems(where->expression_, body.named_expressions, parameter_names, storage);
 }
 }  // namespace
 
@@ -3176,7 +3191,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnC
   if (ctx->DISTINCT()) {
     return_clause->body_.distinct = true;
   }
-  ReferToProjectedItems(return_clause->body_, nullptr, *storage_);
+  ReferToProjectedItems(return_clause->body_, nullptr, parameter_names_, *storage_);
   return return_clause;
 }
 
@@ -4300,7 +4315,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
 }
 
 antlrcpp::Any CypherMainVisitor::visitParameter(MemgraphCypher::ParameterContext *ctx) {
-  return storage_->Create<ParameterLookup>(ctx->getStart()->getTokenIndex());
+  auto const token_position = static_cast<int32_t>(ctx->getStart()->getTokenIndex());
+  parameter_names_.emplace(token_position, ctx->getText());
+  return storage_->Create<ParameterLookup>(token_position);
 }
 
 antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ctx) {
@@ -4725,7 +4742,7 @@ antlrcpp::Any CypherMainVisitor::visitWith(MemgraphCypher::WithContext *ctx) {
   if (ctx->where()) {
     with->where_ = std::any_cast<Where *>(ctx->where()->accept(this));
   }
-  ReferToProjectedItems(with->body_, with->where_, *storage_);
+  ReferToProjectedItems(with->body_, with->where_, parameter_names_, *storage_);
   return with;
 }
 
