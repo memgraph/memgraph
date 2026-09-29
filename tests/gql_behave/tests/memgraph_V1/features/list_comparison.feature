@@ -35,9 +35,9 @@ Feature: List comparison
             """
         When executing query:
             """
-            MATCH (n:L) WHERE n.p > [1, 2] RETURN n.p AS p
+            MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2] RETURN n.p AS p ORDER BY p
             """
-        Then the result should be:
+        Then the result should be, in order:
             | p      |
             | [1, 3] |
             | [2]    |
@@ -62,9 +62,9 @@ Feature: List comparison
             """
         When executing query:
             """
-            MATCH (n) WHERE n.p <= [1, 3] RETURN n.p AS p
+            MATCH (n) WHERE n.p <= [1, 3] RETURN n.p AS p ORDER BY p
             """
-        Then the result should be:
+        Then the result should be, in order:
             | p      |
             | [1]    |
             | [1, 2] |
@@ -88,9 +88,9 @@ Feature: List comparison
             """
         When executing query:
             """
-            MATCH ()-[r]->() WHERE r.p > [1, 2] RETURN r.p AS p
+            MATCH ()-[r:R]->() WHERE r.p > [1, 2] RETURN r.p AS p ORDER BY p
             """
-        Then the result should be:
+        Then the result should be, in order:
             | p      |
             | [1, 3] |
             | [2]    |

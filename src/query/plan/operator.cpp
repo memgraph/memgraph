@@ -151,8 +151,8 @@ storage::PropertyValueRange::ValuePredicate MakeComparisonPredicate(std::optiona
                                                                     storage::NameIdMapper *mapper) {
   if (!lower && !upper) return nullptr;
 
-  // Copy the bounds out of the query's memory resource: parallel scans call the
-  // predicate from several threads, and that resource is not thread-safe.
+  // Copy the bounds into a resource of their own: the predicate outlives this
+  // evaluation's memory resource and runs on the scan's threads.
   auto const own = [](std::optional<TypedValue> const &value) -> std::optional<TypedValue> {
     if (!value) return std::nullopt;
     return TypedValue{*value, utils::NewDeleteResource()};

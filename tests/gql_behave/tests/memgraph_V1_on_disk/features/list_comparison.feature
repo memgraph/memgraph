@@ -22,9 +22,9 @@ Feature: List comparison
             """
         When executing query:
             """
-            MATCH (n:L) WHERE n.p > [1, 2] RETURN n.p AS p
+            MATCH (n:L) WHERE n.p > [1, 2] RETURN n.p AS p ORDER BY p
             """
-        Then the result should be:
+        Then the result should be, in order:
             | p      |
             | [1, 3] |
             | [2]    |

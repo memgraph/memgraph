@@ -232,9 +232,9 @@ namespace memgraph::query {
 // Each answers true, false or Null, carrying the memory resource its left
 // operand was allocated from. Null is the answer wherever the relation has none
 // to give, which is a Null operand, a pair of unlike types, and a pair of one
-// type that carries no order of its own. A NaN has no order against anything,
-// itself included, so all four answer false for a pair holding one. None of
-// them raises.
+// type that carries no order of its own. A scalar NaN has no order against
+// anything, itself included, so all four answer false for a pair holding one;
+// inside a list it makes the pair Null. None of them raises.
 
 inline TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   return relations::comparability::FromComparison(
