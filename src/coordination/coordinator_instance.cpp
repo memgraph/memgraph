@@ -911,11 +911,14 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   // The Raft configuration and the application context are updated in two steps, so a removal that timed out
   // locally may have left the coordinator in only one of them. Each step runs only where the coordinator still is,
   // which lets a retry finish the removal.
-  auto const is_target = [coordinator_id](auto const &coordinator) { return coordinator.id == coordinator_id; };
+  auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+  bool const in_context = std::erase_if(coordinator_instances_context, [coordinator_id](auto const &coordinator) {
+                            return coordinator.id == coordinator_id;
+                          }) == 1;
   bool const in_raft_config =
       std::ranges::contains(raft_state_->GetCoordinatorInstancesAux(), coordinator_id, &CoordinatorInstanceAux::id);
 
-  if (!in_raft_config && !std::ranges::any_of(raft_state_->GetCoordinatorInstancesContext(), is_target)) {
+  if (!in_context && !in_raft_config) {
     return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
   }
 
@@ -929,9 +932,7 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
                  coordinator_id);
   }
 
-  // Snapshot the context only after the Raft wait, so that a config update committed meanwhile isn't overwritten.
-  auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
-  if (std::erase_if(coordinator_instances_context, is_target) == 0) {
+  if (!in_context) {
     return RemoveCoordinatorInstanceStatus::SUCCESS;
   }
 
@@ -1884,6 +1885,9 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return UpdateConfigStatus::NOT_LEADER;
   }
+
+  // The whole context is read, modified and committed, so other whole-context writers must not interleave.
+  auto lock = std::lock_guard{coord_instance_lock_};
 
   if (std::holds_alternative<int32_t>(config.data)) {
     // Need to update coordinator's bolt server
