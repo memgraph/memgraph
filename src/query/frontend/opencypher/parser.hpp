@@ -43,22 +43,8 @@ class Parser {
     // returns the tree LL would or fails. Only a failure is parsed again with LL, which also words the syntax error.
     parser_.removeErrorListeners();
     parser_.addErrorListener(&full_context_counter_);
-    parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::SLL);
-    parser_.setErrorHandler(std::make_shared<antlr4::BailErrorStrategy>());
-    try {
-      tree_ = parser_.cypher();
-      return;
-    } catch (const antlr4::ParseCancellationException &) {
-      // Retried below.
-    }
-    parser_.reset();
-    parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::LL);
-    parser_.setErrorHandler(std::make_shared<antlr4::DefaultErrorStrategy>());
-    parser_.addErrorListener(&error_listener_);
-    tree_ = parser_.cypher();
-    if (parser_.getNumberOfSyntaxErrors()) {
-      throw query::SyntaxException(error_listener_.error_);
-    }
+    tree_ = ParseSLL();
+    if (!tree_) tree_ = ParseLL();
   }
 
   auto tree() { return tree_; }
@@ -67,6 +53,29 @@ class Parser {
   size_t FullContextPredictions() const { return full_context_counter_.count_; }
 
  private:
+  /// Returns nullptr when SLL cannot parse the query.
+  antlr4::tree::ParseTree *ParseSLL() {
+    parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::SLL);
+    parser_.setErrorHandler(std::make_shared<antlr4::BailErrorStrategy>());
+    try {
+      return parser_.cypher();
+    } catch (const antlr4::ParseCancellationException &) {
+      return nullptr;
+    }
+  }
+
+  antlr4::tree::ParseTree *ParseLL() {
+    parser_.reset();
+    parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::LL);
+    parser_.setErrorHandler(std::make_shared<antlr4::DefaultErrorStrategy>());
+    parser_.addErrorListener(&error_listener_);
+    auto *tree = parser_.cypher();
+    if (parser_.getNumberOfSyntaxErrors()) {
+      throw query::SyntaxException(error_listener_.error_);
+    }
+    return tree;
+  }
+
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
    public:
     explicit FirstMessageErrorListener(const std::string &query) : query_(query) {}
