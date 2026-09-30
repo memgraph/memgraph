@@ -619,8 +619,11 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) no
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
     InMemoryAccessor::Abort();
-    // We didn't actually commit
-    commit_timestamp_.reset();
+    // A minted-but-unpublished commit ts must be released, else it pins commit_log_->OldestActive().
+    if (commit_timestamp_) {
+      static_cast<InMemoryStorage *>(storage_)->commit_log_->MarkFinished(*commit_timestamp_);
+      commit_timestamp_.reset();
+    }
   }
 
   InMemoryAccessor::FinalizeTransaction();

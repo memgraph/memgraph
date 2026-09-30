@@ -776,3 +776,41 @@ TEST_F(LockFreeReadSnapshotRecovery, RecoveredUpdateChain_ReadsLatestUnderFlagOn
         << "post-restart reader read an older version than the latest; snapshot_ts is below the head commit ts.";
   }
 }
+
+// A STRICT_SYNC replica prepare mints a commit ts but publishes only on FinalizeCommitRpc; destroying the
+// accessor before that must release the ts, else it pins the GC horizon forever.
+TEST_F(LockFreeReadSnapshotRecovery, DestroyedPreparedReplicaAccessorReleasesCommitTs) {
+  for (const bool flag_on : {false, true}) {
+    Config config{};
+    config.durability.storage_directory = storage_directory / (flag_on ? "on" : "off");
+    config.durability.recover_on_startup = false;
+    config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    config.gc.type = Config::Gc::Type::PERIODIC;
+    config.gc.interval = std::chrono::seconds(3600);
+    config.experimental_commit_lock_narrowing = flag_on;
+    auto store = std::make_unique<InMemoryStorage>(config);
+
+    const auto victim_gid = CreateVertexWithProp(*store, 1);
+    {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto vertex = acc->CreateVertex();
+      ASSERT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(2)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_replica_write(
+                                                 /*desired_commit_timestamp=*/1, /*two_phase_commit=*/true, [] {}))
+                      .has_value());
+    }
+
+    {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto victim = acc->FindVertex(victim_gid, View::OLD);
+      ASSERT_TRUE(victim.has_value());
+      ASSERT_TRUE(acc->DeleteVertex(&*victim).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    RunGc(*store);
+    RunGc(*store);
+    EXPECT_EQ(store->VertexStoreSize(), 0U) << "LEAKED COMMIT TS (flag_on=" << flag_on
+                                            << "): destroyed prepared accessor left its ts active in commit_log_.";
+  }
+}
