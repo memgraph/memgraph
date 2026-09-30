@@ -838,8 +838,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
         return std::get<ParameterLookup *>(node.properties_);
       });
-      // The symbol generator refuses a write whose labels are no conjunction.
-      return NodeCreationInfo{node_symbol, GetLabelIds(node.LabelConjunction().value()), properties};
+      // A write needs one label set to build, which only a conjunction names. Semantic analysis refuses the
+      // other spellings; raise the query error here too, so a miss reads as one rather than as
+      // `std::bad_optional_access`.
+      const auto labels = node.LabelConjunction();
+      if (!labels) {
+        throw QueryException("Cannot write a node whose labels are not a conjunction.");
+      }
+      return NodeCreationInfo{node_symbol, GetLabelIds(*labels), properties};
     };
 
     auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
