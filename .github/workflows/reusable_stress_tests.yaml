@@ -429,7 +429,7 @@ jobs:
   stress_test_eks_ha:
     name: "Stress Tests EKS HA"
     if: ${{ inputs.deployment == 'ha/eks' }}
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}", Ubuntu24.04]
     timeout-minutes: 180
     steps:
       - name: Set up repository
