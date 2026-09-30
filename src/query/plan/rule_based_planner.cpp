@@ -1193,6 +1193,11 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
   bool const accumulate = is_write && !has_periodic_commit;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
+  // Split into the clause that owns the expression, because planning runs once per start node the variable-start
+  // planner tries. Splitting an already-split expression returns it unchanged, so only the first one builds nodes.
+  if (with.where_) {
+    with.where_->expression_ = SplitLabelsTests(with.where_->expression_, storage);
+  }
   const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &subquery_ctx, with.where_);
   auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 

@@ -6845,6 +6845,36 @@ TYPED_TEST(TestPlanner, CountSubqueryKeepsItsFoldThroughPlanVariation) {
   EXPECT_EQ(FindOpOfType<Limit>(deferred->input_.get()), nullptr) << "a Limit would truncate the count's drain";
 }
 
+// The variable-start planner plans the same WHERE once per start node it tries. Splitting a label test builds
+// AST nodes, so a split repeated per plan grows the storage with the number of plans rather than the query.
+TYPED_TEST(TestPlanner, SplittingAWhereLabelTermCostsTheSameForEveryPlan) {
+  FakeDbAccessor dba;
+
+  // `a:A&!B` is held whole -- no CNF expresses the negation -- and splits into the label test an index scan can
+  // consume plus the remaining conjunct.
+  auto *where_test = MakeLabelsTest(
+      this->storage, IDENT("a"), LABEL_TERM_AND(LABEL_TERM_LEAF("A"), LABEL_TERM_NOT(LABEL_TERM_LEAF("B"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("e1"), NODE("b"), EDGE("e2"), NODE("c"))),
+                                   WITH("a"),
+                                   WHERE(where_test),
+                                   RETURN("a")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planning_context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+
+  const auto before = this->storage.storage_.size();
+  size_t plan_count = 0;
+  for (auto &&plan : MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context)) {
+    ASSERT_TRUE(plan);
+    ++plan_count;
+  }
+  const auto grew_by = this->storage.storage_.size() - before;
+
+  ASSERT_GT(plan_count, 1U) << "a single plan cannot show a per-plan cost";
+  // The two pieces, a cloned subject for each, and the AND joining them: built once however many plans read them.
+  EXPECT_LE(grew_by, 5U) << "planning " << plan_count << " plans added " << grew_by << " AST nodes";
+}
+
 TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {
   // Sorting them last says nothing about their order among themselves, and collection order reverses. The cheap one
   // is written first: the failing spelling.
