@@ -10,13 +10,19 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <future>
 #include <latch>
 #include <mutex>
+#include <string>
+#include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include "nlohmann/json.hpp"
@@ -618,4 +624,184 @@ TEST_F(SafeStringTest, StringViewConsistency) {
 
   str = sv;
   EXPECT_EQ(str.str(), "test string");
+}
+
+TEST_F(SafeStringTest, CopyIfChangedFreshCacheCopiesThenSkips) {
+  SafeString str("db");
+  std::string cache;
+  uint64_t version = 0;
+
+  str.CopyIfChanged(cache, version);
+  EXPECT_EQ(cache, "db");
+  EXPECT_NE(version, 0);
+
+  const uint64_t first_version = version;
+  cache = "poison";
+  str.CopyIfChanged(cache, version);
+  EXPECT_EQ(cache, "poison");
+  EXPECT_EQ(version, first_version);
+}
+
+namespace {
+// Asserts `str` changed since `version` was taken and that CopyIfChanged picks up `expected`.
+void ExpectRefreshed(const SafeString &str, std::string &cache, uint64_t &version, std::string_view expected) {
+  const uint64_t old_version = version;
+  cache = "poison";
+  str.CopyIfChanged(cache, version);
+  EXPECT_NE(version, old_version);
+  EXPECT_NE(version, 0);
+  EXPECT_EQ(cache, expected);
+}
+}  // namespace
+
+TEST_F(SafeStringTest, CopyIfChangedAfterStringAssignment) {
+  SafeString str("old");
+  std::string cache;
+  uint64_t version = 0;
+  str.CopyIfChanged(cache, version);
+
+  str = std::string("new");
+  ExpectRefreshed(str, cache, version, "new");
+}
+
+TEST_F(SafeStringTest, CopyIfChangedAfterCStringAssignment) {
+  SafeString str("old");
+  std::string cache;
+  uint64_t version = 0;
+  str.CopyIfChanged(cache, version);
+
+  str = "new";
+  ExpectRefreshed(str, cache, version, "new");
+}
+
+TEST_F(SafeStringTest, CopyIfChangedAfterStringViewAssignment) {
+  SafeString str("old");
+  std::string cache;
+  uint64_t version = 0;
+  str.CopyIfChanged(cache, version);
+
+  str = std::string_view("new");
+  ExpectRefreshed(str, cache, version, "new");
+}
+
+TEST_F(SafeStringTest, CopyIfChangedAfterCopyAssignment) {
+  SafeString str("old");
+  const SafeString source("new");
+  std::string cache;
+  uint64_t version = 0;
+  str.CopyIfChanged(cache, version);
+
+  str = source;
+  ExpectRefreshed(str, cache, version, "new");
+}
+
+TEST_F(SafeStringTest, CopyIfChangedAfterMoveAssignmentBumpsTargetAndSource) {
+  SafeString target("old");
+  SafeString source("new");
+  std::string target_cache;
+  uint64_t target_version = 0;
+  std::string source_cache;
+  uint64_t source_version = 0;
+  target.CopyIfChanged(target_cache, target_version);
+  source.CopyIfChanged(source_cache, source_version);
+
+  target = std::move(source);
+  ExpectRefreshed(target, target_cache, target_version, "new");
+  // NOLINTNEXTLINE(bugprone-use-after-move,hicpp-invalid-access-moved)
+  ExpectRefreshed(source, source_cache, source_version, source.str());
+}
+
+TEST_F(SafeStringTest, CopyIfChangedAfterMoveMethod) {
+  SafeString str("old");
+  std::string cache;
+  uint64_t version = 0;
+  str.CopyIfChanged(cache, version);
+
+  auto taken = str.move();
+  static_assert(std::is_same_v<decltype(taken), std::string>);
+  EXPECT_EQ(taken, "old");
+  EXPECT_EQ(str.str(), "");
+  ExpectRefreshed(str, cache, version, "");
+}
+
+TEST_F(SafeStringTest, CopyIfChangedAfterMoveMethodThenAssignment) {
+  SafeString str("old");
+  std::string cache;
+  uint64_t version = 0;
+  str.CopyIfChanged(cache, version);
+
+  auto taken = str.move();
+  ExpectRefreshed(str, cache, version, "");
+
+  str = "new";
+  ExpectRefreshed(str, cache, version, "new");
+  EXPECT_EQ(taken, "old");
+}
+
+TEST_F(SafeStringTest, CopyIfChangedTokensUniqueAcrossObjects) {
+  SafeString a("same");
+  SafeString b("same");
+  std::string cache;
+  uint64_t version = 0;
+
+  a.CopyIfChanged(cache, version);
+  const uint64_t a_version = version;
+  cache = "poison";
+  b.CopyIfChanged(cache, version);
+  EXPECT_NE(version, a_version);
+  EXPECT_EQ(cache, "same");
+
+  // Assigning an equal value to both must still produce distinct tokens.
+  a = "other";
+  b = "other";
+  uint64_t a_after = 0;
+  uint64_t b_after = 0;
+  std::string ignored;
+  a.CopyIfChanged(ignored, a_after);
+  b.CopyIfChanged(ignored, b_after);
+  EXPECT_NE(a_after, b_after);
+}
+
+TEST_F(SafeStringTest, CopyIfChangedConcurrentWithRenames) {
+  static constexpr std::array<std::string_view, 4> kValues{
+      "database_alpha", "db_b", "a_considerably_longer_database_name_to_force_heap_allocation", ""};
+  static constexpr int kNumReaders = 4;
+  static constexpr int kNumWrites = 20'000;
+
+  SafeString str(kValues[0]);
+  std::atomic<bool> stop{false};
+  std::latch start(kNumReaders + 1);
+  std::vector<std::string> caches(kNumReaders);
+  std::vector<uint64_t> versions(kNumReaders, 0);
+
+  std::vector<std::thread> readers;
+  readers.reserve(kNumReaders);
+  for (int r = 0; r < kNumReaders; ++r) {
+    readers.emplace_back([&, r] {
+      start.arrive_and_wait();
+      do {
+        str.CopyIfChanged(caches[r], versions[r]);
+        EXPECT_NE(std::ranges::find(kValues, caches[r]), kValues.end()) << "observed value: " << caches[r];
+      } while (!stop.load(std::memory_order_acquire));
+    });
+  }
+
+  std::string_view final_value;
+  std::thread writer([&] {
+    start.arrive_and_wait();
+    for (int i = 1; i <= kNumWrites; ++i) {
+      final_value = kValues[i % kValues.size()];
+      str = final_value;
+    }
+    stop.store(true, std::memory_order_release);
+  });
+
+  writer.join();
+  for (auto &reader : readers) reader.join();
+
+  for (int r = 0; r < kNumReaders; ++r) {
+    str.CopyIfChanged(caches[r], versions[r]);
+    EXPECT_EQ(caches[r], final_value);
+    EXPECT_EQ(caches[r], str.str());
+  }
 }

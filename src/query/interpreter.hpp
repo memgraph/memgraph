@@ -329,7 +329,13 @@ struct CurrentDB {
   // establishes no happens-before against SetCurrentDB's db_acc_ swap -- a foreign unlocked read here would
   // tear against a concurrent USE DATABASE. A foreign thread -- including one observing an IDLE session --
   // must use foreign_db_view() instead.
-  std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+  // Served from name_cache_, re-copied only when the storage's name has changed (e.g. RENAME DATABASE) or db_acc_
+  // now points at another database: SafeString version tokens are process-unique, so either case mismatches.
+  std::string name() const {
+    if (!db_acc_) return "";
+    db_acc_->get()->storage()->config_.salient.name.CopyIfChanged(name_cache_, name_cache_version_);
+    return name_cache_;
+  }
 
   // Safe from any thread: unlike name(), it needs no verifier CAS, which can never succeed on IDLE anyway.
   // Reads db_acc_ live, not cached -- DbmsHandler::Rename mutates storage's name in place, not db_acc_.
@@ -371,6 +377,10 @@ struct CurrentDB {
   // GKInternals::mutex_ that finish_suspend() holds across a whole ~Database; nesting them would stall the
   // session table behind a tenant suspend.
   mutable std::mutex db_acc_mutex_;
+
+  // Owning-thread-only, like name(); foreign_db_view() must not touch them.
+  mutable std::string name_cache_;
+  mutable uint64_t name_cache_version_{0};
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;

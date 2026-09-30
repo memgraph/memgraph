@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
 #include <shared_mutex>
@@ -20,6 +22,15 @@
 
 namespace memgraph::utils {
 struct SafeString {
+ private:
+  // Process-wide source of version tokens: a token is never reused, so equal tokens mean the same object
+  // with the same value, even if another SafeString later reuses this one's address.
+  static uint64_t NextVersion() noexcept {
+    static constinit std::atomic<uint64_t> next{1};  // 0 is never issued: callers can use it as "no value"
+    return next.fetch_add(1, std::memory_order_relaxed);
+  }
+
+ public:
   SafeString() {}
 
   SafeString(std::string str) : str_(std::move(str)) {}
@@ -37,6 +48,7 @@ struct SafeString {
     auto other_str = other.str();
     std::unique_lock lock(mutex_);
     str_ = std::move(other_str);
+    Bump();
     return *this;
   }
 
@@ -44,24 +56,29 @@ struct SafeString {
     if (this == &other) return *this;
     std::scoped_lock lock(mutex_, other.mutex_);
     str_ = std::move(other.str_);
+    Bump();
+    other.Bump();
     return *this;
   }
 
   SafeString &operator=(std::string str) {
     std::unique_lock lock(mutex_);
     str_ = std::move(str);
+    Bump();
     return *this;
   }
 
   SafeString &operator=(const char *str) {
     std::unique_lock lock(mutex_);
     str_ = str;
+    Bump();
     return *this;
   }
 
   SafeString &operator=(std::string_view str) {
     std::unique_lock lock(mutex_);
     str_ = str;
+    Bump();
     return *this;
   }
 
@@ -70,9 +87,21 @@ struct SafeString {
     return str_;
   }
 
-  std::string &&move() {
+  // Copies the value into `cache` unless `cache_version` shows it is already current. Lock-free when
+  // unchanged, so a hot reader avoids str()'s shared_mutex RMW. `cache_version` starts at 0.
+  void CopyIfChanged(std::string &cache, uint64_t &cache_version) const {
+    if (version_.load(std::memory_order_acquire) == cache_version) return;
+    std::shared_lock lock(mutex_);
+    cache = str_;
+    cache_version = version_.load(std::memory_order_relaxed);
+  }
+
+  // Takes the value out under the lock, leaving this empty.
+  std::string move() {
     std::unique_lock lock(mutex_);
-    return std::move(str_);
+    std::string taken = std::exchange(str_, {});
+    Bump();
+    return taken;
   }
 
   struct ConstSafeWrapper {
@@ -98,8 +127,12 @@ struct SafeString {
   friend void from_json(const nlohmann::json &data, SafeString &str);
 
  private:
+  // Caller holds mutex_ exclusively.
+  void Bump() noexcept { version_.store(NextVersion(), std::memory_order_release); }
+
   std::string str_;
   mutable std::shared_mutex mutex_;
+  std::atomic<uint64_t> version_{NextVersion()};
 };
 }  // namespace memgraph::utils
 

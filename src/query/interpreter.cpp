@@ -10461,11 +10461,14 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   const bool is_begin = trimmed_query == "BEGIN";
 
   // Explicit transactions define the metadata at the beginning and reuse it
-  spdlog::debug("{}",
-                QueryLogWrapper{.query = query_string,
-                                .metadata = (in_explicit_transaction_ && metadata_ && !is_begin) ? &*metadata_
-                                                                                                 : &extras.metadata_pv,
-                                .db_name = current_db_.name()});
+  if (spdlog::should_log(spdlog::level::debug)) {
+    spdlog::debug(
+        "{}",
+        QueryLogWrapper{
+            .query = query_string,
+            .metadata = (in_explicit_transaction_ && metadata_ && !is_begin) ? &*metadata_ : &extras.metadata_pv,
+            .db_name = current_db_.name()});
+  }
 
   if (is_begin) {
     return TransactionQuery::BEGIN;
@@ -11100,11 +11103,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     // Set the target db to the current db (some queries have different target from the current db)
     if (!query_execution->prepared_query->db) {
-      if (current_db_.db_acc_) {
-        query_execution->prepared_query->db = current_db_.db_acc_->get()->name();
-      } else {
-        query_execution->prepared_query->db = "";
-      }
+      query_execution->prepared_query->db = current_db_.name();
     }
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
