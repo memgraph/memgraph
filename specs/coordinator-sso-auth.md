@@ -22,15 +22,18 @@ Raft-replicated set of roles, each carrying a coordinator privilege (`COORDINATO
 
 From the user's perspective:
 
-- Connecting to a coordinator with **basic auth (username + password) succeeds as a
-  passthrough** whenever SSO is not in effect — credentials are ignored, and the session has
-  full `COORDINATOR_WRITE` access. Nothing about existing tooling breaks. Once SSO is
-  configured (`--auth-module-mappings` non-empty) **and** the enterprise license is valid,
-  basic/none is denied so the credential-less passthrough cannot bypass the SSO privilege
-  model. If the license is missing, expired, or invalid, SSO itself rejects every login, so
-  basic/none **falls back to the passthrough** — a license transition never locks every Bolt
-  session out of a coordinator, and the break-glass session can re-install the license over
-  Bolt (`SET DATABASE SETTING "enterprise.license" TO ...`).
+- Connecting to a coordinator with **basic auth (username + password), no credentials, or
+  any scheme not listed in `--auth-module-mappings` succeeds as a passthrough** whenever SSO
+  is not in effect — credentials are ignored, and the session has full `COORDINATOR_WRITE`
+  access. Nothing about existing tooling breaks, including clients that send a data-instance
+  SSO scheme to a coordinator without SSO. Once SSO is configured (`--auth-module-mappings`
+  non-empty), the enterprise license is valid, **and** a `COORDINATOR_WRITE` role exists,
+  the passthrough is denied so the credential-less path cannot bypass the SSO privilege
+  model. If the license is missing, expired, or invalid, SSO itself rejects every login, and
+  without a writable role SSO can admit no administrator, so the passthrough **stays open**
+  (break-glass) — a license transition or an empty role set never locks every Bolt session
+  out of a coordinator, and the break-glass session can re-install the license over Bolt
+  (`SET DATABASE SETTING "enterprise.license" TO ...`) or create the first writable role.
 - Connecting with an **SSO scheme** (one listed in `--auth-module-mappings`) now runs the
   corresponding auth module and **actually authenticates**: the connection is accepted
   only if the IdP token is valid and every role the module returns already exists on the
@@ -168,16 +171,22 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
 
 ### Auth semantics on coordinators
 
-- **Basic auth is a passthrough**: `basic`/`none` schemes succeed on a coordinator with
-  credentials ignored (current behavior preserved), **except** when SSO is configured
-  (`--auth-module-mappings` non-empty) and the enterprise license is valid, in which case
-  they are denied. No license required. The deny condition deliberately mirrors the SSO
-  path's own license gate: basic/none is denied only while SSO can actually authenticate
-  someone, so there is always at least one working auth path on a coordinator.
+- **Everything but a listed SSO scheme is a passthrough**: `basic`/`none`, and any scheme
+  not present in `--auth-module-mappings`, succeed on a coordinator with credentials
+  ignored (current behavior preserved, including for clients that send a data-instance SSO
+  scheme to a coordinator without SSO), **except** when SSO is configured
+  (`--auth-module-mappings` non-empty), the enterprise license is valid, and a
+  `COORDINATOR_WRITE` role exists in the committed role set, in which case they are denied.
+  No license required. The deny condition deliberately mirrors what the SSO path needs to
+  admit an administrator: passthrough is denied only while SSO can actually authenticate
+  someone with write privileges, so there is always at least one working auth path on a
+  coordinator (an unreachable leader leaves the role set unknown and is fail-closed). A
+  denied unlisted scheme gets a message naming the scheme, distinct from the basic/none
+  message.
 - **SSO authenticates**: for a scheme present in `--auth-module-mappings`, run the auth
   module for that scheme, then validate the returned roles. Authentication **succeeds only
-  if every returned role exists** in the coordinator's role list. Invalid token, any
-  missing role, or an unknown scheme (not in mappings) → **connection rejected**.
+  if every returned role exists** in the coordinator's role list. Invalid token or any
+  missing role → **connection rejected**.
 - **Privilege gating (supersedes the earlier no-gating decision)**: coordinators have
   exactly two privileges, **`COORDINATOR_READ`** and **`COORDINATOR_WRITE`**, where
   `COORDINATOR_WRITE` is a superset of `COORDINATOR_READ`. A READ-classified query requires
@@ -202,9 +211,10 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
   basic there too would leave no successful auth path on any coordinator Bolt session,
   recoverable only by restarting with `--auth-module-mappings` cleared.
 - The coordinator branch of the Bolt handshake's `AuthenticateUser` is changed from
-  "ignore auth on coordinators" to: basic/none → passthrough, unless SSO is configured
-  **and** the license is valid, in which case deny; SSO scheme in mappings → the dedicated
-  coordinator SSO path; otherwise reject.
+  "ignore auth on coordinators" to: SSO scheme in mappings → the dedicated coordinator SSO
+  path; every other scheme (basic, none, or unlisted) → passthrough, unless SSO is
+  configured, the license is valid, **and** a `COORDINATOR_WRITE` role exists, in which case
+  deny (with a scheme-naming message for an unlisted scheme).
 
 ### Coordinator SSO authenticator (deep module)
 
@@ -352,12 +362,14 @@ directory's `workloads.yaml` and `CMakeLists.txt`.
 
 Functional buckets:
 
-- **Basic-auth passthrough**: with no SSO module configured, username/password succeeds and
-  the session can run coordinator queries; an unknown/SSO scheme not in mappings is rejected.
-  With SSO configured and a valid license, basic/none is denied. With SSO configured but the
-  license revoked at runtime, basic/none falls back to the passthrough (break-glass): the
-  session retains full `COORDINATOR_WRITE`, can re-install the license over Bolt, and the
-  cluster returns to SSO-only access — no restart, no total lockout.
+- **Auth passthrough**: with no SSO module configured, username/password and an SSO-style
+  scheme not in mappings both succeed and the session can run coordinator queries. With SSO
+  configured, a valid license, and a writable role, basic/none is denied and an unlisted
+  scheme is denied with a message naming it. With SSO configured but the license revoked at
+  runtime, or no `COORDINATOR_WRITE` role in the committed role set, the passthrough stays
+  open (break-glass) for basic/none and unlisted schemes alike: the session retains full
+  `COORDINATOR_WRITE`, can re-install the license over Bolt or create the first writable
+  role, and the cluster returns to SSO-only access — no restart, no total lockout.
 - **SSO across all three schemes + failures**: OIDC, SAML, Kerberos each succeed when the
   returned role(s) exist; rejection on invalid token, on a missing role, and multi-role
   where all-exist succeeds and any-missing rejects. Kerberos is exercised through the Bolt
