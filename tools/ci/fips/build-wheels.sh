@@ -31,6 +31,8 @@ OUTPUT_DIR="$PWD/build/fips-wheels"
 PYTHON="python3"
 AUDIT=true
 PACKAGES=()
+
+DEFAULT_PACKAGES=(cryptography xmlsec lxml)
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --output-dir) OUTPUT_DIR=$2; shift 2 ;;
@@ -41,8 +43,22 @@ while [[ $# -gt 0 ]]; do
         *)            PACKAGES+=("$1"); shift ;;
     esac
 done
-# Keep in sync with src/auth/reference_modules/requirements.txt.
-[[ ${#PACKAGES[@]} -gt 0 ]] || PACKAGES=(cryptography==50.0.0 xmlsec==1.3.16 lxml==6.1.0)
+
+if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    REPO_ROOT="$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"
+    REQUIREMENTS="$REPO_ROOT/src/auth/reference_modules/requirements.txt"
+    [[ -r "$REQUIREMENTS" ]] || {
+        echo "No packages given, and $REQUIREMENTS is not readable." >&2
+        echo "Pass explicit <pkg>==<ver> arguments." >&2
+        exit 1
+    }
+    for p in "${DEFAULT_PACKAGES[@]}"; do
+        v="$(sed -n "s/^$p[[:space:]]*==[[:space:]]*\([^[:space:];#]*\).*/\1/p" "$REQUIREMENTS" | head -1)"
+        [[ -n "$v" ]] || { echo "No '$p==<version>' pin in $REQUIREMENTS" >&2; exit 1; }
+        PACKAGES+=("$p==$v")
+    done
+fi
 
 # Fail before building rather than producing a wheel with the wrong linkage.
 # Only require what the requested packages actually need.
@@ -53,7 +69,7 @@ command -v pkg-config >/dev/null || { echo "pkg-config not found" >&2; echo "$AP
 NEED=""
 has cryptography && NEED+=" openssl"
 has xmlsec       && NEED+=" openssl xmlsec1 libxml-2.0"
-has lxml         && NEED+=" libxml-2.0"
+has lxml         && NEED+=" libxml-2.0 libxslt libexslt"
 has gssapi       && NEED+=" krb5-gssapi"
 MISSING=()
 for mod in $(echo "$NEED" | tr ' ' '\n' | sort -u); do

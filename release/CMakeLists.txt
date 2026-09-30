@@ -101,6 +101,7 @@ endif()
 #   python3-pip               — postinst pip-installs the query-module deps.
 #                                Omitted under MG_FIPS.
 #   ca-certificates           — TLS trust for pip (PyPI over https).
+#   libxmlsec1*-openssl       — DT_NEEDED names libxmlsec1-openssl.so.1.
 #   libxmlsec1|libxmlsec1-1   — system lib for the pip xmlsec wheel (SAML SSO);
 #                                t64 name Provides libxmlsec1 on Ubuntu 24.04,
 #                                renamed libxmlsec1-1 from Ubuntu 26.04 (xmlsec
@@ -127,7 +128,7 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS
     "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, zlib1g, libseccomp2, openssl (>= 1.1.0)")
 if(MG_PYTHON_SUPPORT)
     string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
-        ", python3 (>= 3.5.0), ca-certificates, libxmlsec1 | libxmlsec1-1, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
+        ", python3 (>= 3.5.0), ca-certificates, libxmlsec1 | libxmlsec1-1, libxmlsec1t64-openssl | libxmlsec1-openssl | libxmlsec1-1-openssl, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
     if(NOT MG_FIPS)
         string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", python3-pip, libkrb5-3")
     endif()
@@ -181,7 +182,7 @@ set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logro
 # line, so it can be dropped entirely for Python-less builds.
 set(CPACK_MG_RPM_PYTHON_REQUIRES "")
 if(MG_PYTHON_SUPPORT)
-    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3 >= 3.5.0, xmlsec1")
+    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3 >= 3.5.0, xmlsec1, xmlsec1-openssl")
     if(MG_FIPS)
         # No %post pip phase, so no pip and no runuser; krb5 goes with gssapi.
         set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       (python3.12 if system-release(releasever) = 9)")

@@ -10,16 +10,24 @@ is the only algorithm src/auth/reference_modules/oidc.py accepts, so that is
 what is exercised, with the key generated in-process.
 """
 
+import _hashlib
 import sys
 
 import jwt
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 AUDIENCE = "mg"
 
 
 def main():
+    # Without this the rest proves nothing: every assertion below passes just as
+    # well on a non-FIPS build, so the run has to establish that OpenSSL really
+    # is in approved mode before claiming anything about it.
+    if not _hashlib.get_fips_mode():
+        sys.exit("OpenSSL is not in approved mode, so this test proves nothing")
+    print("  OpenSSL reports approved mode")
+
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     private_pem = key.private_bytes(
         serialization.Encoding.PEM,
@@ -43,6 +51,25 @@ def main():
         print("  audience rejection: ok")
     else:
         sys.exit("a wrong audience was accepted")
+
+    # The FIPS-specific half. An IdP key below the approved floor, and a SHA-1
+    # signature, must both be refused by the provider rather than merely
+    # discouraged -- these are what fail on a non-FIPS build and so are what
+    # make this a FIPS test.
+    weak = rsa.generate_private_key(public_exponent=65537, key_size=1024)
+    try:
+        weak.sign(b"m", padding.PKCS1v15(), hashes.SHA256())
+    except Exception:
+        print("  RSA-1024 signing: correctly refused")
+    else:
+        sys.exit("RSA-1024 signing succeeded in approved mode")
+
+    try:
+        key.sign(b"m", padding.PKCS1v15(), hashes.SHA1())
+    except Exception:
+        print("  SHA-1 signing: correctly refused")
+    else:
+        sys.exit("SHA-1 signing succeeded in approved mode")
 
 
 if __name__ == "__main__":

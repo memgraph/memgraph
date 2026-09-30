@@ -21,6 +21,9 @@ patched out.
 import datetime
 import sys
 
+AUTH_MODULE_DIR = "/usr/lib/memgraph/auth_module"
+sys.path.insert(0, AUTH_MODULE_DIR)
+
 import lxml.etree as ET
 import xmlsec
 from cryptography import x509
@@ -65,7 +68,23 @@ def sign(doc, key_pem, sig_alg, digest_alg):
     return signature
 
 
+def check_reference_module():
+    """The shipped saml.py turns rejectDeprecatedAlgorithm on from the runtime
+    FIPS state rather than at build time, so that one file serves both images.
+    Nothing else asserts it, and getting it wrong is silent: SAML would keep
+    accepting SHA-1 signatures in approved mode."""
+    import saml
+
+    if not saml.fips_approved_mode():
+        sys.exit(f"{AUTH_MODULE_DIR}/saml.py does not see approved mode")
+    if not saml.SETTINGS_TEMPLATE["security"]["rejectDeprecatedAlgorithm"]:
+        sys.exit("saml.py has rejectDeprecatedAlgorithm off in approved mode")
+    print("  saml.py: rejectDeprecatedAlgorithm on (SHA-1 assertions refused)")
+
+
 def main():
+    check_reference_module()
+
     key_pem, cert_pem = make_key_and_cert()
     print("  RSA-2048 keygen and self-signed cert: ok")
 
