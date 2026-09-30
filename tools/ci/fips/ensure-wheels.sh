@@ -43,13 +43,13 @@ while [[ $# -gt 0 ]]; do
         *)           print_help ;;
     esac
 done
-[ -n "$DEST_DIR" ] || print_help
+[[ -n "$DEST_DIR" ]] || print_help
 S3_PREFIX="$S3_URI/$DISTRO/$ARCH"
 
 SPECS=()
 for p in "${PACKAGES[@]}"; do
     v="$(sed -n "s/^$p[[:space:]]*==[[:space:]]*\([^[:space:];#]*\).*/\1/p" "$REQUIREMENTS" | head -1)"
-    [ -n "$v" ] || { echo "No '$p==<version>' pin in $REQUIREMENTS" >&2; exit 1; }
+    [[ -n "$v" ]] || { echo "No '$p==<version>' pin in $REQUIREMENTS" >&2; exit 1; }
     SPECS+=("$p==$v")
 done
 
@@ -81,23 +81,23 @@ for spec in "${NEED[@]}"; do
 done
 
 mapfile -t NEED < <(missing)
-if [ "${#NEED[@]}" -eq 0 ]; then
+if [[ "${#NEED[@]}" -eq 0 ]]; then
     echo "Fetched from S3 into $DEST_DIR"
     exit 0
 fi
 echo "Not in S3: ${NEED[*]}"
 
-[ -n "$CONTAINER" ] || { echo "Nothing to build with - pass --container <name>" >&2; exit 1; }
+[[ -n "$CONTAINER" ]] || { echo "Nothing to build with - pass --container <name>" >&2; exit 1; }
 "$SCRIPT_DIR/container-build.sh" "$CONTAINER" --user "$CONTAINER_USER" \
     --output-dir "$DEST_DIR" -- "${NEED[@]}"
 
 mapfile -t STILL < <(missing)
-[ "${#STILL[@]}" -eq 0 ] || { echo "Build did not produce: ${STILL[*]}" >&2; exit 1; }
+[[ "${#STILL[@]}" -eq 0 ]] || { echo "Build did not produce: ${STILL[*]}" >&2; exit 1; }
 
 # Publish only what was just built, so the next run downloads instead. A failed
 # upload is a warning, not an error: the wheels are where the caller asked for
 # them, which is what was actually requested.
-if [ "$UPLOAD" = "true" ]; then
+if [[ "$UPLOAD" = "true" ]]; then
     echo "Uploading to $S3_PREFIX"
     for spec in "${NEED[@]}"; do
         name="${spec%%==*}"; ver="${spec##*==}"

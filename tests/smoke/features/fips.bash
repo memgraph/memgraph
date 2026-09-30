@@ -8,10 +8,6 @@
 # because the dangerous direction is a false positive: an image that wrongly
 # reported approved mode would be making a compliance claim that is not true,
 # and normal smoke runs are where that would actually be noticed.
-# The smoke dir, not this feature's own dir: the helper scripts live in
-# scripts/ alongside utils.bash. Named distinctly because utils.bash sets
-# SCRIPT_DIR itself, and sourcing it would overwrite ours - the path has to
-# survive that, because it is used again by the tests further down.
 FIPS_SMOKE_DIR="$( cd "$( dirname "$( dirname "${BASH_SOURCE[0]}" )" )" && pwd )"
 source "$FIPS_SMOKE_DIR/utils.bash"
 
@@ -117,33 +113,17 @@ test_fips_non_approved_algorithms_unavailable() {
   fi
 }
 
-# Obligation C: no second crypto implementation anywhere in the image. The
-# Python auth-module wheels are the ones that would carry one, and a
-# Python-less build should not have brought them in.
-# A second OpenSSL anywhere in the image is disqualifying: approved mode is a
-# property of the validated module, and crypto done by some other copy is
-# outside it regardless of how the image is configured.
-#
-# Candidates are found with `grep -a` rather than `strings`, because the image
-# ships no binutils - the previous version of this test shelled out to `strings`
-# and so quietly found nothing on every run, passing whatever it was given. The
-# verdict then comes from DT_NEEDED, read on the host: an object that links the
-# system libcrypto is fine, and the banner alone means nothing, because a
-# dynamically linked extension still carries the version string it was compiled
-# against (cryptography's _rust.abi3.so is exactly that case).
+# This checks that we haven't accidentally included any binaries with OpenSSL
+# statically linked in the image. Python packages that use OpenSSL will often
+# do just this, so this test will fail if out custom packages are replaced
+# with those usually provided by pip.
 test_fips_no_bundled_openssl() {
   echo "FEATURE: FIPS - no second OpenSSL in the image"
   command -v readelf >/dev/null \
     || { echo "FAIL: readelf not found on the host (apt install binutils)"; return 1; }
 
-  # Restricted to ELF-ish paths: licence and doc files mention OpenSSL in prose
-  # and would otherwise all come back as candidates.
+  # Scan binaries for OpenSSL
   local candidates
-  # The trailing `exit 0` is load-bearing: the suite runs under `set -e`
-  # (test_single.bash is `#!/bin/bash -e`), and without it the last grep in the
-  # loop decides the exit status. The final file scanned almost never carries a
-  # banner, so the command substitution returns non-zero, the assignment trips
-  # set -e, and the whole suite dies here having printed no verdict at all.
   candidates="$($MEMGRAPH_EXEC bash -c '
     find / -xdev -type f \( -name "*.so" -o -name "*.so.*" -o -path "/usr/lib/memgraph/*" \) 2>/dev/null |
     while read -r f; do
@@ -151,9 +131,7 @@ test_fips_no_bundled_openssl() {
     done
     exit 0' 2>/dev/null)"
 
-  # libcrypto itself always carries a banner, so an empty result means the scan
-  # broke rather than that the image is clean. That is how this test used to
-  # pass while checking nothing at all.
+  # libcrypto should always appear as a candidate
   if [ -z "$candidates" ]; then
     echo "FAIL: nothing in the image carries an OpenSSL banner, not even libcrypto."
     echo "      The scan is broken, not the image."
@@ -164,7 +142,7 @@ test_fips_no_bundled_openssl() {
   while read -r file; do
     [ -n "$file" ] || continue
     case "$file" in
-      # The validated module and its provider modules are the boundary itself.
+      # The validated module and its provider modules should be ignored.
       */libcrypto.so.*|*/libssl.so.*|*/ossl-modules/*) continue ;;
     esac
     needed="$(container_dt_needed "$file")" || continue   # not an ELF object
@@ -181,9 +159,7 @@ test_fips_no_bundled_openssl() {
   echo "  every OpenSSL user in the image links the validated libcrypto"
 }
 
-# The auth modules reach OpenSSL through two libraries rather than directly, and
-# those integrations are what break first in approved mode: xmlsec for SAML
-# signatures and PyJWT/cryptography for OIDC tokens.
+# Test that the auth modules for SAML and OIDC work correctly in FIPS mode
 
 test_fips_saml_signature_path() {
   echo "FEATURE: FIPS - SAML signature path (xmlsec -> validated OpenSSL)"

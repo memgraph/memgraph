@@ -64,10 +64,6 @@ MGCONSOLE_TESTER="$MEMGRAPH_CONSOLE_BINARY --host $MEMGRAPH_DEFAULT_HOST --port 
 MEMGRAPH_SMOKE_CONTAINER="${MEMGRAPH_SMOKE_CONTAINER:-memgraph_smoke}"
 
 # Copy a file into the smoke container, run it, and take it back out again.
-# Docker only, like container_dt_needed below; the FIPS tests that use it are
-# docker-only already. Nothing is left behind: a stale file under a directory
-# memgraph scans (query_modules) breaks mg.procedures() until a reload, so the
-# cleanup is not optional.
 #   $1 - local file, $2 - path inside the container, $3.. - argv for it
 run_python_in_container() {
   local local_file="$1" remote="$2"

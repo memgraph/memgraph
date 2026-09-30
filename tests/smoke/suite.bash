@@ -89,9 +89,6 @@ run_fips_compliance_tests() {
   test_fips_drbg_from_provider
   test_fips_non_approved_algorithms_unavailable
   test_fips_no_bundled_openssl
-  # The auth modules reach OpenSSL through xmlsec and PyJWT rather than
-  # directly; those integrations are the part that breaks first in approved
-  # mode, and tests/e2e/sso does not cover them (see features/fips.bash).
   test_fips_saml_signature_path
   test_fips_oidc_jwt_path
 }

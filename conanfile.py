@@ -144,7 +144,6 @@ class Memgraph(ConanFile):
         self.requires("spdlog/1.17.0")
         self.requires("strong_type/v15")
         self.requires("usearch/2.21.4")
-        # Shared via "zlib/*:shared" in default_options; see the note there.
         self.requires("zlib/1.3.1", override=True)
         self.requires("prometheus-cpp/1.3.0")
 

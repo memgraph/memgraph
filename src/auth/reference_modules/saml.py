@@ -48,12 +48,6 @@ SETTINGS_TEMPLATE = {
     "security": {
         "wantAssertionsEncrypted": False,
         "wantNameIdEncrypted": False,
-        # python3-saml defaults this to False, which accepts SHA-1 signatures
-        # and digests (DSA_SHA1, RSA_SHA1, SHA1). SHA-1 is not an approved
-        # signature algorithm, so an image running OpenSSL in FIPS approved
-        # mode must turn it on - but turning it on unconditionally would stop
-        # existing deployments whose IdP still signs with SHA-1 from
-        # authenticating, so it follows the mode rather than the build.
         "rejectDeprecatedAlgorithm": fips_approved_mode(),
     },
 }

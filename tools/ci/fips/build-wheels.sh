@@ -16,12 +16,9 @@
 # gssapi is NOT in the default set and is not in the FIPS image: Ubuntu's krb5
 # is built with its own builtin crypto (libk5crypto3 imports no OpenSSL symbols
 # at all), so Kerberos would run outside the validated module however the wheel
-# is linked. MG_FIPS drops kerberos.py and its gssapi pin instead. Passing
-# gssapi==<ver> explicitly still works and is audited - that is how to check a
-# krb5 rebuilt with --with-crypto-impl=openssl, which is the way back in.
-#
-# No auditwheel: its job is to vendor external libraries into the wheel, which
-# is the thing being removed here.
+# is linked. MG_FIPS drops kerberos.py and its gssapi pin instead. The logic
+# for building gssapi exists here ready for if krb5 is rebuilt with
+# --with-crypto-impl=openssl.
 
 set -euo pipefail
 
@@ -127,9 +124,9 @@ for wheel in "$OUTPUT_DIR"/*.whl; do
     ext="$WORK/$(basename "$wheel" .whl)"
     unzip -qo "$wheel" -d "$ext"
     vendored="$(find "$ext" \( -name 'lib*ssl*.so*' -o -name 'lib*crypto*.so*' \) | wc -l)"
-    [ "$vendored" -eq 0 ] || { echo "FAIL $(basename "$wheel"): vendors OpenSSL"; rc=1; }
+    [[ "$vendored" -eq 0 ]] || { echo "FAIL $(basename "$wheel"): vendors OpenSSL"; rc=1; }
     while read -r so; do
-        [ -n "$so" ] || continue
+        [[ -n "$so" ]] || continue
         rel="${so#"$ext"/}"
         exported="$(nm -D --defined-only "$so" 2>/dev/null | grep -cE ' T (EVP_|SSL_|OSSL_)' || true)"
         banner="$(strings -a "$so" | grep -oE 'OpenSSL [0-9]+\.[0-9]+\.[0-9]+' | sort -u | sed -n 1p || true)"
@@ -144,11 +141,11 @@ for wheel in "$OUTPUT_DIR"/*.whl; do
         # static link when there is no DT_NEEDED to explain it. cryptography
         # built from source is exactly that case - libcrypto.so.3 in DT_NEEDED
         # and "OpenSSL 3.0.13" in .rodata.
-        if [ -n "$needed" ]; then
+        if [[ -n "$needed" ]]; then
             echo "ok   $rel -> $links"
-        elif [ "${exported:-0}" -gt 0 ]; then
+        elif [[ "${exported:-0}" -gt 0 ]]; then
             echo "FAIL $rel: statically links OpenSSL ($exported exported symbols)"; rc=1
-        elif [ -n "$banner" ]; then
+        elif [[ -n "$banner" ]]; then
             echo "FAIL $rel: statically links $banner (hidden symbols)"; rc=1
         else
             echo "ok   $rel${links:+ -> $links}"
@@ -184,7 +181,7 @@ if ls "$OUTPUT_DIR"/gssapi-*.whl >/dev/null 2>&1; then
 import gssapi, gssapi.raw
 print(" ".join(sorted({l.rsplit(" ",1)[-1].strip() for l in open("/proc/self/maps")
                        if "libcrypto" in l or "libssl" in l})))' 2>&1)"; then
-        [ -z "$mapped" ] \
+        [[ -z "$mapped" ]] \
             && echo "ok   import gssapi (maps no OpenSSL)" \
             || { echo "FAIL gssapi pulls in OpenSSL: $mapped"; rc=1; }
     else

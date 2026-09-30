@@ -176,20 +176,9 @@ USER memgraph
 ###############################################################################
 # python-fips: site-packages for the FIPS image.
 #
-# The same job as python-base, with one difference that is the whole point:
-# cryptography and xmlsec are installed from wheels rebuilt against the system
-# OpenSSL (tools/ci/fips/), not from PyPI, whose wheels statically link their
-# own. lxml is rebuilt with them because xmlsec refuses to import unless its
-# libxml2 major.minor matches lxml's. Everything else comes from PyPI unchanged.
+# The main difference to `python-base` is that we install custom-built packages
+# which link dyunamically to OpenSSl, rather than statically.
 #
-# No /tmp/wheels here, unlike python-base. The only package that needed it was
-# gssapi, which has no PyPI linux wheels — and MG_FIPS drops gssapi along with
-# kerberos.py, because Ubuntu's krb5 does its own crypto rather than OpenSSL's.
-# package_docker stages the requirements with that pin already filtered out.
-#
-# Installed as root into /usr/local/lib/python3.12/dist-packages rather than a
-# user's ~/.local, so the tree is root-owned and readable by every user in the
-# image.
 ###############################################################################
 FROM ubuntu:24.04 AS python-fips
 ARG CUSTOM_MIRROR=false
@@ -219,25 +208,13 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 COPY fips-wheels /tmp/fips-wheels
 
-# The order of these two installs matters and the failure mode is silent.
-# The rebuilt wheels carry a plain linux_<arch> platform tag, which pip ranks
-# *below* PyPI's manylinux tag — so resolving them through an index-enabled
-# install prefers PyPI's bundled-OpenSSL wheel. Installing them first by path
-# with --no-index removes the choice; the second install then reports those
-# pins already satisfied and leaves them.
+# The order of these installs matters: custom packages first
 RUN pip3 install --no-cache-dir --break-system-packages --no-index --no-deps /tmp/fips-wheels/*.whl && \
     pip3 install --no-cache-dir --break-system-packages --only-binary :all: -r /tmp/auth-module-requirements.txt && \
     pip3 install --no-cache-dir --break-system-packages --only-binary :all: numpy==1.26.4 scipy==1.13.0 networkx==3.4.2
 
-# In approved mode the FIPS provider serves no MD5, so CPython's hashlib
-# silently falls back to its own _md5 — an unvalidated implementation, still
-# advertised in algorithms_available, inside an image that removed MD5 from
-# OpenSSL. The gate turns that silent substitution into a ValueError. It lands
-# in dist-packages so the .pth is picked up by site initialisation in both the
-# embedded interpreter and the auth-module subprocesses, and it is inert unless
-# OpenSSL actually reports approved mode. A .pth rather than sitecustomize.py
-# because Debian already ships /usr/lib/python3.12/sitecustomize.py, which ours
-# would have to shadow.
+# This script runs on interpreter init - overriding _md5 when in approved mode
+# so that hashlib can't fallback to it.
 COPY fips-python/memgraph_fips_hashlib.py fips-python/zz-memgraph-fips.pth \
      /usr/local/lib/python3.12/dist-packages/
 
@@ -351,8 +328,6 @@ VOLUME /etc/memgraph
 
 ENV MEMGRAPH_TELEMETRY_ID=DOCKER
 
-# Root-owned and world-readable; no pip in the runtime, so the only way to
-# change what is installed is to rebuild python-fips.
 COPY --from=python-fips /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 
 USER memgraph

@@ -421,10 +421,6 @@ if (MG_PYTHON_SUPPORT)
 endif()
 message(STATUS "MG_PYTHON_SUPPORT: ${MG_PYTHON_SUPPORT}")
 
-# Build for an image running OpenSSL in FIPS 140-3 approved mode. This does not
-# change how Memgraph itself does crypto - it already goes through the system
-# OpenSSL. It omits the components that cannot, so the image does not ship a
-# feature whose crypto happens outside the validated module.
 option(MG_FIPS "Omit components whose crypto cannot come from the validated OpenSSL" OFF)
 message(STATUS "MG_FIPS: ${MG_FIPS}")
 

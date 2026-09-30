@@ -34,12 +34,9 @@ else()
     set(CPACK_MG_PYTHON_SUPPORT "OFF")
 endif()
 
-# Likewise for MG_FIPS. A FIPS package must not pip-install its python deps: the
-# PyPI wheels for cryptography and xmlsec bundle their own statically linked
-# OpenSSL, which is exactly the unvalidated second crypto module the FIPS image
-# exists to avoid. They are supplied instead by wheels rebuilt against the
-# system OpenSSL (tools/ci/fips/), so the package neither runs pip nor depends
-# on it.
+# Stops Python modules being installed automatically by pip: this is because
+# some of them are statically linked to OpenSSL - we want them to link to
+# out custom FIPS-compliant OpenSSL at runtime.
 if(MG_FIPS)
     set(CPACK_MG_FIPS "ON")
 else()
@@ -94,11 +91,7 @@ endif()
 #                                (Ubuntu 20.04 LTS has libstdc++6 10).
 #   libgcc-s1                 — provides libgcc_s.so.1 (Ubuntu 20.04+).
 #   libatomic1                — NEEDED libatomic.so.1; absent on minimal images.
-#   zlib1g                    — NEEDED libz.so.1. conan builds zlib shared
-#                                ("zlib/*:shared" in conanfile.py), so the
-#                                binary resolves it from the distro rather than
-#                                compiling it in. Same name on every deb target
-#                                (bookworm/trixie, jammy/noble): no t64 rename.
+#   zlib1g                    — NEEDED libz.so.1.
 #   libseccomp2               — NEEDED libseccomp.so.2, likewise shared by conan
 #                                ("libseccomp/2.6.0", options shared=True).
 #   openssl                   — CLI; pulls libssl{3,1.1} transitively, name
@@ -106,9 +99,7 @@ endif()
 #   python3 (>= 3.5.0)        — interpreter for tooling around query modules;
 #                                does NOT pull libpython3.X on Debian/Ubuntu.
 #   python3-pip               — postinst pip-installs the query-module deps.
-#                                Omitted under MG_FIPS: that build runs no pip
-#                                phase, and requiring pip breaks the install in
-#                                the prod-fips image, which does not ship it.
+#                                Omitted under MG_FIPS.
 #   ca-certificates           — TLS trust for pip (PyPI over https).
 #   libxmlsec1|libxmlsec1-1   — system lib for the pip xmlsec wheel (SAML SSO);
 #                                t64 name Provides libxmlsec1 on Ubuntu 24.04,
@@ -185,9 +176,6 @@ endif()
 # python3-pip + util-linux (runuser) serve the %post pip install of the
 # query-module deps; xmlsec1/krb5-libs are the system libs behind the pip
 # xmlsec and gssapi packages (SAML / Kerberos SSO).
-# zlib and libseccomp are the rpm counterparts of zlib1g/libseccomp2 above:
-# conan links both shared, and with AUTOREQ off nothing would notice they are
-# missing. "zlib" resolves through zlib-ng-compat's Provides on Fedora.
 set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logrotate, libatomic, zlib, libseccomp")
 # The el9 python3.12 rich dependency lives in the spec template as a whole
 # line, so it can be dropped entirely for Python-less builds.
