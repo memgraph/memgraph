@@ -1887,7 +1887,7 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
   }
 
   // The whole context is read, modified and committed, so other whole-context writers must not interleave.
-  auto lock = std::lock_guard{coord_instance_lock_};
+  auto lock = std::scoped_lock{coord_instance_lock_};
 
   if (std::holds_alternative<int32_t>(config.data)) {
     // Need to update coordinator's bolt server
