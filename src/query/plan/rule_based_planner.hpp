@@ -292,6 +292,20 @@ storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, s
                                        const std::unordered_set<Symbol> &bound_symbols,
                                        const std::unordered_set<Symbol> &write_bound_symbols);
 
+/// Whether no part of a plan produces columns, so the plan runs only for its side effects and a CALL over it keeps
+/// the outer row count. Checked per UNION part, because Union::OutputSymbols lists only RETURN columns and so misses
+/// a part that ends in `CALL ... YIELD`.
+inline bool ProducesNoColumns(const LogicalOperator &op, const SymbolTable &symbol_table) {
+  if (const auto *union_op = utils::Downcast<const Union>(&op)) {
+    return ProducesNoColumns(*union_op->left_op_, symbol_table) &&
+           ProducesNoColumns(*union_op->right_op_, symbol_table);
+  }
+  if (const auto *distinct = utils::Downcast<const Distinct>(&op)) {
+    return ProducesNoColumns(*distinct->input(), symbol_table);
+  }
+  return op.OutputSymbols(symbol_table).empty();
+}
+
 }  // namespace impl
 
 /// @brief Planner which uses hardcoded rules to produce operators.
@@ -642,7 +656,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       }
 
       // An EXISTS branch must keep emitting its rows for the fold to read, so it never gets the EmptyResult wrapper.
-      if (!context.in_subquery_body && input_op && input_op->OutputSymbols(*context.symbol_table).empty()) {
+      if (!context.in_subquery_body && input_op && impl::ProducesNoColumns(*input_op, *context.symbol_table)) {
         if (has_periodic_commit && is_root_query) {
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
         }
@@ -1699,10 +1713,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     context_->bound_symbols.insert(std::make_move_iterator(subquery_bound_symbols.begin()),
                                    std::make_move_iterator(subquery_bound_symbols.end()));
 
-    // Keyed on the planned root, not on the body lacking a RETURN: a RETURN-less body ending in a UNION, a
-    // `CALL ... YIELD` or a `LOAD CSV` still has a row-producing root, so an empty branch drops the row.
+    // Keyed on the planned body, not on the body lacking a RETURN: a RETURN-less body ending in `LOAD CSV` or in
+    // `CALL ... YIELD` without WHERE still reports columns, so an empty branch drops the row.
     auto const on_empty_branch = std::invoke([&]() {
-      if (subquery_op->GetTypeInfo() == EmptyResult::kType) return OnEmptyBranch::kPassRow;
+      if (impl::ProducesNoColumns(*subquery_op, symbol_table)) return OnEmptyBranch::kPassRow;
       return optional ? OnEmptyBranch::kPassRowWithNulls : OnEmptyBranch::kDropRow;
     });
 
