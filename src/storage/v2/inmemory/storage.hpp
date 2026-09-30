@@ -902,7 +902,7 @@ class InMemoryStorage final : public Storage {
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
 
-  // Observability/testing: the lock-free read-snapshot watermark (highest fully-published commit ts;
+  // Observability/testing: the read-snapshot watermark (highest fully-published commit ts;
   // the value a SNAPSHOT_ISOLATION reader freezes as its snapshot_ts at BEGIN under the experiment).
   [[nodiscard]] uint64_t LastCommittedMvccTimestamp() const {
     return last_committed_mvcc_ts_.load(std::memory_order_acquire);

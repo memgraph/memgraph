@@ -100,12 +100,10 @@ flight, because commits still complete one at a time.
   in-flight commit also added edges to goes through the non-sequential write path, and
   that version history is retained as a group until every contributing transaction
   finishes.
-- **Slightly more version history retained.** Garbage collection keeps history back to the
-  oldest active transaction's snapshot instead of its start. That extra history is the
-  last commit the transaction can see plus at most the one commit that was in flight when
-  it started. If the oldest transaction's entry in the fixed-size tracking table (65,536
-  slots) has been overwritten by later transactions, collection falls back to the last
-  horizon it observed, and more history is retained until that transaction finishes.
+- **Slightly more version history retained.** While a transaction that started during a
+  commit's durability/replication wait is the oldest one running, garbage collection keeps
+  that one commit's previous versions (the transaction must not see it). This is at most one
+  commit's worth of history, released as soon as those transactions finish.
 
 ## Limitations and status
 
