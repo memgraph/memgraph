@@ -247,17 +247,20 @@ ARG CUSTOM_MIRROR
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   --mount=type=bind,source="./${BINARY_NAME}${TARGETARCH}.${EXTENSION}",target=/${BINARY_NAME}${TARGETARCH}.${EXTENSION},ro \
   --mount=type=bind,source="./openssl",target=/openssl,ro \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
   fi && \
-  apt-get update && \
-  apt-get upgrade -y && \
-  apt-get install -y \
+  /mirrors/retry.sh -- apt-get update && \
+  /mirrors/retry.sh -- apt-get upgrade -y && \
+  /mirrors/retry.sh -- apt-get install -y \
     /openssl/openssl*.deb \
     /openssl/libssl3t64*.deb \
     --no-install-recommends && \
-  apt-get install -y \
+  /mirrors/retry.sh -- apt-get install -y \
     libcurl4 libseccomp2 libatomic1 adduser ca-certificates \
     python3 libpython3.12 \
     libxml2 libxslt1.1 libxmlsec1t64 libxmlsec1t64-openssl \
@@ -277,6 +280,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
   fi
 
 # Approved mode is opt-in per process via OPENSSL_CONF; the provider package
