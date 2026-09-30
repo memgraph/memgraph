@@ -12,7 +12,6 @@
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -20,7 +19,7 @@ from typing import Any, Dict
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -29,8 +28,25 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
+FILE = "periodic_snapshot"
 
-def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
+def snapshots_path(file, test_name):
+    return os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", get_data_path(file, test_name), "snapshots")
+
+
+def memgraph_instances(test_name, mode="IN_MEMORY_TRANSACTIONAL", file=FILE):
     assert mode == "IN_MEMORY_TRANSACTIONAL" or mode == "IN_MEMORY_ANALYTICAL"
     return {
         "no_flags": {
@@ -44,8 +60,8 @@ def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
                 "--storage-mode",
                 mode,
             ],
-            "log_file": "periodic_snapshot_no_flags.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(file, test_name)}/no_flags.log",
+            "data_directory": get_data_path(file, test_name),
         },
         "sec_flag": {
             "args": [
@@ -57,8 +73,8 @@ def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
                 "--storage-mode",
                 mode,
             ],
-            "log_file": "periodic_snapshot_sec_flag.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(file, test_name)}/sec_flag.log",
+            "data_directory": get_data_path(file, test_name),
         },
         "interval_flag": {
             "args": [
@@ -72,8 +88,8 @@ def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
                 "--storage-mode",
                 mode,
             ],
-            "log_file": "periodic_snapshot_interval_flag.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(file, test_name)}/interval_flag.log",
+            "data_directory": get_data_path(file, test_name),
         },
         "both_flags": {
             "args": [
@@ -87,8 +103,8 @@ def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
                 "--storage-mode",
                 mode,
             ],
-            "log_file": "periodic_snapshot_both_flags.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(file, test_name)}/both_flags.log",
+            "data_directory": get_data_path(file, test_name),
         },
     }
 
@@ -241,7 +257,7 @@ def main_test_analytical(snapshots_dir, set):
         assert number_of_snapshots(snapshots_dir) == n_snapshots2, "Got new snapshots even though in analytical"
 
 
-def test_a_failed_assertion_leaves_no_writer_running():
+def test_a_failed_assertion_leaves_no_writer_running(test_name):
     """The writer stops however the body ends, so a failure costs seconds.
 
     The assertions here are about wall-clock timing, so they fail on a machine
@@ -249,71 +265,63 @@ def test_a_failed_assertion_leaves_no_writer_running():
     interpreter alive, and the run then ends at the harness timeout rather than
     at the assertion, spending the whole workload budget to report it.
     """
-    with tempfile.TemporaryDirectory() as data_directory:
-        interactive_mg_runner.start(memgraph_instances(data_directory), "no_flags")
-        try:
-            writing = False
-            with pytest.raises(AssertionError):
-                with writing_in_the_background() as writer:
-                    writing = writer.is_alive()
-                    assert False, "as a missed tick would"
+    interactive_mg_runner.start(memgraph_instances(test_name), "no_flags")
+    try:
+        writing = False
+        with pytest.raises(AssertionError):
+            with writing_in_the_background() as writer:
+                writing = writer.is_alive()
+                assert False, "as a missed tick would"
 
-            assert writing, "the writer never ran, so this asks nothing"
-            assert not writer.is_alive(), "the writer outlived the failure and would hold the interpreter open"
-        finally:
-            interactive_mg_runner.kill_all()
-
-
-def test_no_flags():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "no_flags")
-    main_test(data_directory.name + "/snapshots")
-    interactive_mg_runner.kill_all()
+        assert writing, "the writer never ran, so this asks nothing"
+        assert not writer.is_alive(), "the writer outlived the failure and would hold the interpreter open"
+    finally:
+        interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_sec_flag():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "sec_flag")
-    main_test(data_directory.name + "/snapshots")
-    interactive_mg_runner.kill_all()
+def test_no_flags(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name), "no_flags")
+    main_test(snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_interval_flag():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "interval_flag")
-    main_test(data_directory.name + "/snapshots")
-    interactive_mg_runner.kill_all()
+def test_sec_flag(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name), "sec_flag")
+    main_test(snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_no_flags_analytical():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "no_flags")
-    main_test_analytical(data_directory.name + "/snapshots", True)
-    interactive_mg_runner.kill_all()
+def test_interval_flag(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name), "interval_flag")
+    main_test(snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+def test_no_flags_analytical(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name, "IN_MEMORY_ANALYTICAL"), "no_flags")
+    main_test_analytical(snapshots_path(FILE, test_name), True)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 @pytest.mark.parametrize("set", [True, False])
-def test_sec_flag_analytical(set):
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "sec_flag")
-    main_test_analytical(data_directory.name + "/snapshots", set)
-    interactive_mg_runner.kill_all()
+def test_sec_flag_analytical(set, test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name, "IN_MEMORY_ANALYTICAL"), "sec_flag")
+    main_test_analytical(snapshots_path(FILE, test_name), set)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 @pytest.mark.parametrize("set", [True, False])
-def test_interval_flag_analytical(set):
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "interval_flag")
-    main_test_analytical(data_directory.name + "/snapshots", set)
-    interactive_mg_runner.kill_all()
+def test_interval_flag_analytical(set, test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name, "IN_MEMORY_ANALYTICAL"), "interval_flag")
+    main_test_analytical(snapshots_path(FILE, test_name), set)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 # Interface doesn't support failure, so can't reliably test if both flags cause a fault
-# def test_both_flags():
-#     data_directory = tempfile.TemporaryDirectory()
-#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "both_flags")
-#     main_test(data_directory.name + "/snapshots")
-#     interactive_mg_runner.kill_all()
+# def test_both_flags(test_name):
+#     interactive_mg_runner.start(memgraph_instances(test_name), "both_flags")
+#     main_test(snapshots_path(FILE, test_name))
+#     interactive_mg_runner.kill_all(keep_directories=False)
 
 
 if __name__ == "__main__":
