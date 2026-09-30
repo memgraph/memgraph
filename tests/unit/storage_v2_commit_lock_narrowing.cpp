@@ -638,30 +638,120 @@ TEST(LockFreeReadSnapshot, IndexCreate_CompleteUnderConcurrentWrites_AB) {
   }
 }
 
-// A reader opened right after commit p=2 has snapshot_ts == that commit's ts; GC must use snapshot_ts,
-// not start_ts, as its horizon or it reclaims the version the reader needs.
-TEST(LockFreeReadSnapshot, HorizonGapCommit_RetainsDeltaBetweenSnapshotAndStart_ON) {
-  auto store = MakeStorageManualGc(/*flag_on=*/true);
+namespace {
+
+// WAL-enabled (a STRICT_SYNC replica prepare needs an open WAL file); GC runs only via RunGc.
+std::unique_ptr<InMemoryStorage> MakeWalStorageManualGc(const std::filesystem::path &dir) {
+  Config config{};
+  config.durability.storage_directory = dir;
+  config.durability.recover_on_startup = false;
+  config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.gc.type = Config::Gc::Type::PERIODIC;
+  config.gc.interval = std::chrono::seconds(3600);
+  config.experimental_commit_lock_narrowing = true;
+  return std::make_unique<InMemoryStorage>(config);
+}
+
+struct PreparedCommit {
+  std::unique_ptr<Accessor> writer;
+  uint64_t durable_ts{0};
+};
+
+// Sets "p" = value through a STRICT_SYNC replica prepare: the commit ts is minted and engine_lock_ released,
+// but nothing is published, so a BEGIN now lands inside this commit's window.
+void PrepareWithoutPublish(InMemoryStorage &store, Gid gid, int value, PreparedCommit &out) {
+  out.durable_ts = store.LastCommittedMvccTimestamp() + 1;
+  out.writer = store.Access(memgraph::storage::WRITE);
+  auto vertex = out.writer->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+  ASSERT_TRUE(vertex->SetProperty(store.NameToProperty("p"), PropertyValue(value)).has_value());
+  ASSERT_TRUE(out.writer
+                  ->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_replica_write(
+                      out.durable_ts, /*two_phase_commit=*/true, [] {}))
+                  .has_value());
+}
+
+// Publishes without re-minting (as the narrowed main does), then ends the writer so its ts is marked finished.
+void PublishAndEnd(PreparedCommit &commit) {
+  static_cast<InMemoryStorage::InMemoryAccessor &>(*commit.writer)
+      .FinalizeCommitPhase(commit.durable_ts, /*acquire_engine_lock=*/true);
+  commit.writer.reset();
+}
+
+void CommitDelete(InMemoryStorage &store, Gid gid) {
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto victim = acc->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(victim.has_value());
+  ASSERT_TRUE(acc->DeleteVertex(&*victim).has_value());
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+}  // namespace
+
+// A reader that BEGINs between a commit's mint and publish has snapshot < c < start; GC must keep c's
+// pre-image while it lives, and resume reclaiming once it ends.
+TEST_F(LockFreeReadSnapshotRecovery, CommitWindowReader_RetainsPreImageAcrossGc_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
   const auto gid = CreateVertexWithProp(*store, 1);
+  const auto victim_gid = CreateVertexWithProp(*store, 1);
 
-  CommitProp(*store, gid, 2);
-
-  auto long_reader = store->Access(memgraph::storage::READ);
-  EXPECT_EQ(ReadProp(*long_reader, gid), 2);
-
-  CommitProp(*store, gid, 3);
+  PreparedCommit commit;
+  PrepareWithoutPublish(*store, gid, 2, commit);
+  auto reader = store->Access(memgraph::storage::READ);
+  ASSERT_EQ(ReadProp(*reader, gid), 1);
+  PublishAndEnd(commit);
 
   RunGc(*store);
+  EXPECT_EQ(ReadProp(*reader, gid), 1) << "GC reclaimed the pre-image of a commit whose window the oldest reader "
+                                          "began in; the horizon must stay at that commit's ts.";
+  {
+    auto fresh = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*fresh, gid), 2);
+  }
 
-  // p=2 must survive GC (horizon = snapshot_ts).
-  EXPECT_EQ(ReadProp(*long_reader, gid), 2)
-      << "GC reclaimed the long reader's snapshot version (p=2); horizon must be snapshot_ts, not start_ts.";
-
-  long_reader.reset();
+  CommitDelete(*store, victim_gid);
   RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 2U) << "victim deleted after the reader began must survive while it is live";
 
-  auto fresh_reader = store->Access(memgraph::storage::READ);
-  EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
+  reader.reset();
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 1U) << "GC must reclaim once the window reader has ended";
+}
+
+// The oldest reader began in an earlier window C1; a later window C2 (reader R2) publishes and R2 ends.
+// GC must still hold the horizon at C1.
+TEST_F(LockFreeReadSnapshotRecovery, EarlierWindowReader_RetainsPreImageAcrossGc_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto gid = CreateVertexWithProp(*store, 1);
+  const auto victim_gid = CreateVertexWithProp(*store, 1);
+
+  PreparedCommit c1;
+  PrepareWithoutPublish(*store, gid, 2, c1);
+  auto r1 = store->Access(memgraph::storage::READ);
+  ASSERT_EQ(ReadProp(*r1, gid), 1);
+  PublishAndEnd(c1);
+
+  PreparedCommit c2;
+  PrepareWithoutPublish(*store, gid, 3, c2);
+  auto r2 = store->Access(memgraph::storage::READ);
+  ASSERT_EQ(ReadProp(*r2, gid), 2);
+  PublishAndEnd(c2);
+
+  r2.reset();
+  RunGc(*store);
+  EXPECT_EQ(ReadProp(*r1, gid), 1) << "GC reclaimed the pre-image of the earlier commit window the oldest reader "
+                                      "began in; the horizon must stay at that commit's ts.";
+
+  CommitDelete(*store, victim_gid);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 2U) << "victim deleted after R1 began must survive while R1 is live";
+  EXPECT_EQ(ReadProp(*r1, gid), 1);
+
+  r1.reset();
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 1U) << "GC must reclaim once the window reader has ended";
 }
 
 // Under the flag every txn publishes its snapshot_ts, so an open READ_COMMITTED reader must not pin the GC
