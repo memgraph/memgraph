@@ -760,12 +760,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       storage->repl_storage_state_.epoch_.SetEpoch(std::move(snapshot_info.epoch_id));
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
-      storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
+      storage->SetTimestampQuiescent(std::max(storage->timestamp_, recovery_info.next_timestamp));
       storage::CommitTsInfo const new_info{.ldt_ = snapshot_info.durable_timestamp,
                                            .num_committed_txns_ = snapshot_info.num_committed_txns};
       storage->repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
-      // Rewound by the Clear() above; reseed the local-counter watermark (no-op with the flag off).
-      storage->SeedReadSnapshotWatermarkFromLocalCounter();
       spdlog::trace("Set num committed txns to {} after loading snapshot.", snapshot_info.num_committed_txns);
       // We are the only active transaction, so mark everything up to the next timestamp
       if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);

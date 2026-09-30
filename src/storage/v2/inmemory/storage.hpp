@@ -920,9 +920,9 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
 
-  // Seeds last_committed_mvcc_ts_ from the local MVCC counter on recovery (no-op with flag off).
-  // Quiescent storage only: non-atomic read-modify-write, no concurrent committer allowed.
-  void SeedReadSnapshotWatermarkFromLocalCounter();
+  // Single-threaded recovery/Clear only: keeps the read-snapshot watermark (everything below
+  // timestamp_ is published) in step with timestamp_.
+  void SetTimestampQuiescent(uint64_t next_timestamp);
 
   // Objects leave storage only through these, and only from a collection pass. An index entry
   // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same

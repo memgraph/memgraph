@@ -439,8 +439,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
-      timestamp_ = std::max(timestamp_, info->next_timestamp);
-      SeedReadSnapshotWatermarkFromLocalCounter();
+      SetTimestampQuiescent(std::max(timestamp_, info->next_timestamp));
       CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
                                   .num_committed_txns_ = info->num_committed_txns};
       repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
@@ -3143,15 +3142,9 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   }
 }
 
-void InMemoryStorage::SeedReadSnapshotWatermarkFromLocalCounter() {
-  // PRECONDITION: quiescent storage (constructor, RecoverSnapshot, replica snapshot-load handler). The
-  // load+store is non-atomic RMW, so a live committer's watermark store could be overwritten with a lower value.
-  // No DMG_ASSERT: commit_log_ is not yet engaged in the constructor, and OldestActive() is 0 before
-  // MarkFinishedInRange on the recovery paths, so any such check would false-fire.
-  // EXPERIMENTAL (commit-lock-narrowing): seeds the watermark from timestamp_ - 1; no-op when off.
-  if (!config_.experimental_commit_lock_narrowing) return;
-  last_committed_mvcc_ts_.store(std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed),
-                                         timestamp_ > kTimestampInitialId ? timestamp_ - 1 : kTimestampInitialId),
+void InMemoryStorage::SetTimestampQuiescent(uint64_t const next_timestamp) {
+  timestamp_ = next_timestamp;
+  last_committed_mvcc_ts_.store(next_timestamp > kTimestampInitialId ? next_timestamp - 1 : kTimestampInitialId,
                                 std::memory_order_release);
 }
 
@@ -4780,8 +4773,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     const auto &recovery_info = recovered_snapshot.recovery_info;
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
-    timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    SeedReadSnapshotWatermarkFromLocalCounter();
+    SetTimestampQuiescent(std::max(timestamp_, recovery_info.next_timestamp));
     loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
     auto const update_func = [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp,
@@ -5472,11 +5464,8 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
   edge_id_.store(0, std::memory_order_release);
   edge_count_.store(0, std::memory_order_release);
 
-  timestamp_ = kTimestampInitialId;
+  SetTimestampQuiescent(kTimestampInitialId);
   if (config_.experimental_commit_lock_narrowing) {
-    // Rewind watermark with timestamp_: a post-recovery commit at a low ts must not
-    // appear already-committed to a stale-high snapshot. Recovery paths reseed afterward.
-    last_committed_mvcc_ts_.store(kTimestampInitialId, std::memory_order_release);
     // Windows hold pre-rewind ids; recovery is single-threaded, so no concurrent GC or committer.
     commit_windows_.clear();
   }
