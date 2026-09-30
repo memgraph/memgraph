@@ -25,8 +25,8 @@ aggregate read throughput drops far below what the hardware can do.
 
 An opt-in, startup-only flag, `--experimental-enabled=commit-lock-narrowing`
 (default off). When enabled, a new transaction no longer has to wait for an in-flight
-commit's durability/replication round trip in order to start. New `BEGIN`s proceed
-immediately; a reader is given a consistent view of the database **as of the last commit
+commit's durability/replication round trip in order to start. New `BEGIN`s no longer wait
+for a commit's WAL or replication round trip; a reader is given a consistent view of the database **as of the last commit
 that has fully completed** at the moment it starts.
 
 Concretely, with the flag on:
@@ -35,22 +35,22 @@ Concretely, with the flag on:
   in flight, instead of stalling for the length of that commit's replication/durability
   wait. This is the whole point of the feature and applies to transactions at **every
   isolation level**.
-- A transaction that starts while a commit is mid-flight is ordered **before** that
-  commit: it does not see that commit's changes, exactly as if it had started an instant
+- A `SNAPSHOT` transaction that starts while a commit is mid-flight is ordered **before**
+  that commit: it does not see that commit's changes, exactly as if it had started an instant
   earlier. It never sees a half-finished commit (no dirty reads of not-yet-durable data).
-- Write throughput is unchanged. Commits still complete one at a time; this feature makes
-  readers stop waiting on them, it does not make commits faster.
+- Commits still complete one at a time; this feature stops new transactions from waiting on
+  them, it does not make commits faster.
 
 ## Guarantees
 
 - **Snapshot Isolation is preserved.** A transaction sees a single consistent snapshot and
   is protected against lost updates, exactly as without the flag. The only observable
   semantic difference is timing (see "First-updater-wins" below).
-- **Off is identical to today.** With the flag off (the default), behavior is byte-for-byte
-  the same as the current release on every path — reads, writes, GC, durability, and
+- **Off behaves as today.** With the flag off (the default), behavior is the same as the
+  current release on every path — reads, writes, GC, durability, and
   replication. Turning the flag on is the only thing that changes behavior.
-- **Durable data does not depend on the flag.** Snapshots and WAL written with the flag on
-  are identical to those written with it off, and vice versa. You can start with the flag
+- **Durable data does not depend on the flag.** Snapshot and WAL formats are unchanged, and
+  files written with the flag on or off are interchangeable. You can start with the flag
   on, restart with it off (or the reverse), and recover the exact same data. The flag
   affects only in-memory scheduling, never what is persisted.
 - **Opt-in and immutable for the process lifetime.** The flag is a startup argument. It
@@ -67,11 +67,11 @@ Concretely, with the flag on:
 
 ## Applicability
 
-- **Isolation levels.** The *unblocking* (readers no longer wait behind commits) applies to
-  all isolation levels. The change to *what a transaction sees* applies only to
-  **`SNAPSHOT`** isolation, because that is the only level that reads from a fixed snapshot;
-  `READ COMMITTED` and `READ UNCOMMITTED` observe no behavioral change beyond no longer
-  being blocked.
+- **Isolation levels.** The *unblocking* (new transactions no longer wait behind commits)
+  applies to all isolation levels. The change to *what a transaction sees* applies only to
+  **`SNAPSHOT`** isolation, the only level that reads from a fixed snapshot: a `SNAPSHOT`
+  transaction that starts while a commit is in flight is ordered before that commit.
+  `READ COMMITTED` and `READ UNCOMMITTED` still see a commit as soon as it completes.
 - **Storage mode.** In-memory transactional storage only. **On-disk** storage
   (`--storage-mode=ON_DISK_TRANSACTIONAL`) is unaffected — the flag is inert there.
   **Analytical** in-memory mode is likewise unaffected (it keeps no version history to
@@ -79,23 +79,25 @@ Concretely, with the flag on:
 
 ## Costs and trade-offs
 
-Enabling the flag is a deliberate trade, honest about the following:
+Each cost below comes from the same source: a transaction can now start while one commit
+is still in flight, and it is ordered before that commit. At most one commit is ever in
+flight, because commits still complete one at a time.
 
-- **More write aborts under write contention (first-updater-wins).** Two transactions that
-  race to write the same object are more likely to result in one of them getting a
-  serialization error and having to retry, rather than one silently layering on top. This
-  is standard Postgres-style first-updater-wins behavior. It never produces a wrong result
-  — it converts some would-be conflicts into explicit, retryable serialization errors.
-- **Slightly more version history retained.** While a long-running, old reader is active,
-  garbage collection is a little more conservative, so a bit more version history is kept
-  for the duration of that reader. It does not leak: retention returns to normal once the
-  old reader finishes.
-- **Edge-heavy workloads under slow commits pay more.** Concurrently modifying the same
-  vertex's edges while a commit on it is mid-flight can push those writes onto a slower
-  path (more aborts, and version history retained as a group until all contributors
-  finish). This lands in exactly the edge-heavy + slow-commit combination the feature is
-  meant to help, so the benefit and this cost should be weighed together for such
-  workloads.
+- **More retryable write conflicts.** A transaction that starts during a commit's
+  durability/replication wait and then writes an object that commit touched fails with a
+  serialization error (first-updater-wins); with the flag off it would have waited at
+  `BEGIN` and then succeeded. This applies at every isolation level. It never produces a
+  wrong result, and clients already retry serialization errors.
+- **Concurrent edge creation takes the slower path.** Creating an edge on a vertex that the
+  in-flight commit also added edges to goes through the non-sequential write path, and
+  that version history is retained as a group until every contributing transaction
+  finishes.
+- **Slightly more version history retained.** Garbage collection keeps history back to the
+  oldest active transaction's snapshot instead of its start. That extra history is the
+  last commit the transaction can see plus at most the one commit that was in flight when
+  it started. If the oldest transaction's entry in the fixed-size tracking table (65,536
+  slots) has been overwritten by later transactions, collection falls back to the last
+  horizon it observed, and more history is retained until that transaction finishes.
 
 ## Limitations and status
 
@@ -105,9 +107,8 @@ Enabling the flag is a deliberate trade, honest about the following:
   STRICT_SYNC (2PC), a commit becomes visible on MAIN only after replicas have finalized
   it, the same as with the flag off, so no reader on MAIN sees a commit that a failover
   could lose.
-- **Performance benefit is not yet quantified end-to-end.** The mechanism removes the
-  read-blocking; the actual throughput improvement under slow-SYNC-commit workloads still
-  needs a multi-machine A/B measurement to put numbers on it.
+- **Performance.** The expected benefit is for read-heavy workloads with slow SYNC or
+  STRICT_SYNC commits. Throughput depends on the workload, and measurements are pending.
 
 ## Out of scope
 
@@ -115,23 +116,6 @@ Enabling the flag is a deliberate trade, honest about the following:
 - Any change to on-disk or analytical storage.
 - Any new user-facing query surface — there is no new Cypher syntax; the only surface is
   the startup flag.
-
-## Product decisions and rationale
-
-1. **Opt-in, off by default.** The change is behavior-preserving for correctness but alters
-   commit/GC scheduling; keeping it off by default means upgrading never silently changes
-   how an instance behaves. Operators choose it deliberately for read-latency-sensitive,
-   slow-commit workloads.
-2. **Startup-only / immutable.** A running instance has one consistent regime, which keeps
-   the semantics and the internal bookkeeping simple and predictable, and avoids mixed
-   behavior within a single process.
-3. **Snapshot-semantics change limited to `SNAPSHOT` isolation.** That is the only level
-   whose reads are anchored to a snapshot; applying the change elsewhere would be a no-op,
-   so it is scoped to where it is meaningful while every level still gets the unblocking
-   benefit.
-4. **First-updater-wins accepted.** Turning some silent write races into explicit
-   serialization errors is the correct, safe behavior under a snapshot boundary; clients
-   already retry serialization errors.
 
 ## References
 
