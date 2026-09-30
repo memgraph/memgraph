@@ -39,8 +39,8 @@ class Parser {
    */
   explicit Parser(std::string query) : query_(std::move(query)) {
     // Two-stage parsing. SLL prediction ignores the parser context, so an ambiguity is resolved without the
-    // full-context simulation LL runs for it, and it either returns the tree LL would or fails. Only a failure
-    // is parsed again with LL, which also words the syntax error.
+    // full-context simulation LL runs for it. The grammar has no semantic predicates or actions, so SLL either
+    // returns the tree LL would or fails. Only a failure is parsed again with LL, which also words the syntax error.
     parser_.removeErrorListeners();
     parser_.addErrorListener(&full_context_counter_);
     parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::SLL);
@@ -51,7 +51,6 @@ class Parser {
     } catch (const antlr4::ParseCancellationException &) {
       // Retried below.
     }
-    tokens_.seek(0);
     parser_.reset();
     parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::LL);
     parser_.setErrorHandler(std::make_shared<antlr4::DefaultErrorStrategy>());
@@ -64,7 +63,7 @@ class Parser {
 
   auto tree() { return tree_; }
 
-  /// How many decisions needed full-context prediction, the slow path two-stage parsing avoids.
+  /// How many decisions needed full-context prediction. Only the LL pass makes one; zero means SLL parsed alone.
   size_t FullContextPredictions() const { return full_context_counter_.count_; }
 
  private:

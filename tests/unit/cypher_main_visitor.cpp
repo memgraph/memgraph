@@ -9986,8 +9986,7 @@ TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
 
 // A valid query SLL rejects is parsed again with LL, which pays for full-context prediction.
 TEST(CypherParserTest, ValidQuerySLLRejectsIsParsedByTheLLPass) {
-  for (const auto *query :
-       {"MATCH (n)-[*{p: 1}]->(m) RETURN n", "MATCH () WHERE reduce(a = exists(()), b IN [] | a) RETURN 1"}) {
+  for (const auto *query : {"MATCH (n)-[*{p: 1}]->(m) RETURN n", "MATCH ()-[r*..$x]->() RETURN r"}) {
     ::frontend::opencypher::Parser parser(query);
     ASSERT_TRUE(parser.tree()) << query;
     EXPECT_GT(parser.FullContextPredictions(), 0U) << query;
@@ -10000,6 +9999,8 @@ TEST(CypherParserTest, SyntaxErrorIsReportedByTheLLPass) {
     ::frontend::opencypher::Parser parser("MATCH (n RETURN n");
     FAIL() << "expected a syntax error";
   } catch (const SyntaxException &e) {
-    EXPECT_THAT(std::string{e.what()}, testing::HasSubstr("Error on line 1 position 10."));
+    EXPECT_EQ(std::string{e.what()},
+              "Error on line 1 position 10. The underlying parsing error is mismatched input 'RETURN' expecting {')', "
+              "'{', ':', '$'}");
   }
 }
