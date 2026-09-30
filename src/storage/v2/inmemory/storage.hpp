@@ -14,6 +14,7 @@
 #include <atomic>
 #include <concepts>
 #include <cstdint>
+#include <deque>
 #include <list>
 #include <memory>
 #include <optional>
@@ -39,7 +40,6 @@
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/snapshot_progress.hpp"
-#include "storage/v2/snapshot_slot_ring.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -919,9 +919,6 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
 
-  // EXPERIMENTAL (commit-lock-narrowing): min(active snapshot_ts), keyed by the RAW pre-schema-fold OldestActive();
-  // the caller clamps to the folded horizon. Flag OFF returns raw_oldest_active.
-  uint64_t GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns);
   // Seeds last_committed_mvcc_ts_ from the local MVCC counter on recovery (no-op with flag off).
   // Quiescent storage only: non-atomic read-modify-write, no concurrent committer allowed.
   void SeedReadSnapshotWatermarkFromLocalCounter();
@@ -1153,8 +1150,16 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
-  // EXPERIMENTAL (commit-lock-narrowing) GC visibility ring — populated iff the flag is ON.
-  std::optional<SnapshotSlotRing> snapshot_ring_;
+  // EXPERIMENTAL (commit-lock-narrowing). A commit C mints commit_ts and publishes at end_ts = timestamp_;
+  // commit_mutex_ serializes committers, so every id in (commit_ts, end_ts) began in that window (start above C,
+  // snapshot below it). Only windows with such a txn are recorded (FIFO, disjoint); GC holds its horizon at commit_ts
+  // while one is live. Guarded by engine_lock_.
+  struct CommitWindow {
+    uint64_t commit_ts;
+    uint64_t end_ts;
+  };
+
+  std::deque<CommitWindow> commit_windows_;
 
   free_mem_fn free_memory_func_;
 

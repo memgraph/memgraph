@@ -332,9 +332,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
-  if (config_.experimental_commit_lock_narrowing) {
-    snapshot_ring_.emplace();
-  }
   MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
             "Light edges require properties on edges (--storage-light-edge implies "
             "--storage-properties-on-edges=true).");
@@ -1015,10 +1012,8 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // check if we can fast discard deltas (i.e. do not hand over to GC)
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // Caller MUST hold engine_lock_ (unchecked: SpinLock has no owner API). Under commit-lock narrowing a
-  // "gap-BEGIN" reader (start_ts above this commit_ts) does not lower OldestActive(), so only the
-  // engine_lock_-serialised transaction_id_ read in no_newer_transactions proves no such reader exists.
-  // Fast-discarding outside the hold could free deltas that reader still needs (use-after-free).
+  // Caller MUST hold engine_lock_ (unchecked: SpinLock has no owner API). The transaction_id_ check below
+  // is what excludes a reader that began in this commit's mint-to-publish window.
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
   if (no_older_transactions && no_newer_transactions) [[unlikely]] {
@@ -1234,6 +1229,18 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
   std::optional<std::unique_lock<utils::SpinLock>> pub_guard;
   if (acquire_engine_lock) {
     pub_guard.emplace(storage_->engine_lock_);
+  }
+
+  if (mem_storage->config_.experimental_commit_lock_narrowing) {
+    // First, before any visibility side effect, and without a tracker OOM throw: WAL and replication are done.
+    // engine_lock_ is held here (pub_guard, or the replica finalize handler).
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+    auto &windows = mem_storage->commit_windows_;
+    if (mem_storage->timestamp_ > *commit_timestamp_ + 1) {
+      windows.push_back({.commit_ts = *commit_timestamp_, .end_ts = mem_storage->timestamp_});
+    }
+    auto const oldest_active = mem_storage->commit_log_->OldestActive();
+    while (!windows.empty() && windows.front().end_ts <= oldest_active) windows.pop_front();
   }
 
   if (config_.enable_schema_info) {
@@ -2958,11 +2965,6 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // start_timestamp). ON: frozen to last_committed_mvcc_ts_ (< start_timestamp). OFF: == start_timestamp.
     snapshot_ts = config_.experimental_commit_lock_narrowing ? last_committed_mvcc_ts_.load(std::memory_order_acquire)
                                                              : start_timestamp;
-    // Every txn publishes its snapshot_ts so GC's horizon covers the oldest txn at any isolation level.
-    if (config_.experimental_commit_lock_narrowing) {
-      // Mint, snapshot_ts read and ring publish MUST share this engine_lock hold (see SnapshotSlotRing).
-      snapshot_ring_->Publish(start_timestamp, snapshot_ts);
-    }
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts. Load ldt and num_committed_txns from the same atomic
@@ -3141,11 +3143,6 @@ void InMemoryStorage::SeedReadSnapshotWatermarkFromLocalCounter() {
                                 std::memory_order_release);
 }
 
-uint64_t InMemoryStorage::GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns) {
-  if (!config_.experimental_commit_lock_narrowing) return raw_oldest_active;  // OFF: byte-identical
-  return snapshot_ring_->VisibilityHorizon(raw_oldest_active, no_active_txns);
-}
-
 void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic) {
   // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
   // runs GC before any transaction in the new mode can start.
@@ -3217,10 +3214,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // in the second GC phase in this GC iteration or some of the following
   // ones.
 
+  // Read before commit_windows_ so a commit that publishes and finalizes in between cannot make us over-reclaim.
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
-
-  // EXPERIMENTAL (commit-lock-narrowing): the visibility ring is keyed by the ACTUAL oldest active
-  // start_timestamp, so capture it before the schema-info fold below lowers oldest_active_start_timestamp.
   uint64_t const raw_oldest_active = oldest_active_start_timestamp;
 
   // Also consider unprocessed schema updates as a safety horizon.
@@ -3240,18 +3235,18 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     }
   }
 
-  // EXPERIMENTAL: no active txns iff raw_oldest_active >= timestamp_ (every issued id finished).
-  // Read under engine_lock_; a leapfrogged reader has raw < timestamp_, so this correctly protects it.
-  bool no_active_txns = false;
+  // Horizon for the unlink gate, chain trim and index/constraint sweeps. A txn that began inside the front
+  // commit window reads at that commit's ts, so the horizon must not pass it. OFF: identical to master.
+  uint64_t visibility_horizon = oldest_active_start_timestamp;
   if (config_.experimental_commit_lock_narrowing) {
     auto const engine_guard = std::scoped_lock{engine_lock_};
-    no_active_txns = raw_oldest_active >= timestamp_;
+    while (!commit_windows_.empty() && commit_windows_.front().end_ts <= raw_oldest_active) {
+      commit_windows_.pop_front();
+    }
+    if (!commit_windows_.empty() && commit_windows_.front().commit_ts < raw_oldest_active) {
+      visibility_horizon = std::min(visibility_horizon, commit_windows_.front().commit_ts);
+    }
   }
-
-  // Key the snapshot-based horizon on the RAW oldest active, then clamp to the (possibly lower) physical
-  // horizon so pending schema-update deltas are still protected. OFF: min(raw, folded) == folded (byte-identical).
-  uint64_t const visibility_horizon =
-      std::min(GcVisibilityHorizon(raw_oldest_active, no_active_txns), oldest_active_start_timestamp);
 
   // When a transaction commits with non-sequential deltas, its deltas may be mixed with
   // deltas from other transactions in the same delta chains. We cannot immediately unlink
@@ -3463,8 +3458,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
             //            ▲
             //            │
             //  oldest_active_start_timestamp
-            // EXPERIMENTAL (commit-lock-narrowing): when the flag is ON the boundary used just below is
-            // visibility_horizon (= min active snapshot_ts), which sits at or before this start-ts boundary.
+            // Under commit-lock narrowing the boundary used below is visibility_horizon, which may sit
+            // below oldest_active_start_timestamp (see CollectGarbage).
 
             if (prev.delta->commit_info == commit_info_ptr) {
               // The delta that is newer than this one is also a delta from this
@@ -3484,8 +3479,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
                 // - the GC is serialized via gc_lock_.
                 // Safe for concurrent readers: all deltas beyond this point are
                 // also inactive (guaranteed by waiting_gc_deltas_), so no
-                // active transaction needs to read past here; under the flag visibility_horizon is
-                // min(active snapshot_ts), so the guarantee holds against snapshot-based visibility too.
+                // active transaction needs to read past here.
                 prev.delta->next.store(nullptr, std::memory_order_release);
               }
               break;
@@ -5468,13 +5462,11 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
 
   timestamp_ = kTimestampInitialId;
   if (config_.experimental_commit_lock_narrowing) {
-    // Rewind watermark + GC floor with timestamp_: a post-recovery commit at a low ts must not
+    // Rewind watermark with timestamp_: a post-recovery commit at a low ts must not
     // appear already-committed to a stale-high snapshot. Recovery paths reseed afterward.
-    last_committed_mvcc_ts_.store(kTimestampInitialId,
-                                  std::memory_order_release);  // watermark, NOT ring state — stays in Clear
-    // Reset the ring: a stale slot could pair a post-recovery oldest-active id with a pre-Clear tag
-    // and advance the floor to a stale-high snapshot. Recovery is single-threaded; no concurrent GC.
-    snapshot_ring_->Reset();
+    last_committed_mvcc_ts_.store(kTimestampInitialId, std::memory_order_release);
+    // Windows hold pre-rewind ids; recovery is single-threaded, so no concurrent GC or committer.
+    commit_windows_.clear();
   }
   transaction_id_ = kTransactionInitialId;
 

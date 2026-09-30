@@ -290,7 +290,7 @@ TEST(LockFreeReadSnapshot, MultipleReadersDifferentSnapshots_OldestHorizon_ON) {
   EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
 }
 
-// Stress: writers, SI readers and a concurrent GC thread race on the snapshot ring and watermark.
+// Stress: writers, SI readers and a concurrent GC thread race on the commit windows and watermark.
 // A repeated read within one accessor must be stable and every commit visible at the end.
 TEST(LockFreeReadSnapshot, ConcurrentReadersWritersGc_NoCrash_SnapshotStable_ON) {
   auto store = MakeStorageManualGc(/*flag_on=*/true);
@@ -671,7 +671,7 @@ TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
   const auto gid = CreateVertexWithProp(*store, 1);
   const auto victim_gid = CreateVertexWithProp(*store, 1);
 
-  // An older SI reader stops the commits below from being discarded at commit time; it also advances the ring floor.
+  // An older SI reader stops the commits below from being discarded at commit time.
   auto si_holder = store->Access(memgraph::storage::READ);
   {
     auto acc = store->Access(memgraph::storage::WRITE);
@@ -701,8 +701,8 @@ TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
   ASSERT_EQ(store->VertexStoreSize(), 2U);
   RunGc(*store);
   EXPECT_EQ(store->VertexStoreSize(), 1U)
-      << "GC RECLAIMED NOTHING while an RC reader is open: the RC txn's snapshot_ts must be published to the "
-         "snapshot ring, else VisibilityHorizon stays at its floor and pins the deleted vertex.";
+      << "GC RECLAIMED NOTHING while an RC reader is open: the deleted vertex must be reclaimed once the "
+         "horizon passes it.";
 
   EXPECT_EQ(ReadProp(*rc_reader, gid), 4)
       << "RC READER BROKEN AFTER GC: expected p=4 (current head) but the RC accessor returned "
