@@ -63,6 +63,22 @@ MGCONSOLE_ADMIN="$MEMGRAPH_CONSOLE_BINARY --host $MEMGRAPH_DEFAULT_HOST --port $
 MGCONSOLE_TESTER="$MEMGRAPH_CONSOLE_BINARY --host $MEMGRAPH_DEFAULT_HOST --port $MEMGRAPH_BOLT_PORT --username tester --password tester1234"
 MEMGRAPH_SMOKE_CONTAINER="${MEMGRAPH_SMOKE_CONTAINER:-memgraph_smoke}"
 
+# Copy a file into the smoke container, run it, and take it back out again.
+# Docker only, like container_dt_needed below; the FIPS tests that use it are
+# docker-only already. Nothing is left behind: a stale file under a directory
+# memgraph scans (query_modules) breaks mg.procedures() until a reload, so the
+# cleanup is not optional.
+#   $1 - local file, $2 - path inside the container, $3.. - argv for it
+run_python_in_container() {
+  local local_file="$1" remote="$2"
+  shift 2
+  docker cp "$local_file" "$MEMGRAPH_SMOKE_CONTAINER:$remote" >/dev/null 2>&1 || return 1
+  local rc=0
+  $MEMGRAPH_EXEC python3 "$remote" "$@" || rc=$?
+  docker exec -u root "$MEMGRAPH_SMOKE_CONTAINER" rm -f "$remote" >/dev/null 2>&1 || true
+  return $rc
+}
+
 # Print the DT_NEEDED entries of a file inside the smoke container, by copying it
 # out and reading it with the host's readelf - the images carry no binutils, and
 # installing some into the container would mean the tests after it no longer run

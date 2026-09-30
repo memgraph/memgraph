@@ -8,8 +8,12 @@
 # because the dangerous direction is a false positive: an image that wrongly
 # reported approved mode would be making a compliance claim that is not true,
 # and normal smoke runs are where that would actually be noticed.
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source "$SCRIPT_DIR/../utils.bash"
+# The smoke dir, not this feature's own dir: the helper scripts live in
+# scripts/ alongside utils.bash. Named distinctly because utils.bash sets
+# SCRIPT_DIR itself, and sourcing it would overwrite ours - the path has to
+# survive that, because it is used again by the tests further down.
+FIPS_SMOKE_DIR="$( cd "$( dirname "$( dirname "${BASH_SOURCE[0]}" )" )" && pwd )"
+source "$FIPS_SMOKE_DIR/utils.bash"
 
 # mgconsole's CSV wraps every field in quotes and doubles the quotes a string
 # value already carries, so `bcrypt` arrives as """bcrypt""", `false` as
@@ -175,6 +179,30 @@ test_fips_no_bundled_openssl() {
     return 1
   fi
   echo "  every OpenSSL user in the image links the validated libcrypto"
+}
+
+# The auth modules reach OpenSSL through two libraries rather than directly, and
+# those integrations are what break first in approved mode: xmlsec for SAML
+# signatures and PyJWT/cryptography for OIDC tokens.
+
+test_fips_saml_signature_path() {
+  echo "FEATURE: FIPS - SAML signature path (xmlsec -> validated OpenSSL)"
+  local out
+  out="$(run_python_in_container \
+    "$FIPS_SMOKE_DIR/scripts/fips_saml_signature_path.py" \
+    /tmp/fips_saml_signature_path.py 2>&1)" \
+    || { echo "FAIL: SAML signature path"; echo "$out" | sed "s/^/      /"; return 1; }
+  echo "$out"
+}
+
+test_fips_oidc_jwt_path() {
+  echo "FEATURE: FIPS - OIDC token path (PyJWT/cryptography -> validated OpenSSL)"
+  local out
+  out="$(run_python_in_container \
+    "$FIPS_SMOKE_DIR/scripts/fips_oidc_jwt_path.py" \
+    /tmp/fips_oidc_jwt_path.py 2>&1)" \
+    || { echo "FAIL: OIDC token path"; echo "$out" | sed "s/^/      /"; return 1; }
+  echo "$out"
 }
 
 # Passwords hashed under approved mode must actually use the approved KDF, and
