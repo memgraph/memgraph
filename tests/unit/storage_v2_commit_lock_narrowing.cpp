@@ -664,18 +664,28 @@ TEST(LockFreeReadSnapshot, HorizonGapCommit_RetainsDeltaBetweenSnapshotAndStart_
   EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
 }
 
-// Under the flag only SI txns register a snapshot_ts in the ring, so a READ_COMMITTED reader must not
-// pin the GC floor. GcVisibilityHorizon() is private, so this checks via read values (RC sees the latest
-// and stays valid after GC).
+// Under the flag every txn publishes its snapshot_ts, so an open READ_COMMITTED reader must not pin the GC
+// horizon at its floor: GC must still reclaim old versions, and the RC reader must stay valid.
 TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
   auto store = MakeStorageManualGc(/*flag_on=*/true);
   const auto gid = CreateVertexWithProp(*store, 1);
+  const auto victim_gid = CreateVertexWithProp(*store, 1);
 
+  // An older SI reader stops the commits below from being discarded at commit time; it also advances the ring floor.
+  auto si_holder = store->Access(memgraph::storage::READ);
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto victim = acc->FindVertex(victim_gid, View::OLD);
+    ASSERT_TRUE(victim.has_value());
+    ASSERT_TRUE(acc->DeleteVertex(&*victim).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
   CommitProp(*store, gid, 2);
   CommitProp(*store, gid, 3);
 
   auto rc_reader =
       store->Access(memgraph::storage::READ, memgraph::storage::IsolationLevel::READ_COMMITTED, std::nullopt);
+  si_holder.reset();
 
   EXPECT_EQ(ReadProp(*rc_reader, gid), 3);
 
@@ -688,7 +698,11 @@ TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
          "the accessor is frozen like a SNAPSHOT_ISOLATION reader. Check that "
          "transaction.commit_lock_narrowing is false for RC and that View::OLD re-snapshots per read.";
 
+  ASSERT_EQ(store->VertexStoreSize(), 2U);
   RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 1U)
+      << "GC RECLAIMED NOTHING while an RC reader is open: the RC txn's snapshot_ts must be published to the "
+         "snapshot ring, else VisibilityHorizon stays at its floor and pins the deleted vertex.";
 
   EXPECT_EQ(ReadProp(*rc_reader, gid), 4)
       << "RC READER BROKEN AFTER GC: expected p=4 (current head) but the RC accessor returned "

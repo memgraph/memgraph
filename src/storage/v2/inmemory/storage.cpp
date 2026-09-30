@@ -2958,9 +2958,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // start_timestamp). ON: frozen to last_committed_mvcc_ts_ (< start_timestamp). OFF: == start_timestamp.
     snapshot_ts = config_.experimental_commit_lock_narrowing ? last_committed_mvcc_ts_.load(std::memory_order_acquire)
                                                              : start_timestamp;
-    // Publish this SI txn's frozen snapshot_ts into the GC visibility ring so GC can recover min(active snapshot_ts).
-    // RC/RU do not freeze a snapshot_ts and must not hold the GC floor down; skip them.
-    if (config_.experimental_commit_lock_narrowing && isolation_level == IsolationLevel::SNAPSHOT_ISOLATION) {
+    // Every txn publishes its snapshot_ts so GC's horizon covers the oldest txn at any isolation level.
+    if (config_.experimental_commit_lock_narrowing) {
       // Mint, snapshot_ts read and ring publish MUST share this engine_lock hold (see SnapshotSlotRing).
       snapshot_ring_->Publish(start_timestamp, snapshot_ts);
     }
