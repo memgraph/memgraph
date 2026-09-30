@@ -5573,10 +5573,15 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
   auto acc = mem_storage->vertices_.access();
   const auto search_results = storage_->indices_.vector_index_.SearchNodes(
       index_name, number_of_results, vector, mem_storage->name_id_mapper_.get());
-  std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
-    auto &[vertex, distance, score] = item;
-    return std::make_tuple(VertexAccessor{vertex, storage_, &transaction_}, distance, score);
-  });
+  // The index holds one entry per vertex regardless of transaction state: an entry outlives the
+  // vertex's deletion until GC collects it, and appears as soon as the writer sets the property
+  // rather than when it commits. Only entries visible to this transaction may be returned, which
+  // can leave fewer than number_of_results hits.
+  for (auto const &[vertex, distance, score] : search_results) {
+    auto vertex_acc = VertexAccessor::Create(vertex, storage_, &transaction_, View::NEW);
+    if (!vertex_acc) continue;
+    result.emplace_back(*vertex_acc, distance, score);
+  }
 
   return result;
 }
@@ -5589,13 +5594,13 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
   // we have to take edges accessor to be sure no edge is deleted while we are searching
   auto acc = mem_storage->edges_.access();
   const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
-  std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
-    const auto &[entry, distance, score] = item;
-    return std::make_tuple(
-        EdgeAccessor{EdgeRef{entry.edge}, entry.edge_type, entry.from_vertex, entry.to_vertex, storage_, &transaction_},
-        distance,
-        score);
-  });
+  // Same visibility rule as the node search: index membership is not transaction state.
+  for (auto const &[entry, distance, score] : search_results) {
+    auto edge_acc =
+        EdgeAccessor{EdgeRef{entry.edge}, entry.edge_type, entry.from_vertex, entry.to_vertex, storage_, &transaction_};
+    if (!edge_acc.IsVisible(View::NEW)) continue;
+    result.emplace_back(edge_acc, distance, score);
+  }
 
   return result;
 }

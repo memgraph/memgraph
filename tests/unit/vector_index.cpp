@@ -273,6 +273,71 @@ TEST_F(VectorIndexTest, DeleteVertexTest) {
   }
 }
 
+TEST_F(VectorIndexTest, SearchSkipsDeletedVertexBeforeGarbageCollection) {
+  this->CreateIndex(2, 10);
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
+    vertex_gid = this->CreateVertex(acc.get(), test_property, properties, test_label).Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // No FreeMemory() here: the entry is still in the index, and only the visibility check keeps it
+  // out of the results.
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+  EXPECT_TRUE(acc->VectorIndexSearchOnNodes(test_index.data(), 10, std::vector<float>{1.0F, 1.0F}).empty());
+}
+
+TEST_F(VectorIndexTest, SearchSkipsVertexDeletedByTheSearchingTransaction) {
+  this->CreateIndex(2, 10);
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
+    vertex_gid = this->CreateVertex(acc.get(), test_property, properties, test_label).Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto vertex = acc->FindVertex(vertex_gid, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+  ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
+  EXPECT_TRUE(acc->VectorIndexSearchOnNodes(test_index.data(), 10, std::vector<float>{1.0F, 1.0F}).empty());
+}
+
+TEST_F(VectorIndexTest, SearchSkipsVertexFromAnUncommittedTransaction) {
+  this->CreateIndex(2, 10);
+  auto writer = this->storage->Access(memgraph::storage::WRITE);
+  auto properties = MakeVectorIndexProperty(writer.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
+  this->CreateVertex(writer.get(), test_property, properties, test_label);
+
+  auto reader = this->storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(reader->ListAllVectorIndices()[0].size, 1);
+  EXPECT_TRUE(reader->VectorIndexSearchOnNodes(test_index.data(), 10, std::vector<float>{1.0F, 1.0F}).empty());
+
+  ASSERT_NO_ERROR(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+}
+
+TEST_F(VectorIndexTest, SearchFindsVertexCreatedByTheSearchingTransaction) {
+  this->CreateIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
+  const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+
+  const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 10, std::vector<float>{1.0F, 1.0F});
+  ASSERT_EQ(result.size(), 1);
+  EXPECT_EQ(std::get<0>(result[0]).Gid(), vertex.Gid());
+}
+
 TEST_F(VectorIndexTest, SimpleAbortTest) {
   this->CreateIndex(2, 10);
   auto acc = this->storage->Access(memgraph::storage::WRITE);
