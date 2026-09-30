@@ -445,20 +445,15 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
-  // EXPERIMENTAL (commit-lock-narrowing). All three are inert when the experiment is OFF.
-  // Serializes committers across mint->durability->publish and (in that mode) guards the WAL group;
-  // acquired only on the experiment's ON path, so the OFF path is byte-for-byte unchanged.
-  //
-  // LOCK ORDER: main_lock_ -> commit_mutex_ -> engine_lock_. A scope that takes both commit_mutex_
-  // and engine_lock_ MUST take commit_mutex_ first; NEVER acquire commit_mutex_ while holding
-  // engine_lock_ (engine_lock_ is a non-recursive SpinLock, so an inversion also risks self-deadlock).
-  // The committer holds commit_mutex_ across the whole mint->publish window while releasing and
-  // re-taking engine_lock_ within it (the 3-phase commit), which is why no single RAII guard models
-  // this. The order is enforced by convention; the strict-increase DMG_ASSERT in FinalizeCommitPhase
-  // catches the one divergence (mint order != publish order) that would actually corrupt the watermark.
+  // EXPERIMENTAL (commit-lock-narrowing); only taken on the ON path. Serializes committers across
+  // mint->durability->publish and guards the WAL group.
+  // LOCK ORDER: main_lock_ -> commit_mutex_ -> engine_lock_. Never acquire commit_mutex_ while holding
+  // engine_lock_ (non-recursive SpinLock: inversion also risks self-deadlock). Enforced by convention: the
+  // committer holds commit_mutex_ while releasing/re-taking engine_lock_ (3-phase commit), so no RAII guard fits.
+  // The DMG_ASSERT in PublishCommit catches mint order != publish order, which would corrupt the watermark.
   mutable std::mutex commit_mutex_;
-  // Runtime-only watermark: the last fully-published commit timestamp. Advanced at publish on the ON
-  // path, seeded from recovered max commit ts on startup. NEVER persisted (durable data is flag-independent).
+  // Runtime-only watermark: the last fully-published commit timestamp. Advanced at publish and seeded from the
+  // local timestamp counter on the ON path. NEVER persisted (durable data is flag-independent).
   std::atomic<uint64_t> last_committed_mvcc_ts_{kTimestampInitialId};
   // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
   // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
