@@ -694,6 +694,11 @@ def test_basic_auth_passthrough(test_name):
     execute_and_fetch_all(basic_auth_cursor, "CREATE ROLE passthrough_role")
     assert show_roles(basic_auth_cursor) == ["passthrough_role"]
 
+    # With no SSO module configured, a custom (SSO-style) scheme is a passthrough too, so a client that keeps its
+    # data-instance SSO configuration when talking to a coordinator without SSO is not turned away.
+    assert sso_connects(leader_port, "oidc", "whatever")
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "whatever", "SHOW ROLES")) == ["passthrough_role"]
+
 
 def test_disallowed_auth_queries_rejected(test_name):
     # Every auth query other than CREATE/DROP/SHOW ROLE is rejected on a coordinator; conversely, the coordinator-only
@@ -1613,6 +1618,9 @@ def test_basic_auth_break_glass_when_no_writable_role(test_name):
     assert not sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
     break_glass_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
     assert show_roles(break_glass_cursor) == []
+    # A scheme the mappings don't list takes the same passthrough path, so it is admitted as break-glass too.
+    assert sso_connects(leader_port, "not-a-configured-scheme", ADMIN_TOKEN)
+    assert sorted(name for (name,) in sso_run(leader_port, "not-a-configured-scheme", ADMIN_TOKEN, "SHOW ROLES")) == []
 
     # Bootstrap the first administrator through the break-glass session.
     create_role_with_privilege(break_glass_cursor, ADMIN_TOKEN, grant="COORDINATOR_WRITE")
@@ -1629,8 +1637,9 @@ def test_basic_auth_break_glass_when_no_writable_role(test_name):
 
 
 def test_sso_unknown_scheme_rejected(test_name):
-    # A scheme that is not in --auth-module-mappings (and is not basic/none) is rejected on a coordinator, with a
-    # message naming the unsupported scheme rather than a generic authentication failure.
+    # Once SSO is configured, a scheme that is not in --auth-module-mappings (and is not basic/none) is denied like
+    # basic/none is, with a message naming the unsupported scheme rather than a generic authentication failure.
+    # Contrast with test_basic_auth_passthrough, where no SSO module is configured and any scheme passes through.
     start_sso_cluster(test_name)
     leader_port = sso_wait_for_ready_leader_port()
     error = sso_connect_error(leader_port, "not-a-configured-scheme", "architect")
