@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -95,7 +97,7 @@ class ArenaPool {
   // Protects arenas_, free_count_, and first_arena_use_count_.
   mutable std::mutex arena_mux_;
   // Arena indices owned by this database. The range [0, free_count_) is free;
-  // the range [free_count_, arenas_.size()) is in use.
+  // the range [free_count_, arenas_.size()) is held by a thread or parked in park_.
   std::vector<unsigned> arenas_;
   std::size_t free_count_{0};
 
@@ -109,6 +111,25 @@ class ArenaPool {
   // Tcache pool members
   std::mutex tcache_mutex_;
   std::vector<unsigned> tcaches_;
+
+  // Per-thread-shard parking so a worker's Release/Acquire pair reuses its arena and tcache
+  // without taking the mutexes. Every owned arena and tcache is held by one thread, free in
+  // arenas_/tcaches_, or parked in exactly one slot; 0 means empty, as 0 already means "no arena/tcache" to
+  // Release/ReleaseTcache and is never parked.
+  // Parking uses release and taking uses acquire, handing the resource over like the mutex did.
+  // first_arena_idx_ never parks: it can be shared, and first_arena_use_count_ must see every release.
+  static constexpr std::size_t kParkSlots = 64;
+
+  struct alignas(64) ParkSlot {
+    std::atomic<unsigned> arena{0};
+    std::atomic<unsigned> tcache{0};
+  };
+
+  std::array<ParkSlot, kParkSlots> park_{};
+
+  ParkSlot &ThisThreadParkSlot() noexcept;
+  // Mutex path of Release(); arena_mux_ must be held.
+  void ReleaseArenaLocked(unsigned arena_idx);
 #endif
 };
 
@@ -184,18 +205,15 @@ class GlobalArenaPool {
     pool_.push_back(idx);
   }
 
-  // Discard all recycled arena indices from the free-list.
+  // Remove all recycled arena indices from the free-list and hand them to the caller,
+  // so the next Acquire() creates a fresh arena.
   //
-  // IMPORTANT: This does NOT destroy the underlying jemalloc arenas or reclaim
-  // their metadata; jemalloc retains the arena structs indefinitely once created.
-  // Discarded indices can never be reused, so jemalloc's internal arena count grows
-  // without bound if Drain() is called repeatedly in a long-lived process.
-  //
-  // Call Drain() only at process exit or in test teardown where the process is
-  // discarded afterwards (e.g. to reset state between test cases without forking).
-  void Drain() {
+  // IMPORTANT: This does NOT destroy the underlying jemalloc arenas; jemalloc never
+  // frees an arena index. Any returned index the caller does not Release() back is
+  // lost for good, and jemalloc caps the arena count (MALLOCX_ARENA_LIMIT).
+  [[nodiscard]] std::vector<unsigned> Drain() {
     std::lock_guard<std::mutex> lock(mux_);
-    pool_.clear();
+    return std::exchange(pool_, {});
   }
 
  private:

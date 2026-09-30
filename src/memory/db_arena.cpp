@@ -55,6 +55,21 @@ bool ConsumeFailureInjection(testing::ArenaPoolFailureInjection failure) {
   return true;
 }
 
+// Round-robin ticket picking this thread's ArenaPool park slot. Kept local rather than reusing
+// metrics::ThisThreadMetricShard(): mg-memory-utils must not depend on mg-metrics.
+constexpr std::size_t kUnassignedParkTicket = ~std::size_t{0};
+thread_local std::size_t this_thread_park_ticket = kUnassignedParkTicket;
+
+std::size_t ThisThreadParkTicket() noexcept {
+  if (auto const ticket = this_thread_park_ticket; ticket != kUnassignedParkTicket) [[likely]] {
+    return ticket;
+  }
+  // Relaxed: only uniqueness of the ticket matters, it publishes no data.
+  static std::atomic<std::size_t> next_ticket{0};
+  this_thread_park_ticket = next_ticket.fetch_add(1, std::memory_order_relaxed);
+  return this_thread_park_ticket;
+}
+
 // ---------------------------------------------------------------------------
 // Extent hook callbacks for per-DB arenas.
 // Each callback receives back the exact `extent_hooks_t *` pointer that was
@@ -352,6 +367,14 @@ ArenaPool::ArenaPool(utils::MemoryTracker *tracker) {
 
 ArenaPool::~ArenaPool() noexcept {
   try {
+    {
+      const std::lock_guard<std::mutex> lock(arena_mux_);
+      for (auto &slot : park_) {
+        if (const unsigned arena_idx = slot.arena.exchange(0, std::memory_order_acquire); arena_idx != 0) {
+          ReleaseArenaLocked(arena_idx);
+        }
+      }
+    }
     DMG_ASSERT(free_count_ == arenas_.size(), "Destroying DB ArenaPool while some arenas are still in use");
     DMG_ASSERT(first_arena_use_count_ == 0, "Destroying DB ArenaPool while the first arena is still in use");
 
@@ -426,7 +449,16 @@ ArenaPool::~ArenaPool() noexcept {
 
 unsigned ArenaPool::idx() const noexcept { return first_arena_idx_; }
 
+ArenaPool::ParkSlot &ArenaPool::ThisThreadParkSlot() noexcept {
+  static_assert((kParkSlots & (kParkSlots - 1)) == 0, "kParkSlots must be a power of two");
+  return park_[ThisThreadParkTicket() & (kParkSlots - 1)];
+}
+
 unsigned ArenaPool::Acquire() {
+  if (const unsigned parked = ThisThreadParkSlot().arena.exchange(0, std::memory_order_acquire); parked != 0) {
+    return parked;
+  }
+
   const std::lock_guard<std::mutex> lock(arena_mux_);
 
   // 1. Reuse existing arena
@@ -469,30 +501,40 @@ unsigned ArenaPool::Acquire() {
 }
 
 void ArenaPool::Release(unsigned arena_idx) noexcept {
+  if (arena_idx == 0) return;
+  if (arena_idx != first_arena_idx_) {
+    unsigned expected = 0;
+    if (ThisThreadParkSlot().arena.compare_exchange_strong(
+            expected, arena_idx, std::memory_order_release, std::memory_order_relaxed)) {
+      return;
+    }
+  }
   try {
-    if (arena_idx == 0) return;
     const std::lock_guard<std::mutex> lock(arena_mux_);
-
-    if (arena_idx == first_arena_idx_) {
-      DMG_ASSERT(first_arena_use_count_ != 0, "Release: first arena not in use");
-      if (--first_arena_use_count_ > 0) return;
-      // If count reaches 0, fall through to move it to the free section of the vector
-    }
-
-    // Find the arena in the 'in-use' section [free_count_, size)
-    for (size_t i = free_count_; i < arenas_.size(); ++i) {
-      if (arenas_[i] == arena_idx) {
-        std::swap(arenas_[i], arenas_[free_count_]);
-        ++free_count_;
-        return;
-      }
-    }
-    DMG_ASSERT(false, "Trying to release an areana that is not under the current pool.");
+    ReleaseArenaLocked(arena_idx);
   } catch (const std::exception &e) {
     SafeLog("Exception while releasing arena {}: {}", arena_idx, e.what());
   } catch (...) {
     SafeLog("Exception while releasing arena {}: unknown exception", arena_idx);
   }
+}
+
+void ArenaPool::ReleaseArenaLocked(unsigned arena_idx) {
+  if (arena_idx == first_arena_idx_) {
+    DMG_ASSERT(first_arena_use_count_ != 0, "Release: first arena not in use");
+    if (--first_arena_use_count_ > 0) return;
+    // If count reaches 0, fall through to move it to the free section of the vector
+  }
+
+  // Find the arena in the 'in-use' section [free_count_, size)
+  for (size_t i = free_count_; i < arenas_.size(); ++i) {
+    if (arenas_[i] == arena_idx) {
+      std::swap(arenas_[i], arenas_[free_count_]);
+      ++free_count_;
+      return;
+    }
+  }
+  DMG_ASSERT(false, "Trying to release an areana that is not under the current pool.");
 }
 
 bool ArenaPool::Owns(unsigned arena_idx) const {
@@ -515,6 +557,9 @@ void ArenaPool::PurgeAllArenas() const {
 }
 
 unsigned ArenaPool::AcquireTcache() {
+  if (const unsigned parked = ThisThreadParkSlot().tcache.exchange(0, std::memory_order_acquire); parked != 0) {
+    return parked;
+  }
   {
     const std::lock_guard<std::mutex> lock(tcache_mutex_);
     if (!tcaches_.empty()) {
@@ -534,6 +579,11 @@ unsigned ArenaPool::AcquireTcache() {
 
 void ArenaPool::ReleaseTcache(unsigned tcache_id) noexcept {
   if (tcache_id == 0) return;
+  unsigned expected = 0;
+  if (ThisThreadParkSlot().tcache.compare_exchange_strong(
+          expected, tcache_id, std::memory_order_release, std::memory_order_relaxed)) {
+    return;
+  }
   try {
     const std::lock_guard<std::mutex> lock(tcache_mutex_);
     tcaches_.push_back(tcache_id);
@@ -550,6 +600,11 @@ void ArenaPool::ReleaseTcache(unsigned tcache_id) noexcept {
 
 void ArenaPool::DestroyAllTcaches() {
   const std::lock_guard<std::mutex> lock(tcache_mutex_);
+  for (auto &slot : park_) {
+    if (unsigned tcache_id = slot.tcache.exchange(0, std::memory_order_acquire); tcache_id != 0) {
+      je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_id, sizeof(tcache_id));
+    }
+  }
   for (unsigned tcache_id : tcaches_) {
     const size_t sz = sizeof(unsigned);
     je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_id, sz);

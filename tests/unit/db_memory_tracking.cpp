@@ -12,9 +12,14 @@
 #include <gtest/gtest.h>
 
 #include <unistd.h>
+#include <array>
+#include <atomic>
+#include <barrier>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
+#include <memory>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -59,6 +64,40 @@ unsigned JemallocArenaCount() {
   EXPECT_EQ(je_mallctl("arenas.narenas", &count, &count_size, nullptr, 0), 0);
   return count;
 }
+
+// Empties GlobalArenaPool so the test's next Acquire() creates a fresh arena, and returns the drained
+// indices at scope exit: jemalloc never frees an arena index, so dropping them would exhaust the arena
+// limit under --gtest_repeat.
+class ScopedDrainedGlobalArenaPool {
+ public:
+  ScopedDrainedGlobalArenaPool() : drained_{memgraph::memory::GlobalArenaPool::Instance().Drain()} {}
+
+  ~ScopedDrainedGlobalArenaPool() {
+    for (const auto idx : drained_) memgraph::memory::GlobalArenaPool::Instance().Release(idx);
+  }
+
+  ScopedDrainedGlobalArenaPool(const ScopedDrainedGlobalArenaPool &) = delete;
+  ScopedDrainedGlobalArenaPool &operator=(const ScopedDrainedGlobalArenaPool &) = delete;
+  ScopedDrainedGlobalArenaPool(ScopedDrainedGlobalArenaPool &&) = delete;
+  ScopedDrainedGlobalArenaPool &operator=(ScopedDrainedGlobalArenaPool &&) = delete;
+
+ private:
+  std::vector<unsigned> drained_;
+};
+
+// jemalloc's first tcache.create returns id 0, which ArenaPool uses as "no tcache". Hold id 0 for the
+// whole process so every tcache a pool hands out is non-zero.
+void ReserveTcacheIdZero() {
+  [[maybe_unused]] static const bool reserved = [] {
+    unsigned id = 0;
+    size_t sz = sizeof(id);
+    // A non-zero id means id 0 is already live elsewhere, so this one is not needed.
+    if (je_mallctl("tcache.create", &id, &sz, nullptr, 0) == 0 && id != 0) {
+      je_mallctl("tcache.destroy", nullptr, nullptr, &id, sizeof(id));
+    }
+    return true;
+  }();
+}
 #endif
 
 }  // namespace
@@ -66,6 +105,10 @@ unsigned JemallocArenaCount() {
 class DbMemoryTrackingTest : public ::testing::Test {
  protected:
   std::filesystem::path data_dir_{std::filesystem::temp_directory_path() / "mg_test_db_memory_tracking"};
+
+#if USE_JEMALLOC
+  static void SetUpTestSuite() { ReserveTcacheIdZero(); }
+#endif
 
   void SetUp() override { std::filesystem::create_directories(data_dir_); }
 
@@ -497,7 +540,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
 //    - DbArenaScope (query, trigger, stream, replication, GC, snapshot, TTL)
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
-  memgraph::memory::GlobalArenaPool::Instance().Drain();
+  const ScopedDrainedGlobalArenaPool drained_global_pool;
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt);
@@ -690,7 +733,7 @@ TEST_F(DbMemoryTrackingTest, WalOnlyRecoveryPreservesDbMemoryTracking) {
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
   // Drain recycled arena indices so this test gets a fresh jemalloc arena.
-  memgraph::memory::GlobalArenaPool::Instance().Drain();
+  const ScopedDrainedGlobalArenaPool drained_global_pool;
 
   auto cfg = MakeConfig(data_dir_);
   cfg.gc.type = memgraph::storage::Config::Gc::Type::PERIODIC;
@@ -799,7 +842,7 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaVsAcquireRelease) {
 // 15. ArenaPool failure paths
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ArenaPool_ConstructorFailureReleasesPendingArena) {
-  memgraph::memory::GlobalArenaPool::Instance().Drain();
+  const ScopedDrainedGlobalArenaPool drained_global_pool;
   // Pre-warm CPU coverage so Acquire() below creates exactly one arena.
   memgraph::memory::EnsureCpuArenaCoverage();
 
@@ -900,10 +943,16 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_FailedAcquireSharedFirstArenaRemainsOwned
   pool.Release(first_arena);
   EXPECT_TRUE(pool.Owns(base_arena)) << "Releasing the last shared user must not drop ownership of the base arena";
 
+  // Acquire prefers this thread's parked arena over the free set.
+  const auto parked_arena = pool.Acquire();
+  EXPECT_EQ(parked_arena, next_arena);
+  EXPECT_NE(parked_arena, base_arena);
+
   const auto reused_base_arena = pool.Acquire();
   EXPECT_EQ(reused_base_arena, base_arena);
   EXPECT_TRUE(pool.Owns(base_arena));
   pool.Release(reused_base_arena);
+  pool.Release(parked_arena);
 }
 
 TEST_F(DbMemoryTrackingTest, ArenaPool_SingleBaseArenaAcquireReleaseKeepsOwnership) {
@@ -948,12 +997,18 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_FreedBaseArenaIsReturnedFromFreeSet) {
   pool.Release(first_arena);
   ASSERT_TRUE(pool.Owns(base_arena));
 
+  // Acquire prefers this thread's parked arena over the free set.
+  const auto parked_arena = pool.Acquire();
+  EXPECT_EQ(parked_arena, second_arena);
+  EXPECT_NE(parked_arena, base_arena);
+
   const auto reacquired_arena = pool.Acquire();
   EXPECT_EQ(reacquired_arena, base_arena)
-      << "Once the first arena is released, normal Acquire should return it from the free set";
+      << "Once the first arena is released and the parked arena is drained, Acquire should return it from the free set";
   EXPECT_TRUE(pool.Owns(base_arena));
 
   pool.Release(reacquired_arena);
+  pool.Release(parked_arena);
 }
 
 TEST_F(DbMemoryTrackingTest, ArenaPoolScope_NestedSamePoolBorrowsExistingArena) {
@@ -1012,7 +1067,7 @@ TEST_F(DbMemoryTrackingTest, ArenaPoolScope_CrossPoolNestingAborts) {
 // 16. Arena reuse restores hooks before returning the arena index to the pool
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, GlobalArenaPool_ReusedArenaUsesNewTrackerHooks) {
-  memgraph::memory::GlobalArenaPool::Instance().Drain();
+  const ScopedDrainedGlobalArenaPool drained_global_pool;
 
   memgraph::utils::MemoryTracker tracker1;
   memgraph::utils::MemoryTracker tracker2;
@@ -1232,7 +1287,7 @@ TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
 // 15. (continued) Destructor restore failure leaks hooks and abandons arena
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ArenaPool_DestructorRestoreFailureLeaksHooksAndAbandonsArena) {
-  memgraph::memory::GlobalArenaPool::Instance().Drain();
+  const ScopedDrainedGlobalArenaPool drained_global_pool;
 
   unsigned abandoned = 0;
   {
@@ -1282,7 +1337,7 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_PerDbArenaIndicesAboveEveryPossibleCpuId)
 
   EXPECT_GT(JemallocArenaCount(), max_cpu_id) << "arena index space must cover every possible CPU id";
 
-  memgraph::memory::GlobalArenaPool::Instance().Drain();
+  const ScopedDrainedGlobalArenaPool drained_global_pool;
   const unsigned idx = memgraph::memory::GlobalArenaPool::Instance().Acquire();
   EXPECT_GT(idx, max_cpu_id) << "per-DB arenas must be unreachable by percpu binding";
   memgraph::memory::GlobalArenaPool::Instance().Release(idx);
@@ -1316,6 +1371,256 @@ TEST_F(DbMemoryTrackingTest, TenantLimitRefusesArenaAllocation) {
   EXPECT_THROW(memgraph::memory::DbAllocateBytes(
                    kOverLimit, memgraph::memory::tls_db_arena_state.arena, alignof(std::max_align_t)),
                memgraph::utils::OutOfMemoryException);
+}
+
+// ---------------------------------------------------------------------------
+// 22. ArenaPool per-thread parking of arenas and tcaches
+// ---------------------------------------------------------------------------
+namespace {
+
+// Allocates and frees one small block through `tcache_id` on `arena_idx`; small sizes are the ones tcaches serve.
+void UseArenaAndTcache(unsigned arena_idx, unsigned tcache_id) {
+  const int flags = MALLOCX_ARENA(arena_idx) | MALLOCX_TCACHE(tcache_id);
+  void *p = je_mallocx(64, flags);
+  ASSERT_NE(p, nullptr);
+  std::memset(p, 0x5A, 64);
+  je_dallocx(p, flags);
+}
+
+}  // namespace
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_ParkedArenaAndTcacheReusedOnSameThread) {
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+
+  const auto arena = pool.Acquire();
+  ASSERT_NE(arena, 0U);
+  pool.Release(arena);
+  const auto reacquired_arena = pool.Acquire();
+  EXPECT_EQ(reacquired_arena, arena);
+  EXPECT_TRUE(pool.Owns(reacquired_arena));
+
+  const auto tcache = pool.AcquireTcache();
+  ASSERT_NE(tcache, 0U);
+  UseArenaAndTcache(reacquired_arena, tcache);
+  pool.ReleaseTcache(tcache);
+  const auto reacquired_tcache = pool.AcquireTcache();
+  EXPECT_EQ(reacquired_tcache, tcache);
+  UseArenaAndTcache(reacquired_arena, reacquired_tcache);
+
+  // With the slot full, the second release takes the mutex path; the next Acquire must return the parked one.
+  const auto other_tcache = pool.AcquireTcache();
+  ASSERT_NE(other_tcache, 0U);
+  ASSERT_NE(other_tcache, reacquired_tcache);
+  pool.ReleaseTcache(reacquired_tcache);
+  pool.ReleaseTcache(other_tcache);
+  EXPECT_EQ(pool.AcquireTcache(), reacquired_tcache);
+  EXPECT_EQ(pool.AcquireTcache(), other_tcache);
+  pool.ReleaseTcache(other_tcache);
+  pool.ReleaseTcache(reacquired_tcache);
+
+  pool.Release(reacquired_arena);
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_ParkingKeepsExclusiveOwnershipUnderContention) {
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+
+  constexpr int kThreads = 8;
+  constexpr int kCycles = 20000;
+  // jemalloc caps both arena indices (MALLOCX_ARENA_LIMIT) and explicit tcache ids below 4096.
+  constexpr std::size_t kMaxIds = 4096;
+  using InUseFlags = std::array<std::atomic<bool>, kMaxIds>;
+  auto arena_in_use = std::make_unique<InUseFlags>();
+  auto tcache_in_use = std::make_unique<InUseFlags>();
+  std::atomic<int> failures{0};
+
+  auto mark = [&](InUseFlags &flags, unsigned id, const char *kind) {
+    if (id == 0 || id >= kMaxIds) {
+      ADD_FAILURE() << kind << " id " << id << " out of range";
+      failures.fetch_add(1);
+      return false;
+    }
+    bool expected = false;
+    if (!flags[id].compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+      ADD_FAILURE() << kind << " " << id << " is held by two threads at once";
+      failures.fetch_add(1);
+      return false;
+    }
+    return true;
+  };
+  auto unmark = [&](InUseFlags &flags, unsigned id, const char *kind) {
+    if (!flags[id].exchange(false, std::memory_order_acq_rel)) {
+      ADD_FAILURE() << kind << " " << id << " was released while not marked in use";
+      failures.fetch_add(1);
+    }
+  };
+
+  std::barrier start{kThreads};
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&] {
+      start.arrive_and_wait();
+      for (int i = 0; i < kCycles && failures.load(std::memory_order_relaxed) == 0; ++i) {
+        const auto arena = pool.Acquire();
+        const auto tcache = pool.AcquireTcache();
+        // Every fourth cycle holds a second pair, so the park and mutex paths interleave.
+        const bool hold_second = i % 4 == 0;
+        const auto arena2 = hold_second ? pool.Acquire() : 0U;
+        const auto tcache2 = hold_second ? pool.AcquireTcache() : 0U;
+
+        const bool arena_marked = mark(*arena_in_use, arena, "arena");
+        const bool tcache_marked = mark(*tcache_in_use, tcache, "tcache");
+        const bool arena2_marked = hold_second && mark(*arena_in_use, arena2, "arena");
+        const bool tcache2_marked = hold_second && mark(*tcache_in_use, tcache2, "tcache");
+        EXPECT_TRUE(pool.Owns(arena)) << "arena " << arena;
+        if (hold_second) {
+          EXPECT_TRUE(pool.Owns(arena2)) << "arena " << arena2;
+        }
+        if (arena_marked && tcache_marked) UseArenaAndTcache(arena, tcache);
+        if (arena2_marked && tcache2_marked) UseArenaAndTcache(arena2, tcache2);
+        if (tcache2_marked) unmark(*tcache_in_use, tcache2, "tcache");
+        if (arena2_marked) unmark(*arena_in_use, arena2, "arena");
+        if (tcache_marked) unmark(*tcache_in_use, tcache, "tcache");
+        if (arena_marked) unmark(*arena_in_use, arena, "arena");
+
+        if (i % 2 == 0) {
+          pool.ReleaseTcache(tcache2);
+          pool.Release(arena2);
+          pool.ReleaseTcache(tcache);
+          pool.Release(arena);
+        } else {
+          pool.ReleaseTcache(tcache);
+          pool.Release(arena);
+          pool.ReleaseTcache(tcache2);
+          pool.Release(arena2);
+        }
+      }
+    });
+  }
+  for (auto &thread : threads) thread.join();
+  EXPECT_EQ(failures.load(), 0);
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaNeverParks) {
+  {
+    memgraph::utils::MemoryTracker tracker;
+    memgraph::memory::ArenaPool pool{&tracker};
+    const auto base_arena = pool.idx();
+
+    const auto first = pool.Acquire();
+    ASSERT_EQ(first, base_arena);
+    const auto other = pool.Acquire();
+    ASSERT_NE(other, base_arena);
+
+    // If the base arena had parked, `other` would find the slot full and go to the free list instead.
+    pool.Release(first);
+    pool.Release(other);
+    EXPECT_EQ(pool.Acquire(), other) << "the base arena must not occupy the park slot";
+    EXPECT_EQ(pool.Acquire(), base_arena) << "the released base arena must be in the free set";
+    pool.Release(base_arena);
+    pool.Release(other);
+  }
+
+  {
+    memgraph::utils::MemoryTracker tracker;
+    memgraph::memory::ArenaPool pool{&tracker};
+    const auto base_arena = pool.idx();
+
+    const auto first = pool.Acquire();
+    ASSERT_EQ(first, base_arena);
+    memgraph::memory::testing::SetArenaPoolFailureInjection(
+        memgraph::memory::testing::ArenaPoolFailureInjection::AcquireArenaCreate);
+    const auto fallback = pool.Acquire();
+    ASSERT_EQ(fallback, base_arena);
+
+    // A parked shared base arena would be handed out again while `first` still holds it.
+    pool.Release(fallback);
+    const auto next = pool.Acquire();
+    EXPECT_NE(next, base_arena) << "a fallback release of the base arena must not park it";
+    EXPECT_TRUE(pool.Owns(next));
+
+    pool.Release(next);
+    pool.Release(first);
+    EXPECT_EQ(pool.Acquire(), next);
+    EXPECT_EQ(pool.Acquire(), base_arena);
+    pool.Release(base_arena);
+    pool.Release(next);
+    // The destructor's debug asserts check first_arena_use_count_ went back to zero.
+  }
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_DestructorReturnsParkedArenas) {
+  auto &global_pool = memgraph::memory::GlobalArenaPool::Instance();
+  // Snapshot the recycled indices, then put them back so the pool below reuses them instead of creating arenas.
+  const auto free_before = global_pool.Drain();
+  for (const auto idx : free_before) global_pool.Release(idx);
+
+  constexpr int kThreads = 6;
+  std::set<unsigned> pool_arenas;
+  {
+    memgraph::utils::MemoryTracker tracker;
+    memgraph::memory::ArenaPool pool{&tracker};
+    std::vector<unsigned> held(kThreads, 0);
+    std::barrier all_holding{kThreads};
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    for (int t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&, t] {
+        const auto arena = pool.Acquire();
+        const auto tcache = pool.AcquireTcache();
+        EXPECT_NE(tcache, 0U);
+        if (tcache != 0) UseArenaAndTcache(arena, tcache);
+        held[t] = arena;
+        // Holding at once forces distinct arenas, so every non-base one parks in its thread's slot on release.
+        all_holding.arrive_and_wait();
+        pool.ReleaseTcache(tcache);
+        pool.Release(arena);
+      });
+    }
+    for (auto &thread : threads) thread.join();
+
+    pool_arenas.insert(held.begin(), held.end());
+    ASSERT_EQ(pool_arenas.size(), static_cast<std::size_t>(kThreads));
+    for (const auto arena : pool_arenas) EXPECT_TRUE(pool.Owns(arena));
+    // Destroying with parked entries must pass the destructor's debug asserts on free_count_.
+  }
+
+  const auto free_after = global_pool.Drain();
+  for (const auto idx : free_after) global_pool.Release(idx);
+  std::set<unsigned> expected(free_before.begin(), free_before.end());
+  expected.insert(pool_arenas.begin(), pool_arenas.end());
+  EXPECT_EQ(free_after.size(), expected.size()) << "an arena index was returned twice";
+  EXPECT_EQ(std::set<unsigned>(free_after.begin(), free_after.end()), expected)
+      << "every parked arena must have been returned to GlobalArenaPool by the destructor";
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_DestroyAllTcachesDrainsParkedTcache) {
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+  const auto arena = pool.idx();
+
+  const auto tcache = pool.AcquireTcache();
+  ASSERT_NE(tcache, 0U);
+  UseArenaAndTcache(arena, tcache);
+  pool.ReleaseTcache(tcache);
+
+  pool.DestroyAllTcaches();
+
+  // jemalloc hands destroyed ids to later creates, so this usually takes `tcache`'s id; a pool that still had it
+  // parked would give the same id to a second owner.
+  unsigned external_tcache = 0;
+  std::size_t sz = sizeof(external_tcache);
+  ASSERT_EQ(je_mallctl("tcache.create", &external_tcache, &sz, nullptr, 0), 0);
+
+  const auto new_tcache = pool.AcquireTcache();
+  ASSERT_NE(new_tcache, 0U);
+  EXPECT_NE(new_tcache, external_tcache) << "DestroyAllTcaches must drain the parked tcache";
+  UseArenaAndTcache(arena, new_tcache);
+  pool.ReleaseTcache(new_tcache);
+
+  je_mallctl("tcache.destroy", nullptr, nullptr, &external_tcache, sizeof(external_tcache));
 }
 
 #endif  // USE_JEMALLOC
