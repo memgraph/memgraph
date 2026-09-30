@@ -2896,7 +2896,7 @@ class Foreach : public memgraph::query::plan::LogicalOperator {
 /// What an input row becomes when its subquery branch yields no rows.
 enum class OnEmptyBranch : uint8_t {
   kDropRow,           ///< plain `CALL` - the row is dropped, as a row-producing branch filters as well as projects
-  kPassRow,           ///< a branch rooted in @c EmptyResult, which never yields - cardinality is unchanged
+  kPassRow,           ///< a unit branch, which reports no columns - cardinality is unchanged
   kPassRowWithNulls,  ///< `OPTIONAL CALL` - the row is emitted once, the branch's own symbols set to null
 };
 

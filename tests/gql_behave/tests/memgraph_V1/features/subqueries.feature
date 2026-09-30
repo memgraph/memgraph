@@ -1285,3 +1285,44 @@ Feature: Subqueries
             | optional | scaled |
             | 1        | 10     |
             | 2        | 20     |
+
+    Scenario Outline: A unit CALL whose body has a UNION keeps every outer row
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            <call>
+            RETURN i
+            """
+        Then the result should be:
+            | i |
+            | 1 |
+            | 2 |
+        When executing control query:
+            """
+            MATCH (t:T) WITH count(t) AS t MATCH (u:U) RETURN t, count(u) AS u
+            """
+        Then the result should be:
+            | t | u |
+            | 2 | 2 |
+
+        Examples:
+            | call                                                                        |
+            | CALL (i) { CREATE (:T) UNION ALL CREATE (:U) }                              |
+            | CALL (i) { CREATE (:T) UNION CREATE (:U) }                                  |
+            | CALL { WITH i CREATE (:T {v: i}) UNION ALL WITH i CREATE (:U {v: i}) }      |
+            | CALL (i) { CREATE (:T) UNION ALL CREATE (:U) } IN TRANSACTIONS OF 1 ROWS    |
+
+    Scenario: A CALL whose UNION parts end in CALL ... YIELD drops a row its body does not produce
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) {
+              UNWIND [] AS k CREATE (:T) CALL mg.procedures() YIELD name
+              UNION ALL
+              UNWIND [] AS k CREATE (:U) CALL mg.procedures() YIELD name
+            }
+            RETURN i
+            """
+        Then the result should be empty
