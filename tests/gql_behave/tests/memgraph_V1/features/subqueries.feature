@@ -1285,3 +1285,24 @@ Feature: Subqueries
             | optional | scaled |
             | 1        | 10     |
             | 2        | 20     |
+
+    # Under --parallel-execution the ORDER BY in the subquery runs in parallel and is reset for each outer row.
+    Scenario Outline: A subquery with ORDER BY returns its rows for each outer row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:X {v: 1}), (:X {v: 2}), (:X {v: 3}), (:Y {v: 1}), (:Y {v: 2}), (:O), (:O), (:O)
+            """
+        When executing query:
+            """
+            <query>
+            """
+        Then the result should be:
+            | r   |
+            | <r> |
+
+        Examples:
+            | query                                                                                                                              | r                        |
+            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                                   | 9                        |
+            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } WITH v, count(*) AS c ORDER BY v RETURN collect([v, c]) AS r           | [[1, 3], [2, 3], [3, 3]] |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x ORDER BY x.v RETURN x UNION ALL MATCH (x:Y) RETURN x } RETURN count(*) AS r                  | 15                       |
