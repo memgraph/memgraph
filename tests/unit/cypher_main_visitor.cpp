@@ -10232,9 +10232,9 @@ TEST_P(CypherMainVisitorTest, LabelExpressionBindsTighterThanOperators) {
   }
   {
     auto *negation = dynamic_cast<NotOperator *>(
-        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN NOT n:!A AS v")));
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN NOT n:A&!B AS v")));
     ASSERT_TRUE(negation);
-    EXPECT_EQ(LabelsToString(negation->expression_), "{!A}");
+    EXPECT_EQ(LabelsToString(negation->expression_), "{&(A,!B)}");
   }
   {
     // '%' after a complete term cannot continue it, so it stays modulo.
@@ -10250,6 +10250,28 @@ TEST_P(CypherMainVisitorTest, LabelExpressionBindsTighterThanOperators) {
     ASSERT_TRUE(inequality);
     EXPECT_EQ(LabelsToString(inequality->expression1_), "A");
   }
+}
+
+// `NOT s:!x` parses as `s:x`, whatever the subject: the two agree on nodes, null and non-nodes alike.
+TEST_P(CypherMainVisitorTest, LabelExpressionNegatedUnderNotIsItsOperand) {
+  auto &ast_generator = *GetParam();
+  const std::vector<std::pair<std::string, std::string>> cases{
+      {"NOT n:!A", "A"},
+      {"NOT n:!(A|B)", "(A|B)"},
+      {"NOT n:!(A&!B)", "{&(A,!B)}"},
+      {"NOT n:!!A", "{!A}"},
+      {"NOT (n:!A)", "A"},
+      {"NOT head([n]):!A", "A"},
+  };
+  for (const auto &[expression, expected] : cases) {
+    auto *query = ast_generator.ParseQuery(fmt::format("MATCH (n) RETURN {} AS v", expression));
+    EXPECT_EQ(LabelsToString(FirstReturnedExpression(query)), expected) << expression;
+  }
+  // Only the negation right above the test goes: `NOT NOT n:!A` keeps the outer one.
+  auto *negation = dynamic_cast<NotOperator *>(
+      FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN NOT NOT n:!A AS v")));
+  ASSERT_TRUE(negation);
+  EXPECT_EQ(LabelsToString(negation->expression_), "A");
 }
 
 // The last top-level '|' before ']' belongs to the comprehension, whatever the whitespace. Everywhere

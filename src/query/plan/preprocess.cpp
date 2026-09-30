@@ -251,15 +251,6 @@ auto DisjunctLabels(const LabelsTest &labels_test) -> const std::vector<LabelIx>
   return nullptr;
 }
 
-/// `n:x` for `NOT n:!x` over an identifier, or nullptr for any other negation.
-LabelsTest *UnnegatedLabelTerm(const NotOperator &negation, AstStorage &storage) {
-  auto *labels_test = utils::Downcast<LabelsTest>(negation.expression_);
-  const auto *term = labels_test ? labels_test->Term() : nullptr;
-  const auto *negated_term = term ? term->As<LabelTerm::Not>() : nullptr;
-  if (!negated_term || !utils::Downcast<Identifier>(labels_test->expression_)) return nullptr;
-  return MakeLabelsTest(storage, labels_test->expression_->Clone(&storage), *negated_term->operand);
-}
-
 /// The plain labels a label filter's test holds. A whole term is always a generic filter, so a label filter
 /// never holds one.
 LabelCnf &FilterLabels(const FilterInfo &filter) {
@@ -1065,11 +1056,6 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       CollectFilterExpression(inner_not->expression_, symbol_table, storage, merging);
       return;
     }
-    // The same pair, with the inner negation the `!` of a label expression: `NOT n:!A`.
-    if (auto *positive = UnnegatedLabelTerm(*is_not, storage)) {
-      AnalyzeAndStoreFilter(positive, symbol_table, storage, merging);
-      return;
-    }
     // WHERE NOT point.withinbbox()
     if (!add_point_withinbbox_filter_unary(is_not->expression_, WithinBBoxCondition::OUTSIDE) &&
         !add_prop_is_not_null_check(is_not)) {
@@ -1473,13 +1459,12 @@ Expression *SplitLabelsTests(Expression *expression, AstStorage &storage) {
     return storage.Create<AndOperator>(lhs, rhs);
   }
   if (auto *outer = utils::Downcast<NotOperator>(expression)) {
-    // Filter collection reads `NOT NOT x` as `x` and `NOT n:!x` as `n:x`, so the result holds what it collects.
-    // The negations go: an index scan removes only a test among the AND operands.
+    // Filter collection reads `NOT NOT x` as `x`, so the result holds what it collects. The negations go: an index
+    // scan removes only a test among the AND operands.
     if (auto *inner = utils::Downcast<NotOperator>(outer->expression_)) {
       auto *operand = SplitLabelsTests(inner->expression_, storage);
       return operand == inner->expression_ ? expression : operand;
     }
-    if (auto *positive = UnnegatedLabelTerm(*outer, storage)) return SplitLabelsTests(positive, storage);
     return expression;
   }
   auto *labels_test = utils::Downcast<LabelsTest>(expression);

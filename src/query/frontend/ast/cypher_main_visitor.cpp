@@ -5011,6 +5011,13 @@ Expression *CypherMainVisitor::CreateBinaryOperatorByToken(size_t token, Express
 Expression *CypherMainVisitor::CreateUnaryOperatorByToken(size_t token, Expression *e) {
   switch (token) {
     case MemgraphCypher::NOT:
+      // `NOT s:!x` is `s:x` for any subject, null and non-nodes included, so the planner never sees the pair.
+      if (auto *labels_test = utils::Downcast<LabelsTest>(e)) {
+        const auto *term = labels_test->Term();
+        if (const auto *negation = term ? term->As<LabelTerm::Not>() : nullptr) {
+          return MakeLabelsTest(*storage_, labels_test->expression_, *negation->operand);
+        }
+      }
       return storage_->Create<NotOperator>(e);
     case MemgraphCypher::PLUS:
       return storage_->Create<UnaryPlusOperator>(e);

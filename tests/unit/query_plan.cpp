@@ -5481,16 +5481,6 @@ TYPED_TEST(TestPlanner, DoubleNegationKeepsTheIndexScan) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), ExpectFilter(), ExpectProduce());
   }
-  {
-    // MATCH (n) WHERE NOT n:!Label1 RETURN n
-    auto *negated = MakeLabelsTest(this->storage, IDENT("n"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")));
-    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                     WHERE(this->storage.template Create<memgraph::query::NotOperator>(negated)),
-                                     RETURN("n")));
-    auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), ExpectProduce());
-  }
 }
 
 // The pieces a term splits into merge with what WHERE says of the node, as separately written tests do.
@@ -5625,7 +5615,7 @@ TYPED_TEST(TestPlanner, CallYieldWhereLabelExpressionUsesTheIndex) {
   auto negation = [&](memgraph::query::Expression *operand) {
     return this->storage.template Create<memgraph::query::NotOperator>(operand);
   };
-  auto plan_with = [&](memgraph::query::Expression *where, bool leaves_a_filter) {
+  auto plan_with = [&](memgraph::query::Expression *where) {
     auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
     ast_call->procedure_name_ = "proc";
     ast_call->result_fields_ = {"field"};
@@ -5640,32 +5630,20 @@ TYPED_TEST(TestPlanner, CallYieldWhereLabelExpressionUsesTheIndex) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     auto call =
         ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms);
-    if (leaves_a_filter) {
-      CheckPlan(planner.plan(),
-                symbol_table,
-                ExpectScanAllByLabel(label1_id),
-                call,
-                ExpectFilterLabels(std::set<std::string>{}),
-                ExpectProduce());
-    } else {
-      CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), call, ExpectProduce());
-    }
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAllByLabel(label1_id),
+              call,
+              ExpectFilterLabels(std::set<std::string>{}),
+              ExpectProduce());
   };
 
   // WHERE n:Label1&!Label2
-  plan_with(term(), true);
+  plan_with(term());
   // WHERE n:Label1&!Label2 AND field = 1
-  plan_with(AND(term(), EQ(IDENT("field"), LITERAL(1))), true);
+  plan_with(AND(term(), EQ(IDENT("field"), LITERAL(1))));
   // WHERE NOT NOT (n:Label1&!Label2)
-  plan_with(negation(negation(term())), true);
-  // WHERE NOT n:!Label1 -- `n:Label1`, which the scan takes whole
-  plan_with(negation(MakeLabelsTest(this->storage, IDENT("n"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")))), false);
-  // WHERE NOT n:!(Label1&!Label2) -- `n:Label1&!Label2`, which then splits as well
-  plan_with(negation(MakeLabelsTest(
-                this->storage,
-                IDENT("n"),
-                LABEL_TERM_NOT(LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2")))))),
-            true);
+  plan_with(negation(negation(term())));
 }
 
 // An OR fold takes only disjuncts of plain labels. A whole term among them leaves the OR one generic filter, so
