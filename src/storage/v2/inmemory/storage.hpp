@@ -1153,7 +1153,7 @@ class InMemoryStorage final : public Storage {
   // EXPERIMENTAL (commit-lock-narrowing). A commit C mints commit_ts and publishes at end_ts = timestamp_;
   // commit_mutex_ serializes committers, so every id in (commit_ts, end_ts) began in that window (start above C,
   // snapshot below it). Only windows with such a txn are recorded (FIFO, disjoint); GC holds its horizon at commit_ts
-  // while one is live. Guarded by engine_lock_.
+  // while one is live. Guarded by engine_lock_ (Clear(): main_lock_ UNIQUE).
   struct CommitWindow {
     uint64_t commit_ts;
     uint64_t end_ts;

@@ -1242,8 +1242,10 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
     if (mem_storage->timestamp_ > *commit_timestamp_ + 1) {
       windows.push_back({.commit_ts = *commit_timestamp_, .end_ts = mem_storage->timestamp_});
     }
-    auto const oldest_active = mem_storage->commit_log_->OldestActive();
-    while (!windows.empty() && windows.front().end_ts <= oldest_active) windows.pop_front();
+    if (!windows.empty()) {
+      auto const oldest_active = mem_storage->commit_log_->OldestActive();
+      while (!windows.empty() && windows.front().end_ts <= oldest_active) windows.pop_front();
+    }
   }
 
   if (config_.enable_schema_info) {
@@ -1393,7 +1395,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
-  // Advance the SI snapshot boundary so the next batch sees this one (and does not pin GC).
+  // Advance the SI snapshot boundary so the next batch sees this one.
   // With the experiment OFF, snapshot_ts equals start_timestamp and is inert to the read path.
   transaction_.snapshot_ts = new_transaction.snapshot_ts;
   transaction_.commit_info.reset();
@@ -3292,7 +3294,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
           // Track highest commit timestamp among all contributors. We can only
           // unlink when ALL contributors are inactive, so we must wait until
-          // highest_commit_ts < oldest_active_start_timestamp.
+          // highest_commit_ts < visibility_horizon.
           if (ts > highest_commit_ts) {
             highest_commit_ts = ts;
           }
