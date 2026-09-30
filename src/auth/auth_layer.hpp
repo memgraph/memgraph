@@ -271,6 +271,18 @@ class AuthLayer {
               "have received a change this instance did not keep. Compare the users, roles and profiles here "
               "against every replica before resuming writes.");
     if (has_writes) locked->UpdateEpoch();
+#ifdef MG_ENTERPRISE
+    // Skip a user the transaction recreated. Dropping a user does not remove it from its profile's username
+    // set, so the recreated user is still a member and the limits held here are that live membership's, not a
+    // dead user's residue. Releasing would erase the entry, and nothing re-applies a profile on user creation,
+    // so the user would run unlimited while its profile still lists it. The erase also orphans the entry rather
+    // than destroying it: open sessions hold their own shared_ptr and keep counting against it, while a later
+    // login would build a fresh one, splitting the accounting for a limit that is meant to be per user.
+    for (auto const &username : tx.dropped_users_) {
+      if (!locked->HasUser(username)) locked->ReleaseUserResources(username);
+    }
+    tx.dropped_users_.clear();
+#endif
     // One action for the whole transaction, so a replica applies all of it or none. An empty batch is never
     // sent: a read-only transaction has nothing to publish, and a zero-operation request would only cost a round
     // trip.
@@ -284,18 +296,6 @@ class AuthLayer {
     }
 #endif
     tx.pending_actions_.clear();
-#ifdef MG_ENTERPRISE
-    // Skip a user the transaction recreated. Dropping a user does not remove it from its profile's username
-    // set, so the recreated user is still a member and the limits held here are that live membership's, not a
-    // dead user's residue. Releasing would erase the entry, and nothing re-applies a profile on user creation,
-    // so the user would run unlimited while its profile still lists it. The erase also orphans the entry rather
-    // than destroying it: open sessions hold their own shared_ptr and keep counting against it, while a later
-    // login would build a fresh one, splitting the accounting for a limit that is meant to be per user.
-    for (auto const &username : tx.dropped_users_) {
-      if (!locked->HasUser(username)) locked->ReleaseUserResources(username);
-    }
-    tx.dropped_users_.clear();
-#endif
     return true;
   }
 
