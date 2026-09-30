@@ -30,6 +30,9 @@ target_link_libraries(${test_prefix}ring_buffer mg-utils)
 add_benchmark(query/eval.cpp)
 target_link_libraries(${test_prefix}eval mg-query)
 
+add_benchmark(query/label_wildcard.cpp)
+target_link_libraries(${test_prefix}label_wildcard mg-query)
+
 add_benchmark(query/execution.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}execution mg-query mg-communication)
 
