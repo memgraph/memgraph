@@ -248,12 +248,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
-  // EXPERIMENTAL (commit-lock-narrowing): under the flag, ldt advances at publish (fresh engine_lock_ hold
-  // after post-mint release); hold commit_mutex_ first (committer: commit_mutex_ → engine_lock_).
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
-  if (static_cast<InMemoryStorage *>(main_storage)->config_.experimental_commit_lock_narrowing) {
-    commit_serializer.emplace(static_cast<InMemoryStorage *>(main_storage)->commit_mutex_);
-  }
+  // commit-lock-narrowing: take commit_mutex_ before engine_lock_ (see Storage::commit_mutex_).
+  auto commit_serializer = static_cast<InMemoryStorage *>(main_storage)->LockCommitMutexIfNarrowing();
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
 
@@ -959,12 +955,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                main_uuid = main_uuid_,
                &main_db_name,
                repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
-                // EXPERIMENTAL (commit-lock-narrowing): committer holds commit_mutex_ (not engine_lock_) across
-                // the WAL window; acquire commit_mutex_ then engine_lock_ to serialize the WAL read and flush-toggle.
-                std::optional<std::unique_lock<std::mutex>> commit_serializer;
-                if (main_mem_storage->config_.experimental_commit_lock_narrowing) {
-                  commit_serializer.emplace(main_mem_storage->commit_mutex_);
-                }
+                // commit-lock-narrowing: take commit_mutex_ before engine_lock_ (see Storage::commit_mutex_).
+                auto commit_serializer = main_mem_storage->LockCommitMutexIfNarrowing();
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
                 if (main_mem_storage->wal_file_ &&
                     main_mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
@@ -1053,12 +1045,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   // replica state to ready. When the next txn starts, we are in state ready without
   // actually sending data to replica
   //
-  // EXPERIMENTAL (commit-lock-narrowing): under the flag, ldt advances at publish (fresh engine_lock_ hold
-  // after post-mint release); hold commit_mutex_ first (committer: commit_mutex_ → engine_lock_).
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
-  if (main_mem_storage->config_.experimental_commit_lock_narrowing) {
-    commit_serializer.emplace(main_mem_storage->commit_mutex_);
-  }
+  // commit-lock-narrowing: take commit_mutex_ before engine_lock_ (see Storage::commit_mutex_).
+  auto commit_serializer = main_mem_storage->LockCommitMutexIfNarrowing();
   auto lock = std::lock_guard{main_storage->engine_lock_};
   const auto last_durable_timestamp =
       main_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;

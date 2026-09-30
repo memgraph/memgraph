@@ -1017,7 +1017,7 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
 
   // Invariant note (experimental_commit_lock_narrowing path):
   //
-  // Under the lockfree flag, engine_lock_ is released after the mint so that WAL + replication
+  // Under the narrowing flag, engine_lock_ is released after the mint so that WAL + replication
   // run without blocking concurrent BEGINs.  A transaction that calls BEGIN inside this
   // mint->publish gap receives a start_timestamp that is ABOVE this commit's commit_timestamp_.
   // Such a "gap-BEGIN" transaction therefore does NOT lower commit_log_->OldestActive(), so
@@ -1077,7 +1077,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  const bool lockfree = mem_storage->config_.experimental_commit_lock_narrowing;
+  const bool narrowing = mem_storage->config_.experimental_commit_lock_narrowing;
 
   PublishIndexArming();
 
@@ -1115,8 +1115,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   //    writes are invisible to MVCC; commit_mutex_ prevents a concurrent committer from sitting
   //    between its own mint and publish during validation. Releasing it after the WAL append
   //    would break this guarantee even if watermark ordering were re-established separately.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
-  if (lockfree) commit_serializer.emplace(mem_storage->commit_mutex_);
+  auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
@@ -1150,13 +1149,13 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // Release engine_lock so WAL + replication run lock-free (commit_mutex_ still held);
   // BEGIN can now mint a start_timestamp without waiting on the durability RTT.
-  if (lockfree) {
+  if (narrowing) {
     engine_guard.unlock();
   }
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
-    FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
+    FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/narrowing);
     // No WAL file, hence no need to finalize it
     return {};
   }
@@ -1177,7 +1176,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (!two_phase_commit) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
+          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/narrowing);
         }
       });
   if (replica_write_was_applied) {
@@ -1192,7 +1191,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
+          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/narrowing);
 
           auto failures = replicating_txn.CollectAllFailures();
           // update replicas' cached commit info to this txn's absolute committed-txn count
@@ -1247,7 +1246,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // visibility and the watermark atomically under engine_lock_ (inside PublishCommit).
         // This deferred publish restores flag-ON ↔ flag-OFF observability parity.
         if (repl_prepare_phase_ok) {
-          PublishCommit(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
+          PublishCommit(durability_commit_timestamp, /*acquire_engine_lock=*/narrowing);
         }
 
         return {};
@@ -5041,12 +5040,8 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 void InMemoryStorage::PrepareForNewEpoch() {
-  // EXPERIMENTAL (commit-lock-narrowing): take commit_mutex_ before engine_lock_ (committer order) so this
-  // WAL reset cannot race a committer's WAL append under the flag.
-  std::optional<std::unique_lock<std::mutex>> commit_serializer;
-  if (config_.experimental_commit_lock_narrowing) {
-    commit_serializer.emplace(commit_mutex_);
-  }
+  // Committer lock order: keeps this WAL reset from racing a committer's WAL append.
+  auto commit_serializer = LockCommitMutexIfNarrowing();
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();

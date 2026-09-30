@@ -14,7 +14,6 @@
 #include <atomic>
 #include <concepts>
 #include <cstdint>
-#include <limits>
 #include <list>
 #include <memory>
 #include <optional>
@@ -916,6 +915,12 @@ class InMemoryStorage final : public Storage {
   // the value a SNAPSHOT_ISOLATION reader freezes as its snapshot_ts at BEGIN under the experiment).
   [[nodiscard]] uint64_t LastCommittedMvccTimestamp() const {
     return last_committed_mvcc_ts_.load(std::memory_order_acquire);
+  }
+
+  // Engaged only under commit-lock-narrowing. Lock order: see Storage::commit_mutex_ (before engine_lock_).
+  [[nodiscard]] std::optional<std::unique_lock<std::mutex>> LockCommitMutexIfNarrowing() const {
+    if (!config_.experimental_commit_lock_narrowing) return std::nullopt;
+    return std::unique_lock{commit_mutex_};
   }
 
  private:
