@@ -452,8 +452,8 @@ class Storage {
   // committer holds commit_mutex_ while releasing/re-taking engine_lock_ (3-phase commit), so no RAII guard fits.
   // The DMG_ASSERT in PublishCommit catches mint order != publish order, which would corrupt the watermark.
   mutable std::mutex commit_mutex_;
-  // Runtime-only watermark: the last fully-published commit timestamp. Advanced at publish and seeded from the
-  // local timestamp counter on the ON path. NEVER persisted (durable data is flag-independent).
+  // Runtime-only watermark: the last fully-published LOCAL MVCC commit timestamp (from timestamp_). Not
+  // commit_ts_info_.ldt_, which tracks MAIN's durable timestamp so a replica stays in sync with main.
   std::atomic<uint64_t> last_committed_mvcc_ts_{kTimestampInitialId};
   // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
   // pins both values for its life, and releasing one un-pins them: a reader that reacquires must

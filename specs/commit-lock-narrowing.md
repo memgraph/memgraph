@@ -56,6 +56,14 @@ Concretely, with the flag on:
 - **Opt-in and immutable for the process lifetime.** The flag is a startup argument. It
   cannot be changed at runtime, so a running instance has one consistent behavior.
 
+## Timestamps
+
+A reader's snapshot is taken from a new in-memory watermark: the last fully published
+**local** commit timestamp, on the instance's own logical clock. It is separate from the
+last durable timestamp (`ldt`), which on a replica is MAIN's timestamp and is used to keep
+the replica in sync with MAIN; a replica stamps its own versions with local timestamps, so
+the two differ there. The watermark is never persisted.
+
 ## Configuration
 
 | | |
