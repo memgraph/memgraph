@@ -4711,10 +4711,13 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   auto *call_subquery = storage_->Create<CallSubquery>();
   call_subquery->optional_ = ctx->OPTIONAL() != nullptr;
 
-  MG_ASSERT(ctx->cypherQuery(), "Expected query inside subquery clause");
+  MG_ASSERT(ctx->cypherQuery() || ctx->conditionalQuery(), "Expected query inside subquery clause");
 
-  if (ctx->cypherQuery()->queryMemoryLimit()) {
+  if (ctx->cypherQuery() && ctx->cypherQuery()->queryMemoryLimit()) {
     throw SyntaxException("Memory limit cannot be set on subqueries!");
+  }
+  if (ctx->conditionalQuery() && ctx->LPAREN() == nullptr) {
+    throw SyntaxException("WHEN ... THEN ... is not allowed in 'CALL { ... }'. Use 'CALL () { ... }' instead.");
   }
 
   // Parse the explicit scope clause. Forms (Cypher 5):
@@ -4745,7 +4748,9 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
-  call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+  call_subquery->cypher_query_ = ctx->conditionalQuery()
+                                     ? VisitConditionalQuery(ctx->conditionalQuery())
+                                     : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
   PreQueryDirectives pre_query_directives;
   if (auto const *periodic_commit = ctx->periodicSubquery()) {
@@ -4762,6 +4767,46 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   }
 
   return call_subquery;
+}
+
+CypherQuery *CypherMainVisitor::VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx) {
+  auto *branches = storage_->Create<ConditionalBranches>();
+  auto *single_query = storage_->Create<SingleQuery>();
+  auto const add_branch = [&](Expression *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
+    auto *body = VisitConditionalBody(body_ctx);
+    branches->predicates_.push_back(predicate);
+    branches->bodies_.push_back(body);
+    single_query->has_update |= body->single_query_->has_update;
+    for (auto *cypher_union : body->cypher_unions_) {
+      single_query->has_update |= cypher_union->single_query_->has_update;
+    }
+  };
+  for (auto *branch_ctx : ctx->conditionalBranch()) {
+    add_branch(std::any_cast<Expression *>(branch_ctx->expression()->accept(this)), branch_ctx->conditionalBody());
+  }
+  if (ctx->ELSE()) {
+    add_branch(nullptr, ctx->conditionalBody());
+  }
+  single_query->clauses_.push_back(branches);
+  auto *cypher_query = storage_->Create<CypherQuery>();
+  cypher_query->single_query_ = single_query;
+  return cypher_query;
+}
+
+CypherQuery *CypherMainVisitor::VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx) {
+  if (ctx->conditionalQuery()) return VisitConditionalQuery(ctx->conditionalQuery());
+  if (ctx->cypherQuery()) {
+    if (ctx->cypherQuery()->queryMemoryLimit()) {
+      throw SyntaxException("Memory limit cannot be set on subqueries!");
+    }
+    if (ctx->cypherQuery()->preQueryDirectives()) {
+      throw SyntaxException("USING cannot be put in a WHEN branch.");
+    }
+    return std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+  }
+  auto *cypher_query = storage_->Create<CypherQuery>();
+  cypher_query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
+  return cypher_query;
 }
 
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }

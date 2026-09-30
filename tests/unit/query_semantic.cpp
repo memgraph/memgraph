@@ -1392,6 +1392,89 @@ TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoun
                          RETURN("n")))));
 }
 
+// UNWIND [1] AS i CALL (i) { <branches> } RETURN i
+#define CONDITIONAL_CALL_QUERY(...) \
+  QUERY(SINGLE_QUERY(               \
+      UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(WHEN_BRANCHES(__VA_ARGS__), {"i"}), RETURN("i")))
+
+TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchesMustAgree) {
+  auto const expect_error = [](CypherQuery *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected: " << message;
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+  // WHEN true THEN RETURN 1 AS x ELSE RETURN 2 AS y
+  expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))},
+                                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("y")))}),
+               "All WHEN branches must have the same column names.");
+  // WHEN true THEN RETURN 1 AS x, 2 AS y ELSE RETURN 2 AS x
+  expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x"), LITERAL(2), AS("y")))},
+                                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("x")))}),
+               "All WHEN branches must return the same number of columns.");
+  // WHEN i = 1 THEN RETURN i ELSE RETURN i * 10 AS j - one column each; the import counts as written.
+  expect_error(CONDITIONAL_CALL_QUERY(
+                   {EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(RETURN("i"))},
+                   {nullptr,
+                    SINGLE_QUERY(RETURN(
+                        this->storage.template Create<memgraph::query::MultiplicationOperator>(IDENT("i"), LITERAL(10)),
+                        AS("j")))}),
+               "All WHEN branches must have the same column names.");
+  // WHEN true THEN CREATE (n) ELSE RETURN 1 AS x
+  expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))},
+                                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
+               "All WHEN branches must either return rows or update the graph.");
+}
+
+TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
+  // WHEN count(i) > 0 THEN RETURN 1 AS x
+  EXPECT_THROW(MakeSymbolTable(CONDITIONAL_CALL_QUERY(
+                   {GREATER(COUNT(IDENT("i"), false), LITERAL(0)), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))})),
+               SemanticException);
+  // UNWIND [1] AS i WITH i, 1 AS k CALL (i) { WHEN k = 1 THEN RETURN 1 AS x } RETURN x
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
+                   UNWIND(LIST(LITERAL(1)), AS("i")),
+                   WITH("i", LITERAL(1), AS("k")),
+                   CALL_SUBQUERY_SCOPED(
+                       WHEN_BRANCHES({EQ(IDENT("k"), LITERAL(1)), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}), {"i"}),
+                   RETURN("x")))),
+               UnboundVariableError);
+  // MATCH (n) CALL (n) { WHEN (n)-->(z) THEN RETURN 1 AS x } RETURN x - a predicate pattern binds nothing.
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          CALL_SUBQUERY_SCOPED(
+              WHEN_BRANCHES({EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::OUT, {}, false), NODE("z"))),
+                             SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
+              {"n"}),
+          RETURN("x")))),
+      SemanticException);
+}
+
+// The columns of a conditional body: one symbol per name shared by every branch, except that a column named after
+// an import is the import itself. Were the import left out, a body returning only it would look unit, and an outer
+// row no branch matches would be kept.
+TYPED_TEST(TestSymbolGenerator, ConditionalCallOutputSymbols) {
+  auto *branches = WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(RETURN("i", LITERAL(1), AS("x")))},
+                                 {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("x"), "i"))});
+  auto *unwind = UNWIND(LIST(LITERAL(1)), AS("i"));
+  auto *query = QUERY(SINGLE_QUERY(unwind, CALL_SUBQUERY_SCOPED(branches, {"i"}), RETURN("i", "x")));
+  auto symbol_table = MakeSymbolTable(query);
+  auto *conditional = dynamic_cast<ConditionalBranches *>(branches->clauses_[0]);
+  ASSERT_TRUE(conditional);
+  ASSERT_TRUE(conditional->discriminator_);
+  EXPECT_FALSE(conditional->discriminator_->user_declared());
+  auto const &import = symbol_table.at(*unwind->named_expression_);
+  ASSERT_EQ(conditional->output_symbols_.size(), 2U);
+  auto const import_column = std::ranges::find(conditional->output_symbols_, import);
+  ASSERT_NE(import_column, conditional->output_symbols_.end());
+  auto const &x = conditional->output_symbols_[import_column == conditional->output_symbols_.begin() ? 1 : 0];
+  EXPECT_EQ(x.name(), "x");
+  EXPECT_TRUE(x.user_declared()) << "a later RETURN * must see the column";
+}
+
 // `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
 // makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
 TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {

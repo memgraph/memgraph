@@ -1325,6 +1325,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
 
+  /// `WHEN ... THEN ... ELSE ...` as a query holding one ConditionalBranches clause.
+  CypherQuery *VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
+  CypherQuery *VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
+
   /**
    * @return MultiDatabaseQuery*
    */
