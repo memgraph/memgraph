@@ -62,11 +62,8 @@ inline auto PropertyTypes_ActionMethod(std::map<PropertyId, ExtendedPropertyType
   });
 }
 
-// Apply deltas from other transactions. `snapshot_bound` is the reconstructing transaction's
-// exclusive visibility boundary (Transaction::SchemaReconstructionBound): a delta committed at
-// `ts < snapshot_bound` is part of the base snapshot and stops the walk; deltas at/after it are
-// rolled back by the callback to recover the pre-snapshot view. OFF the bound is start_timestamp
-// (legacy `ts < start_timestamp`); ON it is snapshot_ts + 1, i.e. the inclusive `ts <= snapshot_ts`.
+// `snapshot_bound` (Transaction::SchemaReconstructionBound) is the exclusive visibility boundary: deltas with
+// `ts < snapshot_bound` are in the base snapshot and stop the walk; later ones are rolled back by the callback.
 inline void ApplyDeltasForRead(const Delta *delta, uint64_t snapshot_bound, auto &&callback) {
   // Avoid work if no deltas
   if (!delta) return;
@@ -93,17 +90,10 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t snapshot_bound, auto
 
 enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
-// `snapshot_bound` is the reconstructing transaction's exclusive visibility boundary
-// (Transaction::SchemaReconstructionBound): a delta committed at `ts < snapshot_bound` is at/before
-// this transaction's snapshot (NO_CHANGE), one at/after it belongs to another transaction
-// (ANOTHER_TX). The ANOTHER_TX comparisons are `>= snapshot_bound` (not `>`) so that the inclusive
-// ON boundary is exact: with snapshot_bound == snapshot_ts + 1, a delta committed at exactly
-// snapshot_ts + 1 is correctly ANOTHER_TX. OFF (snapshot_bound == start_timestamp) this is behaviour-
-// identical to the legacy `> start_timestamp`: no committed delta ever carries ts == start_timestamp
-// (a transaction's own start mint is never a commit timestamp), so `>=` and `>` never differ.
-// `commit_timestamp` is tested for equality against a delta's own timestamp, so it must come from
-// the same sequence the delta carries: the local commit stamp. A durable timestamp is the main's on
-// a replica, and passing one here leaves a transaction unable to recognise its own writes.
+// `>= snapshot_bound` (not legacy `>`) is exact: ON bound == snapshot_ts + 1, so ts == bound is ANOTHER_TX; OFF bound
+// == start_timestamp, which never equals a commit ts. `commit_timestamp` is tested for equality against a delta's own
+// timestamp, so it must come from the same sequence the delta carries: the local commit stamp. A durable timestamp is
+// the main's on a replica, and passing one here leaves a transaction unable to recognise its own writes.
 inline State GetState(const Delta *delta, uint64_t snapshot_bound, uint64_t commit_timestamp,
                       bool traverse_chain = false) {
   // This tx is running, so no deltas means there are no changes made after the tx started
@@ -149,8 +139,7 @@ inline State GetState(const Delta *delta, uint64_t snapshot_bound, uint64_t comm
   return State::NO_CHANGE;
 }
 
-// Keep v locked as we could return a reference to labels. `snapshot_bound` is the reconstructing
-// transaction's exclusive visibility boundary (Transaction::SchemaReconstructionBound).
+// Keep v locked as we could return a reference to labels.
 inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t snapshot_bound, auto &cache) {
   // Check if already cached
   auto v_cached = cache.find(v);
@@ -223,8 +212,6 @@ struct Properties {
   bool needs_pp{false};
 };
 
-// `snapshot_bound` is the reconstructing transaction's exclusive visibility boundary
-// (Transaction::SchemaReconstructionBound).
 inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edge *edge, uint64_t snapshot_bound) {
   auto edge_props = edge->properties.ExtendedPropertyTypes();
   // Apply deltas
