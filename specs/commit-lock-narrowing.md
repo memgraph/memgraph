@@ -101,10 +101,10 @@ Enabling the flag is a deliberate trade, honest about the following:
 
 - **Experimental.** The flag is off by default and intended for evaluation, not yet for
   production reliance.
-- **Replicated clusters are not yet cleared for flag-on.** The single-instance and
-  main-side behavior is implemented and tested; enabling the flag on a **replicated
-  cluster** (particularly STRICT_SYNC 2PC) still needs end-to-end validation before it
-  should be turned on there.
+- **Replication.** SYNC and ASYNC replicas behave the same with the flag on or off. For
+  STRICT_SYNC (2PC), a commit becomes visible on MAIN only after replicas have finalized
+  it, the same as with the flag off, so no reader on MAIN sees a commit that a failover
+  could lose.
 - **Performance benefit is not yet quantified end-to-end.** The mechanism removes the
   read-blocking; the actual throughput improvement under slow-SYNC-commit workloads still
   needs a multi-machine A/B measurement to put numbers on it.
