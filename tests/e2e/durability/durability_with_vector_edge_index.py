@@ -450,6 +450,63 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
             [],
         ),
         (
+            "member_set_to_empty_list_snapshot",
+            [
+                EDGE_INDEX.format(name="idx", types=":REL"),
+                "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
+                "MATCH ()-[r:REL]->() SET r.emb = [];",
+            ],
+            [],
+            {"idx": 0},
+            [],
+        ),
+        (
+            "rollback_overwrite_of_empty_list",
+            [
+                EDGE_INDEX.format(name="idx", types=":REL"),
+                "CREATE ()-[:REL {emb: []}]->();",
+                "BEGIN;",
+                "MATCH ()-[r:REL]->() SET r.emb = [1.0, 2.0];",
+                "ROLLBACK;",
+            ],
+            None,
+            {"idx": 0},
+            [],
+        ),
+        (
+            "index_created_over_empty_list",
+            [
+                "CREATE ()-[:REL {emb: []}]->();",
+                EDGE_INDEX.format(name="idx", types=":REL"),
+            ],
+            None,
+            {"idx": 0},
+            [],
+        ),
+        (
+            "index_created_over_empty_list_then_dropped",
+            [
+                "CREATE ()-[:REL {emb: []}]->();",
+                EDGE_INDEX.format(name="idx", types=":REL"),
+                "DROP VECTOR INDEX idx;",
+            ],
+            None,
+            {},
+            [],
+        ),
+        (
+            "index_created_over_empty_list_then_dropped_snapshot",
+            [
+                "CREATE ()-[:REL {emb: []}]->();",
+                EDGE_INDEX.format(name="idx", types=":REL"),
+            ],
+            [
+                "DROP VECTOR INDEX idx;",
+            ],
+            {},
+            [],
+        ),
+        (
             "index_dropped_restores_plain_list",
             [
                 EDGE_INDEX.format(name="idx", types=":REL"),

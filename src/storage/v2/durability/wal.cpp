@@ -2096,7 +2096,8 @@ std::optional<RecoveryInfo> LoadWal(
         VectorEdgeIndexRecovery::UpdateOnIndexDrop(data.index_name,
                                                    indices_constraints->indices.vector_edge_indices,
                                                    indices_constraints->indices.edge_vectors,
-                                                   vertex_acc);
+                                                   vertex_acc,
+                                                   name_id_mapper);
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {

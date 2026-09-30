@@ -95,6 +95,8 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   auto &spec = item_ptr->spec;
   auto property = edge->properties.GetProperty(spec.property);
   if (property.IsNull()) return;
+  // An empty plain list has nothing to index and stays a plain list; never promote it to a tag.
+  if (!property.IsVectorIndexId() && property.IsAnyList() && property.ListSize() == 0) return;
   // an edge already indexed by another vector-edge index stores no inline vector; recover it from that
   // index's uSearch so RegisterIndexId re-registers the real vector — else this second index gets nothing
   if (property.IsVectorIndexId()) {
@@ -191,7 +193,7 @@ void VectorEdgeIndex::RecoverAllVectorEdgeIndices(std::vector<VectorEdgeIndexRec
         } else {
           auto maybe_vec = TryListToVector(stored_value);
           if (!maybe_vec) continue;
-          vec = *maybe_vec;
+          vec = std::move(*maybe_vec);
         }
         // A plain [] is a legitimate value with nothing to index; it stays a plain list and is never
         // promoted to a tag (a tag with no usearch entry would read as lost on the next recovery).
@@ -200,16 +202,16 @@ void VectorEdgeIndex::RecoverAllVectorEdgeIndices(std::vector<VectorEdgeIndexRec
         utils::small_vector<uint64_t> member_ids;
         for (auto &[index_id, item_ptr] : item_list) {
           if (!item_ptr->spec.edge_type_filter.Matches(endpoints.edge_type)) continue;
-          // The usearch mutex inside UpdateVectorIndex is released before edge_endpoints_mutex_ is taken.
           UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, edge, vec, thread_id);
-          {
-            auto lock = std::unique_lock{edge_endpoints_mutex_};
-            edge_endpoints_[edge] = endpoints;
-          }
           member_ids.push_back(index_id);
         }
 
         if (!member_ids.empty()) {
+          // Every usearch mutex is released by now, so taking edge_endpoints_mutex_ here keeps the lock order.
+          {
+            auto lock = std::unique_lock{edge_endpoints_mutex_};
+            edge_endpoints_[edge] = endpoints;
+          }
           const bool already_correct =
               stored_as_tag && std::ranges::is_permutation(stored_value.ValueVectorIndexIds(), member_ids);
           if (!already_correct) {
@@ -246,7 +248,11 @@ void VectorEdgeIndex::RecoverAllVectorEdgeIndices(std::vector<VectorEdgeIndexRec
     edge_vectors.clear();
   } catch (const std::exception &) {
     for (auto &ri : recovery_infos) {
-      DropIndex(ri.spec.index_name, name_id_mapper);
+      try {
+        DropIndex(ri.spec.index_name, name_id_mapper);
+      } catch (const std::exception &e) {
+        spdlog::warn("Failed to drop vector edge index '{}' after recovery failure: {}", ri.spec.index_name, e.what());
+      }
     }
     throw;
   }
@@ -489,7 +495,7 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
               EdgeEndpoints{.from_vertex = info.from_vertex, .to_vertex = info.to_vertex, .edge_type = info.edge_type};
         }
       } else {
-        DMG_ASSERT(old_value.IsNull(), "Unexpected property value type in abort processor of vector edge index");
+        // Any non-tag before-image (null or a plain list such as []) means the edge was not indexed.
         const auto indices_by_prop = GetIndicesByProperty(property);
         for (const auto &[idx_id, filter] : indices_by_prop) {
           if (!filter->Matches(info.edge_type)) continue;
@@ -684,7 +690,8 @@ void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, Prope
 void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name_view,
                                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
                                                 EdgeVectors &edge_vectors,
-                                                utils::SkipListDb<Vertex>::Accessor &vertices) {
+                                                utils::SkipListDb<Vertex>::Accessor &vertices,
+                                                NameIdMapper *name_id_mapper) {
   // The view may alias the spec erased below; keep an owning copy for everything after the erase.
   const std::string index_name{index_name_view};
   auto it = r::find_if(recovery_info_vec, [&](const auto &ri) { return ri.spec.index_name == index_name; });
@@ -703,8 +710,10 @@ void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name_view
   // A tag on this property is an artifact of the dropped index; demote to a plain list
   // (or null if no vector is available).
   for (auto &vertex : vertices) {
+    if (vertex.deleted()) continue;
     for (auto &edge_tuple : vertex.out_edges) {
       auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
+      if (edge->deleted()) continue;
       auto stored = edge->properties.GetProperty(property);
       if (!stored.IsVectorIndexId()) continue;
 
@@ -720,7 +729,7 @@ void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name_view
           "Recovery: edge {} property {} carries a VectorIndexId tag for dropped index '{}' "
           "but has no vector entry — data was lost before this drop; setting to null.",
           edge->gid.AsUint(),
-          property.AsUint(),
+          name_id_mapper->IdToName(property.AsUint()),
           index_name);
       edge->properties.SetProperty(property, PropertyValue());
     }

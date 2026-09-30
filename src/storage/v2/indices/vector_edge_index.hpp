@@ -84,7 +84,7 @@ struct VectorEdgeIndexRecovery {
   /// edges to restore stored tags to plain lists, then drops the map entry.
   static void UpdateOnIndexDrop(std::string_view index_name,
                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec, EdgeVectors &edge_vectors,
-                                utils::SkipListDb<Vertex>::Accessor &vertices);
+                                utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper);
 };
 
 /// Abstract interface for vector edge index metadata queries accessed through ActiveIndices snapshots.
