@@ -36,7 +36,7 @@ endif()
 
 # Stops Python modules being installed automatically by pip: this is because
 # some of them are statically linked to OpenSSL - we want them to link to
-# out custom FIPS-compliant OpenSSL at runtime.
+# our custom FIPS-compliant OpenSSL at runtime.
 if(MG_FIPS)
     set(CPACK_MG_FIPS "ON")
 else()

@@ -55,6 +55,19 @@ done
 
 mkdir -p "$DEST_DIR"
 
+# A version bump leaves the previous wheel behind, and the docker stage installs
+# /tmp/fips-wheels/*.whl: two versions of one project there is a
+# ResolutionImpossible, not a last-one-wins, so the image build fails.
+for spec in "${SPECS[@]}"; do
+    name="${spec%%==*}"
+    for whl in "$DEST_DIR/${name}-"*.whl; do
+        [[ -e "$whl" ]] || continue
+        [[ "$(basename "$whl")" == "${name}-${spec##*==}-"* ]] && continue
+        echo "Removing stale $(basename "$whl")"
+        rm -f "$whl"
+    done
+done
+
 # Wheel filenames carry the version, so presence is a glob and no manifest or
 # date-stamped prefix is needed: a version bump simply does not match.
 missing() {

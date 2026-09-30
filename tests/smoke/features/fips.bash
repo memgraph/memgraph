@@ -115,7 +115,7 @@ test_fips_non_approved_algorithms_unavailable() {
 
 # This checks that we haven't accidentally included any binaries with OpenSSL
 # statically linked in the image. Python packages that use OpenSSL will often
-# do just this, so this test will fail if out custom packages are replaced
+# do just this, so this test will fail if our custom packages are replaced
 # with those usually provided by pip.
 test_fips_no_bundled_openssl() {
   echo "FEATURE: FIPS - no second OpenSSL in the image"
@@ -127,7 +127,7 @@ test_fips_no_bundled_openssl() {
   candidates="$($MEMGRAPH_EXEC bash -c '
     find / -xdev -type f \( -name "*.so" -o -name "*.so.*" -o -path "/usr/lib/memgraph/*" \) 2>/dev/null |
     while read -r f; do
-      grep -aqE "OpenSSL [0-9]+\.[0-9]+\.[0-9]+" "$f" 2>/dev/null && echo "$f"
+      grep -aqE "OpenSSL [0-9]+\.[0-9]+\.[0-9]+|EVP_DigestInit|OPENSSL_init_crypto" "$f" 2>/dev/null && echo "$f"
     done
     exit 0' 2>/dev/null)"
 
@@ -157,6 +157,28 @@ test_fips_no_bundled_openssl() {
     return 1
   fi
   echo "  every OpenSSL user in the image links the validated libcrypto"
+}
+
+# Check that the hashlib gate is working correctly
+test_fips_hashlib_gate() {
+  echo "FEATURE: FIPS - hashlib gate"
+  local out
+  out="$(run_python_in_container \
+    "$FIPS_SMOKE_DIR/scripts/fips_hashlib_gate.py" /tmp/fips_hashlib_gate.py 2>&1)" \
+    || { echo "FAIL: hashlib gate (auth-module interpreter)"; printf "%s\n" "$out"; return 1; }
+  printf "%s\n" "$out"
+
+  # The gate names itself when it gives up; either message means the embedded
+  # interpreter is running with hashlib unrestricted.
+  local stood_down
+  stood_down="$(docker logs "$MEMGRAPH_SMOKE_CONTAINER" 2>&1 \
+    | grep -E "memgraph_fips_hashlib: (could not restrict hashlib|OpenSSL reports approved mode)" || true)"
+  if [ -n "$stood_down" ]; then
+    echo "FAIL: the gate stood down in the embedded interpreter:"
+    printf "%s\n" "$stood_down" | sed "s/^/      /"
+    return 1
+  fi
+  echo "  embedded interpreter: no stand-down reported at startup"
 }
 
 # Test that the auth modules for SAML and OIDC work correctly in FIPS mode

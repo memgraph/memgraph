@@ -177,7 +177,7 @@ USER memgraph
 # python-fips: site-packages for the FIPS image.
 #
 # The main difference to `python-base` is that we install custom-built packages
-# which link dyunamically to OpenSSl, rather than statically.
+# which link dynamically to OpenSSl, rather than statically.
 #
 ###############################################################################
 FROM ubuntu:24.04 AS python-fips

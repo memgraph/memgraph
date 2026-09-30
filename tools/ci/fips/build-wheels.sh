@@ -158,10 +158,14 @@ done
 # from the index.
 "$WORK/env/bin/pip" install --quiet --no-index --no-deps "$OUTPUT_DIR"/*.whl
 "$WORK/env/bin/pip" install --quiet cffi decorator >/dev/null 2>&1 || true
-if reported="$("$WORK/env/bin/python" -c 'from cryptography.hazmat.backends.openssl.backend import backend; print(backend.openssl_version_text())' 2>/dev/null)"; then
-    [[ "$(echo "$reported" | awk '{print $2}')" = "$SYS_SSL" ]] \
-        && echo "ok   cryptography uses the system OpenSSL $SYS_SSL" \
-        || { echo "FAIL cryptography reports '$reported', system is $SYS_SSL"; rc=1; }
+if ls "$OUTPUT_DIR"/cryptography-*.whl >/dev/null 2>&1; then
+    if reported="$("$WORK/env/bin/python" -c 'from cryptography.hazmat.backends.openssl.backend import backend; print(backend.openssl_version_text())' 2>&1)"; then
+        [[ "$(echo "$reported" | awk '{print $2}')" = "$SYS_SSL" ]] \
+            && echo "ok   cryptography uses the system OpenSSL $SYS_SSL" \
+            || { echo "FAIL cryptography reports '$reported', system is $SYS_SSL"; rc=1; }
+    else
+        echo "FAIL import cryptography: $(echo "$reported" | tail -1)"; rc=1
+    fi
 fi
 # xmlsec raises "lxml & xmlsec libxml2 library version mismatch" from its module
 # init, so importing it is the whole lxml pairing test.

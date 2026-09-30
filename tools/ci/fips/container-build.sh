@@ -33,8 +33,8 @@ REMOTE_DIR="/tmp/fips-wheels-build"
 docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -qx true \
     || { echo "Container '$CONTAINER_NAME' is not running" >&2; exit 1; }
 
-docker exec -u mg "$CONTAINER_NAME" rm -rf "$REMOTE_DIR"
-docker exec -u mg "$CONTAINER_NAME" mkdir -p "$REMOTE_DIR"
+docker exec -u "$CONTAINER_USER" "$CONTAINER_NAME" rm -rf "$REMOTE_DIR"
+docker exec -u "$CONTAINER_USER" "$CONTAINER_NAME" mkdir -p "$REMOTE_DIR"
 docker cp "$SCRIPT_DIR/build-wheels.sh" "$CONTAINER_NAME:$REMOTE_DIR/build-wheels.sh"
 docker exec -u root "$CONTAINER_NAME" chmod +x "$REMOTE_DIR/build-wheels.sh"
 [[ "$CONTAINER_USER" = "root" ]] \
