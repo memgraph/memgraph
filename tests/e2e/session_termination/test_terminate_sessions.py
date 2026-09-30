@@ -27,6 +27,7 @@ from common import (
     wait_until,
     wait_until_terminated,
 )
+from neo4j import GraphDatabase
 
 # Tests
 # -------------------------
@@ -317,6 +318,54 @@ def test_idle_session_on_force_dropped_database_is_closed(request):
     with pytest.raises(mgclient.Error):
         execute_and_fetch_all(victim, "RETURN 1")
     assert_connection_alive(bystander)
+
+
+def test_active_session_reconnects_after_force_drop_and_recreate(request):
+    """A session that names its database in the Bolt metadata and runs a query after DROP DATABASE ... FORCE
+    releases the database itself, so the drain hook never sees it. Its connection must still be closed, or the
+    identical metadata keeps it on "Database required" even after the database is recreated.
+    """
+    admin = connect().cursor()
+    execute_and_fetch_all(admin, "CREATE DATABASE active_drop_db")
+
+    driver = GraphDatabase.driver(
+        "bolt://localhost:7687",
+        auth=None,
+        encrypted=False,
+        max_connection_pool_size=1,
+    )
+
+    def on_exit():
+        driver.close()
+        with suppress(mgclient.Error):
+            execute_and_fetch_all(admin, "DROP DATABASE active_drop_db FORCE")
+
+    request.addfinalizer(on_exit)
+
+    with driver.session(database="active_drop_db") as victim_session:
+        victim_session.run("RETURN 1").consume()
+
+        execute_and_fetch_all(admin, "DROP DATABASE active_drop_db FORCE")
+
+        # Releases the database; the reply may be an error, and the connection is closed after it.
+        with suppress(Exception):
+            victim_session.run("RETURN 1").consume()
+
+    def drained() -> bool:
+        return not any(row[0].startswith("active_drop_db") for row in execute_and_fetch_all(admin, "SHOW DATABASES"))
+
+    wait_until(drained, timeout=30.0, interval=0.5, message="the active session kept the dropped database pinned")
+
+    execute_and_fetch_all(admin, "CREATE DATABASE active_drop_db")
+
+    # The pooled connection was closed by the server; the driver may surface that once before reconnecting.
+    with driver.session(database="active_drop_db") as victim_session:
+        try:
+            row = victim_session.run("SHOW DATABASE").single()
+        except Exception:
+            row = victim_session.run("SHOW DATABASE").single()
+        assert row is not None, "SHOW DATABASE returned no rows after reconnect"
+        assert row[0] == "active_drop_db", f"expected current database 'active_drop_db' after reconnect, got {row[0]!r}"
 
 
 def _drop_force_abort_supported() -> bool:
