@@ -357,6 +357,31 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   return has_label;
 }
 
+Result<bool> VertexAccessor::HasAnyLabel(View view) const {
+  bool deleted = false;
+  bool has_any_label = false;
+  Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
+  {
+    auto const guard = read_lock.AcquireLock();
+    deleted = vertex_->deleted();
+    has_any_label = !vertex_->labels.empty();
+    delta = vertex_->delta();
+  }
+
+  // A delta adds or removes one named label, so which labels survive it decides whether any does: there is no
+  // answer short of the set itself. With no delta to apply, the vertex's own labels already answer, and
+  // emptiness is all that was asked, so the set need not be built.
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    auto labels = Labels(view);
+    if (!labels) return std::unexpected{labels.error()};
+    return !labels->empty();
+  }
+
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  return has_any_label;
+}
+
 Result<VertexKey> VertexAccessor::Labels(View view) const {
   bool exists = true;
   bool deleted = false;

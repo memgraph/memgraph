@@ -1032,6 +1032,65 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
   }
 }
 
+// Whether a vertex carries any label is what the `%` label wildcard asks. It answers for the label set of the
+// view it is given, so an uncommitted change is visible under NEW and not under OLD.
+TYPED_TEST(StorageV2Test, VertexHasAnyLabel) {
+  memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+
+  // Whatever the answer, it is the one the label set gives: the two must not drift apart.
+  auto agrees_with_the_label_set = [](const auto &vertex, memgraph::storage::View view) {
+    auto any = vertex.HasAnyLabel(view);
+    auto labels = vertex.Labels(view);
+    ASSERT_EQ(any.has_value(), labels.has_value());
+    if (any.has_value()) EXPECT_EQ(*any, !labels->empty());
+  };
+
+  {
+    auto acc = this->store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+
+    EXPECT_FALSE(vertex.HasAnyLabel(memgraph::storage::View::NEW).value());
+    agrees_with_the_label_set(vertex, memgraph::storage::View::NEW);
+
+    ASSERT_TRUE(vertex.AddLabel(acc->NameToLabel("label5")).has_value());
+
+    EXPECT_TRUE(vertex.HasAnyLabel(memgraph::storage::View::NEW).value());
+    agrees_with_the_label_set(vertex, memgraph::storage::View::NEW);
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  {
+    auto acc = this->store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::OLD).value());
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::NEW).value());
+
+    // Dropping the only label empties the set under NEW, while OLD still reads the committed one.
+    ASSERT_TRUE(vertex->RemoveLabel(acc->NameToLabel("label5")).has_value());
+
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::OLD).value());
+    EXPECT_FALSE(vertex->HasAnyLabel(memgraph::storage::View::NEW).value());
+    agrees_with_the_label_set(*vertex, memgraph::storage::View::OLD);
+    agrees_with_the_label_set(*vertex, memgraph::storage::View::NEW);
+
+    acc->Abort();
+  }
+  {
+    // The abort put the label back, so the committed answer is the one that stands.
+    auto acc = this->store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::OLD).value());
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::NEW).value());
+
+    acc->Abort();
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(StorageV2Test, VertexLabelAbort) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());

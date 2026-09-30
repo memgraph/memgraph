@@ -1288,10 +1288,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   /// Whether the vertex carries any label, which is what `%` asks. The same MERGE hack applies.
   bool HasAnyLabel(const VertexAccessor &vertex) const {
-    auto result = vertex.Labels(view_);
-    if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) result = vertex.Labels(storage::View::NEW);
+    auto result = vertex.HasAnyLabel(view_);
+    if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) result = vertex.HasAnyLabel(storage::View::NEW);
     if (!result) ThrowLabelReadError(result.error());
-    return !result->empty();
+    return *result;
   }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }

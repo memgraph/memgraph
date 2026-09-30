@@ -44,6 +44,8 @@ class VertexAccessor final {
     return impl_.HasLabel(label, view);
   }
 
+  storage::Result<bool> HasAnyLabel(storage::View view) const { return impl_.HasAnyLabel(view); }
+
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
