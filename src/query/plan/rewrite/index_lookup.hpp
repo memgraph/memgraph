@@ -2081,6 +2081,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         metadata.is_or_label_filter = true;
         std::shared_ptr<LogicalOperator> disjunction = BalancedDisjunctionUnion(std::move(scans), node_symbol);
         // Apply runs the scans for each upstream row and resets the Distinct between rows.
+        // An upstream Once yields one row, so it needs no Apply; Union already hid its symbols.
         if (several_scans && upstream->GetTypeInfo() != Once::kType) {
           disjunction = std::make_shared<Apply>(upstream, std::move(disjunction), OnEmptyBranch::kDropRow);
         }
@@ -2125,8 +2126,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `max_vertex_count` controls, whether no operator should be created if the
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `input` is not chained.
-  // In case of a "or" expression on labels the Distinct operator will be returned with the
-  // Union operator as input. Union will have as input the ScanAll operator.
+  // In case of a "or" expression on labels the result is a Distinct over a Union of one scan
+  // per label, each on its own Once. Unless `input` is a Once, an Apply runs that for each input row.
   // TODO: Add new operator instead of Distinct + Union
   struct GenScanResult {
     std::shared_ptr<LogicalOperator> op;

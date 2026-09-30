@@ -407,6 +407,7 @@ Feature: Indices
             | CREATE INDEX ON :A(p) | CREATE INDEX ON :B(p) | UNWIND [1, 2] AS x MATCH (n:A\|B) WHERE n.p >= x WITH x, count(*) AS c ORDER BY x RETURN collect([x, c]) AS r | [[1, 4], [2, 2]] |
             | CREATE INDEX ON :A(p) | CREATE INDEX ON :B(p) | UNWIND [1, 2] AS x MATCH (n:A\|B) WHERE n.p IN [1, 2, 3] WITH x, count(*) AS c ORDER BY x RETURN collect([x, c]) AS r | [[1, 4], [2, 4]] |
             | CREATE INDEX ON :A(p) | CREATE INDEX ON :B(p) | MATCH (n:A\|B) WHERE n.p IN [1, 2, 3] RETURN count(*) AS r                                          | 4                |
+            | CREATE INDEX ON :A   | CREATE INDEX ON :B   | MATCH (z:Z) WITH z, COUNT { MATCH (z)-->(k), (n:A\|B) } AS c RETURN collect(c) AS r               | [8, 8]           |
 
     Scenario: A write before an indexed label disjunction runs once
         Given an empty graph
@@ -429,3 +430,38 @@ Feature: Indices
         Then the result should be:
             | c | ws |
             | 4 | 1  |
+
+    Scenario Outline: An indexed label disjunction that seeks on a variable-length edge list keeps the rows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :A
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :B
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :A(p)
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :B(p)
+            """
+        And having executed:
+            """
+            CREATE (:Z)-[:R]->(:A {p: 1})-[:R]->(:A {p: 2})-[:R]->(:A {p: 3})-[:R]->(:B {p: 3}), (:B {p: 1}), (:A:B {p: 2})
+            """
+        When executing query:
+            """
+            <query>
+            """
+        Then the result should be:
+            | r |
+            | 6 |
+
+        Examples:
+            | query                                                                                                        |
+            | MATCH (a:Z)-[r*1..3]->(b) UNWIND [1] AS x MATCH (n:A\|B) WHERE n.p = size(r) RETURN count(DISTINCT n) AS r   |
+            | MATCH (a:Z)-[r*1..3]->(b) OPTIONAL MATCH (n:A\|B) WHERE n.p = size(r) RETURN count(DISTINCT n) AS r          |

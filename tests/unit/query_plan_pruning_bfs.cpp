@@ -137,6 +137,31 @@ TEST_F(PruningBFSRewriteTest, RewritesBelowAReadProcedure) {
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
 }
 
+// === A Union branch under an Apply runs on the expansion's row ===
+
+TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAUnionBranchUnderAnApplyReadsTheEdges) {
+  auto const type = RewrittenType([this](auto input) {
+    auto *reads_edges = storage.Create<Identifier>("edges")->MapTo(edge_sym);
+    auto left = std::make_shared<Filter>(
+        std::make_shared<Once>(), std::vector<std::shared_ptr<LogicalOperator>>{}, reads_edges);
+    auto branches = std::make_shared<Union>(
+        left, std::make_shared<Once>(), std::vector<Symbol>{}, std::vector<Symbol>{}, std::vector<Symbol>{});
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<Apply>(input, branches, OnEmptyBranch::kDropRow));
+  });
+  EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
+}
+
+TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAUnionBranchUnderAnApplyIsNotAnalysed) {
+  // A scan is not analysed, so the symbols its seek reads are unknown.
+  auto const type = RewrittenType([this](auto input) {
+    auto left = std::make_shared<ScanAll>(std::make_shared<Once>(), inner_node_sym);
+    auto branches = std::make_shared<Union>(
+        left, std::make_shared<Once>(), std::vector<Symbol>{}, std::vector<Symbol>{}, std::vector<Symbol>{});
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<Apply>(input, branches, OnEmptyBranch::kDropRow));
+  });
+  EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
+}
+
 // === The bound belongs to the cursor, not the plan ===
 
 TEST_F(PruningBFSRewriteTest, MarksAnExpansionWhoseBoundOnlyTheParametersSettle) {
